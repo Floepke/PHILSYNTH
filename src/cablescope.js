@@ -7,7 +7,7 @@ import { samplePoints } from './cable.js';
 const SVGNS = 'http://www.w3.org/2000/svg';
 export const RING = 1024; // points kept per node (the graph sends SCOPE_QUIET zeros after the sound stops)
 export const STEP = 3; // world px between two points on a cable
-export const AMP = 8; // max displacement in world px
+export const AMP = 16; // max displacement in world px
 const EDGE = 10; // points over which the wave fades in/out at the ports
 
 // Displacement for value v at point i of n: soft-clipped and pinned to zero at both ports.
