@@ -29,6 +29,7 @@ export const SPECS = {
   bus: { kind: 5, params: [], passive: true },
   amp: { kind: 6, params: ['amp', 'inverse', 'pan'], passive: true },
   out: { kind: 7, params: ['volume', 'bpm'], passive: true },
+  dcblock: { kind: 8, params: [], passive: true },
 };
 
 const NOTE = { noteOn: 0, noteMod: 1, noteOff: 2, allOff: 3 };

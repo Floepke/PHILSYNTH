@@ -17,7 +17,7 @@ assert.deepEqual(WebAssembly.Module.imports(new WebAssembly.Module(bytes)), [], 
 // ---- the controller lists match the module definitions ----
 for (const [kind, spec] of Object.entries(SPECS)) {
   if (kind === 'bus') continue; // no module of its own
-  const def = getModule(kind.toUpperCase());
+  const def = getModule({ dcblock: 'DC BLOCKER' }[kind] ?? kind.toUpperCase());
   assert.ok(def, kind);
   assert.deepEqual([...spec.params].sort(), def.params.map((p) => p.id).sort(), `${kind}: every controller is mapped`);
 }
@@ -168,6 +168,8 @@ compare('amp', {
 });
 compare('out', { input: signal, blocks: 30, script: [[0, param('volume', 0.5)], [10, param('volume', 0.9)], [20, param('bpm', 140)]] });
 compare('out', { input: signal, blocks: 10 }); // no volume message yet: starts at the target
+compare('dcblock', { input: (b, i, ch) => signal(b, i, ch) + 0.3, blocks: 60, tol: 1e-6 });
+compare('dcblock', { blocks: 2 });
 
 // FILTER random LFO shapes use a different random source: only check they stay sane
 {

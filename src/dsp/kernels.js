@@ -5,6 +5,7 @@ import OscKernel from '../modules/osc.dsp.js';
 import FilterKernel from '../modules/filter.dsp.js';
 import ReverbKernel from '../modules/reverb.dsp.js';
 import AmpKernel from '../modules/amp.dsp.js';
+import DcBlockKernel from '../modules/dcblock.dsp.js';
 import WaveshaperKernel from '../modules/waveshaper.dsp.js';
 import OutKernel from '../modules/out.dsp.js';
 import LfoKernel from '../modules/lfo.dsp.js';
@@ -18,6 +19,7 @@ export const KERNELS = {
   filter: FilterKernel,
   reverb: ReverbKernel,
   amp: AmpKernel,
+  dcblock: DcBlockKernel,
   waveshaper: WaveshaperKernel,
   out: OutKernel,
   lfo: LfoKernel,

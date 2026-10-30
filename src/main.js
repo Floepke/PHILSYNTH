@@ -202,7 +202,7 @@ const listItems = modules.map((m) => {
   const li = document.createElement('div');
   li.className = 'listbox-item';
   li.setAttribute('role', 'option');
-  li.id = `module-option-${m.type}`;
+  li.id = `module-option-${m.type.replace(/\s+/g, '-')}`;
   li.dataset.type = m.type;
   li.style.setProperty('--c', m.color);
   li.innerHTML = '<span class="swatch"></span><b></b><span class="desc"></span>';

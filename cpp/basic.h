@@ -1,6 +1,6 @@
 // The small audio kernels, so a graph can run entirely in C++ (engine.cpp ms_run): the signal bus
 // (src/dsp/kernel.js BusKernel), AMP (src/modules/amp.dsp.js) and the Output module
-// (src/modules/out.dsp.js). Twins of the JS kernels.
+// (src/modules/out.dsp.js) and the DC BLOCKER (src/modules/dcblock.dsp.js). Twins of the JS kernels.
 #pragma once
 #include "kernel.h"
 
@@ -87,6 +87,36 @@ struct Out : Kernel {
     }
     g = fabs(gg - t) < 1e-6 ? t : gg;
     hasG = true;
+    return 1;
+  }
+};
+
+// one-pole high-pass y = x - x1 + r * y1, ~10 Hz corner
+struct DcBlock : Kernel {
+  enum { PARAMS };
+  static constexpr double CUTOFF_HZ = 10;
+  double r, x1[2] = {0, 0}, y1[2] = {0, 0};
+
+  explicit DcBlock(double sampleRate) : Kernel(sampleRate) { r = exp(-2 * PI * CUTOFF_HZ / sr); }
+
+  int process(const float* inL, const float* inR, float* outL, float* outR, int n) override {
+    if (!inL) return 0;
+    const float* src[2] = {inL, inR ? inR : inL};
+    float* dst[2] = {outL, outR};
+    const int chans = outR != outL ? 2 : 1;
+    for (int c = 0; c < chans; c++) {
+      const float* s = src[c];
+      float* d = dst[c];
+      double x1c = x1[c], y1c = y1[c];
+      for (int i = 0; i < n; i++) {
+        const double x = s[i];
+        y1c = x - x1c + r * y1c;
+        x1c = x;
+        d[i] = (float)y1c;
+      }
+      x1[c] = x1c;
+      y1[c] = fabs(y1c) < 1e-20 ? 0 : y1c;
+    }
     return 1;
   }
 };

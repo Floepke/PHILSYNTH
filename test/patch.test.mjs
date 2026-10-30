@@ -151,6 +151,42 @@ assert.equal((await c2.inst.patch.addModule('OSC')).id, 1, 'numbering is per pat
   r.destroy();
 }
 
+// ---- DC BLOCKER: no controllers, removes a DC offset, passes audio ----
+{
+  const r = await PatchRuntime.create(engine, dsp.destination);
+  const dc = await r.addModule('DC BLOCKER');
+  assert.equal(dc.def.params.length, 0, 'works out of the box: no controllers');
+  assert.ok(!r.modules.get(dc.id).def.acceptsMidi);
+  const k = kernel(dc.inst.node);
+  const run = (fn, blocks) => {
+    const out = [[new Float32Array(128), new Float32Array(128)]];
+    let last = null;
+    for (let b = 0; b < blocks; b++) {
+      const L = new Float32Array(128).map((_, i) => fn(b * 128 + i));
+      k.process([[L, L]], out);
+      last = out[0][0].slice();
+    }
+    return last;
+  };
+  const dcOut = run(() => 0.5, 375 * 2); // 2 s of constant 0.5
+  assert.ok(Math.max(...dcOut.map(Math.abs)) < 1e-4, 'a constant offset decays to zero');
+  const tone = run((n) => 0.5 + 0.4 * Math.sin((2 * Math.PI * 440 * n) / 48000), 375 * 2);
+  const hi = Math.max(...tone);
+  const lo = Math.min(...tone);
+  assert.ok(Math.abs(hi - 0.4) < 0.01 && Math.abs(lo + 0.4) < 0.01, `440 Hz passes, centred on zero (${lo}..${hi})`);
+  const osc = await r.addModule('OSC');
+  assert.ok(r.connect(osc.id, dc.id) && r.connect(dc.id, 0));
+  const g = graph.nodes.get(dc.inst.node.h);
+  render(4);
+  assert.equal(g.silent, true, 'nothing playing: skipped');
+  osc.inst.noteOn(1, 69, 1);
+  render(20);
+  assert.equal(g.silent, false, 'plays the OSC through');
+  assert.deepEqual(r.toJSON().modules.find((m) => m.id === dc.id).values, {}, 'nothing to save');
+  osc.inst.allOff();
+  r.destroy();
+}
+
 // ---- LFO modulation (applied by the engine graph on the audio thread) ----
 // Modulator kernels are stubbed to output a fixed value: set(lfo, x) renders one block with it.
 const hold = (e, x) => { const k = kernel(e.inst.node); k.process = () => false; k.value = x; };
