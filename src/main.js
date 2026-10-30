@@ -809,7 +809,7 @@ function select(s) {
   const entry = s.entry;
   panel.append(panelHeader(entry.def.label, `#${entry.id}`, entry.def));
   if (entry.def.type === 'VELOCITY2CTL') {
-    panel.append(hint('The velocity of the newest incoming note (and its velocity curve while it sounds) sets the controller: velocity 0 = <kbd>Out Min</kbd>, 127 = <kbd>Out Max</kbd>. The value is held until the next note.'));
+    panel.append(hint('The velocity of the newest incoming note (and its velocity curve while it sounds) sets the controller: velocity 0 = <kbd>Out Min</kbd>, 127 = <kbd>Out Max</kbd>. When the note ends, <kbd>Noteoff Action</kbd> holds the value (Do Nothing) or moves it to <kbd>Out Min</kbd> (Control Down) or <kbd>Out Max</kbd> (Control Up).'));
   }
   if (entry.def.type === 'OSC') {
     panel.append(hint('<b>Half sine:</b> one positive sine bow followed by zero. <b>Duty Cycle</b> sets the bow length: 100% fills the period, 25% fills its first quarter, and 0% is silent. <b>Noise</b> (white, pink, brown, blue, violet: dark to bright) ignores the note pitch; every note gets its own noise, shaped by the envelope and velocity.'));

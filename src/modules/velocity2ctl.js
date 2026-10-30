@@ -3,8 +3,10 @@
 // MULTIMIDI cabled into it (Shift+drag); never directly from the MIDI keyboard (liveMidi: false),
 // so selecting it keeps the keyboard playing the current synth.
 //   The newest note wins: its velocity (and its velocity curve while it sounds, via noteMod) sets
-//   the value. The value is held after the note ends, until the next note.
+//   the value. By default the value is held after the note ends, until the next note.
 //   Out Controller / Out Min / Out Max: see modtarget.js (velocity 0 -> Out Min, 127 -> Out Max).
+//   Noteoff Action: what happens when the newest note ends: hold the value (Do Nothing), go to
+//   Out Min (Control Down) or to Out Max (Control Up).
 // DSP: velocity2ctl.dsp.js (no audio; the engine graph maps the velocity onto the controllers).
 import { modulatorParams, outParams } from './modtarget.js';
 
@@ -17,7 +19,10 @@ export default {
   hasInput: false,
   hasOutput: true,
   modulator: true,
-  params: [...outParams()],
+  params: [
+    ...outParams(),
+    { id: 'noteOffAction', label: 'Noteoff Action', min: 0, max: 2, default: 0, step: 1, options: ['Do Nothing', 'Control Down', 'Control Up'] },
+  ],
   create(_ctx, def, host) {
     const node = host.dsp.create('velocity2ctl');
     const send = (m) => node.send(m);

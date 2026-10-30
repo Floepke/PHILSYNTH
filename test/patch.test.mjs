@@ -614,7 +614,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.ok(r.connect(mm.id, v2c.id), 'MULTIMIDI -> VELOCITY2CTL (MIDI cable)');
   assert.ok(r.connect(v2c.id, osc.id), 'VELOCITY2CTL -> OSC (control cable)');
   assert.equal(r.connect(osc.id, v2c.id), false, 'no audio input');
-  assert.deepEqual(v2c.def.params.map((p) => p.id), ['outController', 'outMin', 'outMax']);
+  assert.deepEqual(v2c.def.params.map((p) => p.id), ['outController', 'outMin', 'outMax', 'noteOffAction']);
   assert.match(v2c.inst.params().find((p) => p.id === 'outController').format(7), /Duty/);
 
   r.setParam(v2c.id, 'outController', 7); // OSC duty 0..100
@@ -644,6 +644,39 @@ const set = (e, x) => { hold(e, x); render(1); };
   v2c.inst.noteOn(3, 60, 0);
   render(1);
   assert.equal(osc.mod.duty, 20, 'velocity 0 = Out Min');
+
+  // Noteoff Action: Control Down -> Out Min, Control Up -> Out Max when the newest note ends
+  const action = v2c.def.params.find((p) => p.id === 'noteOffAction');
+  assert.deepEqual(action.options, ['Do Nothing', 'Control Down', 'Control Up']);
+  assert.equal(action.default, 0);
+  r.setParam(v2c.id, 'noteOffAction', 2);
+  mm.inst.noteOn(4, 60, 0.5);
+  mm.inst.noteOn(5, 62, 0.75);
+  render(1);
+  assert.equal(osc.mod.duty, 50);
+  mm.inst.noteOff(4);
+  render(1);
+  assert.equal(osc.mod.duty, 50, 'an older note ending does nothing');
+  mm.inst.noteOff(5);
+  render(1);
+  assert.equal(osc.mod.duty, 60, 'Control Up = Out Max');
+  r.setParam(v2c.id, 'noteOffAction', 1);
+  mm.inst.noteOn(6, 60, 0.5);
+  render(1);
+  assert.equal(osc.mod.duty, 40);
+  mm.inst.noteOff(6);
+  render(1);
+  assert.equal(osc.mod.duty, 20, 'Control Down = Out Min');
+  v2c.inst.noteOn(7, 60, 0.5);
+  render(1);
+  v2c.inst.allOff();
+  render(1);
+  assert.equal(osc.mod.duty, 20, 'all notes off releases too');
+  r.setParam(v2c.id, 'noteOffAction', 0);
+  v2c.inst.noteOn(8, 60, 0.5);
+  v2c.inst.noteOff(8);
+  render(1);
+  assert.equal(osc.mod.duty, 40, 'Do Nothing holds the value');
   assert.equal(osc.values.duty, 50, 'saved value untouched');
   r.removeModule(v2c.id);
   assert.ok(!('duty' in osc.mod), 'deleting it releases the controller');
