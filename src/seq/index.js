@@ -266,7 +266,7 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
     if ((e.key === 's' || e.key === 'S') && !e.repeat && !e.defaultPrevented && !e.ctrlKey && !e.metaKey && !e.altKey
       && !e.target.closest?.('input, select, textarea, dialog, [contenteditable]:not([contenteditable="false"])')) {
       e.preventDefault();
-      $('seq-toggle').click();
+      toggleRoll();
       return;
     }
     if (![' ', '/', "'", '.', ','].includes(e.key) || e.repeat || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -303,9 +303,10 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
   }
 
   // ---- layout: controller panel, sequencer width and the roll / arranger split ----
-  const layout = { open: true, width: 0.5, split: 0.62, panelWidth: 280 };
+  // restoreWidth: where S brings the vertical divider back to after it hid the sequencer
+  const layout = { width: 0.5, split: 0.62, panelWidth: 280, restoreWidth: 0.5 };
   function applyLayout() {
-    document.body.classList.toggle('seq-open', layout.open);
+    document.body.classList.add('seq-open');
     document.body.classList.toggle('panel-collapsed', layout.panelWidth === 0);
     document.body.style.setProperty('--panel-width', `${layout.panelWidth}px`);
     document.body.style.setProperty('--seq-f', layout.width);
@@ -314,20 +315,24 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
     seq.classList.toggle('seq-collapsed', layout.width === 0);
     seq.classList.toggle('roll-collapsed', layout.split === 0);
     seq.classList.toggle('arranger-collapsed', layout.split === 1);
-    $('seq-toggle').classList.toggle('on', layout.open && layout.width > 0);
   }
-  $('seq-toggle').onclick = () => {
-    if (layout.width === 0) { layout.width = 0.5; layout.open = true; }
-    else layout.open = !layout.open;
+  // S: slide the vertical divider fully right (hides piano roll + TimeLine), S again: back to where it was
+  function toggleRoll() {
+    if (layout.width > 0) {
+      layout.restoreWidth = layout.width;
+      layout.width = 0;
+    } else {
+      layout.width = layout.restoreWidth > 0 ? layout.restoreWidth : 0.5;
+    }
     applyLayout();
     onChange();
-  };
+  }
   $('panel-split').addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
     const divider = e.currentTarget.getBoundingClientRect();
     const offset = e.clientX - divider.left;
-    const seqDivider = layout.open ? $('seq-split').getBoundingClientRect().width : 0;
+    const seqDivider = $('seq-split').getBoundingClientRect().width;
     const available = Math.max(0, window.innerWidth - divider.width - seqDivider);
     capture(e.currentTarget, e, (ev) => {
       layout.panelWidth = clamp(ev.clientX - offset, 0, available);
@@ -356,7 +361,10 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
       layout.width = dx && available > 0 ? clamp((window.innerWidth - (vertical.left + dx) - vertical.width) / available, 0, 1) : widthStart;
       layout.split = dy ? clamp((horizontal.top + dy - top) / verticalRoom, 0, 1) : splitStart;
       applyLayout();
-    }, () => onChange());
+    }, () => {
+      if (layout.width === 0 && widthStart > 0) layout.restoreWidth = widthStart; // dragged shut: S reopens it there
+      onChange();
+    });
   }
   $('seq-split').addEventListener('pointerdown', dragSeqSplits);
   $('seq-hsplit').addEventListener('pointerdown', dragSeqSplits);
@@ -374,8 +382,12 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
     viewState: () => ({ ...layout, roll: roll.getView(), lane: lane.getView(), arranger: arranger.getView() }),
     applyView(v) {
       if (v) {
-        if (typeof v.open === 'boolean') layout.open = v.open;
         if (Number.isFinite(v.width)) layout.width = clamp(v.width, 0, 1);
+        if (Number.isFinite(v.restoreWidth) && v.restoreWidth > 0) layout.restoreWidth = clamp(v.restoreWidth, 0, 1);
+        if (v.open === false && layout.width > 0) { // older projects: Sequencer button had hidden it
+          layout.restoreWidth = layout.width;
+          layout.width = 0;
+        }
         if (Number.isFinite(v.split)) layout.split = clamp(v.split, 0, 1);
         if (Number.isFinite(v.panelWidth)) layout.panelWidth = Math.max(0, v.panelWidth);
         roll.setView(v.roll);

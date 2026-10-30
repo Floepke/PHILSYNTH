@@ -10,6 +10,7 @@
 //                 visible: (values) => bool  hide the slider depending on other params
 //   color       type colour of the box, panel header and cables (darkish tone, optional)
 //   acceptsMidi true if the module receives note events when selected
+//   liveMidi    optional; false = notes only from clips / MIDI cables, never from the MIDI device
 //   midiOut     true for MIDI processors (MULTIMIDI): cables carry MODMIDI notes to MIDI modules
 //   hasInput / hasOutput  which cable ports the box shows
 //   modulator   true for control sources (LFO): cables drive a controller instead of carrying audio

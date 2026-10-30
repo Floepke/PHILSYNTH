@@ -1,6 +1,7 @@
 // VELOCITY2CTL: turns the velocity of incoming notes into a controller value of every module it
-// is cabled to (control cable, like the LFO / ADSR). Notes come in like on any synth: select it
-// and play, send a clip to it, or cable a MULTIMIDI into it (Shift+drag).
+// is cabled to (control cable, like the LFO / ADSR). Notes come from a clip sent to it or a
+// MULTIMIDI cabled into it (Shift+drag); never directly from the MIDI keyboard (liveMidi: false),
+// so selecting it keeps the keyboard playing the current synth.
 //   The newest note wins: its velocity (and its velocity curve while it sounds, via noteMod) sets
 //   the value. The value is held after the note ends, until the next note.
 //   Out Controller / Out Min / Out Max: see modtarget.js (velocity 0 -> Out Min, 127 -> Out Max).
@@ -12,6 +13,7 @@ export default {
   color: '#9a55a5',
   label: 'VELOCITY2CTL (velocity → controller)',
   acceptsMidi: true,
+  liveMidi: false, // not played by the MIDI device (selecting it does not take the keyboard)
   hasInput: false,
   hasOutput: true,
   modulator: true,

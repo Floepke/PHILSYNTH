@@ -98,4 +98,16 @@ assert.deepEqual(other, []);
 accessListeners.forEach((fn) => fn());
 ctl.emit(0x90, 60, 100);
 assert.equal(calls.splice(0).length, 1);
+ctl.emit(0x80, 60, 0);
+calls.splice(0);
+
+// modules with liveMidi: false (VELOCITY2CTL) never get notes from the MIDI device
+const vel = [];
+current = { def: { acceptsMidi: true, liveMidi: false }, inst: { noteOn: () => vel.push('on'), noteOff: () => vel.push('off') } };
+ctl2.emit(0x90, 61, 127);
+ctl2.emit(0x80, 61, 0);
+assert.deepEqual(vel, []);
+const { default: vel2ctl } = await import('../src/modules/velocity2ctl.js');
+assert.equal(vel2ctl.acceptsMidi, true, 'clips and MIDI cables still play it');
+assert.equal(vel2ctl.liveMidi, false);
 console.log('all midi tests passed');

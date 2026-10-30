@@ -490,7 +490,6 @@ body.seq-open {
 #seq, #seq-split { display: none; }
 body.seq-open #seq { display: grid; }
 body.seq-open #seq-split { display: block; }
-#seq-toggle.on { background: var(--surface-4); border-color: #4a4a52; }
 #seq {
   --clip-color: #8a8a92;
   grid-template-rows: auto minmax(0, var(--roll-fr, 0.62fr)) var(--seq-divider) minmax(0, var(--arr-fr, 0.38fr));

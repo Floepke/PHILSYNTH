@@ -17,7 +17,7 @@ export function initMidi({ getTarget, onStatus, onActivity }) {
   const noteOn = (key, velocity) => {
     noteOff(key); // the same key again without a note-off: release the old note first
     const t = getTarget();
-    if (!t?.def.acceptsMidi) return;
+    if (!t?.def.acceptsMidi || t.def.liveMidi === false) return;
     const id = newNoteId();
     playing.set(key, { id, inst: t.inst });
     t.inst.noteOn?.(id, key, velocity);

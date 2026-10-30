@@ -1019,7 +1019,7 @@ for (const { sx, kw, width } of [
   const elements = new Map();
   const inputIds = ['seq-name', 'seq-start', 'seq-length', 'seq-snap-div'];
   for (const id of ['seq', 'seq-bar', 'seq-bar-content', 'seq-play', 'seq-pos', 'seq-target', 'seq-snap-base', 'seq-ctl', 'seq-ctl-field', 'seq-target-field', ...inputIds,
-    'roll', 'arranger', 'seq-toggle', 'seq-split', 'seq-hsplit', 'panel', 'panel-split', 'status']) {
+    'roll', 'arranger', 'seq-split', 'seq-hsplit', 'panel', 'panel-split', 'status']) {
     elements.set(id, new Element(inputIds.includes(id) ? 'input' : id === 'seq-play' ? 'button' : 'div'));
   }
   document.getElementById = (id) => elements.get(id);
@@ -1138,8 +1138,30 @@ for (const { sx, kw, width } of [
   seq.applyView({ width: 0, split: 0 });
   assert.equal(seq.viewState().width, 0);
   assert.equal(seq.viewState().split, 0);
-  elements.get('seq-toggle').onclick();
-  assert.equal(seq.viewState().width, 0.5);
+  assert.ok(press('s').defaultPrevented);
+  assert.equal(seq.viewState().width, 0.5, 'S opens a collapsed sequencer at the default width');
+  // S hides the piano roll by moving the vertical divider fully right, S again restores its position
+  seq.applyView({ width: 0.37 });
+  press('S');
+  assert.equal(seq.viewState().width, 0);
+  assert.equal(seq.viewState().split, 0, 'the roll / TimeLine split is untouched');
+  press('s');
+  assert.equal(seq.viewState().width, 0.37);
+  for (const props of [{ repeat: true }, { ctrlKey: true }, { metaKey: true }, { altKey: true }]) {
+    assert.equal(press('s', props).defaultPrevented, false);
+    assert.equal(seq.viewState().width, 0.37);
+  }
+  assert.equal(press('s', {}, new Element('input')).defaultPrevented, false);
+  press('s');
+  const hidden = JSON.parse(JSON.stringify(seq.viewState()));
+  seq.applyView({ width: 0.8 });
+  seq.applyView(hidden);
+  press('s');
+  assert.equal(seq.viewState().width, 0.37, 'the restore position survives saving/restoring');
+  seq.applyView({ open: false, width: 0.42 }); // projects saved with the old Sequencer button hidden
+  assert.equal(seq.viewState().width, 0);
+  press('s');
+  assert.equal(seq.viewState().width, 0.42);
   seq.applyView({ width: 1, split: 1 });
   assert.equal(seq.viewState().width, 1);
   assert.equal(seq.viewState().split, 1);
@@ -1147,7 +1169,7 @@ for (const { sx, kw, width } of [
   const controller = elements.get('panel-split');
   controller.getBoundingClientRect = () => {
     const state = seq.viewState();
-    const left = Math.min(state.panelWidth, window.innerWidth - 24 - (state.open ? 24 : 0));
+    const left = Math.min(state.panelWidth, window.innerWidth - 48);
     return { left, right: left + 24, width: 24 };
   };
   const vertical = elements.get('seq-split');
@@ -1158,6 +1180,9 @@ for (const { sx, kw, width } of [
   horizontal.getBoundingClientRect = () => ({ top: 338, height: 24 });
   drag(vertical, 652, 200, 1000, 200);
   assert.equal(seq.viewState().width, 0);
+  press('s');
+  assert.equal(seq.viewState().width, 1, 'S reopens a dragged-shut sequencer where the drag started');
+  seq.applyView({ width: 0 });
   drag(vertical, 652, 200, 304, 200);
   assert.equal(seq.viewState().width, 1);
   drag(horizontal, 700, 350, 700, 100);
@@ -1225,12 +1250,11 @@ for (const { sx, kw, width } of [
   assert.equal(seq.viewState().panelWidth, 952, 'both divider handles remain on screen');
   drag(vertical, 988, 200, 988, 200);
   assert.equal(seq.viewState().width, 0.5, 'no division by zero when the panel fills all available space');
-  seq.applyView({ open: false, panelWidth: 280 });
+  seq.applyView({ width: 0, panelWidth: 280 });
   drag(controller, 292, 200, 1000, 200);
-  assert.equal(seq.viewState().panelWidth, 976, 'resizes with the sequencer hidden too');
+  assert.equal(seq.viewState().panelWidth, 952, 'resizes with the sequencer hidden too');
   seq.applyView(expanded);
   assert.equal(seq.viewState().panelWidth, 280, 'expanded width survives saving/restoring');
-  assert.equal(seq.viewState().open, true);
   for (const panelWidth of [NaN, Infinity, 'invalid']) {
     seq.applyView({ panelWidth });
     assert.equal(seq.viewState().panelWidth, 280);

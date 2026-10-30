@@ -38,6 +38,8 @@ const selectEntries = (entries) => select(entries.length > 1 ? { kind: 'group', 
 // MIDI goes to the last selected MIDI-capable module. Selecting an audio-only module (Filter, Output),
 // a cable or empty canvas never changes it. If that module is deleted, MIDI falls back to the
 // previously used MIDI module that still exists.
+// Modules with liveMidi: false (VELOCITY2CTL) only get notes from clips and MIDI cables.
+const takesLiveMidi = (def) => !!def?.acceptsMidi && def.liveMidi !== false;
 let midiHistory = []; // most recent last
 const midiTarget = () => {
   while (midiHistory.length && midiHistory.at(-1).dead) midiHistory.pop();
@@ -185,7 +187,7 @@ function applyView(view) {
     const levels = patchAt(view.midi.path);
     if (levels.length === view.midi.path.length + 1) {
       const e = levels.at(-1).patch.modules.get(view.midi.id);
-      if (e?.def.acceptsMidi) midiHistory.push(e);
+      if (takesLiveMidi(e?.def)) midiHistory.push(e);
     }
   }
   render();
@@ -722,7 +724,7 @@ function hint(html) {
 
 function select(s) {
   sel = s;
-  if (s?.kind === 'module' && s.entry.def.acceptsMidi) setMidiTarget(s.entry);
+  if (s?.kind === 'module' && takesLiveMidi(s.entry.def)) setMidiTarget(s.entry);
   const target = midiTarget();
   const chosen = new Set(selectedEntries().map((m) => m.el));
   document.querySelectorAll('.module:not(.ghost)').forEach((el) => {
@@ -760,7 +762,7 @@ function select(s) {
       hint('OSC / ADSR: with <b>Sustain</b> at 0, <b>Decay</b> and <b>Release</b> are linked: moving one moves the other.'),
       hint('<kbd>Middle mouse</kbd> + drag pans the canvas, <kbd>scroll</kbd> zooms. Click the zoom % (bottom right) to fit all modules.'),
       hint('Play with a MIDI controller or keys <kbd>A</kbd>–<kbd>;</kbd>.'),
-      hint('<b>Sequencer</b> (right, <kbd>S</kbd> shows / hides it): <kbd>Double-click</kbd> the TimeLine to add a clip, drag its edges to resize, <kbd>Alt</kbd> + drag to copy. In the piano roll click / drag to write notes (new notes get the last used length), drag a note body for its length, its circle for pitch and time; right click opens a menu (cut / copy / paste / delete / duplicate / quantize / octave). <kbd>Space</kbd> plays. <kbd>Double-click</kbd> the TimeLine ruler to insert a time signature change (right-click it to remove).'),
+      hint('<b>Sequencer</b> (right; <kbd>S</kbd> slides its divider away to hide it, <kbd>S</kbd> again brings it back): <kbd>Double-click</kbd> the TimeLine to add a clip, drag its edges to resize, <kbd>Alt</kbd> + drag to copy. In the piano roll click / drag to write notes (new notes get the last used length), drag a note body for its length, its circle for pitch and time; right click opens a menu (cut / copy / paste / delete / duplicate / quantize / octave). <kbd>Space</kbd> plays. <kbd>Double-click</kbd> the TimeLine ruler to insert a time signature change (right-click it to remove).'),
       hint('<b>Piano roll selection:</b> <kbd>Shift</kbd> + drag or <kbd>right</kbd> + drag draws a selection rectangle; clicking a note selects it, <kbd>Shift</kbd> + click toggles it. Dragging a selected note moves / resizes the whole selection. <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> duplicates the selection, <kbd>Q</kbd> quantizes note starts (selection, else all). <kbd>Ctrl/Cmd</kbd> + <kbd>A</kbd> selects all notes, <kbd>Esc</kbd> clears the selection, and <kbd>Backspace</kbd> / <kbd>Delete</kbd> deletes it. <kbd>Alt</kbd> + drag a note (body or circle) moves a clone.'),
       hint('<b>Arrow keys:</b> in the piano roll, <kbd>Left</kbd> / <kbd>Right</kbd> transpose selected notes by one semitone; <kbd>Up</kbd> / <kbd>Down</kbd> move them earlier/later by one snap step. With <kbd>Shift</kbd>: an octave / a bar. The selection moves together and stops at time zero or the MIDI pitch limits.'),
       hint('<b>Velocity:</b> the strip left of the piano roll shows every note\'s velocity (stick) and how it changes while the note sounds. Drag a note\'s dot to set its velocity (<kbd>Shift</kbd>-click adds it to the selection). The selected notes share one curve: <kbd>Double-click</kbd> inside them to add a point, drag points (time snaps, <kbd>Shift</kbd> = fine), the mouse wheel on a point rounds it, right click deletes it. One selected note edits its own curve.'),
@@ -812,8 +814,8 @@ function select(s) {
   if (entry.def.type === 'OSC') {
     panel.append(hint('<b>Half sine:</b> one positive sine bow followed by zero. <b>Duty Cycle</b> sets the bow length: 100% fills the period, 25% fills its first quarter, and 0% is silent. <b>Noise</b> (white, pink, brown, blue, violet: dark to bright) ignores the note pitch; every note gets its own noise, shaped by the envelope and velocity.'));
   }
-  if (!entry.def.acceptsMidi) {
-    const what = entry.def.modulator ? 'Modulator' : 'Audio only';
+  if (!takesLiveMidi(entry.def)) {
+    const what = entry.def.acceptsMidi ? 'Not played by the MIDI keyboard' : entry.def.modulator ? 'Modulator' : 'Audio only';
     panel.append(hint(target
       ? `${what}. MIDI keeps playing <kbd>${target.def.type} #${target.id}</kbd>.`
       : `${what}. Select an OSC or Patch to play it with MIDI.`));
@@ -823,7 +825,8 @@ function select(s) {
   }
   if (entry.def.modulator) {
     panel.append(hint('<kbd>Shift</kbd> + drag to a module, then pick its controller number with <kbd>Out Controller</kbd>.'));
-    if (entry.def.acceptsMidi) panel.append(hint('Notes trigger it: select it and play, send a clip to it, or <kbd>Shift</kbd> + drag a MultiMIDI into it.'));
+    if (takesLiveMidi(entry.def)) panel.append(hint('Notes trigger it: select it and play, send a clip to it, or <kbd>Shift</kbd> + drag a MultiMIDI into it.'));
+    else if (entry.def.acceptsMidi) panel.append(hint('Notes trigger it: send a clip to it, or <kbd>Shift</kbd> + drag a MultiMIDI into it.'));
   }
 
   // custom editor of the module's state (e.g. the WAVESHAPER curve), above the controllers
