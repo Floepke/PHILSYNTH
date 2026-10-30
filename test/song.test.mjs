@@ -12,6 +12,9 @@ import { Transport } from '../src/transport.js';
 assert.equal(snapStep({ base: 4, div: 1 }), 1);
 assert.equal(snapStep({ base: 16, div: 1 }), 0.25);
 assert.equal(snapStep({ base: 8, div: 3 }), 1 / 6); // eighth triplets
+assert.equal(snapStep({ base: 1, div: 1 }), 4); // whole note
+assert.equal(snapStep({ base: 2, div: 1 }), 2); // half note
+assert.equal(snapStep({ base: 1, div: 3 }), 4 / 3); // whole-note triplets
 assert.equal(snapRound(0.34, 1 / 3), 0.333333333);
 assert.equal(snapRound(0.7, 1 / 3), 0.666666667);
 assert.equal(snapFloor(0.99, 0.25), 0.75);
@@ -36,6 +39,8 @@ const n = normalizeSong({
   selected: 3,
 });
 assert.deepEqual(n.snap, { base: 16, div: 1 });
+assert.deepEqual(normalizeSong({ snap: { base: 1, div: 3 } }).snap, { base: 1, div: 3 }, 'whole-note base is kept');
+assert.equal(normalizeSong({ snap: { base: 2 } }).snap.base, 2, 'half-note base is kept');
 assert.equal(n.clips[0].start, 0);
 assert.equal(n.clips[0].notes.length, 2);
 assert.equal(n.clips[0].notes[0].pitch, 60.5);

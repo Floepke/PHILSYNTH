@@ -18,8 +18,8 @@
 //   point the value holds.
 import { curvePolyline, sampleAt } from './curve.js';
 
-export const SNAP_BASES = [4, 8, 16, 32, 64, 128]; // quarter, eighth, 16th, ... note
-export const SNAP_NAMES = { 4: 'Quarter', 8: 'Eighth', 16: '16th', 32: '32nd', 64: '64th', 128: '128th' };
+export const SNAP_BASES = [1, 2, 4, 8, 16, 32, 64, 128]; // whole, half, quarter, eighth, 16th, ... note
+export const SNAP_NAMES = { 1: 'Whole', 2: 'Half', 4: 'Quarter', 8: 'Eighth', 16: '16th', 32: '32nd', 64: '64th', 128: '128th' };
 export const BAR = 4; // quarters per bar in 4/4 (the default time signature)
 export const SIG_DENS = [1, 2, 4, 8, 16, 32];
 export const SIG_NUM_MAX = 32;
@@ -36,7 +36,8 @@ export const noteName = (pitch) => {
   return `${['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'][((p % 12) + 12) % 12]}${Math.floor(p / 12) - 1}`;
 };
 
-// Grid step in quarters: base note value divided by `div` (Quarter ÷ 3 = quarter triplets = 1/3).
+// Grid step in quarters: base note value divided by `div` (Quarter ÷ 3 = quarter triplets = 1/3,
+// Whole ÷ 3 = 4/3, Half ÷ 5 = 2/5).
 export const snapStep = ({ base = 16, div = 1 } = {}) => 4 / base / div;
 export const clean = (v) => Math.round(v * 1e9) / 1e9; // keep 0.1 + 0.2 style float noise out of the project
 export const snapRound = (t, step) => clean(Math.round(t / step) * step);
