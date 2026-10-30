@@ -9,6 +9,7 @@
 //   wheel / middle drag          scroll, Ctrl + wheel zooms time
 import { snapStep, snapRound, BAR, meter, barLines, beatLines, autoPolyline, pointIndex } from '../song.js';
 import { createSurface, capture, startPan, onWheel, clamp, snapBands } from './surface.js';
+import { NEW_POINT_ROUND } from '../curve.js';
 
 const GUTTER = 36;
 const VALUE_H = 24; // value scale strip at the bottom
@@ -351,7 +352,7 @@ export function createAutomationLane(host, ctx) {
     const clip = ctx.clip();
     const { x, y } = s.local(e);
     if (!clip || !inLane(x, y) || e.button !== 0 || hit(x, y)) return;
-    const point = { t: Math.max(0, snapRound(timeAt(y), step())), v: valueAt(x), r: 0 };
+    const point = { t: Math.max(0, snapRound(timeAt(y), step())), v: valueAt(x), r: NEW_POINT_ROUND };
     clip.points.splice(pointIndex(clip.points, point.t), 0, point);
     selected = point;
     ctx.changed();

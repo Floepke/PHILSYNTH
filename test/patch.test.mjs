@@ -697,4 +697,162 @@ const set = (e, x) => { hold(e, x); render(1); };
   root.engine.onModulate = undefined;
 }
 
+// ---- Patch: controllers inside mapped to controllers of the Patch module ----
+{
+  const { paramsOf, fromNorm } = await import('../src/params.js');
+  const { normalizeMaps, nextMapKey } = await import('../src/modules/patch.js');
+  const r = await PatchRuntime.create(engine, dsp.destination);
+  const pm = await r.addModule('PATCH');
+  const ip = pm.inst.patch;
+  const osc = await ip.addModule('OSC');
+  const flt = await ip.addModule('FILTER');
+  const cutoff = paramsOf(flt).find((p) => p.id === 'cutoff');
+  const kf = () => kernel(flt.inst.node);
+  assert.deepEqual(pm.state, { maps: [] }, 'no mappings by default');
+  assert.equal(paramsOf(pm).length, 2);
+
+  r.setState(pm.id, { maps: [{ key: 'map1', module: flt.id, param: 'cutoff', label: '' }] });
+  const mp = paramsOf(pm)[2];
+  assert.equal(mp.id, 'map1', 'mapped controller numbered after Input Module and Instances');
+  assert.equal(mp.label, 'Cutoff', 'named after the inner controller');
+  assert.deepEqual([mp.min, mp.max, mp.scale, mp.default], [20, 20000, 'log', 1000], 'same range as inside');
+  assert.equal(mp.format(1000), cutoff.format(1000));
+  assert.equal(pm.values.map1, 1000, 'shows the inner value');
+
+  r.setParam(pm.id, 'map1', 500);
+  assert.equal(flt.values.cutoff, 500, 'setting it from outside sets (and saves) the inner controller');
+  assert.equal(kf().p.cutoff, 500);
+  ip.setParam(flt.id, 'cutoff', 800);
+  assert.equal(pm.values.map1, 800, 'editing inside shows outside');
+  r.setState(pm.id, { maps: [{ key: 'map1', module: flt.id, param: 'cutoff', label: 'Brightness' }] });
+  assert.equal(paramsOf(pm)[2].label, 'Brightness', 'custom name');
+
+  // saved with the project
+  const json = JSON.parse(JSON.stringify(r.toJSON()));
+  const r2 = await PatchRuntime.create(engine, dsp.destination);
+  await r2.load(json);
+  const pm2 = r2.modules.get(pm.id);
+  assert.deepEqual(pm2.state.maps, pm.state.maps);
+  assert.equal(paramsOf(pm2)[2].label, 'Brightness');
+  assert.equal(pm2.values.map1, 800, 'loaded value mirrored');
+  r2.destroy();
+
+  // an LFO outside on the mapped controller modulates the inner kernel, unsaved, and is shown on both
+  const shown = [];
+  engine.onModulate = (e, id, v) => shown.push([e.id, id, v]);
+  const lfo = await r.addModule('LFO');
+  assert.ok(r.connect(lfo.id, pm.id));
+  r.setParam(lfo.id, 'outController', 2);
+  assert.match(lfo.inst.params().find((p) => p.id === 'outController').format(2), /Brightness/);
+  set(lfo, 0.5);
+  const half = fromNorm(cutoff, 0.5);
+  assert.equal(kf().p.cutoff, half, 'applied on the inner kernel by the engine graph');
+  assert.equal(flt.values.cutoff, 800, 'saved value untouched');
+  assert.equal(pm.mod.map1, half, 'mapped controller shows the modulation');
+  assert.equal(flt.mod.cutoff, half, 'inner controller shows it too');
+  assert.ok(shown.some(([id, pid, v]) => id === pm.id && pid === 'map1' && v === half));
+
+  // every instance follows
+  r.setParam(pm.id, 'inputModule', osc.id);
+  r.setParam(pm.id, 'instances', 2);
+  await pm.inst.sync();
+  const copy = () => kernel(pm.inst.clones[0].modules.get(flt.id).inst.node);
+  set(lfo, 1);
+  assert.equal(kf().p.cutoff, 20000);
+  assert.equal(copy().p.cutoff, 20000, 'the instance copy is modulated as well');
+
+  // disconnecting gives the inner controllers their own value back
+  r.disconnect(r.cables.find((c) => c.from === lfo.id));
+  assert.equal(kf().p.cutoff, 800);
+  assert.equal(copy().p.cutoff, 800);
+  assert.equal('map1' in pm.mod, false);
+  assert.equal('cutoff' in flt.mod, false);
+  r.removeModule(lfo.id);
+
+  // automation clips on the mapped controller (by number), released afterwards
+  assert.equal(r.automate(5, pm.id, 2, 0), true);
+  assert.equal(kf().p.cutoff, 20);
+  assert.equal(copy().p.cutoff, 20);
+  assert.equal(flt.values.cutoff, 800);
+  assert.equal(pm.values.map1, 800);
+  r.automate(5, null, 0, null);
+  assert.equal(kf().p.cutoff, 800);
+  assert.equal(copy().p.cutoff, 800);
+  // removing a mapping while it is automated releases the inner controller
+  r.automate(6, pm.id, 2, 1);
+  assert.equal(kf().p.cutoff, 20000);
+  r.setState(pm.id, { maps: [] });
+  assert.equal(kf().p.cutoff, 800);
+  assert.equal('map1' in pm.values, false);
+  r.automate(6, null, 0, null);
+  assert.equal(kf().p.cutoff, 800);
+
+  // mapped controllers of a nested Patch can be mapped again one level up
+  const nested = await ip.addModule('PATCH');
+  const deep = await nested.inst.patch.addModule('AMP');
+  ip.setState(nested.id, { maps: [{ key: 'map1', module: deep.id, param: 'amp' }] });
+  r.setState(pm.id, { maps: [{ key: 'map2', module: flt.id, param: 'resonance' }, { key: 'map3', module: nested.id, param: 'map1' }] });
+  assert.deepEqual(paramsOf(pm).slice(2).map((p) => p.label), ['Resonance', 'Amplification']);
+  r.setParam(pm.id, 'map3', 3);
+  assert.equal(deep.values.amp, 3, 'reaches the module two levels down');
+  assert.equal(pm.values.map3, 3);
+  r.automate(7, pm.id, 3, 0);
+  assert.equal(deep.mod.amp, 0, 'automation reaches it too');
+  assert.equal(kernel(deep.inst.node).t[0], 0);
+  r.automate(7, null, 0, null);
+  assert.equal('amp' in deep.mod, false);
+  assert.equal(kernel(deep.inst.node).t[0], 3);
+
+  // a mapping whose module is deleted inside is no controller any more (kept as missing)
+  ip.removeModule(flt.id);
+  assert.deepEqual(paramsOf(pm).slice(2).map((p) => p.id), ['map3']);
+  assert.equal('map2' in pm.values, false);
+  assert.equal(pm.state.maps.length, 2);
+
+  // duplicates carry the mappings
+  const dup = await r.duplicate(pm.id);
+  assert.deepEqual(dup.state.maps, pm.state.maps);
+  assert.equal(dup.values.map3, 3);
+
+  // state repair
+  assert.deepEqual(normalizeMaps({ maps: [
+    { key: 'map1', module: 1, param: 'gain' },
+    { key: 'map1', module: 2, param: 'gain' }, // duplicate key
+    { key: 'map2', module: 1, param: 'gain' }, // same controller twice
+    { key: 'x', module: 1, param: 'wave' },
+    { key: 'map4', module: -1, param: 'wave' },
+    { key: 'map5', module: 1, param: '' },
+  ] }).maps, [{ key: 'map1', module: 1, param: 'gain', label: '' }]);
+  assert.deepEqual(normalizeMaps(null), { maps: [] });
+  assert.equal(nextMapKey([{ key: 'map1' }, { key: 'map7' }]), 'map8');
+  assert.equal(nextMapKey([]), 'map1');
+  engine.onModulate = undefined;
+}
+
+// ---- envelopes: Sustain at 0 links Decay and Release ----
+{
+  const r = await PatchRuntime.create(engine, dsp.destination);
+  const o = await r.addModule('OSC');
+  r.setParam(o.id, 'decay', 0.5);
+  assert.equal(o.values.release, 0.4, 'not linked while Sustain > 0');
+  r.setParam(o.id, 'sustain', 0);
+  assert.equal(o.values.release, 0.4, 'setting Sustain to 0 moves nothing');
+  r.setParam(o.id, 'decay', 1.2);
+  assert.equal(o.values.release, 1.2, 'decay moves release');
+  r.setParam(o.id, 'release', 5);
+  assert.equal(o.values.decay, 4, 'release moves decay (clamped to its max)');
+  r.setParam(o.id, 'attack', 0.3);
+  assert.equal(o.values.decay, 4);
+  const a = await r.addModule('ADSR', { values: { sustain: 0 } });
+  r.setParam(a.id, 'release', 2);
+  assert.equal(a.values.decay, 2, 'ADSR is linked too');
+  // a Patch controller mapped to an inner Decay links the inner Release too
+  const p = await r.addModule('PATCH');
+  const io = await p.inst.patch.addModule('OSC', { values: { sustain: 0 } });
+  r.setState(p.id, { maps: [{ key: 'map1', module: io.id, param: 'decay' }] });
+  r.setParam(p.id, 'map1', 0.8);
+  assert.equal(io.values.release, 0.8, 'mapped decay links the inner release');
+  r.destroy();
+}
+
 console.log('all patch tests passed');

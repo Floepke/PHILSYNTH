@@ -90,7 +90,7 @@ export class Transport {
       if (q < clip.start || q >= clip.start + clip.length) q = clip.start;
     }
     this.releaseAll();
-    this.pos = this.from = Math.max(0, q);
+    this.pos = this.from = this.clipId !== null ? q : Math.max(0, q); // a looped clip may sit before zero
     this.chasePending = true;
     this.last = this.now();
     this.onState?.(this);

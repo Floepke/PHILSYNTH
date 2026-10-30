@@ -28,9 +28,12 @@
 //   view(entry, api)    optional display below the controllers (e.g. this waveform preview):
 //                       { el, refresh?(values), modulate?(id, value|null) }; api.setParam(id, v)
 //                       changes a controller (e.g. dragging an EQ band)
+//   linked(values, id, v, params)  optional: other controllers that follow a changed one,
+//                       { id: value } or null (e.g. Decay <-> Release here, see envlink.js)
 //   system / isOutput  reserved for the Output module
 import { createWaveView } from './oscview.js';
 import { WAVE_NAMES, isNoise } from './oscshape.js';
+import { linkDecayRelease } from './envlink.js';
 
 export default {
   type: 'OSC',
@@ -51,6 +54,7 @@ export default {
     // the noise colours are unpitched and have no duty cycle
     { id: 'duty', label: 'Duty Cycle', min: 0, max: 100, default: 50, step: 0.1, format: (v) => `${v.toFixed(1)} %`, visible: (v) => !isNoise(v.wave) },
   ],
+  linked: linkDecayRelease, // Sustain at 0: Decay and Release move together
   view: (entry, api) => createWaveView({ color: api.color, values: entry.values }),
   create(_ctx, _def, host) {
     const node = host.dsp.create('osc'); // DSP: osc.dsp.js

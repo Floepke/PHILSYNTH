@@ -3,7 +3,9 @@
 //   song = { clips, sigs, selected (clip id | null), snap: { base, div }, nextId }
 //   sigs = time signature changes [{ at (quarters), num, den }], sorted, the first one at 0.
 //          Each change starts a new bar, so a change inside a bar cuts that bar short.
-//   clip = { id, name, start, length, y (free vertical place in the arranger, px), target (module number | null), notes }
+//   clip = { id, name, start, length, y (lane * LANE_H, px), target (module number | null), notes }
+//   start may be negative: clips before time zero are parked there (never played by the song,
+//   the part of a clip that reaches past zero does play). Clips sit on lanes LANE_H px high.
 //   note = { pitch (float MIDI note number, see modmidi.js), start, length, vel (0..1), vels? }
 //   Velocity can change while a note sounds: note.vel is the velocity at the note start and the
 //   optional note.vels = [{ t (quarters after the note start, > 0), v (0..1), r (0..1 rounding) }]
@@ -16,11 +18,17 @@
 //   Between points the value moves in straight lines; a point with r > 0 gets a rounded corner
 //   (same curve maths as the WAVESHAPER curve, see curve.js). Before the first / after the last
 //   point the value holds.
+// Linked clones: clips with the same clip.link share ONE notes array (points for automation clips)
+// in memory, so editing one edits them all. Position, length, target and controller stay per
+// clip. clip.link is the id of the group's source clip (the original the others were cloned from);
+// when the source is deleted or detached, the earliest remaining clip becomes the source.
+// The project file stores every clip's notes; loading re-shares them.
 import { curvePolyline, sampleAt } from './curve.js';
 
 export const SNAP_BASES = [1, 2, 4, 8, 16, 32, 64, 128]; // whole, half, quarter, eighth, 16th, ... note
 export const SNAP_NAMES = { 1: 'Whole', 2: 'Half', 4: 'Quarter', 8: 'Eighth', 16: '16th', 32: '32nd', 64: '64th', 128: '128th' };
 export const BAR = 4; // quarters per bar in 4/4 (the default time signature)
+export const LANE_H = 34; // TimeLine lane height (px) = clip height
 export const SIG_DENS = [1, 2, 4, 8, 16, 32];
 export const SIG_NUM_MAX = 32;
 export const PIANO_LOW = 21; // A0
@@ -86,8 +94,9 @@ export function segAt(m, t) {
 export function barLines(song, t0, t1, m = meter(song)) {
   const out = [];
   for (const seg of m) {
-    if (seg.end <= t0 || seg.at > t1) continue;
-    let k = Math.max(0, Math.ceil((t0 - seg.at) / seg.len - 1e-9));
+    if (seg.end <= t0 || (seg.at > t1 && seg !== m[0])) continue;
+    let k = Math.ceil((t0 - seg.at) / seg.len - 1e-9);
+    if (seg !== m[0]) k = Math.max(0, k); // the first segment also covers time before zero
     for (let t = seg.at + k * seg.len; t <= t1 && t < seg.end - 1e-9; t = seg.at + ++k * seg.len) out.push({ t: clean(t), bar: seg.bar + k, seg });
   }
   return out;
@@ -97,8 +106,9 @@ export function barLines(song, t0, t1, m = meter(song)) {
 export function beatLines(song, t0, t1, m = meter(song)) {
   const out = [];
   for (const seg of m) {
-    if (seg.end <= t0 || seg.at > t1) continue;
-    let k = Math.max(0, Math.ceil((t0 - seg.at) / seg.beat - 1e-9));
+    if (seg.end <= t0 || (seg.at > t1 && seg !== m[0])) continue;
+    let k = Math.ceil((t0 - seg.at) / seg.beat - 1e-9);
+    if (seg !== m[0]) k = Math.max(0, k);
     for (let t = seg.at + k * seg.beat; t <= t1 && t < seg.end - 1e-9; t = seg.at + ++k * seg.beat) {
       if (k % seg.num) out.push(clean(t));
     }
@@ -147,9 +157,9 @@ export function normalizeSong(s) {
     const clip = {
       id,
       name: typeof c.name === 'string' ? c.name : `Clip ${id}`,
-      start: Math.max(0, num(c.start, 0)),
+      start: num(c.start, 0),
       length: Math.max(1e-3, num(c.length, BAR)),
-      y: Math.max(0, num(c.y, 0)),
+      y: laneY(num(c.y, 0)),
       target: Number.isInteger(c.target) ? c.target : null,
       notes: c.kind === 'auto' ? [] : (Array.isArray(c.notes) ? c.notes : [])
         .filter((n) => Number.isFinite(n?.pitch) && Number.isFinite(n.start) && n.length > 0)
@@ -166,12 +176,33 @@ export function normalizeSong(s) {
       clip.controller = Math.max(0, Math.round(num(c.controller, 0)));
       clip.points = normalizePoints(c.points);
     }
+    if (Number.isInteger(c.link) && c.link > 0) clip.link = c.link;
     song.clips.push(clip);
+  }
+  // linked clones share the content of the first clip of their group (same kind only)
+  const groups = new Map();
+  for (const clip of song.clips) {
+    if (!clip.link) continue;
+    const first = groups.get(clip.link);
+    if (!first) { groups.set(clip.link, clip); continue; }
+    if (isAuto(first) !== isAuto(clip)) { delete clip.link; continue; }
+    clip.notes = first.notes;
+    if (isAuto(clip)) clip.points = first.points;
+  }
+  for (const link of new Set(song.clips.map((c) => c.link).filter(Boolean))) repairLink(song, link);
+  // older projects placed clips freely: put every clip on a lane, moving it down when it would overlap
+  const placed = [];
+  for (const clip of song.clips) {
+    while (placed.some((c) => c.y === clip.y && c.start < clip.start + clip.length - 1e-9 && clip.start < c.start + c.length - 1e-9)) clip.y += LANE_H;
+    placed.push(clip);
   }
   song.nextId = Math.max(num(s.nextId, 1), ...song.clips.map((c) => c.id + 1), 1);
   song.selected = song.clips.some((c) => c.id === s.selected) ? s.selected : null;
   return song;
 }
+
+// The lane y (px) nearest to y.
+export const laneY = (y) => Math.max(0, Math.round(y / LANE_H)) * LANE_H;
 
 export const getClip = (song, id) => song.clips.find((c) => c.id === id) ?? null;
 
@@ -291,18 +322,59 @@ export function automationAt(song, q) {
   return out;
 }
 
+// Standalone copy with its own notes (same name: no "copy copy copy" chains).
 export function duplicateClip(song, clip) {
   const id = song.nextId++;
-  const copy = { ...structuredClone(clip), id, name: `${clip.name} copy` };
+  const copy = { ...structuredClone(clip), id };
+  delete copy.link;
   song.clips.push(copy);
   return copy;
+}
+
+// All clips of a clip's linked group (itself included; just [clip] when it is not linked).
+export const linkedClips = (song, clip) => (clip?.link ? song.clips.filter((c) => c.link === clip.link) : clip ? [clip] : []);
+export const isLinked = (song, clip) => linkedClips(song, clip).length > 1;
+// The source of a linked group (null for a standalone clip) / a clone that is not the source.
+export const linkSource = (song, clip) => (isLinked(song, clip) ? getClip(song, clip.link) : null);
+export const isClone = (song, clip) => isLinked(song, clip) && clip.link !== clip.id;
+
+// Linked clone: shares the notes (or automation points) of `clip`, see the header.
+export function cloneClip(song, clip) {
+  if (!clip.link) clip.link = clip.id;
+  const id = song.nextId++;
+  const copy = { ...clip, id };
+  song.clips.push(copy);
+  return copy;
+}
+
+// After clips left a group: a group of one is no longer linked; a group without its source
+// promotes its earliest clip.
+function repairLink(song, link) {
+  if (!link) return;
+  const rest = song.clips.filter((c) => c.link === link);
+  if (rest.length === 1) delete rest[0].link;
+  if (rest.length < 2 || rest.some((c) => c.id === link)) return;
+  const source = [...rest].sort((a, b) => a.start - b.start || a.y - b.y || a.id - b.id)[0];
+  for (const c of rest) c.link = source.id;
+}
+
+// Turn a linked clone into a standalone clip with its own copy of the notes.
+export function detachClip(song, clip) {
+  if (!clip?.link) return false;
+  const link = clip.link;
+  delete clip.link;
+  clip.notes = clip.notes.map((n) => ({ ...n }));
+  if (clip.points) clip.points = clip.points.map((p) => ({ ...p }));
+  repairLink(song, link);
+  return true;
 }
 
 export function removeClip(song, id) {
   const i = song.clips.findIndex((c) => c.id === id);
   if (i < 0) return false;
-  song.clips.splice(i, 1);
+  const [clip] = song.clips.splice(i, 1);
   if (song.selected === id) song.selected = null;
+  repairLink(song, clip.link);
   return true;
 }
 
@@ -358,7 +430,7 @@ export function notesSounding(song, q) {
 // "bar.beat.cent" position display (1-based bar and beat, beats of the time signature there).
 export function formatPos(q, song = null) {
   const seg = segAt(meter(song), q);
-  const inSeg = Math.max(0, q - seg.at);
+  const inSeg = q - seg.at; // negative before time zero: bar 0, -1, ...
   const k = Math.floor(inSeg / seg.len + 1e-9);
   const inBar = Math.max(0, inSeg - k * seg.len);
   const beat = Math.floor(inBar / seg.beat + 1e-9);

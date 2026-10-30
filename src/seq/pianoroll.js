@@ -4,21 +4,26 @@
 // white-key notes sit between the lines (2- and 3-line groups like a keyboard). Outside the
 // piano range there are no lines, notes just float.
 // The keyboard sits below the stave. Noteheads are left-tilted ovals, white/black by key.
-//   click / drag on empty space  insert a note, dragging sets its duration
-//   drag a note's coloured body  change the duration
-//   drag a note's circle         change pitch (sideways) and start time
-//   Shift + drag                select notes with a rectangle
-//   Alt + drag a note           clone it and move the clone
+//   click / drag on empty space  insert a note (last used length), dragging sets its duration
+//   drag a note's coloured body  change the duration (of all selected notes when it is selected)
+//   drag a note's circle         change pitch (sideways) and start time (moves the whole selection)
+//   Shift + drag / right drag    select notes with a rectangle
+//   Shift + click a note         add it to / remove it from the selection
+//   Alt + drag a note           clone it (or the selection) and move the clones
+//   right click                 menu: cut / copy / paste / delete / duplicate / quantize / octave
 //   Backspace / Delete          delete selected notes
-//   Left / Right                transpose selected notes by a semitone
-//   Up / Down                   move selected notes by one snap step
+//   Left / Right                transpose selected notes by a semitone (Shift: an octave)
+//   Up / Down                   move selected notes by one snap step (Shift: a bar)
 //   Ctrl/Cmd + X / C / V        cut / copy / paste notes at the pointer's snapped time
-//   right click (or right drag)  delete notes
+//   Ctrl/Cmd + D                duplicate the selection right after itself
+//   Ctrl/Cmd + A, Escape        select all / clear the selection
+//   Q                           quantize note starts to the grid (selection, else all notes)
 // The velocity strip on the left edits the velocity (curves) of the selected notes, see velocity.js.
 // Everything snaps to the snap grid (base note ÷ divider).
-import { isBlack, inPiano, snapStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, clean, meter, barLines, beatLines } from '../song.js';
+import { isBlack, inPiano, snapStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, clean, meter, barLines, beatLines, barLength } from '../song.js';
 import { createSurface, capture, startPan, onWheel, clamp, snapBands } from './surface.js';
 import { createVelocityStrip, VEL_W } from './velocity.js';
+import { showMenu, shortcut } from './menu.js';
 
 const CENTRAL = [61, 63]; // C#4 and D#4, the black keys next to middle C
 const GRID_LOW = 22; // A#0 (American notation)
@@ -36,7 +41,8 @@ const BEAT = '#5d606a';
 const BAR_LINE = '#797d88';
 const BOUNDARY = '#a1a7b3';
 
-// ctx: { song(), clip(), color(clip), preview: { on(clip, pitch) -> handle, off(handle) }, changed(), transport }
+// ctx: { song(), clip(), color(clip), preview: { on(clip, pitch) -> handle, off(handle) }, changed(), transport,
+//        menu?(opts) (context menu, default showMenu) }
 export function createPianoRoll(host, ctx) {
   const view = { sx: null, sy: 0, ppq: 48, kw: 14 };
   let hover = null; // { pitch, t } where a click would insert a note
@@ -46,6 +52,8 @@ export function createPianoRoll(host, ctx) {
   let selectionClip = null;
   let selected = new Set();
   let clipboard = [];
+  let lastLength = null; // length of the last drawn / resized note: new notes get it
+  const menu = (opts) => (ctx.menu ?? showMenu)(opts);
 
   const s = createSurface(host, paint);
   const { cv } = s;
@@ -234,7 +242,7 @@ export function createPianoRoll(host, ctx) {
       g.textAlign = 'center';
       g.fillText('No clip selected. Double-click in the TimeLine below to create one.', LEFT + (w - LEFT) / 2, 40);
     }
-    if (drag?.kind === 'select') {
+    if (drag?.kind === 'select' && drag.shown) {
       const x = Math.min(drag.x0, drag.x1);
       const y = Math.min(drag.y0, drag.y1);
       const w = Math.abs(drag.x1 - drag.x0);
@@ -361,6 +369,44 @@ export function createPianoRoll(host, ctx) {
     selected.delete(note);
   }
 
+  const selectedNotes = () => { syncSelection(); return ctx.clip()?.notes.filter((n) => selected.has(n)) ?? []; };
+
+  // Rectangle selection from (x, y). A press without dragging calls onClick() instead.
+  function selectRect(e, x, y, onClick) {
+    const clip = ctx.clip();
+    const before = selected;
+    drag = { kind: 'select', x0: x, y0: y, x1: x, y1: y, shown: false };
+    hover = null;
+    const update = (ev) => {
+      pointer = s.local(ev);
+      if (!drag.shown && Math.hypot(pointer.x - x, pointer.y - y) < 3) return;
+      drag.shown = true;
+      drag.x1 = clamp(pointer.x, LEFT, s.w);
+      drag.y1 = clamp(pointer.y, 0, gridBottom());
+      const left = Math.min(x, drag.x1);
+      const right = Math.max(x, drag.x1);
+      const top = Math.min(y, drag.y1);
+      const bottom = Math.max(y, drag.y1);
+      selected = new Set(clip.notes.filter((n) => {
+        const nx = xOf(n.pitch);
+        const ny = yOf(n.start);
+        const height = Math.max(n.length * view.ppq, 2 * headSize().height);
+        return nx + view.kw + 0.5 >= left && nx - 0.5 <= right && ny + height >= top && ny <= bottom;
+      }));
+      s.redraw();
+    };
+    s.redraw();
+    capture(cv, e, update, (ev) => {
+      const shown = drag.shown;
+      if (ev.type === 'pointercancel') selected = before;
+      else if (shown) update(ev);
+      drag = null;
+      if (!shown && ev.type !== 'pointercancel') onClick(ev);
+      if (pointer) updateHover(pointer.x, pointer.y);
+      s.redraw();
+    });
+  }
+
   cv.addEventListener('pointerdown', (e) => {
     if (drag) return;
     cv.focus();
@@ -375,72 +421,49 @@ export function createPianoRoll(host, ctx) {
     const { x, y } = s.local(e);
     if (clip && vel.pointerdown(e, x, y)) { e.preventDefault(); hover = null; return; }
     if (!clip || !inGrid(x, y)) return;
-    if (e.button === 2) { // delete, and keep deleting while the right button is dragged
+    if (e.button === 2) { // right drag: selection rectangle; right click: menu
       e.preventDefault();
-      drag = { kind: 'erase' };
-      let removed = 0;
-      const erase = (ev) => {
-        const p = s.local(ev);
-        const h = hit(p.x, p.y);
-        if (h) { remove(h.note); removed++; s.redraw(); }
-      };
-      erase(e);
-      capture(cv, e, erase, () => { drag = null; if (removed) ctx.changed(); });
+      selectRect(e, x, y, (ev) => openMenu(x, y, ev.clientX, ev.clientY));
       return;
     }
     if (e.button !== 0) return;
     e.preventDefault();
-    if (e.shiftKey) {
-      const before = selected;
-      selected = new Set();
-      drag = { kind: 'select', x0: x, y0: y, x1: x, y1: y };
-      hover = null;
-      const selectRect = (ev) => {
-        pointer = s.local(ev);
-        drag.x1 = clamp(pointer.x, LEFT, s.w);
-        drag.y1 = clamp(pointer.y, 0, gridBottom());
-        const left = Math.min(x, drag.x1);
-        const right = Math.max(x, drag.x1);
-        const top = Math.min(y, drag.y1);
-        const bottom = Math.max(y, drag.y1);
-        selected = new Set(clip.notes.filter((n) => {
-          const nx = xOf(n.pitch);
-          const ny = yOf(n.start);
-          const height = Math.max(n.length * view.ppq, 2 * headSize().height);
-          return nx + view.kw + 0.5 >= left && nx - 0.5 <= right && ny + height >= top && ny <= bottom;
-        }));
-        s.redraw();
-      };
-      s.redraw();
-      capture(cv, e, selectRect, (ev) => {
-        if (ev.type === 'pointercancel') selected = before;
-        else selectRect(ev);
-        drag = null;
-        updateHover(pointer.x, pointer.y);
+    if (e.shiftKey) { // Shift + drag: rectangle; Shift + click: toggle a note in the selection
+      const base = selected;
+      selectRect(e, x, y, () => {
+        const h = hit(x, y);
+        selected = new Set(base);
+        if (h && selected.has(h.note)) selected.delete(h.note);
+        else if (h) selected.add(h.note);
+        else selected.clear();
       });
       return;
     }
     const st = step();
     const h = hit(x, y);
     const dup = !!h && e.altKey;
+    // dragging a selected note edits the whole selection
+    const inSelection = !!h && selected.has(h.note) && selected.size > 1;
+    let group = inSelection ? selectedNotes() : h ? [h.note] : [];
+    const anchor = h ? group.indexOf(h.note) : 0;
+    const origs = group.map((n) => ({ pitch: n.pitch, start: n.start, length: n.length }));
     let cloned = false;
     let moved = false;
-    let note;
     let pv = null;
     if (h?.part === 'body' && !dup) {
-      note = h.note;
-      drag = { kind: 'length', t0: timeAt(y), end0: note.start + note.length }; // relative: no jump on click
+      drag = { kind: 'length', t0: timeAt(y) }; // relative: no jump on click
     } else if (h) {
-      note = h.note;
-      drag = { kind: 'move', t0: timeAt(y), start0: note.start };
-      pv = ctx.preview.on(clip, note.pitch);
+      drag = { kind: 'move', t0: timeAt(y), p0: pitchAt(x) };
+      pv = ctx.preview.on(clip, h.note.pitch);
     } else {
-      note = { pitch: pitchAt(x), start: Math.max(0, snapFloor(timeAt(y), st)), length: st, vel: DEFAULT_VEL };
+      const note = { pitch: pitchAt(x), start: Math.max(0, snapFloor(timeAt(y), st)), length: lastLength ?? st, vel: DEFAULT_VEL };
       clip.notes.push(note);
-      drag = { kind: 'length' };
+      group = [note];
+      drag = { kind: 'new' };
       pv = ctx.preview.on(clip, note.pitch);
     }
-    selected = new Set([note]);
+    if (!inSelection) selected = new Set(group);
+    const sources = group;
     hover = null;
     s.redraw();
     capture(cv, e, (ev) => {
@@ -449,37 +472,140 @@ export function createPianoRoll(host, ctx) {
       if (h && !moved && Math.hypot(p.x - x, p.y - y) < 3) return;
       moved = true;
       if (dup && !cloned) {
-        note = { ...note };
-        clip.notes.push(note);
-        selected = new Set([note]);
+        group = group.map((n) => ({ ...n }));
+        clip.notes.push(...group);
+        selected = new Set(group);
         cloned = true;
       }
-      if (drag.kind === 'length') {
-        const end = drag.end0 === undefined ? timeAt(p.y) : drag.end0 + timeAt(p.y) - drag.t0;
-        note.length = Math.max(st, clean(snapRound(end, st) - note.start));
+      const a = origs[anchor];
+      if (drag.kind === 'new') {
+        group[0].length = Math.max(st, clean(snapRound(timeAt(p.y), st) - group[0].start));
+      } else if (drag.kind === 'length') {
+        const end = a.start + a.length;
+        const dl = snapRound(end + timeAt(p.y) - drag.t0, st) - end;
+        group.forEach((n, i) => { n.length = Math.max(st, clean(origs[i].length + dl)); });
       } else {
-        const pitch = pitchAt(p.x);
-        if (pitch !== note.pitch) {
-          note.pitch = pitch;
+        const dp = clamp(pitchAt(p.x) - drag.p0, -Math.min(...origs.map((o) => o.pitch)), PITCH_MAX - Math.max(...origs.map((o) => o.pitch)));
+        const dt = Math.max(snapRound(a.start + timeAt(p.y) - drag.t0, st) - a.start, -Math.min(...origs.map((o) => o.start)));
+        const before = group[anchor].pitch;
+        group.forEach((n, i) => { n.pitch = clean(origs[i].pitch + dp); n.start = clean(origs[i].start + dt); });
+        if (group[anchor].pitch !== before) {
           ctx.preview.off(pv);
-          pv = ctx.preview.on(clip, pitch);
+          pv = ctx.preview.on(clip, group[anchor].pitch);
         }
-        note.start = Math.max(0, snapRound(drag.start0 + timeAt(p.y) - drag.t0, st));
       }
-      hoverPitch = note.pitch;
+      hoverPitch = group[anchor].pitch;
       s.redraw();
     }, (ev) => {
       ctx.preview.off(pv);
       if (cloned && ev.type === 'pointercancel') {
-        remove(note);
-        selected = new Set([h.note]);
+        group.forEach(remove);
+        selected = new Set(sources);
       }
+      if (drag.kind !== 'move' && ev.type !== 'pointercancel') lastLength = group[anchor].length;
+      if (!moved && inSelection) selected = new Set([h.note]); // click inside a selection: just this note
       drag = null;
-      ctx.changed();
+      if (moved || !h) ctx.changed();
       const p = s.local(ev);
       updateHover(p.x, p.y);
     });
   });
+
+  // ---- commands (keyboard and context menu) ----
+  function copy() {
+    const notes = selectedNotes();
+    if (!notes.length) return false;
+    const start = Math.min(...notes.map((n) => n.start));
+    clipboard = notes.map((n) => ({ ...n, start: clean(n.start - start) }));
+    return true;
+  }
+  function deleteSelected() {
+    const notes = selectedNotes();
+    if (!notes.length) return;
+    notes.forEach(remove);
+    ctx.changed();
+  }
+  // paste with the earliest note at the snapped time at local point p
+  function paste(p) {
+    const clip = ctx.clip();
+    if (!clip || !clipboard.length || !p || !inGrid(p.x, p.y)) return;
+    const start = Math.max(0, snapFloor(timeAt(p.y), step()));
+    const copies = clipboard.map((n) => ({ ...n, start: clean(start + n.start) }));
+    clip.notes.push(...copies);
+    selected = new Set(copies);
+    hover = null;
+    ctx.changed();
+  }
+  // copies of the selection right after it (its length rounded up to the snap grid)
+  function duplicate() {
+    const clip = ctx.clip();
+    const notes = selectedNotes();
+    if (!clip || !notes.length) return;
+    const st = step();
+    const span = Math.ceil((Math.max(...notes.map((n) => n.start + n.length)) - Math.min(...notes.map((n) => n.start))) / st - 1e-9) * st;
+    const copies = notes.map((n) => ({ ...n, start: clean(n.start + span) }));
+    clip.notes.push(...copies);
+    selected = new Set(copies);
+    ctx.changed();
+  }
+  // snap the starts of the selected notes (all notes without a selection) to the grid
+  function quantize() {
+    const clip = ctx.clip();
+    if (!clip) return;
+    const notes = selected.size ? selectedNotes() : clip.notes;
+    const st = step();
+    let changed = false;
+    for (const n of notes) {
+      const t = Math.max(0, snapRound(n.start, st));
+      if (t !== n.start) { n.start = t; changed = true; }
+    }
+    if (changed) ctx.changed();
+    s.redraw();
+  }
+  // move the selected notes by dp semitones and dt quarters (nothing moves past the limits)
+  function shift(dp, dt) {
+    const notes = selectedNotes();
+    if (!notes.length) return;
+    if (dp && notes.some((n) => n.pitch + dp < 0 || n.pitch + dp > PITCH_MAX)) return;
+    if (dt < 0 && notes.some((n) => clean(n.start + dt) < 0)) return;
+    for (const note of notes) {
+      note.pitch = clean(note.pitch + dp);
+      note.start = clean(note.start + dt);
+    }
+    hover = null;
+    ctx.changed();
+    s.redraw();
+  }
+  function selectAll() {
+    selected = new Set(ctx.clip()?.notes ?? []);
+    s.redraw();
+  }
+
+  function openMenu(x, y, cx, cy) {
+    syncSelection();
+    const h = hit(x, y);
+    if (h && !selected.has(h.note)) selected = new Set([h.note]);
+    s.redraw();
+    const has = selected.size > 0;
+    const p = { x, y };
+    menu({
+      x: cx,
+      y: cy,
+      items: [
+        { label: 'Cut', shortcut: shortcut('X'), disabled: !has, action: () => { if (copy()) deleteSelected(); } },
+        { label: 'Copy', shortcut: shortcut('C'), disabled: !has, action: copy },
+        { label: 'Paste', shortcut: shortcut('V'), disabled: !clipboard.length, action: () => paste(p) },
+        { label: 'Delete', shortcut: '⌫', disabled: !has, action: deleteSelected },
+        '-',
+        { label: 'Duplicate', shortcut: shortcut('D'), disabled: !has, action: duplicate },
+        { label: has ? 'Quantize selection' : 'Quantize all notes', shortcut: 'Q', disabled: !ctx.clip()?.notes.length, action: quantize },
+        { label: 'Octave up', shortcut: '⇧→', disabled: !has, action: () => shift(12, 0) },
+        { label: 'Octave down', shortcut: '⇧←', disabled: !has, action: () => shift(-12, 0) },
+        '-',
+        { label: 'Select all', shortcut: shortcut('A'), disabled: !ctx.clip()?.notes.length, action: selectAll },
+      ],
+    });
+  }
 
   cv.addEventListener('pointermove', (e) => {
     pointer = s.local(e);
@@ -496,63 +622,32 @@ export function createPianoRoll(host, ctx) {
   cv.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();
     const command = (e.ctrlKey || e.metaKey) && !e.altKey;
+    const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
     const deleting = key === 'backspace' || key === 'delete';
-    const arrow = !e.ctrlKey && !e.metaKey && !e.altKey && ['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(key);
-    if (!deleting && !arrow && !(command && ['a', 'x', 'c', 'v'].includes(key)) && key !== 'escape') return;
+    const arrow = plain && ['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(key);
+    const quant = plain && !e.shiftKey && key === 'q';
+    if (!deleting && !arrow && !quant && !(command && ['a', 'x', 'c', 'v', 'd'].includes(key)) && key !== 'escape') return;
     e.preventDefault();
     e.stopPropagation();
     if (drag) return;
     syncSelection();
     const clip = ctx.clip();
     if (!clip) return;
-    if (key === 'escape') {
-      selected.clear();
-      s.redraw();
-      return;
-    }
-    if (command && key === 'a') {
-      selected = new Set(clip.notes);
-      s.redraw();
-      return;
-    }
-    if (command && key === 'v') {
-      if (!clipboard.length || !pointer || !inGrid(pointer.x, pointer.y)) return;
-      const start = Math.max(0, snapFloor(timeAt(pointer.y), step()));
-      const copies = clipboard.map((n) => ({ ...n, start: clean(start + n.start) }));
-      clip.notes.push(...copies);
-      selected = new Set(copies);
-      hover = null;
-      ctx.changed();
-      return;
-    }
-    const notes = clip.notes.filter((n) => selected.has(n));
-    if (!notes.length) return;
-    if (arrow) {
-      let dp = 0;
-      let dt = 0;
-      if (key === 'arrowleft') dp = -1;
-      if (key === 'arrowright') dp = 1;
-      if (key === 'arrowup') dt = -step();
-      if (key === 'arrowdown') dt = step();
-      if (dp && notes.some((n) => n.pitch + dp < 0 || n.pitch + dp > PITCH_MAX)) return;
-      if (dt < 0 && notes.some((n) => clean(n.start + dt) < 0)) return;
-      for (const note of notes) {
-        note.pitch = clean(note.pitch + dp);
-        note.start = clean(note.start + dt);
-      }
-      hover = null;
-      ctx.changed();
-      s.redraw();
-      return;
-    }
-    if (command && (key === 'c' || key === 'x')) {
-      const start = Math.min(...notes.map((n) => n.start));
-      clipboard = notes.map((n) => ({ ...n, start: clean(n.start - start) }));
-    }
-    if (deleting || (command && key === 'x')) {
-      notes.forEach(remove);
-      ctx.changed();
-    }
+    if (key === 'escape') { selected.clear(); s.redraw(); }
+    else if (quant) quantize();
+    else if (arrow) {
+      // Shift: by an octave / a bar
+      const oct = e.shiftKey ? 12 : 1;
+      const dt = e.shiftKey ? barLength(ctx.song(), clip.start) : step();
+      if (key === 'arrowleft') shift(-oct, 0);
+      else if (key === 'arrowright') shift(oct, 0);
+      else shift(0, key === 'arrowup' ? -dt : dt);
+    } else if (key === 'a') selectAll();
+    else if (key === 'v') paste(pointer);
+    else if (key === 'd') duplicate();
+    else if (key === 'c') copy();
+    else if (key === 'x') { if (copy()) deleteSelected(); }
+    else deleteSelected();
   });
 
   // wheel on a velocity point rounds it (before the scroll / zoom handler)

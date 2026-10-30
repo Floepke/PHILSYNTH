@@ -13,7 +13,7 @@
 //   mouse wheel on a point             round the corner
 //   right click a point                delete it
 import { snapStep, snapRound, clean, notePoints, noteVelAt, groupVelCurve, applyVelCurve } from '../song.js';
-import { curvePolyline } from '../curve.js';
+import { curvePolyline, NEW_POINT_ROUND } from '../curve.js';
 import { capture, clamp } from './surface.js';
 
 export const VEL_W = 84;
@@ -256,7 +256,7 @@ export function createVelocityStrip(o) {
       let i = 0;
       while (i < pts.length && pts[i].t <= t) i++;
       if (pts[i - 1]?.t === t) pts[i - 1].v = vx(x);
-      else pts.splice(i, 0, { t, v: vx(x), r: 0 });
+      else pts.splice(i, 0, { t, v: vx(x), r: NEW_POINT_ROUND });
       apply();
       o.changed();
       return true;

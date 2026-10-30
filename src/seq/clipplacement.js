@@ -1,16 +1,18 @@
-import { clean } from '../song.js';
+// Clip placement on the TimeLine: clips sit on lanes (y = lane * CLIP_H) and never overlap.
+// Times may be negative (clips parked before time zero).
+import { clean, LANE_H, laneY } from '../song.js';
 
-export const CLIP_H = 34;
+export const CLIP_H = LANE_H;
 const EPS = 1e-9;
 const sameRow = (a, b) => a.y < b.y + CLIP_H - EPS && a.y + CLIP_H > b.y + EPS;
 
 export const clipsOverlap = (a, b) => sameRow(a, b)
   && a.start < b.start + b.length - EPS && a.start + a.length > b.start + EPS;
 
-// The nearest free position lies at the requested y or a clip's top/bottom boundary.
+// The nearest free position lies on the requested lane or a lane next to another clip.
 // At each such y, merge forbidden start-time intervals to find the closest free time.
 export function findClipPosition(clips, clip, { start = clip.start, y = clip.y } = {}, ppq = 16) {
-  const wanted = { start: Math.max(0, start), y: Math.max(0, y), length: clip.length };
+  const wanted = { start, y: laneY(y), length: clip.length };
   const others = clips.filter((c) => c !== clip).sort((a, b) => a.start - b.start);
   if (!others.some((c) => clipsOverlap(wanted, c))) return { start: wanted.start, y: wanted.y };
 
@@ -37,7 +39,7 @@ export function findClipPosition(clips, clip, { start = clip.start, y = clip.y }
     const interval = blocked.find(([left, right]) => start > left + EPS && start < right - EPS);
     if (interval) {
       const [left, right] = interval;
-      start = left >= 0 && start - left < right - start ? left : right;
+      start = start - left < right - start ? left : right;
     }
     const d = ((start - wanted.start) * ppq) ** 2 + dy2;
     if (d < distance - EPS || (Math.abs(d - distance) <= EPS && y === wanted.y)) {
@@ -50,7 +52,7 @@ export function findClipPosition(clips, clip, { start = clip.start, y = clip.y }
 
 // Resizing keeps the other edge and vertical position fixed.
 export function clipResizeBounds(clips, clip) {
-  let start = 0;
+  let start = -Infinity;
   let end = Infinity;
   for (const c of clips) {
     if (c === clip || !sameRow(c, clip)) continue;

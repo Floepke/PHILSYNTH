@@ -60,6 +60,11 @@ function createWindow(url) {
     else return;
     e.preventDefault();
   });
+  // Save downloads the project: the save dialog offers the .mds project format
+  win.webContents.session.on('will-download', (_e, item) => {
+    if (!item.getFilename().endsWith('.mds')) return;
+    item.setSaveDialogOptions({ title: 'Save ModSynth project', filters: [{ name: 'ModSynth project', extensions: ['mds'] }] });
+  });
   win.on('closed', () => (win = null));
   win.loadURL(url);
 }

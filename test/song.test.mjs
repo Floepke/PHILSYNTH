@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  snapStep, snapRound, snapFloor, normalizeSong, emptySong, addClip, duplicateClip, removeClip,
+  snapStep, snapRound, snapFloor, normalizeSong, emptySong, addClip, duplicateClip, removeClip, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource, LANE_H,
   trimClipStart, loopEnd, notesStarting, isBlack, inPiano, formatPos, noteName, clean,
   meter, barLines, beatLines, barRound, barCeil, barLength, setSig, removeSig, normalizeSigs,
   addAutoClip, isAuto, autoValue, automationAt, pointIndex,
@@ -41,7 +41,8 @@ const n = normalizeSong({
 assert.deepEqual(n.snap, { base: 16, div: 1 });
 assert.deepEqual(normalizeSong({ snap: { base: 1, div: 3 } }).snap, { base: 1, div: 3 }, 'whole-note base is kept');
 assert.equal(normalizeSong({ snap: { base: 2 } }).snap.base, 2, 'half-note base is kept');
-assert.equal(n.clips[0].start, 0);
+assert.equal(n.clips[0].start, -2, 'clips may be parked before zero');
+assert.equal(n.clips[0].y, 0, 'y snaps to a lane');
 assert.equal(n.clips[0].notes.length, 2);
 assert.equal(n.clips[0].notes[0].pitch, 60.5);
 assert.equal(n.clips[0].notes[0].vel, 0.8);
@@ -268,3 +269,85 @@ t.stop();
 }
 
 console.log('song tests passed');
+
+// Linked clones share their notes; detaching copies them; JSON round trips re-share them by link id.
+{
+  const song = emptySong();
+  const a = addClip(song, { length: 4 });
+  a.name = 'Bass';
+  a.notes.push({ pitch: 40, start: 0, length: 1, vel: 0.8 });
+  const dup = duplicateClip(song, a);
+  assert.equal(dup.name, 'Bass', 'no copy suffix');
+  assert.equal(isLinked(song, a), false);
+  const b = cloneClip(song, a);
+  const c = cloneClip(song, b);
+  assert.equal(b.notes, a.notes);
+  assert.equal(c.notes, a.notes);
+  assert.equal(linkedClips(song, a).length, 3);
+  const dup2 = duplicateClip(song, b);
+  assert.equal(dup2.link, undefined);
+  assert.notEqual(dup2.notes, a.notes);
+  const loaded = normalizeSong(JSON.parse(JSON.stringify(song)));
+  const [la, , lb, lc] = loaded.clips;
+  assert.equal(lb.notes, la.notes);
+  assert.equal(lc.notes, la.notes);
+  assert.equal(loaded.clips[1].link, undefined);
+  detachClip(song, c);
+  assert.notEqual(c.notes, a.notes);
+  assert.deepEqual(c.notes, a.notes);
+  assert.equal(c.link, undefined);
+  assert.equal(linkedClips(song, a).length, 2);
+  removeClip(song, b.id);
+  assert.equal(isLinked(song, a), false, 'the last remaining clone becomes standalone');
+  assert.equal(a.link, undefined);
+}
+
+// The link id is the source clip's id; a group that loses its source promotes its earliest clip.
+{
+  const song = emptySong();
+  const src = addClip(song, { start: 8, length: 4 });
+  const c1 = cloneClip(song, src);
+  c1.start = 16;
+  const c2 = cloneClip(song, c1); // a clone of a clone belongs to the same source
+  c2.start = 4;
+  assert.equal(src.link, src.id);
+  assert.equal(c2.link, src.id);
+  assert.equal(isClone(song, src), false);
+  assert.equal(isClone(song, c1), true);
+  assert.equal(linkSource(song, c2), src);
+  removeClip(song, src.id);
+  assert.equal(c1.link, c2.id, 'the earliest remaining clip becomes the source');
+  assert.equal(isClone(song, c2), false);
+  assert.equal(linkSource(song, c1), c2);
+  const c3 = cloneClip(song, c1);
+  detachClip(song, c2);
+  assert.equal(c2.link, undefined);
+  assert.ok([c1, c3].every((c) => c.link === c1.id), 'detaching the source promotes another');
+  // loading a group whose source is gone repairs it the same way
+  const loaded = normalizeSong({ clips: [{ id: 5, start: 4, link: 9 }, { id: 6, start: 0, y: 34, link: 9 }] });
+  assert.deepEqual(loaded.clips.map((c) => c.link), [6, 6]);
+  assert.equal(loaded.clips[0].notes, loaded.clips[1].notes);
+}
+
+// Loading puts freely placed clips on lanes without overlaps; starts may be negative.
+{
+  const n = normalizeSong({ clips: [
+    { id: 1, start: 0, length: 4, y: 5 },
+    { id: 2, start: 2, length: 4, y: 20 }, // rounds to lane 1 (34)
+    { id: 3, start: 1, length: 2, y: 12 }, // rounds to lane 0, overlaps clip 1 and lane 1 has clip 2
+    { id: 4, start: -8, length: 4, y: 0 },
+  ] });
+  assert.deepEqual(n.clips.map((c) => c.y), [0, LANE_H, 2 * LANE_H, 0]);
+  assert.equal(n.clips[3].start, -8);
+}
+
+// Before time zero the first time signature continues backwards: bars 0, -1, ...
+{
+  const song = emptySong();
+  assert.deepEqual(barLines(song, -8, 4).map((b) => [b.t, b.bar]), [[-8, -2], [-4, -1], [0, 0], [4, 1]]);
+  assert.deepEqual(beatLines(song, -2, 0), [-2, -1]);
+  assert.equal(formatPos(-3, song), '0.2.00');
+  assert.equal(formatPos(-8, song), '-1.1.00');
+  assert.equal(formatPos(5, song), '2.2.00');
+}
+console.log('link tests passed');

@@ -2,7 +2,7 @@
 // arranger (bottom), with a toolbar for transport, the selected clip and the snap grid.
 // An automation clip shows the automation lane editor in place of the piano roll.
 import { newNoteId } from '../modmidi.js';
-import { getClip, isAuto, SNAP_BASES, SNAP_NAMES, snapStep, formatPos, DEFAULT_VEL, meter, segAt, setSig, removeSig } from '../song.js';
+import { getClip, isAuto, SNAP_BASES, SNAP_NAMES, snapStep, formatPos, DEFAULT_VEL, meter, segAt, setSig, removeSig, linkedClips, normalizeSong } from '../song.js';
 import { sigDialog } from '../dialogs.js';
 import { createPianoRoll } from './pianoroll.js';
 import { createArranger } from './arranger.js';
@@ -53,15 +53,17 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
       if (!p) return null;
       return { p, format: (x) => formatValue(e, p, fromNorm(p, x)) };
     },
-    select(id) {
+    // scroll: false keeps the TimeLine where it is (selection made in the TimeLine itself)
+    select(id, { scroll = true } = {}) {
       song().selected = id;
       roll.reveal();
       lane.reveal();
-      arranger.reveal(id);
+      if (scroll) arranger.reveal(id);
       sync();
       onChange();
     },
     changed() {
+      record();
       onChange();
       sync();
     },
@@ -81,6 +83,7 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
       if (!r) return;
       if (r === 'delete') removeSig(sg, at);
       else setSig(sg, at, r.num, r.den);
+      record();
       onChange();
       sync();
     },
@@ -136,6 +139,7 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
 
   const fmt = (v) => String(+v.toFixed(6));
   function sync() {
+    trackSong();
     const c = clip();
     for (const k of ['name', 'target', 'start', 'length']) ui[k].disabled = !c;
     if (document.activeElement !== ui.name) ui.name.value = c?.name ?? '';
@@ -154,10 +158,11 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
   ui.name.addEventListener('input', () => {
     const c = clip();
     if (!c) return;
-    c.name = ui.name.value;
+    for (const l of linkedClips(song(), c)) l.name = ui.name.value; // clones share their name
     arranger.redraw();
     onChange();
   });
+  ui.name.addEventListener('change', () => record());
   ui.target.addEventListener('change', () => {
     const c = clip();
     if (!c) return;
@@ -178,7 +183,7 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
     input.blur();
     ctx.changed();
   });
-  numberField(ui.start, (c, v) => arranger.place(c, { start: Math.max(0, v) }));
+  numberField(ui.start, (c, v) => arranger.place(c, { start: v })); // negative: parked before time zero
   numberField(ui.length, (c, v) => arranger.setLength(c, Math.max(1e-3, v)));
   ui.base.addEventListener('change', () => { song().snap.base = +ui.base.value; ctx.changed(); });
   ui.div.addEventListener('input', () => {
@@ -192,6 +197,50 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
   for (const el of [ui.name, ui.start, ui.length, ui.div]) {
     el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === 'Escape') el.blur(); });
   }
+
+  // ---- undo / redo of song edits: Ctrl/Cmd + Z, Ctrl/Cmd + Shift + Z or Ctrl + Y ----
+  // Snapshots use the saved JSON form; normalizeSong re-shares the notes of linked clones.
+  // A new project (or a loaded one) starts a new history.
+  const history = { owner: null, stack: [], i: -1 };
+  const HISTORY_MAX = 200;
+  const snapshot = () => JSON.stringify({ ...song(), selected: null });
+  function trackSong() {
+    if (history.owner === song()) return;
+    history.owner = song();
+    history.stack = [snapshot()];
+    history.i = 0;
+  }
+  function record() {
+    trackSong();
+    const snap = snapshot();
+    if (snap === history.stack[history.i]) return;
+    history.stack.length = history.i + 1;
+    history.stack.push(snap);
+    if (history.stack.length > HISTORY_MAX) history.stack.shift();
+    history.i = history.stack.length - 1;
+  }
+  function travel(d) {
+    trackSong();
+    const j = history.i + d;
+    if (j < 0 || j >= history.stack.length) return false;
+    history.i = j;
+    const keep = song().selected;
+    const restored = normalizeSong(JSON.parse(history.stack[j]));
+    restored.selected = getClip(restored, keep) ? keep : null;
+    engine.song = history.owner = restored;
+    onChange();
+    sync();
+    return true;
+  }
+  seq.addEventListener('keydown', (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey || e.target.closest?.('input, select, textarea')) return;
+    const k = e.key.toLowerCase();
+    if (k !== 'z' && !(k === 'y' && !e.shiftKey)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const ok = travel(k === 'y' || e.shiftKey ? 1 : -1);
+    $('status').textContent = ok ? (k === 'y' || e.shiftKey ? 'Redo (sequencer)' : 'Undo (sequencer)') : 'Nothing to undo / redo in the sequencer.';
+  });
 
   // ---- transport ----
   ui.play.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus (Space) where it is
@@ -285,38 +334,32 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
       applyLayout();
     }, () => onChange());
   });
-  $('seq-split').addEventListener('pointerdown', (e) => {
+  // Both sequencer dividers move both splits: x → sequencer width, y → roll / TimeLine split.
+  // Each axis follows the pointer relative to where it was grabbed, and only once it moves on that axis.
+  function dragSeqSplits(e) {
     if (e.button !== 0) return;
     e.preventDefault();
     const panelRight = $('panel-split').getBoundingClientRect().right;
-    const divider = e.currentTarget.getBoundingClientRect();
-    const offset = e.clientX - divider.left;
-    const available = Math.max(0, window.innerWidth - panelRight - divider.width);
+    const vertical = $('seq-split').getBoundingClientRect();
+    const available = Math.max(0, window.innerWidth - panelRight - vertical.width);
     const top = $('roll').getBoundingClientRect().top;
     const bottom = $('arranger').getBoundingClientRect().bottom;
     const horizontal = $('seq-hsplit').getBoundingClientRect();
     const verticalRoom = Math.max(1, bottom - top - horizontal.height);
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    const widthStart = layout.width;
     const splitStart = layout.split;
-    const yStart = e.clientY;
     capture(e.currentTarget, e, (ev) => {
-      if (available > 0) layout.width = clamp((window.innerWidth - (ev.clientX - offset) - divider.width) / available, 0, 1);
-      layout.split = clamp(splitStart + (ev.clientY - yStart) / verticalRoom, 0, 1);
+      const dx = ev.clientX - x0;
+      const dy = ev.clientY - y0;
+      layout.width = dx && available > 0 ? clamp((window.innerWidth - (vertical.left + dx) - vertical.width) / available, 0, 1) : widthStart;
+      layout.split = dy ? clamp((horizontal.top + dy - top) / verticalRoom, 0, 1) : splitStart;
       applyLayout();
     }, () => onChange());
-  });
-  $('seq-hsplit').addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    const top = $('roll').getBoundingClientRect().top;
-    const bottom = $('arranger').getBoundingClientRect().bottom;
-    const divider = e.currentTarget.getBoundingClientRect();
-    const offset = e.clientY - divider.top;
-    const available = Math.max(1, bottom - top - divider.height);
-    capture(e.currentTarget, e, (ev) => {
-      layout.split = clamp((ev.clientY - offset - top) / available, 0, 1);
-      applyLayout();
-    }, () => onChange());
-  });
+  }
+  $('seq-split').addEventListener('pointerdown', dragSeqSplits);
+  $('seq-hsplit').addEventListener('pointerdown', dragSeqSplits);
   applyLayout();
 
   engine.root.listeners.add(() => { refreshTargets(); roll.redraw(); lane.redraw(); arranger.redraw(); });

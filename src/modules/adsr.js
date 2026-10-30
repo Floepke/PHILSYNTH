@@ -7,6 +7,7 @@
 //   Velocity: how much the note velocity scales the envelope peak (0 % = always full).
 //   Out Controller / Out Min / Out Max: see modtarget.js (the envelope runs Out Min -> Out Max).
 import { modulatorParams, outParams, pct } from './modtarget.js';
+import { linkDecayRelease } from './envlink.js';
 
 const secs = (v) => (v < 1 ? `${Math.round(v * 1000)} ms` : `${v.toFixed(2)} s`);
 
@@ -27,6 +28,7 @@ export default {
     { id: 'trigger', label: 'Trigger', min: 0, max: 1, default: 0, step: 1, options: ['Every note', 'Legato'] },
     { id: 'velocity', label: 'Velocity', min: 0, max: 100, default: 0, step: 1, format: pct },
   ],
+  linked: linkDecayRelease, // Sustain at 0: Decay and Release move together
   create(_ctx, def, host) {
     // DSP: adsr.dsp.js (held notes, legato and velocity are handled there too)
     const node = host.dsp.create('adsr');

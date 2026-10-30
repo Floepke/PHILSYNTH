@@ -66,6 +66,7 @@ export class PatchRuntime {
       this.reserved.delete(id);
     }
     const entry = { id, def, inst, x, y, values: {}, mod: {} };
+    inst.attach?.(entry, this); // e.g. a Patch mirrors its mapped inner controllers into entry.values
     // the DSP node whose kernel gets the controllers; reports their modulated values back
     entry.ctl = inst.ctl ?? inst.node ?? inst.input ?? null;
     if (entry.ctl) entry.ctl.onMod = (pid, v) => this.modulated(entry, pid, v);
@@ -86,7 +87,7 @@ export class PatchRuntime {
     if (def.midiOut) {
       inst.getMidiTargets = () => this.cables.filter((c) => c.from === id).map((c) => this.modules.get(c.to)?.inst).filter(Boolean);
     }
-    if (inst.patch) inst.patch.watchers.add(() => this.changed());
+    if (inst.patch) inst.patch.watchers.add(() => { inst.mirror?.(); this.changed(); });
     if (def.isOutput) inst.input.connect(this.sink);
     this.modules.set(id, entry);
     this.emit();
@@ -129,9 +130,13 @@ export class PatchRuntime {
 
   setParam(id, key, value) {
     const e = this.modules.get(id);
-    e.values[key] = value;
-    e.inst.setParam(key, value);
-    delete e.mod[key]; // a modulated controller is re-applied (and reported) by the engine graph
+    // controllers that follow this one (e.g. OSC Decay <-> Release with Sustain at 0)
+    const linked = e.def.linked?.(e.values, key, value, e.def.params) ?? {};
+    for (const [k, v] of [[key, value], ...Object.entries(linked)]) {
+      e.values[k] = v;
+      e.inst.setParam(k, v);
+      delete e.mod[k]; // a modulated controller is re-applied (and reported) by the engine graph
+    }
     if (e.def.isOutput && key === 'bpm') this.modules.forEach((m) => m.inst.setBpm?.(value));
     this.changed();
   }
@@ -164,7 +169,7 @@ export class PatchRuntime {
       const p = t?.ctl && paramsOf(t)[controller];
       if (!p) continue;
       driven.set(t.id, p.id);
-      list.push({ to: t.ctl.h, id: p.id, min: p.min, max: p.max, scale: p.scale, step: p.step });
+      list.push(...this.routesOf(t, p));
     }
     const sig = JSON.stringify(list);
     if (sig !== m.routeSig) {
@@ -176,17 +181,60 @@ export class PatchRuntime {
     for (const [tid, pid] of old) if (driven.get(tid) !== pid && !this.isDriven(tid, pid)) this.unmodulate(tid, pid);
   }
 
+  // Graph routes that modulate controller `p` of module `t`. A controller a Patch module maps to
+  // controllers inside it (p.routes) is modulated right on those inner kernels, every instance.
+  routesOf(t, p) {
+    if (p.routes) return p.routes();
+    return t?.ctl ? [{ to: t.ctl.h, id: p.id, min: p.min, max: p.max, scale: p.scale, step: p.step }] : [];
+  }
+
+  // routes of controller id `pid` of module `id` (used by a parent Patch, see routesOf)
+  routesTo(id, pid) {
+    const t = this.modules.get(id);
+    const p = t && paramsOf(t).find((q) => q.id === pid);
+    return p ? this.routesOf(t, p) : [];
+  }
+
   isDriven(tid, pid) {
     for (const m of this.modules.values()) if (m.modTargets?.get(tid) === pid) return true;
     return false;
   }
 
-  // report from the engine graph: controller `pid` of module `t` is modulated to `v`
+  // report from the engine graph: controller `pid` of module `t` is modulated to `v`. Controllers
+  // driven from outside (mapped to a parent Patch controller) are reported up through `forward`.
+  // Returns whether the value was accepted (driven).
   modulated(t, pid, v) {
-    if (t.dead || this.dead || !this.isDriven(t.id, pid) || t.mod[pid] === v) return;
+    if (t.dead || this.dead) return false;
+    if (!this.isDriven(t.id, pid) && !this.forward?.(t.id, pid, v)) return false;
+    if (t.mod[pid] === v) return true;
     t.mod[pid] = v;
     t.inst.onModulated?.(pid, v);
     if (t.def.modulator && pid === 'outController') this.updateRoutes(t);
+    this.engine.onModulate?.(t, pid, v);
+    return true;
+  }
+
+  // Apply a temporary (unsaved) controller value, or the module's own value again (v === null).
+  // A Patch module passes values of its mapped controllers on to the controllers inside it.
+  live(t, pid, v) {
+    if (!t.inst.liveParam?.(pid, v)) t.inst.setParam(pid, v ?? t.values[pid]);
+  }
+
+  // A parent Patch drives controller `pid` of module `id` (automation of a mapped controller):
+  // like automate(), never saved; v === null gives the controller back its own value.
+  override(id, pid, v) {
+    const t = this.modules.get(id);
+    if (!t || !paramsOf(t).some((q) => q.id === pid) || this.isDriven(id, pid)) return;
+    if (v === null) {
+      const had = pid in t.mod;
+      delete t.mod[pid];
+      this.live(t, pid, null);
+      if (had) this.engine.onModulate?.(t, pid, null);
+      return;
+    }
+    if (t.mod[pid] === v) return;
+    t.mod[pid] = v;
+    this.live(t, pid, v);
     this.engine.onModulate?.(t, pid, v);
   }
 
@@ -206,7 +254,7 @@ export class PatchRuntime {
     const v = fromNorm(p, norm);
     if (t.mod[p.id] !== v) {
       t.mod[p.id] = v;
-      t.inst.setParam(p.id, v);
+      this.live(t, p.id, v);
       this.engine.onModulate?.(t, p.id, v);
     }
     return true;
@@ -217,7 +265,7 @@ export class PatchRuntime {
     const t = this.modules.get(targetId);
     if (!t || !(paramId in t.mod)) return;
     delete t.mod[paramId];
-    t.inst.setParam(paramId, t.values[paramId]);
+    this.live(t, paramId, null);
     this.engine.onModulate?.(t, paramId, null);
   }
 

@@ -3,7 +3,7 @@
 //   Scroll on a point: round its corner  Right-click a point: delete it
 // createCurveEditor({ curve, color, labels, onChange }) -> { el, set(curve), setLabels(labels) }
 //   onChange(curve) is called with a new curve object on every edit.
-import { MIN_GAP, curvePolyline, normalizeCurve } from './curve.js';
+import { MIN_GAP, NEW_POINT_ROUND, curvePolyline, normalizeCurve } from './curve.js';
 
 const PAD = 12;
 const HIT = 9; // px
@@ -170,7 +170,7 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
     if (c.x <= MIN_GAP || c.x >= 1 - MIN_GAP) return;
     const i = pts.findIndex((p) => p.x > c.x);
     if (c.x - pts[i - 1].x < MIN_GAP || pts[i].x - c.x < MIN_GAP) return;
-    pts.splice(i, 0, { x: c.x, y: Math.min(1, Math.max(0, c.y)), r: 0 });
+    pts.splice(i, 0, { x: c.x, y: Math.min(1, Math.max(0, c.y)), r: NEW_POINT_ROUND });
     hover = i;
     commit();
   });

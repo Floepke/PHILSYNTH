@@ -14,9 +14,9 @@
     <button id="seq-toggle" title="Show / hide the piano roll and TimeLine (S)">Sequencer</button>
     <button id="midi" title="Enable / re-scan MIDI input">MIDI</button>
     <button id="new" title="Start an empty project">New</button>
-    <button id="save" title="Download the project as a .json file">Save</button>
-    <button id="load" title="Open a project .json file">Load</button>
-    <input id="file" type="file" accept=".json,application/json" hidden>
+    <button id="save" title="Save the project as a .mds file">Save</button>
+    <button id="load" title="Open a project .mds file (older .json projects open too)">Load</button>
+    <input id="file" type="file" accept=".mds,.json" hidden>
   </header>
   <aside id="panel"><div id="panel-content"></div></aside>
   <div id="panel-split" class="splitter" role="separator" aria-orientation="vertical" aria-label="Controller panel width" title="Drag to resize the controller panel; drag fully left to hide it"></div>
@@ -34,7 +34,7 @@
         <label class="seq-field seq-clip" title="Name of the selected clip"><span>Clip</span><input id="seq-name" type="text" spellcheck="false"></label>
         <label class="seq-field" id="seq-target-field" title="Module number (main patch) that plays the notes of this clip"><span>Send to</span><select id="seq-target"></select></label>
         <label class="seq-field" id="seq-ctl-field" title="Controller of the target module that this automation clip drives" hidden><span>Controller</span><select id="seq-ctl"></select></label>
-        <label class="seq-field" title="Clip start on the TimeLine, in quarter notes"><span>Start</span><input id="seq-start" type="number" step="any" min="0"></label>
+        <label class="seq-field" title="Clip start on the TimeLine, in quarter notes (negative: parked before the song start, not played)"><span>Start</span><input id="seq-start" type="number" step="any"></label>
         <label class="seq-field" title="Clip length in quarter notes"><span>Length</span><input id="seq-length" type="number" step="any" min="0.001"></label>
         <span class="seq-sep"></span>
         <label class="seq-field" title="Snap grid: base note value…"><span>Snap</span><select id="seq-snap-base"></select></label>
@@ -43,7 +43,7 @@
       </div>
     </div>
     <div id="roll" class="seq-view"></div>
-    <div id="seq-hsplit" class="splitter horizontal" title="Drag to resize; drag to the top or bottom to hide a pane"></div>
+    <div id="seq-hsplit" class="splitter horizontal" title="Drag up/down to adjust the piano roll / TimeLine split and left/right to resize the sequencer; drag to an edge to hide a pane"></div>
     <div id="arranger" class="seq-view"></div>
   </section>
   <footer id="statusbar">

@@ -25,13 +25,17 @@ const free = (moving, others) => others.every((c) => !clipsOverlap(moving, c));
   const later = clip(5, 4);
   assert.deepEqual(findClipPosition([later, copy], copy, { start: 1.25 }, 16), { start: 1, y: 0 });
   assert.deepEqual(findClipPosition([later, copy], copy, { start: 1, y: 34 }, 16), { start: 1, y: 34 });
-  assert.deepEqual(findClipPosition([copy], copy, { start: -2, y: -10 }, 16), { start: 0, y: 0 });
+  assert.deepEqual(findClipPosition([copy], copy, { start: -2, y: -10 }, 16), { start: -2, y: 0 }, 'clips may start before zero; lanes start at 0');
+  assert.deepEqual(findClipPosition([copy], copy, { start: 1, y: 50 }, 16), { start: 1, y: 34 }, 'y snaps to the nearest lane');
+  assert.deepEqual(findClipPosition([copy], copy, { start: 1, y: 52 }, 16), { start: 1, y: 68 });
+  // a blocker at 0 pushes the clip left into negative time when that is closer
+  assert.deepEqual(findClipPosition([clip(0, 4), copy], copy, { start: -1 }, 4), { start: -4, y: 0 });
 }
 
 // Find a diagonal gap between blockers instead of resolving against only the first collision.
 {
   const moving = clip(0, 2);
-  const others = [clip(0, 3, 0), clip(3, 4, 20), clip(0, 7, 68)];
+  const others = [clip(0, 3, 0), clip(3, 4, 34), clip(0, 7, 68)];
   const wanted = { start: 2, y: 25 };
   const result = findClipPosition(others, moving, wanted, 16);
   assert.deepEqual(result, { start: 1, y: 34 });
@@ -59,12 +63,12 @@ const free = (moving, others) => others.every((c) => !clipsOverlap(moving, c));
   assert.ok(free({ ...moving, ...result }, others));
 }
 
-// Bounds use all vertically intersecting neighbours, ignoring clips on other rows.
+// Bounds use the neighbours on the same lane, ignoring clips on other lanes.
 {
-  const moving = clip(4, 4, 40);
-  const others = [moving, clip(1, 2, 10), clip(2, 2, 40), clip(10, 1, 60), clip(8, 2, 74)];
+  const moving = clip(4, 4, 34);
+  const others = [moving, clip(1, 2, 0), clip(2, 2, 34), clip(10, 1, 34), clip(8, 2, 68)];
   assert.deepEqual(clipResizeBounds(others, moving), { start: 4, end: 10 });
-  assert.deepEqual(clipResizeBounds([moving], moving), { start: 0, end: Infinity });
+  assert.deepEqual(clipResizeBounds([moving], moving), { start: -Infinity, end: Infinity }, 'trimming may reach before zero');
 }
 
 // Compare against an exhaustive independent search on integer geometry. Every optimum
@@ -76,16 +80,16 @@ const free = (moving, others) => others.every((c) => !clipsOverlap(moving, c));
     return seed % max;
   };
   for (let run = 0; run < 80; run++) {
-    const others = Array.from({ length: 5 }, () => clip(random(12), 1 + random(5), random(85)));
-    const moving = clip(random(12), 1 + random(4), random(85));
+    const others = Array.from({ length: 5 }, () => clip(random(12), 1 + random(5), random(3) * CLIP_H));
+    const moving = clip(random(12), 1 + random(4), random(3) * CLIP_H);
     const ppq = 1 + random(20);
     const before = structuredClone(others);
     const result = findClipPosition([...others, moving], moving, {}, ppq);
-    assert.ok(result.start >= 0 && result.y >= 0);
+    assert.ok(result.y >= 0 && result.y % CLIP_H === 0, 'on a lane');
     assert.ok(free({ ...moving, ...result }, others));
     let nearest = Infinity;
-    for (let start = 0; start <= 20; start++) {
-      for (let y = 0; y <= 120; y++) {
+    for (let start = -20; start <= 20; start++) {
+      for (let y = 0; y <= 6 * CLIP_H; y += CLIP_H) {
         if (others.some((c) => start < c.start + c.length && start + moving.length > c.start
           && y < c.y + CLIP_H && y + CLIP_H > c.y)) continue;
         nearest = Math.min(nearest, distance({ start, y }, moving, ppq));

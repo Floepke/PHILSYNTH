@@ -1,23 +1,33 @@
-// TimeLine arranger: time runs left -> right (quarter notes), clips can be placed anywhere
-// vertically. "TimeLine:" is written in the ruler; time zero is the vertical line right after it.
+// TimeLine arranger: time runs left -> right (quarter notes), clips sit on numbered lanes (one clip
+// high, the numbers are in the column under "TimeLine:"). Time zero is the bright vertical line;
+// scroll left to park clips before it (they are not played by the song, / still auditions them).
 //   double-click empty space   insert a clip (one bar)
 //   double right-click empty   insert an automation clip (one bar, drives one controller)
 //   click a clip               select it (the piano roll shows it)
-//   drag a clip                move it (time snaps, vertical is free)
+//   drag on empty space        select clips with a rectangle (Ctrl/Cmd + drag adds to the selection)
+//   Ctrl/Cmd + click a clip    add it to / remove it from the selection
+//   drag a clip                move it, or the whole selection (time snaps, vertical snaps to lanes)
 //   clips snap out of overlaps to the nearest free position; resizing stops at neighbours
 //   drag a clip's left/right edge  trim the start / set the length (snaps)
-//   Alt + drag                 duplicate
-//   Backspace / Delete         delete the selected clip
-//   Ctrl/Cmd + X / C / V       cut / copy / paste a clip at the snapped pointer position
+//   Alt + drag                 duplicate (standalone copies with the same name)
+//   Shift + drag               linked clone: shares the notes with the source (see song.js); clones
+//                              are hatched, a selected clone shows a dashed arrow to its source
+//   right-click                menu: cut / copy / paste / delete / duplicate / clone / detach / go to source
+//   Backspace / Delete         delete the selected clips
+//   Ctrl/Cmd + X / C / V       cut / copy / paste clips at the snapped pointer position
+//   Ctrl/Cmd + D / Shift + D   duplicate / clone the selection right after itself
+//   Ctrl/Cmd + A, Escape       select all / clear the selection
 //   click / drag the ruler     set the play position
 //   double-click the ruler     insert a time signature change at the nearest bar line (or edit it)
 //   right-click a signature    remove that change (the first one can only be edited)
+// Trimming the start of a linked clone trims all its clones (they share the notes).
 import {
   snapStep, snapFloor, snapRound, loopEnd, getClip, addClip, addAutoClip, isAuto, autoPolyline, duplicateClip, removeClip, trimClipStart, BAR, clean,
-  meter, barLines, barRound, barLength, removeSig,
+  meter, barLines, barRound, barLength, removeSig, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource,
 } from '../song.js';
 import { createSurface, capture, startPan, onWheel, clamp, snapBands } from './surface.js';
 import { CLIP_H, findClipPosition, clipResizeBounds } from './clipplacement.js';
+import { showMenu, shortcut } from './menu.js';
 
 const SIG_H = 16; // time signature row on top of the ruler
 const RULER = 38; // signature row + bar numbers
@@ -29,17 +39,21 @@ const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 const DOUBLE_MS = 400; // double right-click detection
 const DOUBLE_PX = 6;
 
-// ctx: { song(), color(clip), targetLabel(clip), select(id), changed(), defaultTarget(), defaultAutoTarget(), transport,
-//        editSig(at) (asks for the signature starting at `at`) }
+// ctx: { song(), color(clip), targetLabel(clip), select(id, { scroll }), changed(), defaultTarget(), defaultAutoTarget(), transport,
+//        editSig(at) (asks for the signature starting at `at`), menu?(opts) (context menu, default showMenu) }
 export function createArranger(host, ctx) {
   const view = { sx: 0, sy: 0, ppq: 16 };
   let x0 = 70; // x of time zero, measured from the label
   let hoverId = null;
   let sigBoxes = []; // painted signature labels: { at, x0, x1 }
   let pointer = null;
-  let clipboard = null;
+  let clipboard = null; // snapshots of the copied clips
   let dragging = false;
   let lastRight = null; // { time, x, y } of the last right-button press on empty space
+  let rightPress = null; // { x, y, cx, cy } right-button press that opens the menu on release
+  let sel = new Set(); // selected clip ids; song.selected (the clip in the piano roll) is one of them
+  let rect = null; // selection rectangle in progress: { x0, y0, x1, y1, ids }
+  const menu = (opts) => (ctx.menu ?? showMenu)(opts);
 
   const s = createSurface(host, paint);
   const { cv } = s;
@@ -47,9 +61,64 @@ export function createArranger(host, ctx) {
   const yOf = (y) => RULER + y - view.sy;
   const timeAt = (x) => (x - x0 + view.sx) / view.ppq;
   const step = () => snapStep(ctx.song().snap);
+  const laneAt = (y) => Math.max(0, Math.floor((y - RULER + view.sy) / CLIP_H)) * CLIP_H; // lane y under local y
 
   function place(clip, position) {
     Object.assign(clip, findClipPosition(ctx.song().clips, clip, position, view.ppq));
+  }
+
+  // Place several clips at targets[i] = { start, y }, each at the nearest free position. Clips are
+  // placed in time order against the other clips and the members placed so far, so a group moved
+  // into free space keeps its formation.
+  function placeAll(members, targets) {
+    if (members.length === 1) { place(members[0], targets[0]); return; }
+    const moving = new Set(members);
+    const placed = new Set();
+    const order = members.map((_, i) => i).sort((i, j) => targets[i].start - targets[j].start || targets[i].y - targets[j].y);
+    for (const i of order) {
+      const others = ctx.song().clips.filter((c) => !moving.has(c) || placed.has(c));
+      Object.assign(members[i], findClipPosition(others, members[i], targets[i], view.ppq));
+      placed.add(members[i]);
+    }
+  }
+
+  // Move clips from their original positions by dt quarters / dy px; the anchor's start snaps and
+  // the others follow by the same amount.
+  function moveGroup(members, origs, anchor, dt, dy) {
+    const a = origs[anchor];
+    const delta = snapRound(a.start + dt, step()) - a.start;
+    const dyy = Math.max(Math.round(dy / CLIP_H) * CLIP_H, -Math.min(...origs.map((o) => o.y)));
+    placeAll(members, origs.map((o) => ({ start: clean(o.start + delta), y: o.y + dyy })));
+  }
+
+  // ---- selection ----
+  function syncSel() {
+    if (rect) return;
+    const song = ctx.song();
+    const ids = new Set(song.clips.map((c) => c.id));
+    if (song.selected === null || !ids.has(song.selected)) sel = new Set();
+    else if (!sel.has(song.selected)) sel = new Set([song.selected]);
+    else sel = new Set([...sel].filter((id) => ids.has(id)));
+  }
+  const selectedClips = () => { syncSel(); return ctx.song().clips.filter((c) => sel.has(c.id)); };
+  // primary: the clip the piano roll shows (default: keep the current one, else the first)
+  function setSelection(clips, primary = null) {
+    const song = ctx.song();
+    sel = new Set(clips.map((c) => c.id));
+    const p = primary ?? clips.find((c) => c.id === song.selected) ?? [...clips].sort((a, b) => a.start - b.start || a.y - b.y)[0] ?? null;
+    if ((p?.id ?? null) !== song.selected) ctx.select(p?.id ?? null, { scroll: false });
+    s.redraw();
+  }
+
+  // keep a clip in view
+  function reveal(id) {
+    const c = getClip(ctx.song(), id);
+    if (!c) return;
+    const x = xOf(c.start);
+    if (x < x0 || x > s.w - 20) view.sx = c.start >= 0 ? Math.max(0, c.start * view.ppq - 20) : c.start * view.ppq - 20;
+    const y = yOf(c.y);
+    if (y < RULER || y + CLIP_H > s.h) view.sy = Math.max(0, c.y - CLIP_H);
+    s.redraw();
   }
 
   function setLength(clip, length) {
@@ -61,7 +130,9 @@ export function createArranger(host, ctx) {
   function limitScroll() {
     const song = ctx.song();
     const end = Math.max(loopEnd(song), BAR, song.sigs.at(-1).at) + 4 * BAR;
-    view.sx = clamp(view.sx, 0, Math.max(0, end * view.ppq - (s.w - x0)));
+    // room before time zero to park clips: 4 bars before the earliest clip (or zero)
+    const first = Math.min(0, ...song.clips.map((c) => c.start)) - 4 * BAR;
+    view.sx = clamp(view.sx, first * view.ppq, Math.max(0, end * view.ppq - (s.w - x0)));
     const bottom = song.clips.reduce((m, c) => Math.max(m, c.y + CLIP_H), 0);
     view.sy = clamp(view.sy, 0, Math.max(0, bottom + 2 * CLIP_H - (s.h - RULER)));
   }
@@ -80,8 +151,16 @@ export function createArranger(host, ctx) {
     g.beginPath();
     g.rect(x0, 0, w - x0, h);
     g.clip();
-    const t0 = Math.max(0, timeAt(x0));
+    const t0 = timeAt(x0);
     const t1 = timeAt(w);
+    // lanes: thin lines between them
+    const lane0 = Math.max(0, Math.floor(view.sy / CLIP_H));
+    const lane1 = Math.ceil((view.sy + h - RULER) / CLIP_H);
+    g.strokeStyle = '#17171a';
+    g.lineWidth = 1;
+    g.beginPath();
+    for (let l = lane0; l <= lane1 + 1; l++) { const y = Math.round(yOf(l * CLIP_H)) + 0.5; g.moveTo(x0, y); g.lineTo(w, y); }
+    g.stroke();
     g.fillStyle = 'rgba(255, 255, 255, 0.022)';
     snapBands(step(), view.ppq, t0, t1, (a, b) => {
       const xa = Math.round(xOf(a));
@@ -105,11 +184,25 @@ export function createArranger(host, ctx) {
     g.beginPath();
     for (const seg of m) if (seg.at > 0 && seg.at >= t0 && seg.at <= t1) { const x = Math.round(xOf(seg.at)) + 0.5; g.moveTo(x, RULER); g.lineTo(x, h); }
     g.stroke();
+    // before time zero: parking space, never played by the song
+    const zx = xOf(0);
+    if (zx > x0) {
+      g.fillStyle = 'rgba(0, 0, 0, 0.45)';
+      g.fillRect(x0, RULER, zx - x0, h - RULER);
+      if (zx - x0 > 130) {
+        g.fillStyle = '#4a4a52';
+        g.font = `500 10px ${FONT}`;
+        g.textBaseline = 'bottom';
+        g.textAlign = 'right';
+        g.fillText('before start · not played', zx - 8, h - 6);
+        g.textAlign = 'left';
+      }
+    }
 
     // Playback loops over the whole song or just the auditioned clip.
     const looping = getClip(song, ctx.transport.clipId);
     const bounds = looping ? [looping.start, looping.start + looping.length] : [loopEnd(song)];
-    for (const t of bounds) if (t > 0) {
+    for (const t of bounds) if (t !== 0) {
       const x = Math.round(xOf(t)) + 0.5;
       g.setLineDash([4, 4]);
       g.strokeStyle = '#4a4a52';
@@ -118,6 +211,8 @@ export function createArranger(host, ctx) {
     }
 
     // clips
+    syncSel();
+    const shown = rect ? rect.ids : sel;
     g.save();
     g.beginPath();
     g.rect(x0, RULER, w - x0, h - RULER);
@@ -128,15 +223,22 @@ export function createArranger(host, ctx) {
       const y = yOf(clip.y);
       if (x > w || x + cw < x0 || y > h || y + CLIP_H < RULER) continue;
       const color = ctx.color(clip);
-      const selected = clip.id === song.selected;
+      const selected = shown.has(clip.id);
+      const primary = !rect && clip.id === song.selected;
       g.globalAlpha = selected ? 0.95 : clip.id === hoverId ? 0.8 : 0.68;
       g.fillStyle = color;
       roundRect(g, x + 0.5, y + 0.5, Math.max(2, cw - 1), CLIP_H - 1, 4);
       g.fill();
       g.globalAlpha = 1;
-      g.strokeStyle = selected ? '#f2f2f4' : 'rgba(0, 0, 0, 0.6)';
-      g.lineWidth = selected ? 2 : 1;
+      const linked = isLinked(song, clip);
+      const clone = linked && isClone(song, clip);
+      if (clone) hatch(g, x, y, cw, w);
+      g.strokeStyle = selected ? (primary ? '#f2f2f4' : 'rgba(242, 242, 244, 0.7)') : 'rgba(0, 0, 0, 0.6)';
+      g.lineWidth = primary ? 2 : selected ? 1.5 : 1;
+      roundRect(g, x + 0.5, y + 0.5, Math.max(2, cw - 1), CLIP_H - 1, 4);
+      if (clone) g.setLineDash([5, 3]);
       g.stroke();
+      if (clone) g.setLineDash([]);
       if (isAuto(clip)) miniCurve(g, clip, x, y);
       // mini notes
       const ns = clip.notes.filter((n) => n.start >= 0 && n.start < clip.length);
@@ -161,8 +263,23 @@ export function createArranger(host, ctx) {
       g.fillStyle = '#fff';
       g.font = `600 10.5px ${FONT}`;
       g.textBaseline = 'top';
-      g.fillText(`${isAuto(clip) ? '∿ ' : ''}${clip.name}  ${ctx.targetLabel(clip)}`, x + 6, y + 3);
+      g.fillText(`${linked && !clone ? '⧉ ' : ''}${isAuto(clip) ? '∿ ' : ''}${clip.name}  ${ctx.targetLabel(clip)}`, x + 6, y + 3);
       g.restore();
+    }
+    // selected clones point to their source
+    for (const clip of song.clips) {
+      if (!shown.has(clip.id) || !isClone(song, clip)) continue;
+      const src = linkSource(song, clip);
+      if (src) cloneArrow(g, clip, src);
+    }
+    if (rect?.shown) {
+      const rx = Math.min(rect.x0, rect.x1);
+      const ry = Math.min(rect.y0, rect.y1);
+      g.fillStyle = 'rgba(255, 255, 255, 0.06)';
+      g.fillRect(rx, ry, Math.abs(rect.x1 - rect.x0), Math.abs(rect.y1 - rect.y0));
+      g.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+      g.lineWidth = 1;
+      g.strokeRect(rx + 0.5, ry + 0.5, Math.abs(rect.x1 - rect.x0), Math.abs(rect.y1 - rect.y0));
     }
     g.restore();
 
@@ -177,6 +294,26 @@ export function createArranger(host, ctx) {
       g.beginPath(); g.moveTo(x - 5, 0); g.lineTo(x + 5, 0); g.lineTo(x, 7); g.fill();
     }
     g.restore();
+
+    // lane numbers in the column under the label
+    g.fillStyle = '#0e0e10';
+    g.fillRect(0, RULER, x0, h - RULER);
+    const busy = new Set(song.clips.filter((c) => shown.has(c.id)).map((c) => Math.round(c.y / CLIP_H)));
+    g.font = `500 10px ui-monospace, monospace`;
+    g.textBaseline = 'middle';
+    g.textAlign = 'right';
+    for (let l = lane0; l <= lane1; l++) {
+      const y = yOf(l * CLIP_H);
+      g.fillStyle = busy.has(l) ? '#e8e8ea' : '#5c5c63';
+      g.fillText(String(l + 1), x0 - 8, y + CLIP_H / 2);
+    }
+    g.textAlign = 'left';
+    g.strokeStyle = '#17171a';
+    g.lineWidth = 1;
+    g.beginPath();
+    for (let l = lane0; l <= lane1 + 1; l++) { const y = Math.round(yOf(l * CLIP_H)) + 0.5; g.moveTo(0, y); g.lineTo(x0, y); }
+    g.moveTo(x0 - 0.5, RULER); g.lineTo(x0 - 0.5, h);
+    g.stroke();
 
     // ruler
     g.fillStyle = 'rgba(21, 21, 23, 0.92)';
@@ -196,7 +333,7 @@ export function createArranger(host, ctx) {
       g.beginPath(); g.moveTo(x, RULER - 7); g.lineTo(x, RULER); g.stroke();
       if (x < labelEnd) continue; // zoomed out: skip labels that would overlap
       const label = String(b.bar + 1);
-      g.fillStyle = '#9a9aa0';
+      g.fillStyle = b.t < 0 ? '#5c5c63' : '#9a9aa0';
       g.fillText(label, x + 4, barY);
       labelEnd = x + 4 + g.measureText(label).width + 8;
     }
@@ -228,12 +365,60 @@ export function createArranger(host, ctx) {
     g.strokeStyle = '#26262a';
     g.lineWidth = 2;
     g.beginPath(); g.moveTo(0, RULER - 0.5); g.lineTo(w, RULER - 0.5); g.stroke();
-    // time zero, directly after the colon
-    if (view.sx <= 0.5) {
+    // time zero (directly after the colon unless scrolled)
+    if (zx >= x0 - 0.5 && zx <= w) {
+      const x = Math.max(x0, zx) + 0.75;
       g.strokeStyle = '#e8e8ea';
       g.lineWidth = 3;
-      g.beginPath(); g.moveTo(x0 + 0.75, 2); g.lineTo(x0 + 0.75, h); g.stroke();
+      g.beginPath(); g.moveTo(x, 2); g.lineTo(x, h); g.stroke();
     }
+  }
+
+  // diagonal stripes inside a linked clone (the source stays plain)
+  function hatch(g, x, y, cw, w) {
+    g.save();
+    roundRect(g, x + 0.5, y + 0.5, Math.max(2, cw - 1), CLIP_H - 1, 4);
+    g.clip();
+    g.strokeStyle = 'rgba(0, 0, 0, 0.2)';
+    g.lineWidth = 4;
+    g.beginPath();
+    const from = Math.max(-CLIP_H, Math.floor((x0 - x - CLIP_H) / 10) * 10);
+    const to = Math.min(cw, w - x);
+    for (let k = from; k < to; k += 10) { g.moveTo(x + k, y + CLIP_H); g.lineTo(x + k + CLIP_H, y); }
+    g.stroke();
+    g.restore();
+  }
+
+  // dashed curved arrow from a clone to its source
+  function cloneArrow(g, from, to) {
+    const mid = (c) => xOf(c.start) + (c.length * view.ppq) / 2;
+    let fx = mid(from), fy = yOf(from.y), tx = mid(to), ty = yOf(to.y);
+    const bulge = Math.min(80, 18 + Math.abs(tx - fx) * 0.15);
+    let cy = Math.min(fy, ty) - bulge;
+    if (cy < RULER + 6) { // no room above: run below the clips
+      fy += CLIP_H; ty += CLIP_H;
+      cy = Math.max(fy, ty) + bulge;
+    }
+    const cx = (fx + tx) / 2;
+    g.save();
+    g.strokeStyle = 'rgba(242, 242, 244, 0.9)';
+    g.fillStyle = 'rgba(242, 242, 244, 0.9)';
+    g.lineWidth = 1.5;
+    g.setLineDash([6, 4]);
+    g.beginPath();
+    g.moveTo(fx, fy);
+    g.quadraticCurveTo(cx, cy, tx, ty);
+    g.stroke();
+    g.setLineDash([]);
+    g.beginPath(); g.arc(fx, fy, 2.5, 0, Math.PI * 2); g.fill();
+    const a = Math.atan2(ty - cy, tx - cx);
+    g.beginPath();
+    g.moveTo(tx, ty);
+    g.lineTo(tx - 9 * Math.cos(a - 0.4), ty - 9 * Math.sin(a - 0.4));
+    g.lineTo(tx - 9 * Math.cos(a + 0.4), ty - 9 * Math.sin(a + 0.4));
+    g.closePath();
+    g.fill();
+    g.restore();
   }
 
   // automation clip: its curve, minimum at the bottom
@@ -255,10 +440,10 @@ export function createArranger(host, ctx) {
 
   function insert(x, y, auto) {
     const song = ctx.song();
-    const start = Math.max(0, snapFloor(timeAt(x), step()));
+    const start = snapFloor(timeAt(x), step());
     const opts = {
       start,
-      y: Math.max(0, Math.round(y - RULER + view.sy - CLIP_H / 2)),
+      y: laneAt(y),
       length: barLength(song, start),
     };
     const clip = auto ? addAutoClip(song, { ...opts, target: ctx.defaultAutoTarget() }) : addClip(song, { ...opts, target: ctx.defaultTarget() });
@@ -300,17 +485,24 @@ export function createArranger(host, ctx) {
     }
     const { x, y } = s.local(e);
     const song = ctx.song();
-    if (e.button === 2) { // right-click a time signature: remove it
-      const box = sigAt(x, y);
+    if (e.button === 2) {
+      rightPress = null;
+      const box = sigAt(x, y); // right-click a time signature: remove it
       if (box && removeSig(song, box.at)) { ctx.changed(); s.redraw(); }
+      if (y < RULER || x < x0) { lastRight = null; return; }
       // double right-click on empty space: insert an automation clip
-      if (y >= RULER && x >= x0 && !hit(x, y)) {
+      if (!hit(x, y)) {
         const now = e.timeStamp;
         if (lastRight && now - lastRight.time < DOUBLE_MS && Math.hypot(x - lastRight.x, y - lastRight.y) < DOUBLE_PX) {
           lastRight = null;
           insert(x, y, true);
-        } else lastRight = { time: now, x, y };
+          return;
+        }
+        lastRight = { time: now, x, y };
       } else lastRight = null;
+      // a right click (no drag) opens the menu when released
+      rightPress = { x, y };
+      cv.setPointerCapture?.(e.pointerId);
       return;
     }
     lastRight = null;
@@ -325,39 +517,54 @@ export function createArranger(host, ctx) {
       capture(cv, e, seek, () => { dragging = false; });
       return;
     }
-    let h = hit(x, y);
-    if (!h) return;
+    if (x < x0) return;
+    const additive = e.ctrlKey || e.metaKey;
+    const h = hit(x, y);
+    if (!h) { selectRect(e, x, y, additive); return; }
     e.preventDefault();
     const source = h.clip;
-    const orig = structuredClone(source);
+    if (additive && !e.altKey && !e.shiftKey) { // Ctrl/Cmd + click: toggle the clip in the selection
+      const clips = selectedClips();
+      if (sel.has(source.id)) setSelection(clips.filter((c) => c !== source));
+      else setSelection([...clips, source], source);
+      return;
+    }
+    const copying = e.altKey ? 'dup' : e.shiftKey ? 'clone' : null;
+    const part = copying ? 'body' : h.part;
+    const inSelection = sel.has(source.id) && selectedClips().length > 1;
+    const group = part === 'body' && inSelection ? selectedClips() : [source];
+    let members = group;
+    let anchor = group.indexOf(source);
+    const origs = group.map((c) => ({ start: c.start, y: c.y }));
+    if (copying) {
+      members = group.map((c) => (copying === 'dup' ? duplicateClip(song, c) : cloneClip(song, c)));
+      moveGroup(members, origs, anchor, 0, 0); // copies start clear of their sources
+    }
+    const clip = members[anchor];
+    if (copying || !inSelection) setSelection(members, clip);
+    else if (song.selected !== clip.id) ctx.select(clip.id, { scroll: false });
+    const orig = structuredClone(clip);
+    // trimming a linked clone's start trims every clone of it by the same amount
+    const linked = part === 'left' ? linkedClips(song, clip).map((c) => ({ c, start: c.start, length: c.length, bounds: clipResizeBounds(song.clips, c) })) : [];
     const tStart = timeAt(x);
     const yStart = y + view.sy;
-    let clip = source;
-    const dup = e.altKey;
-    if (dup) {
-      clip = duplicateClip(song, clip);
-      place(clip);
-      h = { clip, part: 'body' };
-    }
-    ctx.select(clip.id);
     let moved = false;
     dragging = true;
-    cv.style.cursor = h.part === 'body' ? 'grabbing' : 'ew-resize';
+    cv.style.cursor = part === 'body' ? 'grabbing' : 'ew-resize';
     capture(cv, e, (ev) => {
       const p = s.local(ev);
       if (!moved && Math.hypot(p.x - x, p.y - y) < 3) return; // a click is not a move
       const dt = timeAt(p.x) - tStart;
-      if (h.part === 'body') {
-        place(clip, {
-          start: Math.max(0, snapRound(orig.start + dt, st)),
-          y: Math.max(0, orig.y + p.y + view.sy - yStart),
-        });
-      } else if (h.part === 'right') {
+      if (part === 'body') {
+        moveGroup(members, origs, anchor, dt, p.y + view.sy - yStart);
+      } else if (part === 'right') {
         setLength(clip, Math.max(st, clean(snapRound(orig.start + orig.length + dt, st) - clip.start)));
       } else {
-        const end = orig.start + orig.length;
-        const bounds = clipResizeBounds(song.clips, clip);
-        trimClipStart(clip, clamp(snapRound(orig.start + dt, st), bounds.start, end - Math.min(st, orig.length)), orig);
+        const lo = Math.max(...linked.map((l) => l.bounds.start - l.start));
+        const hi = Math.min(...linked.map((l) => l.length - Math.min(st, l.length)));
+        const delta = clamp(snapRound(orig.start + dt, st) - orig.start, lo, hi);
+        trimClipStart(clip, clean(orig.start + delta), orig); // shifts the shared notes once
+        for (const l of linked) if (l.c !== clip) { l.c.start = clean(l.start + delta); l.c.length = clean(l.length - delta); }
         place(clip);
       }
       moved = true;
@@ -365,14 +572,141 @@ export function createArranger(host, ctx) {
       ctx.live?.();
     }, (ev) => {
       dragging = false;
-      if (dup && (!moved || ev.type === 'pointercancel')) { // Alt + click/cancel: no copy
-        removeClip(song, clip.id);
-        ctx.select(source.id);
+      if (copying && (!moved || ev.type === 'pointercancel')) { // Alt/Shift + click or cancel: no copy
+        for (const c of members) removeClip(song, c.id);
+        setSelection(group, source);
       } else if (moved) ctx.changed();
+      else if (inSelection && part === 'body') setSelection([source], source); // click inside a selection: just this clip
       const p = s.local(ev);
       hoverAt(p.x, p.y);
     });
   });
+
+  cv.addEventListener('pointerup', (e) => {
+    if (e.button !== 2 || !rightPress) return;
+    const press = rightPress;
+    rightPress = null;
+    const { x, y } = s.local(e);
+    if (Math.hypot(x - press.x, y - press.y) > DOUBLE_PX) return;
+    openMenu(press.x, press.y, e.clientX, e.clientY);
+  });
+  cv.addEventListener('pointercancel', () => { rightPress = null; });
+
+  // Drag on empty space: rectangle selection (additive keeps the current selection). A plain click
+  // on empty space clears the selection.
+  function selectRect(e, x, y, additive) {
+    e.preventDefault();
+    const base = additive ? selectedClips().map((c) => c.id) : [];
+    rect = { x0: x, y0: y, x1: x, y1: y, ids: new Set(base), shown: false };
+    dragging = true;
+    capture(cv, e, (ev) => {
+      const p = s.local(ev);
+      if (!rect.shown && Math.hypot(p.x - x, p.y - y) < 3) return;
+      rect.shown = true;
+      rect.x1 = clamp(p.x, x0, s.w);
+      rect.y1 = clamp(p.y, RULER, s.h);
+      const l = Math.min(x, rect.x1);
+      const r = Math.max(x, rect.x1);
+      const t = Math.min(y, rect.y1);
+      const b = Math.max(y, rect.y1);
+      const hits = ctx.song().clips.filter((c) => {
+        const cx = xOf(c.start);
+        const cy = yOf(c.y);
+        return cx < r && cx + c.length * view.ppq > l && cy < b && cy + CLIP_H > t;
+      });
+      rect.ids = new Set([...base, ...hits.map((c) => c.id)]);
+      s.redraw();
+    }, (ev) => {
+      dragging = false;
+      const r = rect;
+      rect = null;
+      if (ev.type === 'pointercancel') { s.redraw(); return; }
+      if (!r.shown) { if (!additive) setSelection([]); return; }
+      setSelection(ctx.song().clips.filter((c) => r.ids.has(c.id)));
+    });
+  }
+
+  // ---- commands (keyboard and context menu) ----
+  // where pasted / inserted clips go: the snapped time and row at local point p
+  const dropAt = (p) => ({ start: snapFloor(timeAt(p.x), step()), y: laneAt(p.y) });
+  const inTimeArea = (p) => !!p && p.x >= x0 && p.x <= s.w && p.y >= RULER && p.y <= s.h;
+
+  function copy() {
+    const clips = selectedClips();
+    if (clips.length) clipboard = clips.map((c) => structuredClone(c));
+    return clips.length > 0;
+  }
+  function remove() {
+    const clips = selectedClips();
+    if (!clips.length) return;
+    for (const c of clips) removeClip(ctx.song(), c.id);
+    setSelection([]);
+    ctx.changed();
+  }
+  function paste(p) {
+    if (!clipboard || !inTimeArea(p)) return;
+    const song = ctx.song();
+    const at = dropAt(p);
+    const t0 = Math.min(...clipboard.map((c) => c.start));
+    const y0 = Math.min(...clipboard.map((c) => c.y));
+    const copies = clipboard.map((c) => duplicateClip(song, c));
+    placeAll(copies, clipboard.map((c) => ({ start: clean(at.start + c.start - t0), y: at.y + c.y - y0 })));
+    setSelection(copies, copies[0]);
+    ctx.changed();
+  }
+  // copies (or linked clones) of the selection, right after it on the same rows
+  function repeat(linkedCopies) {
+    const clips = selectedClips();
+    if (!clips.length) return;
+    const song = ctx.song();
+    const span = Math.max(...clips.map((c) => c.start + c.length)) - Math.min(...clips.map((c) => c.start));
+    const copies = clips.map((c) => (linkedCopies ? cloneClip(song, c) : duplicateClip(song, c)));
+    placeAll(copies, clips.map((c) => ({ start: clean(c.start + span), y: c.y })));
+    setSelection(copies, copies[clips.findIndex((c) => c.id === song.selected)] ?? copies[0]);
+    ctx.changed();
+  }
+  function detach() {
+    let n = 0;
+    for (const c of selectedClips()) if (detachClip(ctx.song(), c)) n++;
+    if (n) ctx.changed();
+  }
+  const selectAll = () => setSelection(ctx.song().clips);
+  function goToSource(clip) {
+    const src = linkSource(ctx.song(), clip);
+    if (!src) return;
+    setSelection([src], src);
+    reveal(src.id);
+  }
+
+  function openMenu(x, y, cx, cy) {
+    const h = hit(x, y);
+    if (h && !sel.has(h.clip.id)) setSelection([h.clip], h.clip);
+    const clips = h ? selectedClips() : [];
+    const p = { x, y };
+    const items = h
+      ? [
+        { label: 'Cut', shortcut: shortcut('X'), action: () => { if (copy()) remove(); } },
+        { label: 'Copy', shortcut: shortcut('C'), action: copy },
+        { label: 'Paste', shortcut: shortcut('V'), disabled: !clipboard, action: () => paste(p) },
+        { label: 'Delete', shortcut: '⌫', action: remove },
+        '-',
+        { label: 'Duplicate', shortcut: shortcut('D'), action: () => repeat(false) },
+        { label: 'Clone (linked)', shortcut: shortcut('⇧D'), action: () => repeat(true) },
+        { label: 'Detach clone', disabled: !clips.some((c) => isLinked(ctx.song(), c)), action: detach },
+        { label: 'Go to source', disabled: !(h && isClone(ctx.song(), h.clip)), action: () => goToSource(h.clip) },
+        '-',
+        { label: 'Select all', shortcut: shortcut('A'), action: selectAll },
+      ]
+      : [
+        { label: 'Paste', shortcut: shortcut('V'), disabled: !clipboard, action: () => paste(p) },
+        '-',
+        { label: 'Insert clip', action: () => insert(x, y, false) },
+        { label: 'Insert automation clip', action: () => insert(x, y, true) },
+        '-',
+        { label: 'Select all', shortcut: shortcut('A'), disabled: !ctx.song().clips.length, action: selectAll },
+      ];
+    menu({ x: cx, y: cy, items });
+  }
 
   function sigAt(x, y) {
     if (y >= SIG_H || x < x0) return null;
@@ -404,30 +738,17 @@ export function createArranger(host, ctx) {
     const key = e.key.toLowerCase();
     const command = (e.ctrlKey || e.metaKey) && !e.altKey;
     const deleting = key === 'backspace' || key === 'delete';
-    if (!deleting && !(command && ['x', 'c', 'v'].includes(key))) return;
+    if (!deleting && key !== 'escape' && !(command && ['x', 'c', 'v', 'a', 'd'].includes(key))) return;
     e.preventDefault();
     e.stopPropagation();
     if (dragging) return;
-    const song = ctx.song();
-    if (command && key === 'v') {
-      if (!clipboard || !pointer || pointer.x < x0 || pointer.x > s.w || pointer.y < RULER || pointer.y > s.h) return;
-      const copy = duplicateClip(song, clipboard);
-      copy.name = clipboard.name;
-      place(copy, {
-        start: Math.max(0, snapFloor(timeAt(pointer.x), step())),
-        y: Math.max(0, Math.round(pointer.y - RULER + view.sy - CLIP_H / 2)),
-      });
-      ctx.select(copy.id);
-      ctx.changed();
-      return;
-    }
-    const clip = getClip(song, song.selected);
-    if (!clip) return;
-    if (command && (key === 'c' || key === 'x')) clipboard = structuredClone(clip);
-    if ((deleting || (command && key === 'x')) && removeClip(song, clip.id)) {
-      ctx.select(null);
-      ctx.changed();
-    }
+    if (key === 'escape') setSelection([]);
+    else if (key === 'a') selectAll();
+    else if (key === 'v') paste(pointer);
+    else if (key === 'd') repeat(e.shiftKey);
+    else if (key === 'c') copy();
+    else if (key === 'x') { if (copy()) remove(); }
+    else remove();
   });
 
   onWheel(cv, {
@@ -452,16 +773,7 @@ export function createArranger(host, ctx) {
     redraw: s.redraw,
     place,
     setLength,
-    // keep the selected clip in view
-    reveal(id) {
-      const c = getClip(ctx.song(), id);
-      if (!c) return;
-      const x = xOf(c.start);
-      if (x < x0 || x > s.w - 20) view.sx = Math.max(0, c.start * view.ppq - 20);
-      const y = yOf(c.y);
-      if (y < RULER || y + CLIP_H > s.h) view.sy = Math.max(0, c.y - 10);
-      s.redraw();
-    },
+    reveal,
     getView: () => ({ ...view }),
     setView(v) {
       if (!v) return;

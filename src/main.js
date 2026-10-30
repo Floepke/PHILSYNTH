@@ -13,6 +13,7 @@ import { defaultCam, validCam, toWorld, zoomAt, fitBox, ZOOM_STEP } from './came
 import { initWidgets } from './widgets.js';
 import { snapStep } from './song.js';
 import { CableScope } from './cablescope.js';
+import { openMapDialog, patchControllersView } from './mapdialog.js';
 
 const engine = new Engine();
 let transport = null; // song playback (created after the engine)
@@ -561,7 +562,7 @@ canvas.addEventListener('pointerdown', (e) => {
 });
 
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && path.length > 1 && !dialog.open) {
+  if (e.key === 'Escape' && path.length > 1 && !document.querySelector('dialog[open]')) {
     path.pop();
     render();
     return;
@@ -644,21 +645,26 @@ function select(s) {
       hint('<kbd>Alt</kbd> + drag a module to duplicate it (or the whole selection).'),
       hint('<kbd>Backspace</kbd> deletes the selection.'),
       hint('<kbd>Double-click</kbd> a Patch to enter it, <kbd>Esc</kbd> to go up.'),
+      hint('Select a Patch and click <b>Controllers…</b> to map controllers of any module inside to controllers of the Patch module, so they can be set, modulated (LFO) and automated from outside.'),
+      hint('OSC / ADSR: with <b>Sustain</b> at 0, <b>Decay</b> and <b>Release</b> are linked: moving one moves the other.'),
       hint('<kbd>Middle mouse</kbd> + drag pans the canvas, <kbd>scroll</kbd> zooms. Click the zoom % (bottom right) to fit all modules.'),
       hint('Play with a MIDI controller or keys <kbd>A</kbd>–<kbd>;</kbd>.'),
-      hint('<b>Sequencer</b> (right, <kbd>S</kbd> shows / hides it): <kbd>Double-click</kbd> the TimeLine to add a clip, drag its edges to resize, <kbd>Alt</kbd> + drag to copy. In the piano roll click / drag to write notes, drag a note body for its length, its circle for pitch and time, right click deletes. <kbd>Space</kbd> plays. <kbd>Double-click</kbd> the TimeLine ruler to insert a time signature change (right-click it to remove).'),
-      hint('<b>Piano roll selection:</b> <kbd>Shift</kbd> + drag draws a selection rectangle; clicking a note selects it. <kbd>Ctrl/Cmd</kbd> + <kbd>A</kbd> selects all notes, <kbd>Esc</kbd> clears the selection, and <kbd>Backspace</kbd> / <kbd>Delete</kbd> deletes it. <kbd>Alt</kbd> + drag a note (body or circle) moves a clone.'),
-      hint('<b>Arrow keys:</b> in the piano roll, <kbd>Left</kbd> / <kbd>Right</kbd> transpose selected notes by one semitone; <kbd>Up</kbd> / <kbd>Down</kbd> move them earlier/later by one snap step. The selection moves together and stops at time zero or the MIDI pitch limits.'),
+      hint('<b>Sequencer</b> (right, <kbd>S</kbd> shows / hides it): <kbd>Double-click</kbd> the TimeLine to add a clip, drag its edges to resize, <kbd>Alt</kbd> + drag to copy. In the piano roll click / drag to write notes (new notes get the last used length), drag a note body for its length, its circle for pitch and time; right click opens a menu (cut / copy / paste / delete / duplicate / quantize / octave). <kbd>Space</kbd> plays. <kbd>Double-click</kbd> the TimeLine ruler to insert a time signature change (right-click it to remove).'),
+      hint('<b>Piano roll selection:</b> <kbd>Shift</kbd> + drag or <kbd>right</kbd> + drag draws a selection rectangle; clicking a note selects it, <kbd>Shift</kbd> + click toggles it. Dragging a selected note moves / resizes the whole selection. <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> duplicates the selection, <kbd>Q</kbd> quantizes note starts (selection, else all). <kbd>Ctrl/Cmd</kbd> + <kbd>A</kbd> selects all notes, <kbd>Esc</kbd> clears the selection, and <kbd>Backspace</kbd> / <kbd>Delete</kbd> deletes it. <kbd>Alt</kbd> + drag a note (body or circle) moves a clone.'),
+      hint('<b>Arrow keys:</b> in the piano roll, <kbd>Left</kbd> / <kbd>Right</kbd> transpose selected notes by one semitone; <kbd>Up</kbd> / <kbd>Down</kbd> move them earlier/later by one snap step. With <kbd>Shift</kbd>: an octave / a bar. The selection moves together and stops at time zero or the MIDI pitch limits.'),
       hint('<b>Velocity:</b> the strip left of the piano roll shows every note\'s velocity (stick) and how it changes while the note sounds. Drag a note\'s dot to set its velocity (<kbd>Shift</kbd>-click adds it to the selection). The selected notes share one curve: <kbd>Double-click</kbd> inside them to add a point, drag points (time snaps, <kbd>Shift</kbd> = fine), the mouse wheel on a point rounds it, right click deletes it. One selected note edits its own curve.'),
       hint('<b>Automation:</b> <kbd>Double right-click</kbd> the TimeLine to add an automation clip, then pick the module (<i>Send to</i>) and its <i>Controller</i> in the toolbar. In the automation lane <kbd>Double-click</kbd> inserts a point (snapped to the grid), drag moves it (<kbd>Shift</kbd> = fine), the mouse wheel on a point rounds the corner and right click deletes it. While playing, the clip drives the controller like an LFO; outside the clip (or when stopped) the controller has its own value again.'),
       hint('<b>Sequencer clipboard:</b> click the piano roll or TimeLine to focus it, then use <kbd>Ctrl/Cmd</kbd> + <kbd>X</kbd> / <kbd>C</kbd> / <kbd>V</kbd> to cut / copy / paste selected notes or the selected clip. Each view has its own in-app clipboard. Paste at the mouse pointer, snapped to the grid; note pitches and relative timing are preserved.'),
+      hint('<b>TimeLine selection &amp; clones:</b> drag on empty TimeLine space for a selection rectangle (<kbd>Ctrl/Cmd</kbd> adds), <kbd>Ctrl/Cmd</kbd> + click toggles a clip. Dragging moves the whole selection; <kbd>Alt</kbd> + drag copies it, <kbd>Shift</kbd> + drag makes <i>linked clones</i> that share their notes with the source (marked ⧉): editing one edits all. Clones are drawn with diagonal stripes and a dashed outline; a selected clone shows a dashed arrow to its source. Right click a clip for cut / copy / paste / delete / duplicate / clone / detach (turns a clone into a standalone clip) / go to source. <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> duplicates, <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd> clones.'),
+      hint('<b>Sequencer undo:</b> <kbd>Ctrl/Cmd</kbd> + <kbd>Z</kbd> undoes TimeLine / piano roll / automation edits, <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> (or <kbd>Ctrl</kbd> + <kbd>Y</kbd>) redoes.'),
+      hint('<b>TimeLine lanes:</b> clips sit on numbered lanes (the numbers left of the clips), one clip high; dragging up / down snaps to them. Scroll left past the bright zero line to park clips before the song start: they are not played (<kbd>/</kbd> still auditions them), which suits source clips whose clones make up the song.'),
       hint('<b>TimeLine placement:</b> moving, cloning, pasting or creating a clip snaps it to the nearest non-overlapping position. Clip edges take priority over the time grid; resizing stops at neighbouring clips. Use separate vertical rows for clips that play at the same time. The Start and Length fields follow these rules too.'),
       hint('<b>Playback:</b> <kbd>/</kbd> starts and loops only the selected clip from its start. <kbd>\'</kbd> stops playback, <kbd>.</kbd> plays/resumes the full song, and <kbd>,</kbd> restarts the song at zero. <kbd>Space</kbd> toggles play/stop; stopping with <kbd>Space</kbd> (or the ■ button) moves the playhead to the start of the selected clip, so the next <kbd>Space</kbd> plays from there. Shortcuts are inactive while typing in a field. Note chasing: starting or jumping into the middle of a note plays it for the rest of its length.'),
       hint('<b>Controls:</b> scroll a dropdown to change its selection. Number fields have permanent up/down buttons and also support scrolling; <kbd>Double-click</kbd> a number (or use <kbd>Tab</kbd>) to type. Mouse adjustments leave keyboard focus in the editor so <kbd>Space</kbd> still plays.'),
       hint('<b>Toolbar:</b> controls stay on one row. When space is tight, move the pointer toward the left or right edge to reveal hidden controls; the closer to the edge, the faster it moves. Move to the middle to stop. Clicking, typing or using the wheel pauses motion; the wheel still changes control values. <kbd>Tab</kbd> also reveals focused controls.'),
       hint('<b>Layout:</b> drag the wide dividers all the way to an edge to hide the patcher, piano roll or TimeLine. Drag the divider back to reopen a pane. The piano keyboard stays at the bottom of the roll; selected notes are filled blue.'),
       hint('Drag the left controller-panel divider to resize the panel, or fully left to hide it. Its handle stays available to reopen it, and the width is saved with the project.'),
-      hint('The divider beside the sequencer moves both splits together: drag left/right for sequencer width and up/down for the piano roll / TimeLine split. The horizontal divider still adjusts only the heights.'),
+      hint('Both sequencer dividers move both splits together: drag left/right for the sequencer width and up/down for the piano roll / TimeLine split. Every divider shows a small four-dot grip.'),
       hint('<b>Piano roll colors:</b> charcoal paper keeps the stave dark rather than inverted. Notes use a lighter version of their module color; black-key bodies are slightly darker, including in blue selections, so dense chromatic chords retain the keyboard pattern.'),
       hint('The piano-roll snap bands and horizontal grid/bar lines run from the center of <b>A#0</b> to the center of <b>A#7</b> (American notation). Notes outside this range can still be edited and played.'),
     );
@@ -750,6 +756,14 @@ function select(s) {
   view = entry.def.view?.(entry, {
     color: entry.def.color,
     setParam: (id, v) => { current().setParam(entry.id, id, v); refresh(); }, // e.g. dragging an EQ band
+    // Patch: "Controllers…" opens the mapping dialog; the panel shows the new controllers after it
+    patchControllers: (e) => patchControllersView(e, {
+      open: async () => {
+        const patch = current();
+        await openMapDialog(e, { setState: (st) => patch.setState(e.id, st) });
+        if (sel?.entry === e) select(sel);
+      },
+    }),
   }) ?? null;
   panelView = view;
   if (view) {
@@ -783,9 +797,10 @@ engine.onModulate = (entry, id, v) => {
 };
 
 // ---- save / load ----
+// Project files are .mds (ModSynth project: JSON text inside). Older .json projects still load.
 $('save').onclick = () => {
-  const blob = new Blob([JSON.stringify({ ...engine.saveProject(), view: viewState() }, null, 2)], { type: 'application/json' });
-  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'project.modsynth.json' });
+  const blob = new Blob([JSON.stringify({ ...engine.saveProject(), view: viewState() }, null, 2)], { type: 'application/octet-stream' });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'project.mds' });
   a.click();
   URL.revokeObjectURL(a.href);
 };

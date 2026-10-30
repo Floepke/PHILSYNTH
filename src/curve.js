@@ -3,6 +3,8 @@
 // corner replaced by a quadratic Bézier that starts/ends r/2 of the way along its two segments
 // (r = 1: the curve touches the midpoints of both segments, so neighbours never overlap).
 export const MIN_GAP = 0.002; // smallest x distance between points
+// rounding of a point inserted by double-click in any curve editor (waveshaper, velocity, automation): fully round
+export const NEW_POINT_ROUND = 1;
 
 export const defaultCurve = () => ({ points: [{ x: 0, y: 0, r: 0 }, { x: 1, y: 1, r: 0 }] });
 
