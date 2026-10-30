@@ -20,7 +20,7 @@ const vowel = (v) => {
 
 export default {
   type: 'FILTER',
-  color: '#b0972f',
+  color: '#996a03',
   label: 'Filter',
   acceptsMidi: false,
   hasInput: true,

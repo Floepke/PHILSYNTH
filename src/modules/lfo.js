@@ -21,7 +21,7 @@ function formatFreq(v, values) {
 
 export default {
   type: 'LFO',
-  color: '#3f86b0',
+  color: '#05a6de',
   label: 'LFO (modulator)',
   acceptsMidi: false,
   hasInput: false,

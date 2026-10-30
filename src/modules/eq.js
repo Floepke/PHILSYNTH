@@ -130,7 +130,7 @@ export function createEqView({ color = '#7a6aa8', values, setParam }) {
 
 export default {
   type: 'EQ',
-  color: '#6a5fa8',
+  color: '#4571c6',
   label: '16-band equalizer',
   acceptsMidi: false,
   hasInput: true,

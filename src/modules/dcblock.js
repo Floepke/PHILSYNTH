@@ -2,7 +2,7 @@
 // DSP: dcblock.dsp.js (C++: cpp/basic.h DcBlock).
 export default {
   type: 'DC BLOCKER',
-  color: '#5a8f8a',
+  color: '#07848c',
   label: 'Removes DC offset',
   acceptsMidi: false,
   hasInput: true,

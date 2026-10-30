@@ -23,7 +23,7 @@ export function waveformPoints(wave, duty, n = 256, cycles = CYCLES) {
   return ys.map((y) => y / peak);
 }
 
-export function createWaveView({ color = '#c0713a', values }) {
+export function createWaveView({ color = '#db7c3d', values }) {
   const el = document.createElement('div');
   el.className = 'wave-view';
   const cv = document.createElement('canvas');

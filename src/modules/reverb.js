@@ -6,7 +6,7 @@ const secs = (v) => (v < 1 ? `${Math.round(v * 1000)} ms` : `${v.toFixed(v < 10 
 
 export default {
   type: 'REVERB',
-  color: '#3a9a92',
+  color: '#0db28f',
   label: 'Reverb',
   acceptsMidi: false,
   hasInput: true,

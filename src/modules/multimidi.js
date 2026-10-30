@@ -47,7 +47,7 @@ const hz = (v) => (v ? `${v < 10 ? v.toFixed(2) : v.toFixed(1)} Hz` : 'Hold');
 
 export default {
   type: 'MULTIMIDI',
-  color: '#b54a52',
+  color: '#b84d4e',
   label: 'MultiMIDI (pitch/velocity)',
   acceptsMidi: true,
   midiOut: true, // its cables carry MODMIDI notes, not audio

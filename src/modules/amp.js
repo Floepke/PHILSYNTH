@@ -6,7 +6,7 @@ export { panGains } from './amp.dsp.js';
 
 export default {
   type: 'AMP',
-  color: '#4e9a52',
+  color: '#3c8836',
   label: 'Amplifier',
   acceptsMidi: false,
   hasInput: true,

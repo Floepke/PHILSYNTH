@@ -9,7 +9,7 @@ import { modulatorParams, outParams } from './modtarget.js';
 
 export default {
   type: 'VELOCITY2CTL',
-  color: '#8a6fc2',
+  color: '#9a55a5',
   label: 'VELOCITY2CTL (velocity → controller)',
   acceptsMidi: true,
   hasInput: false,

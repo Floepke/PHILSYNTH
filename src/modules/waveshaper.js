@@ -12,7 +12,7 @@ const db = (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)} dB`;
 
 export default {
   type: 'WAVESHAPER',
-  color: '#8a8a3c',
+  color: '#9ba022',
   label: 'Waveshaper (curve)',
   acceptsMidi: false,
   hasInput: true,

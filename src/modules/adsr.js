@@ -13,7 +13,7 @@ const secs = (v) => (v < 1 ? `${Math.round(v * 1000)} ms` : `${v.toFixed(2)} s`)
 
 export default {
   type: 'ADSR',
-  color: '#a8577e',
+  color: '#d871a1',
   label: 'ADSR (envelope modulator)',
   acceptsMidi: true, // notes trigger the envelope
   hasInput: false,
