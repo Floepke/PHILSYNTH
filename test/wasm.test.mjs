@@ -271,6 +271,12 @@ function patchUp(dsp) {
   };
   const na = build(A.dsp);
   const nb = build(B.dsp);
+  // cable scope: the native runner's silent flags give the same stream as the per-node path
+  const sa = [], sb = [];
+  A.dsp.onScope = (s) => sa.push(...s.v);
+  B.dsp.onScope = (s) => sb.push(...s.v);
+  A.dsp.scope([na.o1.h, na.f.h, na.a.h, na.lfo.h]);
+  B.dsp.scope([nb.o1.h, nb.f.h, nb.a.h, nb.lfo.h]);
   let extraA = null, extraB = null;
   let worst = 0;
   const native = [];
@@ -294,6 +300,8 @@ function patchUp(dsp) {
     for (let i = 0; i < N; i++) worst = Math.max(worst, Math.abs(ja[i] - rb.L[i]), Math.abs(jr[i] - rb.R[i]));
   }
   assert.equal(worst, 0, 'the native runner renders exactly what the per-node path renders');
+  assert.ok(sa.length > 400 && sa.some((v) => v !== 0), 'scope points were reported');
+  assert.deepEqual(sa, sb, 'scope stream is the same in native and per-node mode');
   assert.ok(native[50] && !native[150] && native[250], 'native only while every audio node is C++');
   assert.ok(!B.graph.prog, 'native: false keeps the per-node path');
   assert.ok(peak[50] > 0.01 && peak[150] > 0.01 && peak[240] > 0.01 && peak[350] > 0.01, 'there was sound to compare');

@@ -16,7 +16,8 @@
 //
 // Messages (arrays, batched by the host): ['add', h, kind, opts] ['del', h] ['con', from, to]
 // ['dis', from, to] ['msg', h, message] ['routes', h, [{ to, id, min, max, scale, step }]]
-// ['clock', on] (report the audio time even without modulation changes, for MULTIMIDI drift).
+// ['clock', on] (report the audio time even without modulation changes, for MULTIMIDI drift)
+// ['scope', [h...]] (watch these nodes for the cable display, see scope()).
 //
 // new Graph({ kernels, heap, native }): `kernels` overrides kinds of the JS registry (the C++
 // kernels of src/dsp/wasm.js); with a `heap` every node's audio buffers live in that wasm memory,
@@ -29,6 +30,11 @@ import { fromNorm } from '../params.js';
 
 const BLOCK = 128;
 const NO_INPUT = [[]];
+// Cable scope: one point per SCOPE_BLOCKS quanta (256 samples, ~5 ms at 48 kHz) per watched node,
+// sent with the reports. After SCOPE_QUIET silent points in a row nothing is sent until sound returns.
+export const SCOPE_BLOCKS = 2;
+export const SCOPE_QUIET = 1024;
+const SCOPE_MAX = 16; // points kept between two reports (more are dropped)
 
 export class Graph {
   constructor({ kernels = null, heap = null, native = true } = {}) {
@@ -42,6 +48,12 @@ export class Graph {
     this.dirty = true;
     this.clock = false;
     this.pending = new Set(); // routes whose applied value changed since the last report
+    this.scopeH = []; // watched node handles
+    this.scopePk = new Float64Array(0); // running signed peak per watched node
+    this.scopeBuf = new Float32Array(0); // points since the last report: [point][node]
+    this.scopeN = 0;
+    this.scopeBlk = 0;
+    this.scopeQuiet = SCOPE_QUIET + 1;
     this.master = this.add(0, 'bus');
   }
 
@@ -58,6 +70,7 @@ export class Graph {
       case 'msg': this.message(a, b); break;
       case 'routes': this.setRoutes(a, b); break;
       case 'clock': this.clock = !!a; break;
+      case 'scope': this.setScope(a); break;
     }
   }
 
@@ -158,6 +171,14 @@ export class Graph {
       .filter((r) => r.node);
   }
 
+  setScope(list) {
+    this.scopeH = [...list];
+    this.scopePk = new Float64Array(list.length);
+    this.scopeBuf = new Float32Array(list.length * SCOPE_MAX);
+    this.scopeN = 0;
+    this.scopeBlk = 0;
+  }
+
   // dependency order of everything that reaches the master bus (depth-first, sources first)
   rebuild() {
     this.dirty = false;
@@ -232,6 +253,7 @@ export class Graph {
       else if (live > 1) ins = this.sum(n);
       n.silent = n.k.process(ins, n.outs) === false;
     }
+    if (this.scopeH.length) this.scope();
     const m = this.master;
     if (m.silent) {
       L.fill(0);
@@ -243,6 +265,46 @@ export class Graph {
       const [a, b] = m.outs[0];
       for (let i = 0; i < L.length; i++) L[i] = 0.5 * (a[i] + b[i]);
     }
+  }
+
+  // Cable scope point: the sample with the largest magnitude (sign kept) of the node's output
+  // (L+R)/2 over SCOPE_BLOCKS quanta; 0 while silent or gone. Modulators give their value
+  // (LFO bipolar -1..1, others 0..1).
+  scope() {
+    const H = this.scopeH;
+    const pk = this.scopePk;
+    const native = this.prog ? this.x : null;
+    for (let i = 0; i < H.length; i++) {
+      const n = this.nodes.get(H[i]);
+      if (!n) continue;
+      if (n.modulator) {
+        const x = n.k.value;
+        if (x !== null && x !== undefined) pk[i] = n.kind === 'lfo' ? 2 * x - 1 : x;
+        continue;
+      }
+      if (native && n.rec ? native.ms_node_silent(n.rec) : n.silent) continue;
+      const [a, b] = n.outs[0];
+      let p = pk[i];
+      let mag = Math.abs(p);
+      for (let j = 0; j < BLOCK; j++) {
+        const v = 0.5 * (a[j] + b[j]);
+        const av = Math.abs(v);
+        if (av > mag) { mag = av; p = v; }
+      }
+      pk[i] = p;
+    }
+    if (++this.scopeBlk < SCOPE_BLOCKS) return;
+    this.scopeBlk = 0;
+    let loud = false;
+    if (this.scopeN >= SCOPE_MAX) this.scopeN = SCOPE_MAX - 1; // nobody reads: keep the newest
+    const at = this.scopeN++ * H.length;
+    for (let i = 0; i < H.length; i++) {
+      const v = Number.isFinite(pk[i]) ? pk[i] : 0;
+      this.scopeBuf[at + i] = v;
+      if (v !== 0) loud = true;
+      pk[i] = 0;
+    }
+    this.scopeQuiet = loud ? 0 : this.scopeQuiet + 1;
   }
 
   sum(n) {
@@ -257,13 +319,20 @@ export class Graph {
     return n.sums;
   }
 
-  // Message for the main thread: { time, mods: [handle, controller id, value, ...] }, or null
-  // when there is nothing to tell.
+  // Message for the main thread: { time, mods: [handle, controller id, value, ...],
+  // scope?: { h: [handles], n: points, v: Float32Array [point][node] } }, or null when there is
+  // nothing to tell.
   report(time) {
-    if (!this.pending.size && !this.clock) return null;
+    let scope = null;
+    if (this.scopeN >= 2) { // batch two points (~10 ms) per message
+      const H = this.scopeH;
+      if (this.scopeQuiet <= SCOPE_QUIET) scope = { h: H, n: this.scopeN, v: this.scopeBuf.slice(0, this.scopeN * H.length) };
+      this.scopeN = 0;
+    }
+    if (!this.pending.size && !this.clock && !scope) return null;
     const mods = [];
     for (const r of this.pending) mods.push(r.node.h, r.id, r.last);
     this.pending.clear();
-    return { time, mods };
+    return scope ? { time, mods, scope } : { time, mods };
   }
 }

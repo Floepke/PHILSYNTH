@@ -4,6 +4,7 @@ import { dspTestHost } from './dsphost.mjs';
 import { DspHost } from '../src/dsp/host.js';
 import { KERNELS } from '../src/dsp/kernels.js';
 import { Kernel } from '../src/dsp/kernel.js';
+import { SCOPE_QUIET } from '../src/dsp/graph.js';
 
 // test kernels: a constant source, a counter of process() calls
 class Const extends Kernel {
@@ -20,6 +21,7 @@ class Mod extends Kernel {
   static modulator = true;
   constructor() { super(); this.value = 0; }
 }
+const near = (a, b, eps) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 Object.assign(KERNELS, { const: Const, probe: Probe, mod: Mod });
 
 const { dsp, graph, render, kernel } = dspTestHost();
@@ -167,6 +169,50 @@ assert.throws(() => graph.handle([['add', 999, 'nope']]), /Unknown DSP kernel/);
   console.log(`16 OSC (4 voices) + 16 FILTER: 1 s of audio in ${ms.toFixed(0)} ms`);
   assert.ok(ms < 1000, 'faster than real time');
   nodes.forEach((x) => x.destroy());
+}
+
+// ---- cable scope: signed peaks per watched node, batched into the reports ----
+{
+  const T = dspTestHost();
+  const src = T.dsp.create('const', { v: 0.5 });
+  const m = T.dsp.create('mod');
+  src.connect(T.dsp.destination);
+  const got = [];
+  T.dsp.onScope = (s) => got.push(s);
+  T.render(4);
+  assert.equal(got.length, 0, 'nothing is reported while no node is watched');
+  T.dsp.scope([src.h, m.h, 9999]); // 9999: a node that does not exist
+  T.graph.nodes.get(m.h).k.value = 0.25;
+  T.render(4);
+  assert.equal(got.length, 1, 'two points (4 blocks) per message');
+  assert.equal(got[0].n, 2);
+  assert.deepEqual([...got[0].v], [0, 0.25, 0, 0, 0.25, 0], '(L+R)/2 of +v/-v is 0; modulator value; missing node 0');
+  const lfo = T.dsp.create('lfo');
+  T.graph.nodes.get(src.h).k.v = 0.5;
+  T.graph.nodes.get(src.h).k.process = function (_i, o) { o[0][0].fill(0.1); o[0][0][7] = -0.8; o[0][1].fill(0.1); return this.on; };
+  T.dsp.scope([src.h, lfo.h]);
+  got.length = 0;
+  T.render(4);
+  assert.equal(got.length, 1);
+  near(got[0].v[2], -0.35, 1e-6); // biggest magnitude sample, sign kept: (-0.8 + 0.1) / 2
+  const lv = T.graph.nodes.get(lfo.h).k.value;
+  near(got[0].v[3], 2 * lv - 1, 1e-6); // LFO shown bipolar
+  // silence: zeros keep coming until SCOPE_QUIET points in a row, then nothing
+  T.graph.nodes.get(src.h).k.on = false;
+  lfo.destroy();
+  got.length = 0;
+  T.render(2 * (SCOPE_QUIET + 40));
+  const pts = got.reduce((n, s) => n + s.n, 0);
+  assert.ok(pts >= SCOPE_QUIET && pts <= SCOPE_QUIET + 4, `zeros flush the cables, then stop (${pts})`);
+  assert.ok(got.every((s) => s.v.every((v) => v === 0)));
+  got.length = 0;
+  T.graph.nodes.get(src.h).k.on = true;
+  T.render(4);
+  assert.ok(got.length && got.at(-1).v[0] !== 0, 'and start again with the sound');
+  T.dsp.scope([]);
+  got.length = 0;
+  T.render(8);
+  assert.equal(got.length, 0, 'unwatched: no scope data');
 }
 
 console.log('graph tests passed');

@@ -63,6 +63,7 @@ export class DspHost {
     this.scheduled = false;
     this.clocks = new Set();
     this.onError = null; // fn(message): a kernel threw on the audio thread
+    this.onScope = null; // fn({ h, n, v }): cable scope points (src/cablescope.js)
     this.destination = new DspNode(this, 0); // master bus = the worklet's output
     this.nodes.set(0, this.destination);
     port.onmessage = (e) => this.receive(e.data);
@@ -102,11 +103,15 @@ export class DspHost {
     };
   }
 
-  // report from the graph: { time, mods: [handle, controller id, value, ...] }
+  // Cable display: the graph reports the output of these nodes (see Graph.scope) to onScope.
+  scope(handles) { this.post(['scope', handles]); }
+
+  // report from the graph: { time, mods: [handle, controller id, value, ...], scope? }
   receive(r) {
     if (!r) return;
     if (r.error) { this.onError?.(r.error); return; }
     if (r.info) { this.onInfo?.(r.info); return; }
+    if (r.scope) this.onScope?.(r.scope);
     const m = r.mods;
     if (m) for (let i = 0; i < m.length; i += 3) this.nodes.get(m[i])?.onMod?.(m[i + 1], m[i + 2]);
     if (r.time !== undefined) for (const fn of this.clocks) fn(r.time);

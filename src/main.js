@@ -12,10 +12,12 @@ import { createSequencer } from './seq/index.js';
 import { defaultCam, validCam, toWorld, zoomAt, fitBox, ZOOM_STEP } from './camera.js';
 import { initWidgets } from './widgets.js';
 import { snapStep } from './song.js';
+import { CableScope } from './cablescope.js';
 
 const engine = new Engine();
 let transport = null; // song playback (created after the engine)
 let seq = null; // piano roll + TimeLine UI
+let scope = null; // live audio drawn on the cables (created after the engine)
 const $ = (id) => document.getElementById(id);
 const canvas = $('canvas');
 const svg = $('cables');
@@ -449,6 +451,7 @@ function portPos(entry, dir) {
 function drawCables() {
   svg.replaceChildren();
   const patch = current();
+  const live = []; // audio and modulation cables that show their signal
   for (const cable of patch.cables) {
     const a = patch.modules.get(cable.from);
     const b = patch.modules.get(cable.to);
@@ -473,7 +476,10 @@ function drawCables() {
       select({ kind: 'cable', cable });
     });
     svg.append(g);
+    const h = a.def.midiOut ? undefined : a.inst?.node?.h;
+    if (h !== undefined) live.push({ g, h, from, to });
   }
+  scope?.setCables(live);
 }
 
 function startCable(e, entry) {
@@ -809,6 +815,7 @@ initWidgets(document, { numberStep: () => snapStep(engine.song.snap) });
 ['pointerdown', 'keydown'].forEach((ev) => window.addEventListener(ev, () => engine.resume()));
 initCpuMeter(engine);
 await engine.init();
+scope = new CableScope(engine.dsp);
 // clips play the module with their number in the main patch
 const songTarget = (id) => {
   const e = id === null || id === undefined ? null : engine.root.modules.get(id);
