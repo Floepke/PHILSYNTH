@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>ModSynth</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header id="bar">
+    <div class="brand"><span class="logo"></span>ModSynth</div>
+    <nav id="crumbs"></nav>
+    <span class="spacer"></span>
+    <span id="saved" class="saved"></span>
+    <button id="seq-toggle" title="Show / hide the piano roll and TimeLine (S)">Sequencer</button>
+    <button id="midi" title="Enable / re-scan MIDI input">MIDI</button>
+    <button id="new" title="Start an empty project">New</button>
+    <button id="save" title="Download the project as a .json file">Save</button>
+    <button id="load" title="Open a project .json file">Load</button>
+    <input id="file" type="file" accept=".json,application/json" hidden>
+  </header>
+  <aside id="panel"><div id="panel-content"></div></aside>
+  <div id="panel-split" class="splitter" role="separator" aria-orientation="vertical" aria-label="Controller panel width" title="Drag to resize the controller panel; drag fully left to hide it"></div>
+  <main id="canvas">
+    <div id="world"><svg id="cables"></svg></div>
+    <button id="zoom" title="Zoom level — click to fit all modules in view">100%</button>
+  </main>
+  <div id="seq-split" class="splitter" title="Drag left/right to resize the sequencer and up/down to adjust the piano roll / TimeLine split; drag to an edge to hide a pane"></div>
+  <section id="seq">
+    <div id="seq-bar">
+      <div id="seq-bar-content">
+        <button id="seq-play" class="seq-play" title="Play song (.) / toggle (Space)">▶</button>
+        <span id="seq-pos" class="seq-pos" title="Play position: bar.beat.hundredths">1.1.00</span>
+        <span class="seq-sep"></span>
+        <label class="seq-field seq-clip" title="Name of the selected clip"><span>Clip</span><input id="seq-name" type="text" spellcheck="false"></label>
+        <label class="seq-field" id="seq-target-field" title="Module number (main patch) that plays the notes of this clip"><span>Send to</span><select id="seq-target"></select></label>
+        <label class="seq-field" id="seq-ctl-field" title="Controller of the target module that this automation clip drives" hidden><span>Controller</span><select id="seq-ctl"></select></label>
+        <label class="seq-field" title="Clip start on the TimeLine, in quarter notes"><span>Start</span><input id="seq-start" type="number" step="any" min="0"></label>
+        <label class="seq-field" title="Clip length in quarter notes"><span>Length</span><input id="seq-length" type="number" step="any" min="0.001"></label>
+        <span class="seq-sep"></span>
+        <label class="seq-field" title="Snap grid: base note value…"><span>Snap</span><select id="seq-snap-base"></select></label>
+        <span class="seq-div" title="…divided by">÷</span>
+        <input id="seq-snap-div" class="seq-div-input" type="number" min="1" max="64" step="1" value="1" aria-label="Snap divider">
+      </div>
+    </div>
+    <div id="roll" class="seq-view"></div>
+    <div id="seq-hsplit" class="splitter horizontal" title="Drag to resize; drag to the top or bottom to hide a pane"></div>
+    <div id="arranger" class="seq-view"></div>
+  </section>
+  <footer id="statusbar">
+    <span id="status"></span>
+    <div id="cpu" title="DSP load: share of the audio thread's real-time budget used to render the patch">
+      <span class="cpu-label">DSP</span>
+      <canvas id="cpu-graph" width="60" height="14"></canvas>
+      <span id="cpu-value">–</span>
+    </div>
+  </footer>
+
+  <dialog id="insert-dialog">
+    <form method="dialog">
+      <h3>Insert module</h3>
+      <div id="module-list" class="listbox" role="listbox" tabindex="0" aria-label="Module type" autofocus></div>
+      <menu>
+        <button value="cancel">Cancel</button>
+        <button value="ok" class="primary">OK</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <!-- in-app dialogs: native confirm() crashes Electron on some Linux desktops -->
+  <dialog id="confirm-dialog">
+    <form method="dialog">
+      <h3 id="confirm-title">Are you sure?</h3>
+      <p id="confirm-text"></p>
+      <menu>
+        <button value="cancel">Cancel</button>
+        <button value="ok" class="primary" id="confirm-ok" autofocus>OK</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="sig-dialog">
+    <form method="dialog">
+      <h3 id="sig-title">Time signature</h3>
+      <div class="sig-fields">
+        <input id="sig-num" type="number" min="1" max="32" step="1" aria-label="Beats per bar">
+        <span class="sig-slash">/</span>
+        <select id="sig-den" aria-label="Beat note value"></select>
+      </div>
+      <p id="sig-where" class="dialog-note"></p>
+      <menu>
+        <!-- OK first: Enter in the number field submits with the first button -->
+        <button value="ok" class="primary sig-ok">OK</button>
+        <button value="cancel" class="sig-cancel">Cancel</button>
+        <button value="delete" id="sig-delete" class="danger">Remove</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

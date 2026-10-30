@@ -1,0 +1,604 @@
+// Vertical piano roll. Time runs down; pitch runs left -> right, one column per MIDI note (0..127).
+// Inside the 88-key piano range (A0..C8) every black key is drawn as a black stave line through
+// the middle of its column, ON TOP of the notes, so black-key notes sit under a line and
+// white-key notes sit between the lines (2- and 3-line groups like a keyboard). Outside the
+// piano range there are no lines, notes just float.
+// The keyboard sits below the stave. Noteheads are left-tilted ovals, white/black by key.
+//   click / drag on empty space  insert a note, dragging sets its duration
+//   drag a note's coloured body  change the duration
+//   drag a note's circle         change pitch (sideways) and start time
+//   Shift + drag                select notes with a rectangle
+//   Alt + drag a note           clone it and move the clone
+//   Backspace / Delete          delete selected notes
+//   Left / Right                transpose selected notes by a semitone
+//   Up / Down                   move selected notes by one snap step
+//   Ctrl/Cmd + X / C / V        cut / copy / paste notes at the pointer's snapped time
+//   right click (or right drag)  delete notes
+// The velocity strip on the left edits the velocity (curves) of the selected notes, see velocity.js.
+// Everything snaps to the snap grid (base note ÷ divider).
+import { isBlack, inPiano, snapStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, clean, meter, barLines, beatLines } from '../song.js';
+import { createSurface, capture, startPan, onWheel, clamp, snapBands } from './surface.js';
+import { createVelocityStrip, VEL_W } from './velocity.js';
+
+const CENTRAL = [61, 63]; // C#4 and D#4, the black keys next to middle C
+const GRID_LOW = 22; // A#0 (American notation)
+const GRID_HIGH = 106; // A#7
+
+const KEYBOARD = 24;
+const TILT = -Math.PI / 9;
+const GUTTER = 36; // bar / beat ruler (right of the velocity strip)
+const LEFT = VEL_W + GUTTER; // left edge of the note grid
+const BG = '#45464e';
+const PLAYHEAD = '#ff916e';
+const SELECT = '#65b4ff';
+const STAVE = '#111216';
+const BEAT = '#5d606a';
+const BAR_LINE = '#797d88';
+const BOUNDARY = '#a1a7b3';
+
+// ctx: { song(), clip(), color(clip), preview: { on(clip, pitch) -> handle, off(handle) }, changed(), transport }
+export function createPianoRoll(host, ctx) {
+  const view = { sx: null, sy: 0, ppq: 48, kw: 14 };
+  let hover = null; // { pitch, t } where a click would insert a note
+  let hoverPitch = null;
+  let drag = null;
+  let pointer = null;
+  let selectionClip = null;
+  let selected = new Set();
+  let clipboard = [];
+
+  const s = createSurface(host, paint);
+  const { cv } = s;
+  const xOf = (p) => LEFT + p * view.kw - view.sx;
+  const yOf = (t) => t * view.ppq - view.sy;
+  const pitchAt = (x) => clamp(Math.floor((x - LEFT + view.sx) / view.kw), 0, PITCH_MAX);
+  const timeAt = (y) => (y + view.sy) / view.ppq;
+  const gridBottom = () => Math.max(0, s.h - KEYBOARD);
+  const inGrid = (x, y) => x >= LEFT && x <= s.w && y >= 0 && y < gridBottom();
+  const headSize = () => {
+    const rx = (view.kw - 0.5) / (2 * Math.hypot(Math.cos(TILT), 0.72 * Math.sin(TILT)));
+    const ry = rx * 0.72;
+    return { rx, ry, height: Math.hypot(rx * Math.sin(TILT), ry * Math.cos(TILT)) + 0.75 };
+  };
+  const headY = (y) => y + headSize().height;
+  const step = () => snapStep(ctx.song().snap);
+  const vel = createVelocityStrip({
+    cv,
+    local: s.local,
+    clip: () => ctx.clip(),
+    selected: () => { syncSelection(); return selected; },
+    setSelected: (set) => { selected = set; },
+    yOf,
+    timeAt,
+    bottom: gridBottom,
+    ppq: () => view.ppq,
+    song: ctx.song,
+    color: ctx.color,
+    changed: () => ctx.changed(),
+    redraw: s.redraw,
+  });
+
+  const minBeat = (m) => Math.min(...m.map((x) => x.beat));
+
+  function syncSelection() {
+    const clip = ctx.clip();
+    if (clip !== selectionClip) {
+      selectionClip = clip;
+      selected.clear();
+    } else {
+      selected = new Set(clip?.notes.filter((n) => selected.has(n)) ?? []);
+    }
+  }
+
+  function limitScroll() {
+    const clip = ctx.clip();
+    view.sx = clamp(view.sx ?? 0, 0, Math.max(0, (PITCH_MAX + 1) * view.kw - (s.w - LEFT)));
+    const end = clip ? Math.max(clip.length, ...clip.notes.map((n) => n.start + n.length)) : BAR;
+    view.sy = clamp(view.sy, 0, Math.max(0, (end + BAR) * view.ppq - gridBottom()));
+  }
+
+  function head(g, x, y, black, alpha = 1) {
+    g.globalAlpha = alpha;
+    g.beginPath();
+    const { rx, ry } = headSize();
+    g.ellipse(x, headY(y), rx, ry, TILT, 0, Math.PI * 2);
+    g.fillStyle = black ? STAVE : '#e0e1dc';
+    g.fill();
+    g.lineWidth = 1.5;
+    g.strokeStyle = STAVE;
+    g.stroke();
+    g.globalAlpha = 1;
+  }
+
+  function paint(g, w, h) {
+    if (!w || !h) return;
+    if (view.sx === null) view.sx = 60 * view.kw + view.kw / 2 - (w - LEFT) / 2; // centre middle C
+    limitScroll();
+    syncSelection();
+    const clip = ctx.clip();
+    const kw = view.kw;
+    const bottom = gridBottom();
+    const gridLeft = xOf(GRID_LOW) + kw / 2;
+    const gridRight = xOf(GRID_HIGH) + kw / 2;
+    const p0 = Math.max(0, Math.floor((view.sx) / kw));
+    const p1 = Math.min(PITCH_MAX, Math.ceil((view.sx + w - LEFT) / kw));
+    g.fillStyle = BG;
+    g.fillRect(0, 0, w, h);
+
+    g.save();
+    g.beginPath();
+    g.rect(LEFT, 0, Math.max(0, w - LEFT), bottom);
+    g.clip();
+    if (clip) {
+      // past the clip end: shaded, notes there do not play
+      const yEnd = yOf(clip.length);
+      if (yEnd < bottom) {
+        g.fillStyle = 'rgba(0, 0, 0, 0.22)';
+        g.fillRect(LEFT, Math.max(0, yEnd), w, bottom);
+      }
+      // grid: alternating light/dark snap-step bands, dashed beat lines and solid bar lines
+      // of the time signature (taken from the TimeLine at the clip's position)
+      const t0 = Math.max(0, timeAt(0));
+      const t1 = timeAt(bottom);
+      const st = step();
+      g.fillStyle = 'rgba(0, 0, 0, 0.06)';
+      snapBands(st, view.ppq, t0, t1, (a, b) => {
+        const ya = Math.round(yOf(a));
+        g.fillRect(gridLeft, ya, gridRight - gridLeft, Math.round(yOf(b)) - ya);
+      });
+      const line = (t, color, lw = 1) => {
+        const y = Math.round(yOf(t)) + 0.5;
+        g.strokeStyle = color;
+        g.lineWidth = lw * 2;
+        g.beginPath(); g.moveTo(gridLeft, y); g.lineTo(gridRight, y); g.stroke();
+      };
+      const m = meter(ctx.song());
+      const off = clip.start;
+      if (minBeat(m) * view.ppq >= 5) {
+        g.setLineDash([3, 3]);
+        g.lineDashOffset = 0; // dashes travel with their A#0 anchor
+        for (const t of beatLines(null, off + t0, off + t1, m)) line(t - off, BEAT);
+        g.setLineDash([]);
+        g.lineDashOffset = 0;
+      }
+      for (const b of barLines(null, off + t0, off + t1, m)) line(b.t - off, BAR_LINE);
+      line(0, BOUNDARY, 2);
+      line(clip.length, BOUNDARY, 2);
+
+      // note bodies
+      // Lift the module hue off the charcoal background without changing its identity.
+      const color = `color-mix(in srgb, ${ctx.color(clip)} 75%, #fff)`;
+      const blackColor = `color-mix(in srgb, ${color} 86%, #000)`;
+      const blackSelected = `color-mix(in srgb, ${SELECT} 86%, #000)`;
+      for (const n of clip.notes) {
+        const y = yOf(n.start);
+        const hh = n.length * view.ppq;
+        if (y > bottom || y + hh < 0) continue;
+        const x = xOf(n.pitch);
+        if (x > w || x + kw < LEFT) continue;
+        g.globalAlpha = n.start >= 0 && n.start < clip.length ? 1 : 0.35;
+        g.fillStyle = selected.has(n)
+          ? (isBlack(n.pitch) ? blackSelected : SELECT)
+          : (isBlack(n.pitch) ? blackColor : color);
+        g.beginPath();
+        // One pixel of overlap prevents antialiased seams between chromatic neighbours.
+        g.roundRect(x - 0.5, y, kw + 1, hh, Math.min((kw + 1) / 2, hh / 2));
+        g.fill();
+        g.globalAlpha = 1;
+      }
+    }
+
+    // stave lines (black keys of the 88-key piano), on top of the note bodies
+    g.strokeStyle = STAVE;
+    const thin = Math.max(1, kw * 0.11) * 2;
+    // the group of three (F# G# A#) is twice as thick as the group of two (C# D#)
+    const isThree = (p) => [6, 8, 10].includes(p % 12);
+    const stave = (dashed, three) => {
+      g.lineWidth = three ? thin * 2 : thin;
+      g.beginPath();
+      for (let p = Math.max(p0, PIANO_LOW); p <= Math.min(p1, PIANO_HIGH); p++) {
+        if (!isBlack(p) || CENTRAL.includes(p) !== dashed || isThree(p) !== three) continue;
+        const x = xOf(p) + kw / 2;
+        g.moveTo(x, 0); g.lineTo(x, bottom);
+      }
+      g.stroke();
+    };
+    stave(false, false);
+    stave(false, true);
+    // C#4 + D#4 dashed: marks the central octave; the dashes scroll with the notes
+    g.setLineDash([7, 5]);
+    g.lineDashOffset = view.sy;
+    stave(true, false);
+    g.setLineDash([]);
+    g.lineDashOffset = 0;
+
+    if (clip) {
+      for (const n of clip.notes) {
+        const y = yOf(n.start);
+        if (y < -2 * headSize().height || y > bottom) continue;
+        head(g, xOf(n.pitch) + kw / 2, y, isBlack(n.pitch), n.start >= 0 && n.start < clip.length ? 1 : 0.4);
+      }
+      if (hover && !drag) head(g, xOf(hover.pitch) + kw / 2, yOf(hover.t), isBlack(hover.pitch), 0.55);
+      // play position
+      const { playing, pos, clipId } = ctx.transport;
+      const t = pos - clip.start;
+      if ((playing || pos > 0) && (clipId == null || clipId === clip.id) && t >= 0 && t <= clip.length) {
+        const y = Math.round(yOf(t)) + 0.5;
+        g.strokeStyle = PLAYHEAD;
+        g.lineWidth = 2;
+        g.beginPath(); g.moveTo(LEFT, y); g.lineTo(w, y); g.stroke();
+      }
+    } else {
+      g.fillStyle = '#c3c7d0';
+      g.font = '500 12px system-ui, sans-serif';
+      g.textAlign = 'center';
+      g.fillText('No clip selected. Double-click in the TimeLine below to create one.', LEFT + (w - LEFT) / 2, 40);
+    }
+    if (drag?.kind === 'select') {
+      const x = Math.min(drag.x0, drag.x1);
+      const y = Math.min(drag.y0, drag.y1);
+      const w = Math.abs(drag.x1 - drag.x0);
+      const h = Math.abs(drag.y1 - drag.y0);
+      g.fillStyle = 'rgba(101, 180, 255, 0.14)';
+      g.fillRect(x, y, w, h);
+      g.strokeStyle = SELECT;
+      g.lineWidth = 1;
+      g.strokeRect(x + 0.5, y + 0.5, w, h);
+    }
+    g.restore();
+
+    // keyboard strip
+    g.fillStyle = '#292b31';
+    g.fillRect(0, bottom, w, KEYBOARD);
+    g.save();
+    g.beginPath();
+    g.rect(LEFT, bottom, Math.max(0, w - LEFT), KEYBOARD);
+    g.clip();
+    g.font = '600 8px system-ui, sans-serif';
+    g.textAlign = 'center';
+    for (let p = p0; p <= p1; p++) {
+      const x = xOf(p);
+      if (inPiano(p)) {
+        g.fillStyle = isBlack(p) ? '#191a20' : '#bfc1c7';
+        g.fillRect(x + 0.5, bottom + 1, kw - 1, KEYBOARD - 2);
+      }
+      if (p === hoverPitch) {
+        g.fillStyle = PLAYHEAD;
+        g.fillRect(x + 0.5, h - 5, kw - 1, 4);
+      }
+      if (p % 12 === 0 && kw >= 10) {
+        g.fillStyle = inPiano(p) ? '#33343b' : '#c3c7d0';
+        g.fillText(noteName(p), x + kw / 2, h - 7);
+      }
+    }
+    g.restore();
+
+    // bar / beat ruler, right of the velocity strip
+    g.fillStyle = '#292b31';
+    g.fillRect(VEL_W, 0, GUTTER, bottom);
+    if (clip) {
+      g.save();
+      g.beginPath();
+      g.rect(VEL_W, 0, GUTTER, bottom);
+      g.clip();
+      g.font = '600 10px ui-monospace, monospace';
+      g.textAlign = 'right';
+      g.textBaseline = 'top';
+      const m = meter(ctx.song());
+      const off = clip.start;
+      const t0 = off + Math.max(0, timeAt(0));
+      const t1 = off + timeAt(bottom);
+      g.strokeStyle = BEAT;
+      g.lineWidth = 2;
+      g.beginPath();
+      if (minBeat(m) * view.ppq >= 5) {
+        for (const t of beatLines(null, t0, t1, m)) { const y = Math.round(yOf(t - off)) + 0.5; g.moveTo(LEFT - 6, y); g.lineTo(LEFT, y); }
+      }
+      g.stroke();
+      let lastY = -Infinity;
+      for (const b of barLines(null, t0, t1, m)) {
+        const y = Math.round(yOf(b.t - off)) + 0.5;
+        g.strokeStyle = BAR_LINE;
+        g.beginPath(); g.moveTo(VEL_W, y); g.lineTo(LEFT, y); g.stroke();
+        const change = Math.abs(b.t - b.seg.at) < 1e-9;
+        if (y - lastY < (change ? 24 : 13)) continue; // no overlapping labels when zoomed out
+        lastY = y;
+        g.fillStyle = '#c3c7d0';
+        g.font = '600 10px ui-monospace, monospace';
+        g.fillText(String(b.bar + 1), LEFT - 4, y + 2);
+        if (change) { // time signature starts here
+          g.fillStyle = '#c4b5f2';
+          g.font = '600 9px ui-monospace, monospace';
+          g.fillText(`${b.seg.num}/${b.seg.den}`, LEFT - 4, y + 13);
+        }
+      }
+      g.restore();
+    }
+    g.strokeStyle = '#34363e';
+    g.lineWidth = 2;
+    g.beginPath(); g.moveTo(LEFT, 0); g.lineTo(LEFT, h); g.moveTo(0, bottom); g.lineTo(w, bottom); g.stroke();
+    vel.paint(g, h);
+  }
+
+  // ---- hit testing: circles first (they sit on top), then bodies ----
+  function hit(x, y) {
+    const clip = ctx.clip();
+    if (!clip || !inGrid(x, y)) return null;
+    const { rx, ry } = headSize();
+    for (let i = clip.notes.length - 1; i >= 0; i--) {
+      const n = clip.notes[i];
+      const dx = x - (xOf(n.pitch) + view.kw / 2);
+      const dy = y - headY(yOf(n.start));
+      const u = dx * Math.cos(TILT) + dy * Math.sin(TILT);
+      const v = -dx * Math.sin(TILT) + dy * Math.cos(TILT);
+      if ((u / (rx + 1)) ** 2 + (v / (ry + 1)) ** 2 <= 1) return { note: n, part: 'head' };
+    }
+    for (let i = clip.notes.length - 1; i >= 0; i--) {
+      const n = clip.notes[i];
+      const nx = xOf(n.pitch);
+      const ny = yOf(n.start);
+      if (x >= nx - 0.5 && x < nx + view.kw + 0.5 && y >= ny && y <= ny + n.length * view.ppq) return { note: n, part: 'body' };
+    }
+    return null;
+  }
+
+  function updateHover(x, y) {
+    const inside = ctx.clip() && inGrid(x, y);
+    const h = inside ? hit(x, y) : null;
+    hoverPitch = x >= LEFT ? pitchAt(x) : null;
+    hover = inside && !h ? { pitch: pitchAt(x), t: Math.max(0, snapFloor(timeAt(y), step())) } : null;
+    cv.style.cursor = h?.part === 'head' ? 'move' : h ? 'ns-resize' : inside ? 'crosshair' : 'default';
+    cv.title = h ? `${noteName(h.note.pitch)}  start ${+h.note.start.toFixed(4)}  length ${+h.note.length.toFixed(4)} (quarters)` : '';
+    const v = ctx.clip() ? vel.hover(x, y) : null;
+    if (v) { cv.style.cursor = v.cursor; cv.title = v.title; }
+    s.redraw();
+  }
+
+  function remove(note) {
+    const clip = ctx.clip();
+    const i = clip?.notes.indexOf(note) ?? -1;
+    if (i >= 0) clip.notes.splice(i, 1);
+    selected.delete(note);
+  }
+
+  cv.addEventListener('pointerdown', (e) => {
+    if (drag) return;
+    cv.focus();
+    pointer = s.local(e);
+    syncSelection();
+    if (e.button === 1) {
+      drag = { kind: 'pan' };
+      startPan(s, e, (dx, dy) => { view.sx -= dx; view.sy -= dy; s.redraw(); }, () => { drag = null; });
+      return;
+    }
+    const clip = ctx.clip();
+    const { x, y } = s.local(e);
+    if (clip && vel.pointerdown(e, x, y)) { e.preventDefault(); hover = null; return; }
+    if (!clip || !inGrid(x, y)) return;
+    if (e.button === 2) { // delete, and keep deleting while the right button is dragged
+      e.preventDefault();
+      drag = { kind: 'erase' };
+      let removed = 0;
+      const erase = (ev) => {
+        const p = s.local(ev);
+        const h = hit(p.x, p.y);
+        if (h) { remove(h.note); removed++; s.redraw(); }
+      };
+      erase(e);
+      capture(cv, e, erase, () => { drag = null; if (removed) ctx.changed(); });
+      return;
+    }
+    if (e.button !== 0) return;
+    e.preventDefault();
+    if (e.shiftKey) {
+      const before = selected;
+      selected = new Set();
+      drag = { kind: 'select', x0: x, y0: y, x1: x, y1: y };
+      hover = null;
+      const selectRect = (ev) => {
+        pointer = s.local(ev);
+        drag.x1 = clamp(pointer.x, LEFT, s.w);
+        drag.y1 = clamp(pointer.y, 0, gridBottom());
+        const left = Math.min(x, drag.x1);
+        const right = Math.max(x, drag.x1);
+        const top = Math.min(y, drag.y1);
+        const bottom = Math.max(y, drag.y1);
+        selected = new Set(clip.notes.filter((n) => {
+          const nx = xOf(n.pitch);
+          const ny = yOf(n.start);
+          const height = Math.max(n.length * view.ppq, 2 * headSize().height);
+          return nx + view.kw + 0.5 >= left && nx - 0.5 <= right && ny + height >= top && ny <= bottom;
+        }));
+        s.redraw();
+      };
+      s.redraw();
+      capture(cv, e, selectRect, (ev) => {
+        if (ev.type === 'pointercancel') selected = before;
+        else selectRect(ev);
+        drag = null;
+        updateHover(pointer.x, pointer.y);
+      });
+      return;
+    }
+    const st = step();
+    const h = hit(x, y);
+    const dup = !!h && e.altKey;
+    let cloned = false;
+    let moved = false;
+    let note;
+    let pv = null;
+    if (h?.part === 'body' && !dup) {
+      note = h.note;
+      drag = { kind: 'length', t0: timeAt(y), end0: note.start + note.length }; // relative: no jump on click
+    } else if (h) {
+      note = h.note;
+      drag = { kind: 'move', t0: timeAt(y), start0: note.start };
+      pv = ctx.preview.on(clip, note.pitch);
+    } else {
+      note = { pitch: pitchAt(x), start: Math.max(0, snapFloor(timeAt(y), st)), length: st, vel: DEFAULT_VEL };
+      clip.notes.push(note);
+      drag = { kind: 'length' };
+      pv = ctx.preview.on(clip, note.pitch);
+    }
+    selected = new Set([note]);
+    hover = null;
+    s.redraw();
+    capture(cv, e, (ev) => {
+      const p = s.local(ev);
+      pointer = p;
+      if (h && !moved && Math.hypot(p.x - x, p.y - y) < 3) return;
+      moved = true;
+      if (dup && !cloned) {
+        note = { ...note };
+        clip.notes.push(note);
+        selected = new Set([note]);
+        cloned = true;
+      }
+      if (drag.kind === 'length') {
+        const end = drag.end0 === undefined ? timeAt(p.y) : drag.end0 + timeAt(p.y) - drag.t0;
+        note.length = Math.max(st, clean(snapRound(end, st) - note.start));
+      } else {
+        const pitch = pitchAt(p.x);
+        if (pitch !== note.pitch) {
+          note.pitch = pitch;
+          ctx.preview.off(pv);
+          pv = ctx.preview.on(clip, pitch);
+        }
+        note.start = Math.max(0, snapRound(drag.start0 + timeAt(p.y) - drag.t0, st));
+      }
+      hoverPitch = note.pitch;
+      s.redraw();
+    }, (ev) => {
+      ctx.preview.off(pv);
+      if (cloned && ev.type === 'pointercancel') {
+        remove(note);
+        selected = new Set([h.note]);
+      }
+      drag = null;
+      ctx.changed();
+      const p = s.local(ev);
+      updateHover(p.x, p.y);
+    });
+  });
+
+  cv.addEventListener('pointermove', (e) => {
+    pointer = s.local(e);
+    if (drag || e.buttons) return;
+    const { x, y } = s.local(e);
+    updateHover(x, y);
+  });
+  cv.addEventListener('pointerleave', () => { pointer = null; vel.leave(); if (!drag) { hover = null; hoverPitch = null; s.redraw(); } });
+  cv.addEventListener('dblclick', (e) => {
+    const { x, y } = s.local(e);
+    if (e.button === 0) vel.dblclick(x, y);
+  });
+
+  cv.addEventListener('keydown', (e) => {
+    const key = e.key.toLowerCase();
+    const command = (e.ctrlKey || e.metaKey) && !e.altKey;
+    const deleting = key === 'backspace' || key === 'delete';
+    const arrow = !e.ctrlKey && !e.metaKey && !e.altKey && ['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(key);
+    if (!deleting && !arrow && !(command && ['a', 'x', 'c', 'v'].includes(key)) && key !== 'escape') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (drag) return;
+    syncSelection();
+    const clip = ctx.clip();
+    if (!clip) return;
+    if (key === 'escape') {
+      selected.clear();
+      s.redraw();
+      return;
+    }
+    if (command && key === 'a') {
+      selected = new Set(clip.notes);
+      s.redraw();
+      return;
+    }
+    if (command && key === 'v') {
+      if (!clipboard.length || !pointer || !inGrid(pointer.x, pointer.y)) return;
+      const start = Math.max(0, snapFloor(timeAt(pointer.y), step()));
+      const copies = clipboard.map((n) => ({ ...n, start: clean(start + n.start) }));
+      clip.notes.push(...copies);
+      selected = new Set(copies);
+      hover = null;
+      ctx.changed();
+      return;
+    }
+    const notes = clip.notes.filter((n) => selected.has(n));
+    if (!notes.length) return;
+    if (arrow) {
+      let dp = 0;
+      let dt = 0;
+      if (key === 'arrowleft') dp = -1;
+      if (key === 'arrowright') dp = 1;
+      if (key === 'arrowup') dt = -step();
+      if (key === 'arrowdown') dt = step();
+      if (dp && notes.some((n) => n.pitch + dp < 0 || n.pitch + dp > PITCH_MAX)) return;
+      if (dt < 0 && notes.some((n) => clean(n.start + dt) < 0)) return;
+      for (const note of notes) {
+        note.pitch = clean(note.pitch + dp);
+        note.start = clean(note.start + dt);
+      }
+      hover = null;
+      ctx.changed();
+      s.redraw();
+      return;
+    }
+    if (command && (key === 'c' || key === 'x')) {
+      const start = Math.min(...notes.map((n) => n.start));
+      clipboard = notes.map((n) => ({ ...n, start: clean(n.start - start) }));
+    }
+    if (deleting || (command && key === 'x')) {
+      notes.forEach(remove);
+      ctx.changed();
+    }
+  });
+
+  // wheel on a velocity point rounds it (before the scroll / zoom handler)
+  cv.addEventListener('wheel', (e) => {
+    if (e.ctrlKey || e.metaKey) return;
+    const { x, y } = s.local(e);
+    if (!vel.wheel(e, x, y)) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }, { passive: false });
+  onWheel(cv, {
+    zoom(notches, e) { // Ctrl + wheel: zoom time around the pointer
+      pointer = s.local(e);
+      const { y } = s.local(e);
+      const t = timeAt(y);
+      view.ppq = clamp(view.ppq * Math.pow(1.15, notches), 6, 600);
+      view.sy = t * view.ppq - y;
+      s.redraw();
+    },
+    scroll(dx, dy, e) {
+      pointer = s.local(e);
+      if (e.altKey) { // Alt + wheel: key width
+        const { x } = s.local(e);
+        const p = (x - LEFT + view.sx) / view.kw;
+        view.kw = clamp(view.kw * Math.pow(1.1, -Math.sign(dy || dx)), 6, 40);
+        view.sx = p * view.kw - (x - LEFT);
+      } else {
+        view.sx += dx;
+        view.sy += dy;
+      }
+      s.redraw();
+    },
+  });
+
+  return {
+    surface: s,
+    redraw: s.redraw,
+    // scroll so the clip start is visible (called when another clip gets selected)
+    reveal() { view.sy = 0; s.redraw(); },
+    getView: () => ({ sx: view.sx, sy: view.sy, ppq: view.ppq, kw: view.kw }),
+    setView(v) {
+      if (!v) return;
+      for (const k of ['sx', 'sy', 'ppq', 'kw']) if (Number.isFinite(v[k])) view[k] = v[k];
+      view.ppq = clamp(view.ppq, 6, 600);
+      view.kw = clamp(view.kw, 6, 40);
+      s.redraw();
+    },
+  };
+}
