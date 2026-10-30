@@ -201,16 +201,16 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.ok(Math.abs(ko.p.gain - 0.4) < 1e-9, '0% amplitude holds the middle');
   r.setParam(lfo.id, 'amp', 100);
 
-  // stepped controller: normalized modulation spans all five waveform choices
-  r.setParam(lfo.id, 'outController', 1); // waveform 0..4
+  // stepped controller: normalized modulation spans all ten waveform choices
+  r.setParam(lfo.id, 'outController', 1); // waveform 0..9
   r.setParam(lfo.id, 'outMin', 0);
   r.setParam(lfo.id, 'outMax', 100);
   set(lfo, 0.7);
   assert.equal(ko.p.gain, 0.9, 'previous controller gets its own value back');
   assert.equal(osc.mod.gain, undefined);
-  assert.equal(ko.p.wave, 3, '70% of 0..4 rounds to step 3');
+  assert.equal(ko.p.wave, 6, '70% of 0..9 rounds to step 6');
   set(lfo, 1);
-  assert.equal(ko.p.wave, 4, 'modulation can select half sine');
+  assert.equal(ko.p.wave, 9, 'modulation can select violet noise');
 
   // log controller (filter cutoff 20..20000): 50% is the geometric middle
   assert.ok(r.connect(lfo.id, flt.id));

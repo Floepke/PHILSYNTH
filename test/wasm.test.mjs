@@ -82,6 +82,20 @@ for (let wave = 0; wave <= 4; wave++) {
   });
 }
 
+// OSC noise colours: same seed -> same noise (xorshift32 in both), voices share the generator
+for (let wave = 5; wave <= 9; wave++) {
+  const w = compare('osc', {
+    opts: { seed: 1234 + wave },
+    blocks: 80,
+    tol: 0,
+    script: [
+      [0, param('wave', wave)], [0, param('polyphony', 3)], [0, noteOn(1, 60)], [2, noteOn(2, 30, 0.5)],
+      [10, noteOn(3, 90)], [12, noteOn(4, 50)], [30, { type: 'noteOff', id: 2 }], [60, { type: 'allOff' }], [62, noteOn(5, 70)],
+    ],
+  });
+  assert.equal(w, 0, `noise ${wave} bit-identical`);
+}
+
 // FILTER: every type, cascaded slopes, drive, the deterministic LFO shapes, tail without input
 const rnd = noise(7);
 const buzz = Array.from({ length: 4096 }, () => rnd());

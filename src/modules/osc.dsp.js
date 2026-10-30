@@ -2,15 +2,17 @@
 // Plays MODMIDI notes (see src/modmidi.js): each voice belongs to one note id and has its own
 // float pitch and velocity. noteMod changes them while the note sounds; the voice glides to the
 // new values (one-pole smoothing per block + a linear ramp inside the block), so no clicks.
-import { WAVES, shape } from './oscshape.js';
+import { WAVES, shape, isNoise, noiseSample, noiseState, xorshift } from './oscshape.js';
 import { Kernel } from '../dsp/kernel.js';
 
 const MAX_VOICES = 32;
 const SMOOTH_S = 0.006;
 
 export default class OscKernel extends Kernel {
-  constructor() {
+  // seed: noise generator start (random by default, so every OSC / Patch instance has its own noise)
+  constructor({ seed } = {}) {
     super();
+    this.rng = (seed ?? Math.random() * 2 ** 32) >>> 0 || 0x9e3779b9; // xorshift32, shared by the voices
     this.poly = 8;
     this.p = { wave: WAVES.SAW, attack: 0.01, decay: 0.2, sustain: 0.7, release: 0.4, gain: 0.5, duty: 50 };
     this.duty = 0.5; // smoothed duty (0..1), ramps per block so LFO modulation doesn't zipper
@@ -20,6 +22,7 @@ export default class OscKernel extends Kernel {
       id: 0, phase: 0, inc: 0, level: 0, relStep: 0, age: 0,
       pitch: 0, vel: 0, // current (smoothed) values
       pitchT: 0, velT: 0, // targets from noteOn / noteMod
+      noise: noiseState(),
     }));
   }
 
@@ -57,6 +60,7 @@ export default class OscKernel extends Kernel {
     v.inc = this.incOf(pitch);
     v.phase = 0;
     v.level = 0;
+    v.noise = noiseState();
     v.stage = 1;
     v.age = ++this.clock;
   }
@@ -87,6 +91,7 @@ export default class OscKernel extends Kernel {
     const atkStep = 1 / (Math.max(p.attack, 0.001) * sampleRate);
     const decStep = (1 - p.sustain) / (Math.max(p.decay, 0.001) * sampleRate);
     const wave = p.wave | 0;
+    const noise = isNoise(wave);
     const k = 1 - Math.exp(-n / (SMOOTH_S * sampleRate)); // per-block smoothing coefficient
     const dutyT = Math.min(1, Math.max(0, (p.duty ?? 50) / 100));
     const duty0 = this.duty;
@@ -120,7 +125,12 @@ export default class OscKernel extends Kernel {
         if (!v.stage) break;
         v.inc += incStep;
         vel += velStep;
-        buf[i] += shape(wave, v.phase, duty0 + dutyStep * i, v.inc) * v.level * vel;
+        let y;
+        if (noise) {
+          this.rng = xorshift(this.rng);
+          y = noiseSample(wave, (this.rng / 4294967296) * 2 - 1, v.noise);
+        } else y = shape(wave, v.phase, duty0 + dutyStep * i, v.inc);
+        buf[i] += y * v.level * vel;
         v.phase += v.inc;
         if (v.phase >= 1) v.phase -= 1;
       }

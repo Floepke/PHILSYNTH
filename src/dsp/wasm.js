@@ -102,7 +102,7 @@ function kernelClass(name, spec, x, heap, sr) {
 
     constructor(opts = {}) {
       super();
-      this.ptr = x.ms_create(spec.kind, sr, opts?.salt | 0, (Math.random() * 2 ** 32) >>> 0);
+      this.ptr = x.ms_create(spec.kind, sr, opts?.salt | 0, (opts?.seed ?? Math.random() * 2 ** 32) >>> 0);
       if (!this.ptr) throw new Error(`DSP: cannot create ${name}`);
     }
 

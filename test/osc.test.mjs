@@ -18,11 +18,16 @@ const close = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a
 // Append the waveform without renumbering saved wave selections or controller routings.
 assert.deepEqual(osc.params.map((p) => p.id), ['polyphony', 'wave', 'attack', 'decay', 'sustain', 'release', 'gain', 'duty']);
 const waveParam = osc.params[1];
-assert.deepEqual(waveParam.options, ['Sine', 'Tri/Saw', 'Saw', 'Square', 'Half sine']);
+assert.deepEqual(waveParam.options, ['Sine', 'Tri/Saw', 'Saw', 'Square', 'Half sine',
+  'White noise', 'Pink noise', 'Brown noise', 'Blue noise', 'Violet noise']);
 assert.equal(waveParam.default, SAW);
-assert.equal(waveParam.max, HALF_SINE);
-assert.equal(fromNorm(waveParam, 1), HALF_SINE);
+const VIOLET = 9;
+assert.equal(waveParam.max, VIOLET);
+assert.equal(fromNorm(waveParam, 1), VIOLET);
 assert.equal(nudge(waveParam, SQUARE, 1), HALF_SINE);
+assert.equal(nudge(waveParam, HALF_SINE, 1), 5);
+const dutyParam = osc.params[7];
+assert.ok(dutyParam.visible({ wave: SAW }) && !dutyParam.visible({ wave: 6 }), 'Duty Cycle hidden for noise');
 
 // 50 % = the classic waveforms
 for (let i = 1; i < 20; i++) {
@@ -150,5 +155,66 @@ console.log('osc tests passed');
   const hs = waveformPoints(HALF_SINE, 50, 401);
   assert.ok(Math.min(...hs) >= 0, 'half sine stays unipolar');
   assert.deepEqual(waveformPoints(SAW, -10, 50), waveformPoints(SAW, 0, 50), 'duty clamps');
+  for (const w of [5, 6, 7, 8, 9]) {
+    const nz = waveformPoints(w, 50, 300);
+    assert.ok(Math.max(...nz.map(Math.abs)) <= 1 + 1e-9 && nz.some((y) => y > 0.3) && nz.some((y) => y < -0.3), `noise ${w} preview`);
+    assert.deepEqual(nz, waveformPoints(w, 50, 300), 'noise preview is stable between redraws');
+  }
   console.log('osc waveform preview ok');
+}
+
+// ---- noise colours ----
+{
+  const render = (wave, { seed = 99, pitch = 60, blocks = 400, poly = 1, notes = [pitch] } = {}) => {
+    const k = new Proc({ seed });
+    const m = (data) => k.port.onmessage({ data });
+    m({ type: 'param', id: 'polyphony', value: poly });
+    m({ type: 'param', id: 'wave', value: wave });
+    m({ type: 'param', id: 'attack', value: 0.001 });
+    m({ type: 'param', id: 'sustain', value: 1 });
+    m({ type: 'param', id: 'gain', value: 1 });
+    notes.forEach((p, i) => m({ type: 'noteOn', id: i + 1, pitch: p, velocity: 1 }));
+    const all = new Float32Array(blocks * 128);
+    for (let b = 0; b < blocks; b++) {
+      const out = [new Float32Array(128), new Float32Array(128)];
+      k.process([], [out]);
+      all.set(out[0], b * 128);
+    }
+    return { k, m, y: all.subarray(4800) }; // skip the attack and the filter settling
+  };
+  const rms = (a) => Math.sqrt(a.reduce((s, x) => s + x * x, 0) / a.length);
+  // energy split: one-pole lowpass at ~300 Hz vs the rest
+  const lowShare = (a) => {
+    let lp = 0, lo = 0, all = 0;
+    for (const x of a) { lp += 0.04 * (x - lp); lo += lp * lp; all += x * x; }
+    return lo / all;
+  };
+  const shares = [5, 6, 7, 8, 9].map((w) => lowShare(render(w).y));
+  const [white, pink, brown, blue, violet] = shares;
+  assert.ok(brown > pink && pink > white && white > blue && blue > violet,
+    `noise colours get brighter brown > pink > white > blue > violet in low energy: ${shares.map((x) => x.toFixed(3))}`);
+  for (const w of [5, 6, 7, 8, 9]) {
+    const { y } = render(w);
+    const r = rms(y) / 0.5; // gain 1 → output × 0.5
+    assert.ok(r > 0.25 && r < 0.75, `noise ${w} loudness ~ white: rms ${r}`);
+    assert.ok(Math.abs(y.reduce((s, x) => s + x, 0) / y.length) < 0.05, `noise ${w} has no DC`);
+    assert.ok(y.every((x) => Number.isFinite(x) && Math.abs(x) < 1.5), `noise ${w} bounded`);
+  }
+  // unpitched: another note gives the same noise; another seed (other instance) different noise
+  assert.deepEqual(render(6, { pitch: 30 }).y, render(6, { pitch: 90 }).y, 'noise ignores pitch');
+  const a = render(5, { seed: 1 }).y, b = render(5, { seed: 2 }).y;
+  assert.ok(a.some((x, i) => x !== b[i]), 'every OSC instance has its own noise');
+  const r1 = render(5, { seed: null }).y, r2 = render(5, { seed: null }).y;
+  assert.ok(r1.some((x, i) => x !== r2[i]), 'random seed by default');
+  // two voices are uncorrelated (shared generator, different samples): louder by ~√2, not 2
+  const two = rms(render(5, { poly: 2, notes: [60, 60.0001] }).y) / rms(render(5).y);
+  assert.ok(two > 1.25 && two < 1.6, `two noise voices add as uncorrelated noise: ${two}`);
+  // the envelope still shapes the noise: release ends in silence
+  const { k, m } = render(7, { blocks: 50 });
+  m({ type: 'param', id: 'release', value: 0.01 });
+  m({ type: 'noteOff', id: 1 });
+  let alive = true;
+  for (let b = 0; b < 20; b++) alive = k.process([], [[new Float32Array(128), new Float32Array(128)]]) !== false;
+  assert.equal(alive, false, 'noise voice releases to silence');
+  console.log('osc noise ok');
 }

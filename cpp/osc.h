@@ -4,7 +4,7 @@
 
 namespace ms {
 
-enum Wave { SINE = 0, TRIANGLE = 1, SAW = 2, SQUARE = 3, HALF_SINE = 4 };
+enum Wave { SINE = 0, TRIANGLE = 1, SAW = 2, SQUARE = 3, HALF_SINE = 4, WHITE = 5, PINK = 6, BROWN = 7, BLUE = 8, VIOLET = 9 };
 
 inline double polyBlep(double t, double dt) {
   if (t < dt) { t /= dt; return t + t - t * t - 1; }
@@ -50,6 +50,29 @@ inline double shape(int wave, double t, double d, double inc) {
   return sawBend(t, d) - polyBlep(t, inc);
 }
 
+// Noise colours: twin of noiseSample() in src/modules/oscshape.js (same operation order).
+struct NoiseState {
+  double b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0, br = 0, pw = 0, pp = 0;
+};
+
+inline double noiseSample(int wave, double w, NoiseState& z) {
+  if (wave == WHITE) return w;
+  if (wave == VIOLET) { const double y = (w - z.pw) * 0.7; z.pw = w; return y; }
+  if (wave == BROWN) { z.br = (z.br + 0.02 * w) / 1.02; return z.br * 6; }
+  z.b0 = 0.99886 * z.b0 + w * 0.0555179;
+  z.b1 = 0.99332 * z.b1 + w * 0.0750759;
+  z.b2 = 0.969 * z.b2 + w * 0.153852;
+  z.b3 = 0.8665 * z.b3 + w * 0.3104856;
+  z.b4 = 0.55 * z.b4 + w * 0.5329522;
+  z.b5 = -0.7616 * z.b5 - w * 0.016898;
+  const double pink = z.b0 + z.b1 + z.b2 + z.b3 + z.b4 + z.b5 + z.b6 + w * 0.5362;
+  z.b6 = w * 0.115926;
+  if (wave == PINK) return pink * 0.2;
+  const double y = (pink - z.pp) * 0.5;
+  z.pp = pink;
+  return y;
+}
+
 struct Osc : Kernel {
   enum { POLYPHONY, WAVE, ATTACK, DECAY, SUSTAIN, RELEASE, GAIN, DUTY, PARAMS };
   static constexpr int MAX_VOICES = 32;
@@ -59,6 +82,7 @@ struct Osc : Kernel {
     int stage = 0;  // 0 idle, 1 attack, 2 decay, 3 sustain, 4 release
     double id = 0, phase = 0, inc = 0, level = 0, relStep = 0, age = 0;
     double pitch = 0, vel = 0, pitchT = 0, velT = 0;
+    NoiseState noise;
   };
 
   int poly = 8;
@@ -66,8 +90,9 @@ struct Osc : Kernel {
   double duty = 0.5;
   double clock = 0;
   Voice voices[MAX_VOICES];
+  Rng rng;  // noise, shared by the voices (same sequence as the JS kernel with the same seed)
 
-  explicit Osc(double sampleRate) : Kernel(sampleRate) {}
+  Osc(double sampleRate, uint32_t seed) : Kernel(sampleRate), rng(seed) {}
 
   void param(int id, double value) override {
     if (id == POLYPHONY) {
@@ -111,6 +136,7 @@ struct Osc : Kernel {
     v->inc = incOf(pitch);
     v->phase = 0;
     v->level = 0;
+    v->noise = NoiseState();
     v->stage = 1;
     v->age = ++clock;
   }
@@ -122,6 +148,7 @@ struct Osc : Kernel {
     const double atkStep = 1 / (maxd(p[ATTACK], 0.001) * sr);
     const double decStep = (1 - sustain) / (maxd(p[DECAY], 0.001) * sr);
     const int wave = toInt32(p[WAVE]);
+    const bool noise = wave >= WHITE;
     const double k = 1 - exp(-n / (SMOOTH_S * sr));
     const double dutyT = mind(1, maxd(0, p[DUTY] / 100));
     const double duty0 = duty;
@@ -154,7 +181,9 @@ struct Osc : Kernel {
         if (!v.stage) break;
         v.inc += incStep;
         vel += velStep;
-        buf[i] = (float)(buf[i] + shape(wave, v.phase, duty0 + dutyStep * i, v.inc) * v.level * vel);
+        const double y = noise ? noiseSample(wave, rng.next() * 2 - 1, v.noise)
+                               : shape(wave, v.phase, duty0 + dutyStep * i, v.inc);
+        buf[i] = (float)(buf[i] + y * v.level * vel);
         v.phase += v.inc;
         if (v.phase >= 1) v.phase -= 1;
       }

@@ -1,6 +1,7 @@
 // Waveform display of the OSC panel: two cycles of the current Waveform + Duty Cycle, drawn with
 // the same shape() the audio worklet plays. Follows live modulation of the duty (LFO / ADSR).
-import { shape } from './oscshape.js';
+// Noise colours show a fixed stretch of that noise (same generator as the audio).
+import { shape, isNoise, noiseSample, noiseState, xorshift } from './oscshape.js';
 
 const CYCLES = 2;
 const DISPLAY_INC = 1 / 4096; // as if a low note: band-limiting barely rounds the edges
@@ -8,7 +9,16 @@ const DISPLAY_INC = 1 / 4096; // as if a low note: band-limiting barely rounds t
 // Samples of `cycles` periods (n points), scaled so the largest peak reaches ±1.
 export function waveformPoints(wave, duty, n = 256, cycles = CYCLES) {
   const d = Math.min(1, Math.max(0, duty / 100));
-  const ys = Array.from({ length: n }, (_, i) => shape(wave, ((i / (n - 1)) * cycles) % 1, d, DISPLAY_INC));
+  let ys;
+  if (isNoise(wave)) {
+    let s = 0x2545f491; // fixed seed: the picture doesn't flicker on redraw
+    const z = noiseState();
+    for (let i = 0; i < 2000; i++) { s = xorshift(s); noiseSample(wave, (s / 4294967296) * 2 - 1, z); } // settle the filters
+    ys = Array.from({ length: n }, () => { s = xorshift(s); return noiseSample(wave, (s / 4294967296) * 2 - 1, z); });
+    const m = ys.reduce((a, y) => a + y, 0) / n; // centre and fill the view (brown noise wanders)
+    const pk = Math.max(1e-9, ...ys.map((y) => Math.abs(y - m)));
+    return ys.map((y) => (y - m) / pk);
+  } else ys = Array.from({ length: n }, (_, i) => shape(wave, ((i / (n - 1)) * cycles) % 1, d, DISPLAY_INC));
   const peak = Math.max(1, ...ys.map(Math.abs));
   return ys.map((y) => y / peak);
 }
@@ -41,7 +51,7 @@ export function createWaveView({ color = '#c0713a', values }) {
     g.strokeStyle = '#2c2c32';
     g.lineWidth = 1;
     g.beginPath();
-    for (let c = 1; c < CYCLES; c++) { const x = Math.round((w * c) / CYCLES) + 0.5; g.moveTo(x, 0); g.lineTo(x, h); }
+    for (let c = 1; c < (isNoise(wave) ? 1 : CYCLES); c++) { const x = Math.round((w * c) / CYCLES) + 0.5; g.moveTo(x, 0); g.lineTo(x, h); }
     g.moveTo(0, Math.round(mid) + 0.5);
     g.lineTo(w, Math.round(mid) + 0.5);
     g.stroke();
@@ -56,7 +66,7 @@ export function createWaveView({ color = '#c0713a', values }) {
       if (i) g.lineTo(x, mid - y * amp); else g.moveTo(x, mid - y * amp);
     });
     g.stroke();
-    cv.setAttribute('aria-label', `Waveform preview, duty ${d.toFixed(1)} %`);
+    cv.setAttribute('aria-label', isNoise(wave) ? 'Waveform preview, noise' : `Waveform preview, duty ${d.toFixed(1)} %`);
   };
 
   new ResizeObserver(draw).observe(cv);

@@ -29,6 +29,7 @@
 //                       { el, refresh?(values), modulate?(id, value|null) }
 //   system / isOutput  reserved for the Output module
 import { createWaveView } from './oscview.js';
+import { WAVE_NAMES, isNoise } from './oscshape.js';
 
 export default {
   type: 'OSC',
@@ -39,14 +40,15 @@ export default {
   hasOutput: true,
   params: [
     { id: 'polyphony', label: 'Polyphony', min: 1, max: 32, default: 8, step: 1 },
-    { id: 'wave', label: 'Waveform', min: 0, max: 4, default: 2, step: 1, options: ['Sine', 'Tri/Saw', 'Saw', 'Square', 'Half sine'] },
+    { id: 'wave', label: 'Waveform', min: 0, max: WAVE_NAMES.length - 1, default: 2, step: 1, options: WAVE_NAMES },
     { id: 'attack', label: 'Attack (s)', min: 0.001, max: 4, default: 0.01, step: 0.001 },
     { id: 'decay', label: 'Decay (s)', min: 0.001, max: 4, default: 0.2, step: 0.001 },
     { id: 'sustain', label: 'Sustain', min: 0, max: 1, default: 0.7, step: 0.01 },
     { id: 'release', label: 'Release (s)', min: 0.001, max: 6, default: 0.4, step: 0.001 },
     { id: 'gain', label: 'Gain', min: 0, max: 1, default: 0.5, step: 0.01 },
-    // shapes every waveform (see oscshape.js shape()); half sine uses duty as its bow length
-    { id: 'duty', label: 'Duty Cycle', min: 0, max: 100, default: 50, step: 0.1, format: (v) => `${v.toFixed(1)} %` },
+    // shapes every waveform (see oscshape.js shape()); half sine uses duty as its bow length;
+    // the noise colours are unpitched and have no duty cycle
+    { id: 'duty', label: 'Duty Cycle', min: 0, max: 100, default: 50, step: 0.1, format: (v) => `${v.toFixed(1)} %`, visible: (v) => !isNoise(v.wave) },
   ],
   view: (entry, api) => createWaveView({ color: api.color, values: entry.values }),
   create(_ctx, _def, host) {

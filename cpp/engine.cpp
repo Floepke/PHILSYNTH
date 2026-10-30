@@ -38,10 +38,10 @@ EXPORT(ms_param_count) int ms_param_count(int kind) {
 EXPORT(ms_alloc) void* ms_alloc(int bytes) { return calloc(bytes, 1); }
 EXPORT(ms_free) void ms_free(void* p) { free(p); }
 
-// salt: REVERB per-instance seed offset; seed: random seed (FILTER's random LFO)
+// salt: REVERB per-instance seed offset; seed: random seed (FILTER's random LFO, OSC noise)
 EXPORT(ms_create) Kernel* ms_create(int kind, double sampleRate, int salt, uint32_t seed) {
   switch (kind) {
-    case KIND_OSC: return new Osc(sampleRate);
+    case KIND_OSC: return new Osc(sampleRate, seed);
     case KIND_FILTER: return new Filter(sampleRate, seed);
     case KIND_REVERB: return new Reverb(sampleRate, salt);
     case KIND_WAVESHAPER: return new Waveshaper(sampleRate);
