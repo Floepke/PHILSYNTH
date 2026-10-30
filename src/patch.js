@@ -14,6 +14,10 @@ import { fromNorm, paramsOf } from './params.js';
 // seeded modules (REVERB) mix it into their seed so no two instances generate the same numbers.
 export const instanceSalt = (parent, k) => (parent * 17 + k) % 1000003;
 
+// Custom module name: trimmed, at most 40 characters; '' = the default name.
+export const MAX_NAME = 40;
+export const cleanName = (name) => (typeof name === 'string' ? name.trim().slice(0, MAX_NAME) : '');
+
 export class PatchRuntime {
   constructor(engine, sink, salt = 0) {
     this.engine = engine;
@@ -53,7 +57,7 @@ export class PatchRuntime {
     return id;
   }
 
-  async addModule(type, { id, x = 0, y = 0, values, state } = {}) {
+  async addModule(type, { id, x = 0, y = 0, values, state, name } = {}) {
     const def = getModule(type);
     if (!def) throw new Error(`Unknown module type: ${type}`);
     if (id === undefined) id = this.lowestFreeId();
@@ -66,6 +70,8 @@ export class PatchRuntime {
       this.reserved.delete(id);
     }
     const entry = { id, def, inst, x, y, values: {}, mod: {} };
+    const label = cleanName(name);
+    if (label) entry.name = label; // custom name shown on the module box (the panel keeps the type)
     inst.attach?.(entry, this); // e.g. a Patch mirrors its mapped inner controllers into entry.values
     // the DSP node whose kernel gets the controllers; reports their modulated values back
     entry.ctl = inst.ctl ?? inst.node ?? inst.input ?? null;
@@ -99,7 +105,7 @@ export class PatchRuntime {
   async duplicate(id, { x, y } = {}) {
     const src = this.modules.get(id);
     if (!src || src.def.isOutput) return null;
-    const copy = await this.addModule(src.def.type, { x: x ?? src.x + 30, y: y ?? src.y + 30, values: { ...src.values }, state: src.state });
+    const copy = await this.addModule(src.def.type, { x: x ?? src.x + 30, y: y ?? src.y + 30, values: { ...src.values }, state: src.state, name: src.name });
     if (src.inst.patch && copy.inst.patch) await copy.inst.patch.load(src.inst.patch.toJSON());
     return copy;
   }
@@ -122,6 +128,50 @@ export class PatchRuntime {
   // Delete several modules at once (the Output module is skipped). Returns how many were removed.
   removeMany(ids) {
     return [...ids].filter((id) => this.removeModule(id)).length;
+  }
+
+  // Custom name shown on a module's box; empty restores the default (its type). Saved.
+  rename(id, name) {
+    const e = this.modules.get(id);
+    if (!e) return false;
+    const label = cleanName(name);
+    if (label) e.name = label; else delete e.name;
+    this.changed();
+    return true;
+  }
+
+  // ---- clipboard (patcher cut / copy / paste) ----
+  // Plain data of a group of modules (the Output module is skipped): their settings, nested
+  // patches and the cables between them. Independent of this patch, so it pastes into any level.
+  copyMany(ids) {
+    const set = new Set([...ids].filter((id) => this.modules.has(id) && id !== 0));
+    if (!set.size) return null;
+    const { modules, cables } = this.toJSON();
+    return {
+      modules: modules.filter((m) => set.has(m.id)),
+      cables: cables.filter((c) => set.has(c.from) && set.has(c.to)),
+    };
+  }
+
+  // Insert copied modules with new numbers; the group's top-left corner lands at (x, y).
+  // Returns the new modules.
+  async pasteMany(data, { x, y } = {}) {
+    if (!data?.modules?.length) return [];
+    const left = Math.min(...data.modules.map((m) => m.x));
+    const top = Math.min(...data.modules.map((m) => m.y));
+    const dx = x === undefined ? 30 : x - left;
+    const dy = y === undefined ? 30 : y - top;
+    const map = new Map(); // copied id -> new module
+    for (const m of [...data.modules].sort((a, b) => a.id - b.id)) {
+      if (!getModule(m.type) || getModule(m.type).isOutput) continue;
+      const e = await this.addModule(m.type, { x: Math.round(m.x + dx), y: Math.round(m.y + dy), values: m.values, state: m.state, name: m.name });
+      if (m.patch && e.inst.patch) await e.inst.patch.load(m.patch);
+      map.set(m.id, e);
+    }
+    for (const c of data.cables ?? []) {
+      if (map.has(c.from) && map.has(c.to)) this.connect(map.get(c.from).id, map.get(c.to).id);
+    }
+    return [...map.values()];
   }
 
   get bpm() {
@@ -345,6 +395,7 @@ export class PatchRuntime {
     return {
       modules: [...this.modules.values()].map((e) => ({
         id: e.id, type: e.def.type, x: e.x, y: e.y, values: { ...e.values },
+        ...(e.name ? { name: e.name } : {}),
         ...(e.state ? { state: structuredClone(e.state) } : {}),
         ...(e.inst.patch ? { patch: e.inst.patch.toJSON() } : {}),
       })),
@@ -358,6 +409,7 @@ export class PatchRuntime {
       if (m.id === 0) {
         const out = this.modules.get(0);
         out.x = m.x; out.y = m.y;
+        if (cleanName(m.name)) out.name = cleanName(m.name); else delete out.name;
         for (const [k, v] of Object.entries(m.values ?? {})) this.setParam(0, k, v);
         continue;
       }

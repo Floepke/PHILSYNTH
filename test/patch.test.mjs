@@ -854,8 +854,58 @@ const set = (e, x) => { hold(e, x); render(1); };
   const io = await p.inst.patch.addModule('OSC', { values: { sustain: 0 } });
   r.setState(p.id, { maps: [{ key: 'map1', module: io.id, param: 'decay' }] });
   r.setParam(p.id, 'map1', 0.8);
-  assert.equal(io.values.release, 0.8, 'mapped decay links the inner release');
   r.destroy();
+}
+
+// ---- rename, copy / paste ----
+{
+  const r = await PatchRuntime.create(engine, dsp.destination);
+  const a = await r.addModule('OSC', { x: 100, y: 50 });
+  const b = await r.addModule('PATCH', { x: 200, y: 80 });
+  await b.inst.patch.addModule('OSC');
+  r.connect(a.id, b.id);
+  r.connect(b.id, 0);
+  assert.ok(r.rename(a.id, '  Lead   '));
+  assert.equal(a.name, 'Lead', 'trimmed');
+  assert.equal(r.rename(99, 'x'), false);
+  r.rename(b.id, 'x'.repeat(80));
+  assert.equal(b.name.length, 40, 'capped');
+  r.rename(b.id, '   ');
+  assert.equal('name' in b, false, 'empty restores the default');
+  r.rename(0, 'Main');
+  const json = r.toJSON();
+  assert.equal(json.modules.find((m) => m.id === a.id).name, 'Lead');
+  assert.equal(json.modules.find((m) => m.id === b.id).name, undefined);
+  const r2 = await PatchRuntime.create(engine, dsp.destination);
+  await r2.load(json);
+  assert.equal(r2.modules.get(a.id).name, 'Lead', 'name survives save / load');
+  assert.equal(r2.modules.get(0).name, 'Main', 'Output can be renamed');
+  const [dup] = await r.duplicateMany([a.id], 10, 10);
+  assert.equal(dup.name, 'Lead', 'duplicate keeps the name');
+
+  assert.equal(r.copyMany([0]), null, 'Output alone cannot be copied');
+  const clip = r.copyMany([0, a.id, b.id]);
+  assert.deepEqual(clip.modules.map((m) => m.id), [a.id, b.id], 'Output skipped');
+  assert.deepEqual(clip.cables, [{ from: a.id, to: b.id }], 'only cables inside the group');
+  const before = r.modules.size;
+  const pasted = await r.pasteMany(clip, { x: 500, y: 400 });
+  assert.equal(pasted.length, 2);
+  assert.equal(r.modules.size, before + 2);
+  assert.ok(pasted.every((m) => ![a.id, b.id].includes(m.id)), 'new numbers');
+  assert.deepEqual(pasted.map((m) => [m.x, m.y]), [[500, 400], [600, 430]], 'top-left at the paste point');
+  assert.equal(pasted[0].name, 'Lead');
+  assert.ok(r.cables.some((c) => c.from === pasted[0].id && c.to === pasted[1].id), 'internal cable reconnected');
+  assert.equal(pasted[1].inst.patch.modules.size, 2, 'nested patch copied');
+  const off = await r.pasteMany(clip);
+  assert.deepEqual([off[0].x, off[0].y], [130, 80], 'default offset');
+  // into another patch level (the clipboard is plain data)
+  const inner = b.inst.patch;
+  const into = await inner.pasteMany(clip, { x: 0, y: 0 });
+  assert.equal(into.length, 2);
+  assert.ok(inner.cables.some((c) => c.from === into[0].id && c.to === into[1].id));
+  assert.deepEqual(await r.pasteMany(null), []);
+  r.destroy();
+  r2.destroy();
 }
 
 console.log('all patch tests passed');

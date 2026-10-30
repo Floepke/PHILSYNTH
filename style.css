@@ -371,6 +371,21 @@ body.panel-collapsed #panel { visibility: hidden; }
 .module:hover { border-color: #4a4a52; }
 .module:active { cursor: grabbing; }
 .module-name { flex: 1; font-weight: 600; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.module-name.custom { text-transform: none; letter-spacing: 0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+.module-rename {
+  flex: 1;
+  min-width: 0;
+  width: 110px;
+  padding: 1px 4px;
+  font-weight: 600;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--mod-color, var(--accent, #888));
+  border-radius: 4px;
+  outline: none;
+}
 .module-id {
   padding: 1px 6px;
   border-radius: 4px;

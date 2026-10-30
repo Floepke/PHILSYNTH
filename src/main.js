@@ -14,6 +14,8 @@ import { initWidgets } from './widgets.js';
 import { snapStep } from './song.js';
 import { CableScope } from './cablescope.js';
 import { openMapDialog, patchControllersView } from './mapdialog.js';
+import { MAX_NAME } from './patch.js';
+import { showMenu, shortcut } from './seq/menu.js';
 
 const engine = new Engine();
 let transport = null; // song playback (created after the engine)
@@ -304,6 +306,53 @@ function setColor(el, def) {
   if (def?.color && !def.isOutput) el.style.setProperty('--mod-color', def.color);
 }
 
+// Name on a module box: its custom name (see rename) or the default from its type.
+const defaultName = (def) => (def.isOutput ? 'Output' : def.type === 'PATCH' ? 'Patch' : def.type);
+function showName(entry, el = entry.el?.querySelector('.module-name')) {
+  if (!el) return;
+  el.textContent = entry.name ?? defaultName(entry.def);
+  el.classList.toggle('custom', !!entry.name);
+  el.title = entry.name ? `${entry.name} (${entry.def.label})` : '';
+}
+
+// Rename in place: an input over the module's name. Enter / leaving it keeps the name, Escape
+// cancels; an empty name restores the default.
+function startRename(entry) {
+  const label = entry.el?.querySelector('.module-name');
+  if (!label || entry.el.querySelector('.module-rename')) return;
+  const input = document.createElement('input');
+  input.className = 'module-rename';
+  input.value = entry.name ?? defaultName(entry.def);
+  input.maxLength = MAX_NAME;
+  input.placeholder = defaultName(entry.def);
+  input.setAttribute('aria-label', `Name of module #${entry.id}`);
+  label.hidden = true;
+  label.after(input);
+  let done = false;
+  const finish = (keep) => {
+    if (done) return;
+    done = true;
+    const patch = current();
+    if (keep && patch.modules.get(entry.id) === entry) {
+      const value = input.value.trim();
+      patch.rename(entry.id, value === defaultName(entry.def) ? '' : value);
+    }
+    input.remove();
+    label.hidden = false;
+    showName(entry);
+    canvas.focus({ preventScroll: true });
+  };
+  input.addEventListener('keydown', (e) => {
+    e.stopPropagation(); // typing must not delete modules / go up a level
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
+  for (const t of ['pointerdown', 'dblclick']) input.addEventListener(t, (e) => e.stopPropagation()); // no drag, no "enter patch"
+  input.focus();
+  input.select();
+}
+
 function createBox(entry) {
   const { def } = entry;
   const el = document.createElement('div');
@@ -314,7 +363,7 @@ function createBox(entry) {
   el.style.top = `${entry.y}px`;
   const name = document.createElement('span');
   name.className = 'module-name';
-  name.textContent = def.isOutput ? 'Output' : def.type === 'PATCH' ? 'Patch' : def.type;
+  showName(entry, name);
   const num = document.createElement('span');
   num.className = 'module-id';
   num.textContent = entry.id;
@@ -460,6 +509,7 @@ function drawCables() {
     const to = portPos(b, 'in');
     const g = document.createElementNS(SVGNS, 'g');
     g.classList.add('cable');
+    g.cable = cable; // for the right-click menu
     g.classList.toggle('selected', sel?.cable === cable);
     g.classList.toggle('mod', !!a.def.modulator);
     g.classList.toggle('midi', !!a.def.midiOut);
@@ -561,20 +611,14 @@ canvas.addEventListener('pointerdown', (e) => {
   window.addEventListener('pointercancel', up);
 });
 
-window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && path.length > 1 && !document.querySelector('dialog[open]')) {
-    path.pop();
-    render();
-    return;
-  }
-  if (e.target.closest('input, select, dialog, #seq')) return; // the sequencer handles its own keys
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') {
-    e.preventDefault();
-    selectEntries([...current().modules.values()]);
-    return;
-  }
-  if ((e.key !== 'Backspace' && e.key !== 'Delete') || !sel) return;
-  e.preventDefault();
+// ---- commands: delete, cut / copy / paste (keyboard and right-click menu) ----
+let clipboard = null; // copied modules (PatchRuntime.copyMany), pasted into any patch level
+let lastPointer = null; // client position of the pointer over the patcher (paste location)
+canvas.addEventListener('pointermove', (e) => { lastPointer = { x: e.clientX, y: e.clientY }; });
+canvas.addEventListener('pointerleave', () => { lastPointer = null; });
+
+function deleteSelection() {
+  if (!sel) return;
   const patch = current();
   if (sel.kind === 'cable') patch.disconnect(sel.cable);
   else {
@@ -588,6 +632,88 @@ window.addEventListener('keydown', (e) => {
       : `Deleted ${removable.length} module(s).`;
   }
   render();
+}
+function copySelection() {
+  const data = current().copyMany(selectedEntries().map((m) => m.id));
+  if (!data) { $('status').textContent = selectedEntries().length ? 'The Output module cannot be copied.' : 'Nothing selected to copy.'; return false; }
+  clipboard = data;
+  $('status').textContent = `Copied ${data.modules.length} module(s).`;
+  return true;
+}
+function cutSelection() {
+  if (copySelection()) deleteSelection();
+}
+// at = client position for the group's top-left corner (default: offset from the originals)
+async function paste(at) {
+  if (!clipboard) return;
+  const patch = current();
+  const w = at ? clientToWorld(at.x, at.y) : null;
+  try {
+    const added = await patch.pasteMany(clipboard, w ? { x: Math.round(w.x), y: Math.round(w.y) } : {});
+    if (patch !== current()) return;
+    render();
+    selectEntries(added);
+    $('status').textContent = `Pasted ${added.length} module(s).`;
+  } catch (err) {
+    $('status').textContent = `Paste failed: ${err.message}`;
+  }
+}
+
+// Right-click menu: on a module (it joins / becomes the selection), a cable, or empty canvas.
+canvas.addEventListener('contextmenu', (e) => {
+  if (e.target.closest('input, .module-rename')) return;
+  e.preventDefault();
+  const box = e.target.closest('.module');
+  const entry = box ? current().modules.get(+box.dataset.id) : null;
+  const cableEl = e.target.closest('.cable');
+  if (entry && !selectedEntries().includes(entry)) select({ kind: 'module', entry });
+  else if (!entry && cableEl?.cable && sel?.cable !== cableEl.cable) select({ kind: 'cable', cable: cableEl.cable });
+  const mods = selectedEntries();
+  const onModule = !!entry;
+  const copyable = onModule && mods.some((m) => !m.def.isOutput);
+  const at = { x: e.clientX, y: e.clientY };
+  const items = [
+    { label: 'Cut', shortcut: shortcut('X'), disabled: !copyable, action: cutSelection },
+    { label: 'Copy', shortcut: shortcut('C'), disabled: !copyable, action: copySelection },
+    { label: 'Paste', shortcut: shortcut('V'), disabled: !clipboard, action: () => paste(at) },
+    { label: 'Delete', shortcut: '⌫', disabled: !(onModule ? copyable : sel?.kind === 'cable'), action: deleteSelection },
+  ];
+  if (onModule) items.push('-', { label: 'Rename…', shortcut: 'F2', disabled: mods.length > 1, action: () => startRename(entry) });
+  if (onModule && entry.name) items.push({ label: 'Reset name', action: () => { current().rename(entry.id, ''); showName(entry); } });
+  showMenu({ x: e.clientX, y: e.clientY, items });
+});
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && path.length > 1 && !document.querySelector('dialog[open]')) {
+    path.pop();
+    render();
+    return;
+  }
+  if (e.target.closest('input, select, textarea, dialog, #seq')) return; // the sequencer handles its own keys
+  const command = (e.ctrlKey || e.metaKey) && !e.altKey;
+  const k = e.key.toLowerCase();
+  if (command && k === 'a') {
+    e.preventDefault();
+    selectEntries([...current().modules.values()]);
+    return;
+  }
+  // only while the patcher has focus: elsewhere Cmd/Ctrl + C copies text as usual
+  const patcherFocused = document.activeElement === canvas || document.activeElement === document.body;
+  if (command && !e.shiftKey && patcherFocused && (k === 'c' || k === 'x' || k === 'v')) {
+    e.preventDefault();
+    if (k === 'c') copySelection();
+    else if (k === 'x') cutSelection();
+    else paste(lastPointer);
+    return;
+  }
+  if (e.key === 'F2' && sel?.kind === 'module') {
+    e.preventDefault();
+    startRename(sel.entry);
+    return;
+  }
+  if ((e.key !== 'Backspace' && e.key !== 'Delete') || !sel) return;
+  e.preventDefault();
+  deleteSelection();
 });
 
 // ---- controller panel ----
@@ -644,6 +770,7 @@ function select(s) {
       hint('Drag on empty canvas to select several modules. <kbd>Ctrl</kbd> + click toggles a module, <kbd>Ctrl</kbd> + drag adds, <kbd>Ctrl</kbd> + <kbd>A</kbd> selects all.'),
       hint('<kbd>Alt</kbd> + drag a module to duplicate it (or the whole selection).'),
       hint('<kbd>Backspace</kbd> deletes the selection.'),
+      hint(`Right-click a module, cable or the canvas for <b>Cut / Copy / Paste / Delete</b> (also <kbd>${shortcut('X')}</kbd> <kbd>${shortcut('C')}</kbd> <kbd>${shortcut('V')}</kbd>; paste lands at the mouse pointer). <b>Rename…</b> (or <kbd>F2</kbd>) gives a module its own name on its box; the controller panel keeps showing the module type.`),
       hint('<kbd>Double-click</kbd> a Patch to enter it, <kbd>Esc</kbd> to go up.'),
       hint('Select a Patch and click <b>Controllers…</b> to map controllers of any module inside to controllers of the Patch module, so they can be set, modulated (LFO) and automated from outside.'),
       hint('OSC / ADSR: with <b>Sustain</b> at 0, <b>Decay</b> and <b>Release</b> are linked: moving one moves the other.'),
