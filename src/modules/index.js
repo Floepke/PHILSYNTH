@@ -11,10 +11,11 @@ import lfo from './lfo.js';
 import adsr from './adsr.js';
 import waveshaper from './waveshaper.js';
 import velocity2ctl from './velocity2ctl.js';
+import sound2ctl from './sound2ctl.js';
 import multictl from './multictl.js';
 import patch from './patch.js';
 
-const all = [out, osc, multimidi, filter, eq, waveshaper, amp, dcblock, reverb, lfo, adsr, velocity2ctl, multictl, patch];
+const all = [out, osc, multimidi, filter, eq, waveshaper, amp, dcblock, reverb, lfo, adsr, velocity2ctl, sound2ctl, multictl, patch];
 
 export const getModule = (type) => all.find((m) => m.type === type);
 // Modules offered in the insert dialog (system modules like OUT are excluded)

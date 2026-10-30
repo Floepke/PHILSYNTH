@@ -14,6 +14,31 @@ const x = instantiateDsp(bytes);
 const { heap, kernels: WASM } = wasmKernels(x, 48000);
 assert.deepEqual(WebAssembly.Module.imports(new WebAssembly.Module(bytes)), [], 'no imports');
 
+// SOUND2CTL reads native audio buffers; adding/removing its routes switches render paths safely.
+{
+  const { dsp, graph, render } = dspTestHost({ kernels: WASM, heap });
+  const src = dsp.create('osc');
+  const ctl = dsp.create('sound2ctl');
+  const target = dsp.create('amp');
+  src.connect(dsp.destination);
+  src.connect(ctl);
+  src.send({ type: 'noteOn', id: 1, pitch: 60, velocity: 1 });
+  render();
+  assert.ok(graph.prog, 'native render without audio-control routes');
+  let applied;
+  target.onMod = (_id, value) => { applied = value; };
+  ctl.routes([{ to: target.h, id: 'amp', min: 0, max: 4 }]);
+  render();
+  assert.equal(graph.prog, 0, 'mixed JS/native render for audio conversion');
+  const [left, right] = graph.nodes.get(src.h).outs[0];
+  const voltage = 0.5 * (left[127] + right[127]);
+  assert.ok(Math.abs(applied - 2 * (Math.max(-1, Math.min(1, voltage)) + 1)) < 1e-6, 'final signed sample, not peak or envelope');
+  ctl.routes([]);
+  render();
+  assert.ok(graph.prog, 'native rendering restored after removing routes');
+  src.destroy(); ctl.destroy(); target.destroy();
+}
+
 // ---- the controller lists match the module definitions ----
 for (const [kind, spec] of Object.entries(SPECS)) {
   if (kind === 'bus') continue; // no module of its own

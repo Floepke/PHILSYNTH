@@ -24,6 +24,57 @@ class Mod extends Kernel {
 const near = (a, b, eps) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 Object.assign(KERNELS, { const: Const, probe: Probe, mod: Mod });
 
+// Audio-to-control renders otherwise inaudible sources, without leaking their sound.
+{
+  class Voltage extends Kernel {
+    constructor() { super(); this.left = 1; this.right = 1; this.on = true; this.calls = 0; }
+    process(_ins, outs) {
+      this.calls++;
+      if (!this.on) return false;
+      outs[0][0].fill(this.left);
+      outs[0][1].fill(this.right);
+      return true;
+    }
+  }
+  const { dsp, graph, kernel, render } = dspTestHost({ kernels: { voltage: Voltage } });
+  const src = dsp.create('voltage');
+  const ctl = dsp.create('sound2ctl');
+  const target = dsp.create('probe');
+  src.connect(ctl);
+  ctl.routes([{ to: target.h, id: 'x', min: 0, max: 100 }]);
+  let out = render();
+  assert.equal(kernel(target).set.at(-1)[1], 100);
+  assert.ok(out.L.every((v) => v === 0), 'control routes do not leak audio');
+  assert.deepEqual(graph.order.map((n) => n.h), [0, src.h, ctl.h]);
+  kernel(src).left = kernel(src).right = -1;
+  render();
+  assert.equal(kernel(target).set.at(-1)[1], 0);
+  kernel(src).left = 1; kernel(src).right = -1;
+  render();
+  assert.equal(kernel(target).set.at(-1)[1], 50, 'stereo voltage is averaged');
+  kernel(src).left = kernel(src).right = 4;
+  ctl.param('outMin', 20); ctl.param('outMax', 80);
+  render();
+  assert.equal(kernel(target).set.at(-1)[1], 80, 'clamped positive voltage');
+  kernel(src).left = kernel(src).right = -4;
+  render();
+  assert.equal(kernel(target).set.at(-1)[1], 20, 'clamped negative voltage');
+  ctl.param('outMin', 80); ctl.param('outMax', 20);
+  render();
+  assert.equal(kernel(target).set.at(-1)[1], 80, 'inverted trim range');
+  kernel(src).on = false;
+  render();
+  assert.equal(kernel(target).set.at(-1)[1], 50, 'silence is zero voltage, not held stale audio');
+  src.disconnect(ctl);
+  render();
+  assert.equal(kernel(ctl).value, 0.5, 'disconnected input stays at zero voltage');
+  src.connect(ctl);
+  ctl.routes([]);
+  const calls = kernel(src).calls;
+  render();
+  assert.equal(kernel(src).calls, calls, 'unrouted control-only sources no longer render');
+}
+
 const { dsp, graph, render, kernel } = dspTestHost();
 const k = kernel;
 

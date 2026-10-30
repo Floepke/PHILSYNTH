@@ -848,6 +848,9 @@ function select(s) {
 
   const entry = s.entry;
   panel.append(panelHeader(entry.def.label, `#${entry.id}`, entry.def));
+  if (entry.def.type === 'SOUND2CTL') {
+    panel.append(hint('Cable an audio source into this module, then cable this module to the module to control and select <kbd>Out Controller</kbd>. Voltage -1 = <kbd>Out Min</kbd>, +1 = <kbd>Out Max</kbd>; silence (0) is halfway. Stereo channels are averaged and voltage is clamped to -1..1. Direct voltage conversion, not an envelope follower: the last sample of each audio block controls the next block (128 samples).'));
+  }
   if (entry.def.type === 'VELOCITY2CTL') {
     panel.append(hint('The velocity of the newest incoming note (and its velocity curve while it sounds) sets the controller: velocity 0 = <kbd>Out Min</kbd>, 127 = <kbd>Out Max</kbd>. When the note ends, <kbd>Noteoff Action</kbd> holds the value (Do Nothing) or moves it to <kbd>Out Min</kbd> (Control Down) or <kbd>Out Max</kbd> (Control Up).'));
   }

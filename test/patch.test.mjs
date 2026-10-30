@@ -605,6 +605,46 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.ok(!('duty' in osc.mod), 'deleting the ADSR releases the controller');
 }
 
+// ---- SOUND2CTL: audio input with a control-only output ----
+{
+  const r = await PatchRuntime.create(engine, dsp.destination);
+  const src = await r.addModule('OSC');
+  const ctl = await r.addModule('SOUND2CTL');
+  const target = await r.addModule('AMP');
+  const mm = await r.addModule('MULTIMIDI');
+  assert.deepEqual(ctl.def.params.map((p) => p.id), ['outController', 'outMin', 'outMax']);
+  assert.ok(r.connect(src.id, ctl.id), 'audio input');
+  assert.ok(r.connect(ctl.id, target.id), 'controller output');
+  assert.equal(r.connect(mm.id, ctl.id), false, 'no MIDI input');
+  assert.match(ctl.inst.params()[0].format(0), /Amplification/);
+  render();
+  assert.equal(target.mod.amp, 2, 'silent voltage is the midpoint of the range');
+  assert.ok(graph.order.some((n) => n.h === src.inst.node.h), 'inaudible input is rendered');
+  r.setParam(ctl.id, 'outMin', 20);
+  r.setParam(ctl.id, 'outMax', 60);
+  render();
+  assert.equal(target.mod.amp, 1.6, 'trimming maps into the target range');
+  r.setParam(ctl.id, 'outController', 1);
+  render();
+  assert.ok(!('amp' in target.mod), 'changing controller releases the old one');
+  assert.equal(target.mod.pan, -0.2);
+  const saved = JSON.parse(JSON.stringify(r.toJSON()));
+  const restored = await PatchRuntime.create(engine, dsp.destination);
+  await restored.load(saved);
+  render();
+  assert.equal(restored.modules.get(target.id).mod.pan, -0.2, 'routing and trim survive save/load');
+  const [copySrc, copyCtl, copyTarget] = await r.duplicateMany([src.id, ctl.id, target.id], 10, 10);
+  render();
+  assert.equal(copyTarget.mod.pan, -0.2, 'copied control chain works');
+  assert.ok(r.cables.some((c) => c.from === copySrc.id && c.to === copyCtl.id));
+  r.disconnect(r.cables.find((c) => c.from === ctl.id && c.to === target.id));
+  assert.ok(!('pan' in target.mod), 'disconnect restores the saved controller value');
+  r.removeModule(copyCtl.id);
+  assert.ok(!('pan' in copyTarget.mod), 'deleting converter releases controller');
+  r.destroy();
+  restored.destroy();
+}
+
 // ---- VELOCITY2CTL: the newest note's velocity drives a controller (through Out Min..Out Max) ----
 {
   const r = await PatchRuntime.create(engine, dsp.destination);

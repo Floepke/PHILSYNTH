@@ -1,4 +1,4 @@
-// Shared by modulator modules (LFO, ADSR, VELOCITY2CTL): their control cables drive controller number
+// Shared by modulator modules (LFO, ADSR, VELOCITY2CTL, SOUND2CTL): their control cables drive controller number
 // `outController` of every module they connect to, inside Out Min..Out Max (% of its range).
 // The patch (src/patch.js modulate()) maps the modulator's 0..1 value onto that range.
 export const pct = (v) => `${Math.round(v)} %`;

@@ -12,6 +12,8 @@
 //   2. the nodes that reach the master bus are rendered in dependency order. A single live input
 //      is passed through without copying, several are summed; silent sources are skipped and
 //      passive nodes (buses, gains) with only silent inputs are not rendered at all.
+//   SOUND2CTL and its audio sources also render when routed; its sampled voltage is applied
+//   after step 2 for the next quantum (control feedback is therefore one block delayed).
 // Changed modulated values are collected and sent to the main thread by report() (for display).
 //
 // Messages (arrays, batched by the host): ['add', h, kind, opts] ['del', h] ['con', from, to]
@@ -81,7 +83,8 @@ export class Graph {
       h, kind, k: new K(opts ?? {}),
       srcs: [], dsts: [],
       modulator: !!K.modulator,
-      audio: K.audio !== false && !K.modulator,
+      audio: K.audio !== false && (!K.modulator || !!K.audioInput),
+      audioInput: !!K.audioInput,
       passive: !!K.passive,
       outs: null,
       outPtr: 0, // heap: [L, R] buffers of outs
@@ -169,6 +172,7 @@ export class Graph {
     node.routes = list
       .map((r) => ({ node: this.nodes.get(r.to), id: r.id, min: r.min, max: r.max, scale: r.scale, step: r.step, last: NaN }))
       .filter((r) => r.node);
+    if (node.audioInput) this.dirty = true;
   }
 
   setScope(list) {
@@ -193,6 +197,8 @@ export class Graph {
       if (n.audio) order.push(n);
     };
     visit(this.master);
+    // Audio-driven controllers need their sources even if no audio cable reaches the Output.
+    for (const n of this.nodes.values()) if (n.audioInput && n.routes.length) visit(n);
     this.order = order;
     this.mods = [...this.nodes.values()].filter((n) => n.modulator);
     for (const n of this.nodes.values()) if (!seen.has(n)) n.silent = true;
@@ -238,6 +244,7 @@ export class Graph {
     if (this.dirty) this.rebuild();
     if (this.heap?.grown()) this.remap(); // after rebuild: it may allocate
     for (const m of this.mods) {
+      if (m.audioInput) continue;
       m.k.process(NO_INPUT, m.outs);
       const x = m.k.value;
       if (x !== null && x !== undefined && m.routes.length) this.modulate(m, x);
@@ -253,6 +260,9 @@ export class Graph {
       else if (live > 1) ins = this.sum(n);
       n.silent = n.k.process(ins, n.outs) === false;
     }
+    // Apply after rendering: audio-derived control feeds the next quantum, including feedback
+    // to its own source, without a circular audio dependency or insertion-order differences.
+    for (const m of this.mods) if (m.audioInput && m.routes.length) this.modulate(m, m.k.value);
     if (this.scopeH.length) this.scope();
     const m = this.master;
     if (m.silent) {

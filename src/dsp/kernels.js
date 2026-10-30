@@ -12,6 +12,7 @@ import OutKernel from '../modules/out.dsp.js';
 import LfoKernel from '../modules/lfo.dsp.js';
 import AdsrKernel from '../modules/adsr.dsp.js';
 import Velocity2CtlKernel from '../modules/velocity2ctl.dsp.js';
+import Sound2CtlKernel from '../modules/sound2ctl.dsp.js';
 import MultiCtlKernel from '../modules/multictl.dsp.js';
 
 export const KERNELS = {
@@ -28,5 +29,6 @@ export const KERNELS = {
   lfo: LfoKernel,
   adsr: AdsrKernel,
   velocity2ctl: Velocity2CtlKernel,
+  sound2ctl: Sound2CtlKernel,
   multictl: MultiCtlKernel,
 };

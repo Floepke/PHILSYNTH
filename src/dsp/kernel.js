@@ -11,6 +11,7 @@
 //                            the graph maps it onto the controllers their cables point to.
 // Static flags: modulator (no audio, runs first every block), audio = false (never rendered),
 // passive (memoryless: skipped while all of its inputs are silent).
+// audioInput + modulator: runs in audio dependency order; value controls the next quantum.
 // Kernels use the AudioWorkletGlobalScope global `sampleRate`.
 export class Kernel {
   param() {}
