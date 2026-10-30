@@ -73,25 +73,49 @@ export function createEqView({ color = '#7a6aa8', values, setParam }) {
     BANDS.forEach((f, i) => { if (Math.abs(xOf(f, r.width) - x) < Math.abs(xOf(BANDS[best], r.width) - x)) best = i; });
     return best;
   };
-  const setBand = (i, ev) => {
+  const pos = (ev) => {
     const r = cv.getBoundingClientRect();
-    const v = Math.round(Math.max(-MAX_DB, Math.min(MAX_DB, dbAt(ev.clientY - r.top, r.height))) * 10) / 10;
-    setParam?.(bandId(i), v);
+    return { x: ev.clientX - r.left, y: ev.clientY - r.top, w: r.width, h: r.height };
+  };
+  const setBand = (i, y, h) => {
+    const v = Math.round(Math.max(-MAX_DB, Math.min(MAX_DB, dbAt(y, h))) * 10) / 10;
+    if ((vals[bandId(i)] ?? 0) !== v) setParam?.(bandId(i), v);
+  };
+  // Drawing: every band whose x lies between the previous and the current
+  // pointer position gets the height of the line between them, so a fast
+  // sideways sweep does not skip bands.
+  const paint = (a, b) => {
+    const lo = Math.min(a.x, b.x), hi = Math.max(a.x, b.x);
+    BANDS.forEach((f, i) => {
+      const x = xOf(f, b.w);
+      if (x < lo || x > hi) return;
+      const t = hi > lo ? (x - a.x) / (b.x - a.x) : 1;
+      setBand(i, a.y + (b.y - a.y) * t, b.h);
+    });
+    drag = bandAt({ clientX: b.x + cv.getBoundingClientRect().left });
+    setBand(drag, b.y, b.h);
   };
   let drag = -1;
+  let last = null;
   cv.addEventListener('pointerdown', (ev) => {
     if (ev.button !== 0 || !setParam) return;
     ev.preventDefault();
-    drag = bandAt(ev);
     try { cv.setPointerCapture(ev.pointerId); } catch { /* synthetic pointer */ }
-    setBand(drag, ev);
+    last = pos(ev);
+    drag = bandAt(ev);
+    setBand(drag, last.y, last.h);
   });
-  cv.addEventListener('pointermove', (ev) => { if (drag >= 0) setBand(drag, ev); });
-  const end = () => { if (drag >= 0) { drag = -1; draw(); } };
+  cv.addEventListener('pointermove', (ev) => {
+    if (drag < 0) return;
+    const p = pos(ev);
+    paint(last, p);
+    last = p;
+  });
+  const end = () => { if (drag >= 0) { drag = -1; last = null; draw(); } };
   cv.addEventListener('pointerup', end);
   cv.addEventListener('pointercancel', end);
   cv.addEventListener('dblclick', (ev) => setParam?.(bandId(bandAt(ev)), 0));
-  cv.title = 'Drag a band up or down; double-click resets it to 0 dB';
+  cv.title = 'Drag to draw the bands (sideways sweeps set every band you pass); double-click resets a band to 0 dB';
 
   new ResizeObserver(draw).observe(cv);
   return {
