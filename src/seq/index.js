@@ -166,14 +166,17 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
   ui.target.addEventListener('change', () => {
     const c = clip();
     if (!c) return;
-    c.target = ui.target.value === '' ? null : +ui.target.value;
-    if (isAuto(c)) c.controller = 0;
+    const target = ui.target.value === '' ? null : +ui.target.value;
+    for (const l of linkedClips(song(), c)) { // clones share where they send to
+      l.target = target;
+      if (isAuto(l)) l.controller = 0;
+    }
     ctx.changed();
   });
   ui.ctl.addEventListener('change', () => {
     const c = clip();
     if (!isAuto(c)) return;
-    c.controller = +ui.ctl.value;
+    for (const l of linkedClips(song(), c)) l.controller = +ui.ctl.value;
     ctx.changed();
   });
   const numberField = (input, apply) => input.addEventListener('change', () => {

@@ -87,7 +87,7 @@ export class PatchRuntime {
     }
     inst.setBpm?.(this.bpm);
     if (def.modulator) {
-      entry.modTargets = new Map(); // target id -> controller id currently driven
+      entry.modTargets = new Map(); // `${target id} ${controller id}` -> [target id, controller id] driven
       inst.getTargets = () => this.cables.filter((c) => c.from === id).map((c) => this.modules.get(c.to)).filter(Boolean);
     }
     if (def.midiOut) {
@@ -119,10 +119,18 @@ export class PatchRuntime {
       if (!src || src.def.isOutput) continue;
       map.set(id, await this.duplicate(id, { x: src.x + dx, y: src.y + dy }));
     }
+    this.remapStates(map);
     for (const c of [...this.cables]) {
       if (map.has(c.from) && map.has(c.to)) this.connect(map.get(c.from).id, map.get(c.to).id);
     }
     return [...map.values()];
+  }
+
+  // Copies keep pointing at copies: module state that names module ids (MULTICTL routes) is
+  // renumbered with `map` (original id -> new module) before the cables are copied.
+  remapStates(map) {
+    const ids = new Map([...map].map(([from, e]) => [from, e.id]));
+    for (const e of map.values()) if (e.state && e.def.remapState) e.state = e.def.remapState(e.state, ids);
   }
 
   // Delete several modules at once (the Output module is skipped). Returns how many were removed.
@@ -168,6 +176,7 @@ export class PatchRuntime {
       if (m.patch && e.inst.patch) await e.inst.patch.load(m.patch);
       map.set(m.id, e);
     }
+    this.remapStates(map);
     for (const c of data.cables ?? []) {
       if (map.has(c.from) && map.has(c.to)) this.connect(map.get(c.from).id, map.get(c.to).id);
     }
@@ -211,15 +220,22 @@ export class PatchRuntime {
   updateRoutes(m) {
     if (m.dead || !m.ctl) return;
     const controller = (m.mod.outController ?? m.values.outController) | 0;
-    const driven = new Map();
+    const driven = new Map(); // `${target id} ${controller id}` -> [target id, controller id]
     const list = [];
     for (const c of this.cables) {
       if (c.from !== m.id) continue;
       const t = this.modules.get(c.to);
-      const p = t?.ctl && paramsOf(t)[controller];
-      if (!p) continue;
-      driven.set(t.id, p.id);
-      list.push(...this.routesOf(t, p));
+      if (!t?.ctl) continue;
+      const params = paramsOf(t);
+      // MULTICTL picks controllers per target (def.routeParams); others drive Out Controller
+      const ps = m.def.routeParams
+        ? m.def.routeParams(m, t).map((pid) => params.find((q) => q.id === pid))
+        : [params[controller]];
+      for (const p of ps) {
+        if (!p) continue;
+        driven.set(`${t.id} ${p.id}`, [t.id, p.id]);
+        list.push(...this.routesOf(t, p));
+      }
     }
     const sig = JSON.stringify(list);
     if (sig !== m.routeSig) {
@@ -228,7 +244,7 @@ export class PatchRuntime {
     }
     const old = m.modTargets;
     m.modTargets = driven;
-    for (const [tid, pid] of old) if (driven.get(tid) !== pid && !this.isDriven(tid, pid)) this.unmodulate(tid, pid);
+    for (const [key, [tid, pid]] of old) if (!driven.has(key) && !this.isDriven(tid, pid)) this.unmodulate(tid, pid);
   }
 
   // Graph routes that modulate controller `p` of module `t`. A controller a Patch module maps to
@@ -246,7 +262,7 @@ export class PatchRuntime {
   }
 
   isDriven(tid, pid) {
-    for (const m of this.modules.values()) if (m.modTargets?.get(tid) === pid) return true;
+    for (const m of this.modules.values()) if (m.modTargets?.has(`${tid} ${pid}`)) return true;
     return false;
   }
 
@@ -362,6 +378,7 @@ export class PatchRuntime {
       a.inst.node.connect(b.inst.input);
     }
     this.cables.push({ from: fromId, to: toId });
+    a.def.connected?.(a, b, a.inst.getTargets?.() ?? []); // e.g. MULTICTL copies routes to a module of a routed type
     this.emit();
     return true;
   }
@@ -372,7 +389,10 @@ export class PatchRuntime {
     this.cables.splice(i, 1);
     const a = this.modules.get(cable.from);
     const b = this.modules.get(cable.to);
-    if (a.def.modulator) this.updateRoutes(a); // gives the controller back its own value
+    if (a.def.modulator) {
+      a.def.disconnected?.(a, b); // e.g. MULTICTL forgets its routes to that module
+      this.updateRoutes(a); // gives the controller back its own value
+    }
     else if (a.def.midiOut) {
       a.inst.releaseTarget?.(b.inst);
     } else {

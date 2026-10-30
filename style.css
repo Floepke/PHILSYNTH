@@ -294,9 +294,6 @@ body.panel-collapsed #panel { visibility: hidden; }
   position: relative;
   overflow: hidden;
   background-color: var(--bg);
-  background-image:
-    radial-gradient(circle, #1c1c1f 1px, transparent 1.2px);
-  background-size: 22px 22px;
 }
 #canvas.panning, #canvas.panning * { cursor: grabbing !important; }
 /* everything on the canvas lives in world space; main.js sets translate(x, y) scale(z) */
@@ -685,6 +682,23 @@ dialog p { margin: 0; color: var(--text-dim, #a0a0a8); font-size: 13px; line-hei
 dialog .dialog-note { margin-top: 10px; font-size: 12px; }
 dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
 /* ---------- Patch module: mapped controllers ---------- */
+/* MULTICTL routes (below its controllers): one card per connected module */
+.mc-view { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.mc-title { margin: 0; color: var(--text-dim); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.mc-target {
+  display: flex; flex-direction: column; gap: 5px; padding: 7px 8px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--mod-color, #6e6e76) 14%, var(--surface-2));
+  box-shadow: inset 3px 0 0 var(--mod-color, #6e6e76);
+}
+.mc-head { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 12px; letter-spacing: 0.04em; }
+.mc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mc-select {
+  width: 100%; min-width: 0; height: 30px; padding: 0 6px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  background: var(--surface-3); color: var(--text); font: 12px var(--font);
+}
+.mc-select.mc-add { color: var(--text-dim); }
 .map-view { margin-top: 8px; }
 .map-view .map-open { width: 100%; margin-bottom: 8px; }
 #map-dialog { width: min(860px, 94vw); }

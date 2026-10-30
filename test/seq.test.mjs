@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { emptySong, addClip, addAutoClip, isAuto } from '../src/song.js';
+import { emptySong, addClip, addAutoClip, isAuto, cloneClip } from '../src/song.js';
 import { createAutomationLane } from '../src/seq/automation.js';
 import { createPianoRoll } from '../src/seq/pianoroll.js';
 import { createArranger } from '../src/seq/arranger.js';
@@ -1133,6 +1133,27 @@ for (const { sx, kw, width } of [
   assert.match(elements.get('status').textContent, /Nothing to undo/);
   engine.song = song;
   flush();
+
+  // Send to and the automation controller are shared by linked clones
+  {
+    const src = addClip(song, { start: 0, length: 1 });
+    src.target = 3;
+    const clones = [cloneClip(song, src), cloneClip(song, src)];
+    const other = addClip(song, { start: 8, length: 1 });
+    other.target = 3;
+    song.selected = clones[0].id;
+    elements.get('seq-target').value = '7';
+    elements.get('seq-target').dispatchEvent(new Event('change'));
+    assert.deepEqual([src, ...clones].map((c) => c.target), [7, 7, 7], 'changing a clone changes its source and every clone');
+    assert.equal(other.target, 3, 'unlinked clips keep theirs');
+    song.selected = src.id;
+    elements.get('seq-target').value = '';
+    elements.get('seq-target').dispatchEvent(new Event('change'));
+    assert.deepEqual([src, ...clones].map((c) => c.target), [null, null, null]);
+    song.clips = [];
+    song.selected = null;
+    flush();
+  }
 
   // Collapsed pane states survive restore; both splitter axes cover their full available extent.
   seq.applyView({ width: 0, split: 0 });

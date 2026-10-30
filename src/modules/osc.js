@@ -42,6 +42,7 @@ export default {
   color: '#db7c3d', // type colour (box, panel, cables). The 12 module colours are
   // 30° apart in OKLCH hue (rainbow, signal-flow order) with neighbours alternating light/dark, so
   // every pair stays clearly distinct on the dark boxes; keep that in mind when adding a module
+  // (MULTICTL's light gold sits apart from all of them by lightness)
   label: 'Oscillator (poly synth)',
   acceptsMidi: true,
   hasInput: false,

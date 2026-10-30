@@ -19,8 +19,8 @@
 //   (same curve maths as the WAVESHAPER curve, see curve.js). Before the first / after the last
 //   point the value holds.
 // Linked clones: clips with the same clip.link share ONE notes array (points for automation clips)
-// in memory, so editing one edits them all. Position, length, target and controller stay per
-// clip. clip.link is the id of the group's source clip (the original the others were cloned from);
+// in memory, so editing one edits them all. The toolbar keeps their name, Send to and controller
+// equal too; position and length stay per clip. clip.link is the id of the group's source clip (the original the others were cloned from);
 // when the source is deleted or detached, the earliest remaining clip becomes the source.
 // The project file stores every clip's notes; loading re-shares them.
 import { curvePolyline, sampleAt } from './curve.js';

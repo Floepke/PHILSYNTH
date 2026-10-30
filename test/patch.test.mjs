@@ -682,6 +682,80 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.ok(!('duty' in osc.mod), 'deleting it releases the controller');
 }
 
+// ---- MULTICTL: one Value drives chosen controllers of every connected module ----
+{
+  const r = await PatchRuntime.create(engine, dsp.destination);
+  const mc = await r.addModule('MULTICTL');
+  const o1 = await r.addModule('OSC');
+  const o2 = await r.addModule('OSC');
+  const amp = await r.addModule('AMP');
+  assert.equal(mc.def.params[0].id, 'value', 'Value is the first controller');
+  assert.deepEqual(mc.state, { routes: [] });
+  assert.ok(r.connect(mc.id, o1.id) && r.connect(mc.id, o2.id) && r.connect(mc.id, amp.id));
+  assert.equal(r.connect(o1.id, mc.id), false, 'no input');
+  render(2);
+  assert.ok(!('decay' in o1.mod), 'nothing routed yet: nothing modulated');
+
+  // decay on both OSCs, gain on the AMP (two controllers on one module are possible too)
+  r.setState(mc.id, { routes: [{ to: o1.id, param: 'decay' }, { to: o2.id, param: 'decay' }, { to: o2.id, param: 'release' }, { to: amp.id, param: 'amp' }] });
+  r.setParam(mc.id, 'value', 100);
+  render(1); render(1);
+  assert.equal(o1.mod.decay, 10);
+  assert.equal(o2.mod.decay, 10);
+  assert.equal(o2.mod.release, 10);
+  assert.ok(!('release' in o1.mod), 'only routed controllers move');
+  assert.equal(amp.mod.amp, 4);
+  r.setParam(mc.id, 'outMax', 50);
+  r.setParam(mc.id, 'value', 0);
+  render(1);
+  assert.equal(o1.mod.decay, 0.001, 'Value 0 = Out Min of each slider');
+  r.setParam(mc.id, 'value', 100);
+  render(1);
+  assert.ok(Math.abs(o1.mod.decay - 5) < 0.01, 'Value 100 % = Out Max (50 %) of the range');
+  assert.match(mc.inst.params()[0].format(100, mc.values), /→ 4 controllers/, 'mixed routes: count');
+
+  // unrouting gives the controller back its own value
+  r.setState(mc.id, { routes: mc.state.routes.filter((x) => !(x.to === o2.id && x.param === 'release')) });
+  assert.ok(!('release' in o2.mod));
+  assert.equal(o2.values.release, 0.4, 'saved value untouched');
+
+  // a new OSC copies the routes of the OSCs; another type does not
+  const o3 = await r.addModule('OSC');
+  r.connect(mc.id, o3.id);
+  assert.deepEqual(mc.state.routes.filter((x) => x.to === o3.id).map((x) => x.param), ['decay']);
+  render(1);
+  assert.ok(Math.abs(o3.mod.decay - 5) < 0.01);
+  const flt = await r.addModule('FILTER');
+  r.connect(mc.id, flt.id);
+  assert.ok(!mc.state.routes.some((x) => x.to === flt.id));
+
+  // disconnecting forgets that module's routes and releases its controller
+  r.disconnect(r.cables.find((c) => c.from === mc.id && c.to === o1.id));
+  assert.ok(!mc.state.routes.some((x) => x.to === o1.id));
+  assert.ok(!('decay' in o1.mod));
+  r.setState(mc.id, { routes: mc.state.routes.filter((x) => x.to !== amp.id) });
+  assert.match(mc.inst.params()[0].format(100, mc.values), /Decay \(s\) ×2/, 'one shared controller: shown with its value');
+
+  // saved and restored; copies route to the copies
+  const saved = JSON.parse(JSON.stringify(r.toJSON()));
+  assert.deepEqual(saved.modules.find((m) => m.id === mc.id).state, mc.state);
+  const r2 = await PatchRuntime.create(engine, dsp.destination);
+  await r2.load(saved);
+  assert.deepEqual(r2.modules.get(mc.id).state, mc.state);
+  render(1);
+  assert.ok('decay' in r2.modules.get(o2.id).mod, 'routes work after loading');
+  const [mc2, o2b] = await r.duplicateMany([mc.id, o2.id], 10, 10);
+  assert.deepEqual(mc2.state.routes, [{ to: o2b.id, param: 'decay' }], 'routes inside the copied group follow the copies');
+  const pasted = await r.pasteMany(r.copyMany([mc.id, o2.id]), { x: 0, y: 0 });
+  assert.deepEqual(pasted[0].state.routes, [{ to: pasted[1].id, param: 'decay' }]);
+  assert.ok(r.cables.some((c) => c.from === pasted[0].id && c.to === pasted[1].id));
+
+  // invalid state is cleaned up; deleting the MULTICTL releases everything
+  assert.deepEqual(mc.def.normalizeState({ routes: [{ to: 'x', param: 1 }, { to: 2, param: 'gain' }, { to: 2, param: 'gain' }] }), { routes: [{ to: 2, param: 'gain' }] });
+  r.removeModule(mc.id);
+  assert.ok(!('decay' in o2.mod) && !('decay' in o3.mod));
+}
+
 // ---- WAVESHAPER: curve state is saved, duplicated and mirrored to Patch instances ----
 {
   const r = await PatchRuntime.create(engine, dsp.destination);

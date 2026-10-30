@@ -317,8 +317,16 @@ function showName(entry, el = entry.el?.querySelector('.module-name')) {
   el.title = entry.name ? `${entry.name} (${entry.def.label})` : '';
 }
 
+// Patch modules: open (Enter or the right-click menu); Esc goes up again
+function openPatch(entry) {
+  if (!entry?.inst.patch) return;
+  path.push({ patch: entry.inst.patch, name: `Patch #${entry.id}`, id: entry.id });
+  render();
+}
+
 // Rename in place: an input over the module's name. Enter / leaving it keeps the name, Escape
 // cancels; an empty name restores the default.
+// Double-click a module, F2 or the right-click menu start it.
 function startRename(entry) {
   const label = entry.el?.querySelector('.module-name');
   if (!label || entry.el.querySelector('.module-rename')) return;
@@ -351,7 +359,7 @@ function startRename(entry) {
     else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
   });
   input.addEventListener('blur', () => finish(true));
-  for (const t of ['pointerdown', 'dblclick']) input.addEventListener(t, (e) => e.stopPropagation()); // no drag, no "enter patch"
+  for (const t of ['pointerdown', 'dblclick']) input.addEventListener(t, (e) => e.stopPropagation()); // no drag, no new rename
   input.focus();
   input.select();
 }
@@ -419,10 +427,7 @@ function createBox(entry) {
 
   el.addEventListener('dblclick', (e) => {
     e.stopPropagation();
-    if (entry.inst.patch) {
-      path.push({ patch: entry.inst.patch, name: `Patch #${entry.id}`, id: entry.id });
-      render();
-    }
+    startRename(entry);
   });
   world.appendChild(el);
 }
@@ -684,6 +689,7 @@ canvas.addEventListener('contextmenu', (e) => {
     { label: 'Paste', shortcut: shortcut('V'), disabled: !clipboard, action: () => paste(at) },
     { label: 'Delete', shortcut: '⌫', disabled: !(onModule ? copyable : sel?.kind === 'cable'), action: deleteSelection },
   ];
+  if (onModule && entry.inst.patch) items.push('-', { label: 'Open patch', shortcut: '↵', disabled: mods.length > 1, action: () => openPatch(entry) });
   if (onModule) items.push('-', { label: 'Rename…', shortcut: 'F2', disabled: mods.length > 1, action: () => startRename(entry) });
   if (onModule && entry.name) items.push({ label: 'Reset name', action: () => { current().rename(entry.id, ''); showName(entry); drawCables(); } });
   showMenu({ x: e.clientX, y: e.clientY, items });
@@ -710,6 +716,11 @@ window.addEventListener('keydown', (e) => {
     if (k === 'c') copySelection();
     else if (k === 'x') cutSelection();
     else paste(lastPointer);
+    return;
+  }
+  if (e.key === 'Enter' && sel?.kind === 'module' && sel.entry.inst.patch) {
+    e.preventDefault();
+    openPatch(sel.entry);
     return;
   }
   if (e.key === 'F2' && sel?.kind === 'module') {
@@ -759,7 +770,16 @@ function select(s) {
     panel.append(panelHeader('Cable', `#${s.cable.from} → #${s.cable.to}`));
     const patch = current();
     const lfo = patch.modules.get(s.cable.from);
-    if (lfo?.def.modulator) {
+    if (lfo?.def.routeParams) {
+      const t = patch.modules.get(s.cable.to);
+      const names = lfo.def.routeParams(lfo, t).map((pid) => {
+        const i = paramsOf(t).findIndex((q) => q.id === pid);
+        return i < 0 ? null : `<kbd>${i}</kbd> ${paramsOf(t)[i].label}`;
+      }).filter(Boolean);
+      panel.append(hint(names.length
+        ? `Control cable: <b>Value</b> drives ${names.join(', ')}.`
+        : 'Control cable: no controller of this module is routed yet. Select the MULTICTL and pick one under <b>Routes</b>.'));
+    } else if (lfo?.def.modulator) {
       const n = lfo.values.outController | 0;
       const p = paramsOf(patch.modules.get(s.cable.to))[n];
       panel.append(hint(`Control cable: modulates controller <kbd>${n}</kbd> ${p ? p.label : '(does not exist on this module)'}.`));
@@ -777,7 +797,7 @@ function select(s) {
       hint('<kbd>Alt</kbd> + drag a module to duplicate it (or the whole selection).'),
       hint('<kbd>Backspace</kbd> deletes the selection.'),
       hint(`Right-click a module, cable or the canvas for <b>Cut / Copy / Paste / Delete</b> (also <kbd>${shortcut('X')}</kbd> <kbd>${shortcut('C')}</kbd> <kbd>${shortcut('V')}</kbd>; paste lands at the mouse pointer). <b>Rename…</b> (or <kbd>F2</kbd>) gives a module its own name on its box; the controller panel keeps showing the module type.`),
-      hint('<kbd>Double-click</kbd> a Patch to enter it, <kbd>Esc</kbd> to go up.'),
+      hint('<kbd>Double-click</kbd> a module (or <kbd>F2</kbd>) to rename it. Select a Patch and press <kbd>Enter</kbd> (or right-click → Open patch) to enter it, <kbd>Esc</kbd> to go up.'),
       hint('Select a Patch and click <b>Controllers…</b> to map controllers of any module inside to controllers of the Patch module, so they can be set, modulated (LFO) and automated from outside.'),
       hint('OSC / ADSR: with <b>Sustain</b> at 0, <b>Decay</b> and <b>Release</b> are linked: moving one moves the other.'),
       hint('<kbd>Middle mouse</kbd> + drag pans the canvas, <kbd>scroll</kbd> zooms. Click the zoom % (bottom right) to fit all modules.'),
@@ -843,7 +863,9 @@ function select(s) {
   if (entry.def.midiOut) {
     panel.append(hint('<kbd>Shift</kbd> + drag to an OSC, Patch or another MultiMIDI. Every note drifts on its own. Several MultiMIDIs can feed one synth in parallel (each plays its own voices); chained ones add up. <b>Random Phase</b> starts every note at its own random point of the OSC waveform cycle (0 % = all start at the beginning, 100 % = anywhere).'));
   }
-  if (entry.def.modulator) {
+  if (entry.def.routeParams) {
+    panel.append(hint('<kbd>Shift</kbd> + drag over the modules to control, then pick their controllers under <b>Routes</b>. <b>Value</b> sets all of them at once (inside <kbd>Out Min</kbd>..<kbd>Out Max</kbd> of each slider). A controller picked on one module is also routed on connected modules of the same type that have no route yet, and newly connected ones copy it.'));
+  } else if (entry.def.modulator) {
     panel.append(hint('<kbd>Shift</kbd> + drag to a module, then pick its controller number with <kbd>Out Controller</kbd>.'));
     if (takesLiveMidi(entry.def)) panel.append(hint('Notes trigger it: select it and play, send a clip to it, or <kbd>Shift</kbd> + drag a MultiMIDI into it.'));
     else if (entry.def.acceptsMidi) panel.append(hint('Notes trigger it: send a clip to it, or <kbd>Shift</kbd> + drag a MultiMIDI into it.'));
@@ -891,6 +913,7 @@ function select(s) {
     color: entry.def.color,
     setParam: (id, v) => { current().setParam(entry.id, id, v); refresh(); }, // e.g. dragging an EQ band
     setState: (st) => current().setState(entry.id, st), // e.g. the Output's comments
+    refresh: () => refresh(), // e.g. MULTICTL: the Value text names its routed controllers
     // Patch: "Controllers…" opens the mapping dialog; the panel shows the new controllers after it
     patchControllers: (e) => patchControllersView(e, {
       open: async () => {
