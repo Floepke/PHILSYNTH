@@ -1,5 +1,5 @@
 // Mouse-operated controls leave focus in the editor. Tab/double-click still allow typing.
-import { wheelNotches } from './params.js';
+import { wheelAccumulator } from './params.js';
 import { clean } from './song.js';
 
 export function initWidgets(root, { numberStep = () => 1 } = {}) {
@@ -12,17 +12,12 @@ export function initWidgets(root, { numberStep = () => 1 } = {}) {
     el.dispatchEvent(new Event('change', { bubbles: true }));
   };
   const wheel = (el, change) => {
-    let amount = 0;
-    let last = 0;
+    const take = wheelAccumulator({ whole: true });
     el.addEventListener('wheel', (e) => {
       if (el.disabled || el.readOnly || e.ctrlKey || e.metaKey) return;
       e.preventDefault();
       releaseWidgetFocus();
-      if (e.timeStamp - last > 250) amount = 0;
-      last = e.timeStamp;
-      amount += wheelNotches(e.deltaY || e.deltaX, e.deltaMode);
-      const steps = Math.trunc(amount);
-      amount -= steps;
+      const steps = take(e, e.deltaY || e.deltaX);
       if (steps) change(steps);
     }, { passive: false });
   };

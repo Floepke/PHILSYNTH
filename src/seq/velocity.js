@@ -9,11 +9,12 @@
 //   drag a curve point                 change velocity (sideways) and time (snapped, between neighbours)
 //                                       the first point stays at the start of the selection
 //   Shift + drag                       fine velocity
-//   double-click inside the selection  insert a curve point
+//   double-click inside the selection  insert a curve point (hold the second press to drag it)
 //   mouse wheel on a point             round the corner
 //   right click a point                delete it
 import { snapStep, snapRound, clean, notePoints, noteVelAt, groupVelCurve, applyVelCurve } from '../song.js';
 import { curvePolyline, NEW_POINT_ROUND } from '../curve.js';
+import { doublePress } from '../doublepress.js';
 import { capture, clamp } from './surface.js';
 
 export const VEL_W = 84;
@@ -28,6 +29,7 @@ export function createVelocityStrip(o) {
   let group = null; // { notes, points (absolute clip times), start, end, sig }
   let hover = null; // { kind: 'point', i } | { kind: 'note', note }
   let drag = null;
+  const presses = doublePress(); // double-click = down-up-DOWN: the new point drags at once
 
   const xv = (v) => PAD + v * (VEL_W - 2 * PAD);
   const vx = (x) => clamp((x - PAD) / (VEL_W - 2 * PAD), 0, 1);
@@ -200,6 +202,7 @@ export function createVelocityStrip(o) {
       const q = o.local(ev);
       if (!drag.moved && Math.hypot(q.x - x, q.y - y) < 2) return;
       drag.moved = true;
+      presses.reset();
       p.v = clamp(v0 + ((q.x - x) * (ev.shiftKey ? 0.1 : 1)) / (VEL_W - 2 * PAD), 0, 1);
       if (i > 0) {
         const lo = pts[i - 1].t;
@@ -217,6 +220,20 @@ export function createVelocityStrip(o) {
     });
   }
 
+  // a curve point at the snapped time under y (an existing one there takes the value): its index,
+  // or -1 outside the selection
+  function insert(x, y) {
+    const t = clean(snapRound(o.timeAt(y), step()));
+    if (t <= group.start + 1e-9 || t > group.end + 1e-9) return -1;
+    const pts = group.points;
+    let i = 0;
+    while (i < pts.length && pts[i].t <= t) i++;
+    if (pts[i - 1]?.t === t) { pts[i - 1].v = vx(x); i--; } else pts.splice(i, 0, { t, v: vx(x), r: NEW_POINT_ROUND });
+    apply();
+    o.changed();
+    return i;
+  }
+
   return {
     contains,
     paint,
@@ -230,8 +247,13 @@ export function createVelocityStrip(o) {
         return true;
       }
       if (e.button !== 0) return true;
+      const second = presses.press(e);
       const i = pointAt(x, y);
       if (i >= 0) { dragPoint(e, i, x, y); return true; }
+      if (second && group) { // down-up-DOWN: insert a point and drag it at once
+        const j = insert(x, y);
+        if (j > 0) { dragPoint(e, j, x, y); return true; }
+      }
       const n = noteAt(x, y);
       if (!n) return true;
       const sel = o.selected();
@@ -245,20 +267,6 @@ export function createVelocityStrip(o) {
       if (!(sel.size === 1 && sel.has(n))) o.setSelected(new Set([n]));
       sync();
       dragPoint(e, 0, x, y);
-      return true;
-    },
-    dblclick(x, y) {
-      if (!contains(x, y)) return false;
-      if (!sync() || pointAt(x, y) >= 0) return true;
-      const t = clean(snapRound(o.timeAt(y), step()));
-      if (t <= group.start + 1e-9 || t > group.end + 1e-9) return true;
-      const pts = group.points;
-      let i = 0;
-      while (i < pts.length && pts[i].t <= t) i++;
-      if (pts[i - 1]?.t === t) pts[i - 1].v = vx(x);
-      else pts.splice(i, 0, { t, v: vx(x), r: NEW_POINT_ROUND });
-      apply();
-      o.changed();
       return true;
     },
     // wheel on a curve point rounds it; returns true when handled

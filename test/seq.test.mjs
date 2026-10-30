@@ -45,6 +45,9 @@ const flush = () => {
 };
 const fire = (cv, type, props = {}) => {
   const e = new Event(type, { cancelable: true });
+  if ('timeStamp' in props) Object.defineProperty(e, 'timeStamp', { value: props.timeStamp });
+  const { timeStamp: _, ...rest } = props;
+  props = rest;
   Object.assign(e, {
     button: 0, buttons: 0, pointerId: 1, clientX: 0, clientY: 0,
     shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, ...props,
@@ -54,6 +57,13 @@ const fire = (cv, type, props = {}) => {
   return e;
 };
 const point = (cv, type, x, y, props) => fire(cv, type, { clientX: x, clientY: y, ...props });
+// double-click as the curve editors see it: down, up, down (+ up)
+const dbl = (cv, x, y) => {
+  for (let i = 0; i < 2; i++) {
+    point(cv, 'pointerdown', x, y, { buttons: 1 });
+    point(cv, 'pointerup', x, y);
+  }
+};
 const key = (cv, key, props) => fire(cv, 'keydown', { key, ...props });
 const drag = (cv, x, y, toX, toY, props = {}, end = 'pointerup') => {
   point(cv, 'pointerdown', x, y, { buttons: 1, ...props });
@@ -634,7 +644,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   drag(cv, vx(0.3), ny(0), vx(0.5), ny(0));
   assert.ok(Math.abs(a.vel - 0.5) < 1e-9);
   // double-click inside the selection adds a point at the snapped time; drag it to 1
-  point(cv, 'dblclick', vx(0.5), ny(3.05));
+  dbl(cv, vx(0.5), ny(3.05));
   assert.deepEqual(b.vels?.map((p) => p.t), [1], 'shared point at t=3 lands inside the second note');
   assert.equal(b.vels[0].r, 1, 'new points start fully rounded');
   drag(cv, vx(b.vels[0].v), ny(3), vx(1), ny(3));
@@ -693,12 +703,12 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   const cv = lane.surface.cv;
   const lx = (v) => 48 + v * 420;
   const ly = (t) => t * 48;
-  point(cv, 'dblclick', lx(0.25), ly(1.1));
+  dbl(cv, lx(0.25), ly(1.1));
   assert.deepEqual(a.points, [{ t: 1, v: 0.25, r: 1 }], 'time snaps to the grid, new points start fully rounded');
-  point(cv, 'dblclick', lx(0.75), ly(3));
-  point(cv, 'dblclick', lx(0.5), ly(2));
+  dbl(cv, lx(0.75), ly(3));
+  dbl(cv, lx(0.5), ly(2));
   assert.deepEqual(a.points.map((p) => p.t), [1, 2, 3], 'kept in time order');
-  point(cv, 'dblclick', lx(0.5), ly(2));
+  dbl(cv, lx(0.5), ly(2));
   assert.equal(a.points.length, 3, 'double-clicking a point adds nothing');
   // drag the middle point: value follows, time snaps and stays between its neighbours
   drag(cv, lx(0.5), ly(2), lx(1), ly(5));
@@ -723,6 +733,21 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.deepEqual(a.points.map((p) => p.t), [2.5]);
   assert.ok(changes >= 8);
   assert.deepEqual(Object.keys(lane.getView()).sort(), ['ppq', 'sy']);
+  // down-up-DOWN inserts on the second press, and that press keeps dragging the new point
+  point(cv, 'pointerdown', lx(0.5), ly(6), { buttons: 1 });
+  point(cv, 'pointerup', lx(0.5), ly(6));
+  point(cv, 'pointerdown', lx(0.5), ly(6), { buttons: 1 });
+  assert.deepEqual(a.points.map((p) => p.t), [2.5, 6], 'inserted before the second release');
+  point(cv, 'pointermove', lx(0.8), ly(7), { buttons: 1 });
+  point(cv, 'pointerup', lx(0.8), ly(7));
+  assert.equal(a.points[1].t, 7);
+  assert.ok(Math.abs(a.points[1].v - 0.8) < 1e-9, 'the held press drags it');
+  // slow presses are two clicks, not a double-click
+  point(cv, 'pointerdown', lx(0.5), ly(9), { buttons: 1, timeStamp: 0 });
+  point(cv, 'pointerup', lx(0.5), ly(9));
+  point(cv, 'pointerdown', lx(0.5), ly(9), { buttons: 1, timeStamp: 1000 });
+  point(cv, 'pointerup', lx(0.5), ly(9));
+  assert.equal(a.points.length, 2);
 }
 
 // An empty double-click location can still produce a clip whose tail overlaps a neighbour.

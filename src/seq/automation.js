@@ -1,6 +1,7 @@
 // Vertical automation lane editor (shown instead of the piano roll when an automation clip is
 // selected). Time runs down like the piano roll; the controller value runs left (min) -> right (max).
-//   double-click empty space     insert a point (time snaps to the snap grid)
+//   double-click empty space     insert a point (time snaps to the snap grid); keep the second
+//                                press held to drag the new point right away
 //   drag a point                 move it (time snaps and stays between its neighbours)
 //   Shift + drag a point         fine value adjustment
 //   mouse wheel on a point       round the corner (same as the WAVESHAPER curve editor)
@@ -10,6 +11,7 @@
 import { snapStep, snapRound, BAR, meter, barLines, beatLines, autoPolyline, pointIndex } from '../song.js';
 import { createSurface, capture, startPan, onWheel, clamp, snapBands } from './surface.js';
 import { NEW_POINT_ROUND } from '../curve.js';
+import { doublePress } from '../doublepress.js';
 
 const GUTTER = 36;
 const VALUE_H = 24; // value scale strip at the bottom
@@ -32,6 +34,7 @@ export function createAutomationLane(host, ctx) {
   let hover = null; // point under the pointer
   let pointer = null;
   let drag = null;
+  const presses = doublePress(); // double-click = down-up-DOWN: the new point drags at once
 
   const s = createSurface(host, paint);
   const { cv } = s;
@@ -321,42 +324,40 @@ export function createAutomationLane(host, ctx) {
     }
     if (e.button !== 0) return;
     e.preventDefault();
-    selected = p;
+    let p2 = p;
+    if (presses.press(e) && !p2) { // down-up-DOWN on empty space: insert a point and drag it at once
+      p2 = { t: Math.max(0, snapRound(timeAt(y), step())), v: valueAt(x), r: NEW_POINT_ROUND };
+      clip.points.splice(pointIndex(clip.points, p2.t), 0, p2);
+      ctx.changed();
+    }
+    selected = p2;
     s.redraw();
-    if (!p) return;
-    const i = clip.points.indexOf(p);
+    if (!p2) return;
+    const inserted = p2 !== p;
+    const point = p2;
+    const i = clip.points.indexOf(point);
     const lo = i > 0 ? clip.points[i - 1].t : -Infinity;
     const hi = i < clip.points.length - 1 ? clip.points[i + 1].t : Infinity;
     const st = step();
-    drag = { kind: 'move', point: p, t0: p.t, v0: p.v, y0: y, x0: x, moved: false };
+    drag = { kind: 'move', point, t0: point.t, v0: point.v, y0: y, x0: x, moved: false };
     capture(cv, e, (ev) => {
       const q = s.local(ev);
       pointer = q;
       if (!drag.moved && Math.hypot(q.x - x, q.y - y) < 3) return;
       drag.moved = true;
+      presses.reset();
       const fine = ev.shiftKey ? 0.1 : 1;
-      p.v = clamp(drag.v0 + ((q.x - x) * fine) / (right() - left()), 0, 1);
-      p.t = clamp(snapRound(drag.t0 + (q.y - y) / view.ppq, st), Math.max(lo, drag.t0 < 0 ? -Infinity : 0), hi);
+      point.v = clamp(drag.v0 + ((q.x - x) * fine) / (right() - left()), 0, 1);
+      point.t = clamp(snapRound(drag.t0 + (q.y - y) / view.ppq, st), Math.max(lo, drag.t0 < 0 ? -Infinity : 0), hi);
       s.redraw();
     }, (ev) => {
-      if (ev.type === 'pointercancel') { p.t = drag.t0; p.v = drag.v0; }
+      if (ev.type === 'pointercancel' && !inserted) { point.t = drag.t0; point.v = drag.v0; }
       const moved = drag.moved;
       drag = null;
       if (moved) ctx.changed();
       const q = s.local(ev);
       updateHover(q.x, q.y);
     });
-  });
-
-  cv.addEventListener('dblclick', (e) => {
-    const clip = ctx.clip();
-    const { x, y } = s.local(e);
-    if (!clip || !inLane(x, y) || e.button !== 0 || hit(x, y)) return;
-    const point = { t: Math.max(0, snapRound(timeAt(y), step())), v: valueAt(x), r: NEW_POINT_ROUND };
-    clip.points.splice(pointIndex(clip.points, point.t), 0, point);
-    selected = point;
-    ctx.changed();
-    updateHover(x, y);
   });
 
   cv.addEventListener('pointermove', (e) => {

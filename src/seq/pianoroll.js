@@ -614,10 +614,6 @@ export function createPianoRoll(host, ctx) {
     updateHover(x, y);
   });
   cv.addEventListener('pointerleave', () => { pointer = null; vel.leave(); if (!drag) { hover = null; hoverPitch = null; s.redraw(); } });
-  cv.addEventListener('dblclick', (e) => {
-    const { x, y } = s.local(e);
-    if (e.button === 0) vel.dblclick(x, y);
-  });
 
   cv.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();

@@ -36,3 +36,26 @@ export function wheelNotches(deltaY, deltaMode) {
   const n = -(deltaMode === 1 ? deltaY / 3 : deltaMode === 2 ? deltaY : deltaY / 100);
   return Math.abs(n) >= 0.4 ? Math.sign(n) * Math.max(1, Math.round(Math.abs(n))) : n;
 }
+
+// Wheel events -> notches to apply now. macOS reports a slow mouse-wheel click as a tiny pixel
+// delta (a few px, only fast scrolling is accelerated to big deltas), so an event after a pause
+// counts as at least one whole notch. Trackpads send a dense stream (~16 ms apart) whose small
+// deltas add up as before. whole: only whole notches are returned (stepped values), the rest waits.
+//   const take = wheelAccumulator({ whole });  const n = take(e, delta);  if (n) ...
+export const WHEEL_PAUSE_MS = 50;
+export function wheelAccumulator({ whole = false } = {}) {
+  let acc = 0;
+  let last = -Infinity;
+  return (e, delta = e.deltaY) => {
+    let n = wheelNotches(delta, e.deltaMode);
+    if (e.timeStamp - last > WHEEL_PAUSE_MS) {
+      if (Math.sign(n) !== Math.sign(acc)) acc = 0; // a new gesture forgets leftovers of the other way
+      if (n && Math.abs(n) < 1) n = Math.sign(n);
+    }
+    last = e.timeStamp;
+    acc += n;
+    const out = whole ? Math.trunc(acc) : acc;
+    acc -= out;
+    return out;
+  };
+}

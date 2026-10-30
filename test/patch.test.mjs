@@ -840,12 +840,15 @@ const set = (e, x) => { hold(e, x); render(1); };
   r.setParam(o.id, 'decay', 1.2);
   assert.equal(o.values.release, 1.2, 'decay moves release');
   r.setParam(o.id, 'release', 5);
-  assert.equal(o.values.decay, 4, 'release moves decay (clamped to its max)');
+  assert.equal(o.values.decay, 5, 'release moves decay');
   r.setParam(o.id, 'attack', 0.3);
-  assert.equal(o.values.decay, 4);
+  assert.equal(o.values.decay, 5);
+  assert.deepEqual(o.def.params.filter((p) => ['attack', 'decay', 'release'].includes(p.id)).map((p) => p.max), [10, 10, 10]);
   const a = await r.addModule('ADSR', { values: { sustain: 0 } });
   r.setParam(a.id, 'release', 2);
   assert.equal(a.values.decay, 2, 'ADSR is linked too');
+  r.setParam(a.id, 'release', 15);
+  assert.equal(a.values.decay, 10, 'clamped to the range of the other controller');
   // a Patch controller mapped to an inner Decay links the inner Release too
   const p = await r.addModule('PATCH');
   const io = await p.inst.patch.addModule('OSC', { values: { sustain: 0 } });

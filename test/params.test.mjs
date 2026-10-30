@@ -1,6 +1,6 @@
 // Run: node test/params.test.mjs   (controller value math: wheel nudging)
 import assert from 'node:assert/strict';
-import { nudge, wheelNotches, toNorm } from '../src/params.js';
+import { nudge, wheelNotches, toNorm, wheelAccumulator } from '../src/params.js';
 
 const lin = { min: 0, max: 1, step: 0.01 };
 const amp = { min: 0, max: 4, step: 0.01 };
@@ -48,5 +48,25 @@ assert.equal(wheelNotches(-48, 0), 1); // Firefox, pixel mode
 assert.equal(wheelNotches(-300, 0), 3); // fast spin
 assert.equal(wheelNotches(-1, 2), 1); // page mode
 assert.ok(Math.abs(wheelNotches(-10, 0) - 0.1) < 1e-9, 'trackpad: small fractional deltas');
+
+// macOS: a slow mouse-wheel click arrives as a tiny pixel delta; after a pause it is a whole notch
+{
+  const ev = (timeStamp, deltaY) => ({ timeStamp, deltaY, deltaMode: 0 });
+  const stepped = wheelAccumulator({ whole: true });
+  assert.equal(stepped(ev(0, -4)), 1, 'slow click: one step up');
+  assert.equal(stepped(ev(400, -4)), 1, 'the next slow click too');
+  assert.equal(stepped(ev(800, 4)), -1, 'and down');
+  // a trackpad stream (16 ms apart): the first event moves, the rest adds up
+  const pad = wheelAccumulator({ whole: true });
+  const got = [];
+  for (let i = 0; i < 30; i++) got.push(pad(ev(2000 + i * 16, -5)));
+  assert.equal(got[0], 1);
+  assert.equal(got.reduce((a, b) => a + b, 0), 1 + Math.trunc(29 * 0.05 + 1e-9), 'small deltas accumulate');
+  // continuous controllers get fractions during a stream, a whole notch after a pause
+  const cont = wheelAccumulator();
+  assert.equal(cont(ev(0, -3)), 1);
+  assert.ok(Math.abs(cont(ev(16, -3)) - 0.03) < 1e-9);
+  assert.equal(cont(ev(500, 100)), -1, 'mouse notch');
+}
 
 console.log('all params tests passed');

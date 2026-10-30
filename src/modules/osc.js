@@ -45,10 +45,10 @@ export default {
   params: [
     { id: 'polyphony', label: 'Polyphony', min: 1, max: 32, default: 8, step: 1 },
     { id: 'wave', label: 'Waveform', min: 0, max: WAVE_NAMES.length - 1, default: 2, step: 1, options: WAVE_NAMES },
-    { id: 'attack', label: 'Attack (s)', min: 0.001, max: 4, default: 0.01, step: 0.001 },
-    { id: 'decay', label: 'Decay (s)', min: 0.001, max: 4, default: 0.2, step: 0.001 },
+    { id: 'attack', label: 'Attack (s)', min: 0.001, max: 10, default: 0.01, step: 0.001 },
+    { id: 'decay', label: 'Decay (s)', min: 0.001, max: 10, default: 0.2, step: 0.001 },
     { id: 'sustain', label: 'Sustain', min: 0, max: 1, default: 0.7, step: 0.01 },
-    { id: 'release', label: 'Release (s)', min: 0.001, max: 6, default: 0.4, step: 0.001 },
+    { id: 'release', label: 'Release (s)', min: 0.001, max: 10, default: 0.4, step: 0.001 },
     { id: 'gain', label: 'Gain', min: 0, max: 1, default: 0.5, step: 0.01 },
     // shapes every waveform (see oscshape.js shape()); half sine uses duty as its bow length;
     // the noise colours are unpitched and have no duty cycle

@@ -1,9 +1,11 @@
 // Classic curve editor on a canvas (used by the WAVESHAPER panel).
-//   Double-click: add a point          Drag a point: move it (the end points move up/down only)
+//   Double-click: add a point (keep the second press held to drag it right away, see doublepress.js)
+//   Drag a point: move it (the end points move up/down only)
 //   Scroll on a point: round its corner  Right-click a point: delete it
 // createCurveEditor({ curve, color, labels, onChange }) -> { el, set(curve), setLabels(labels) }
 //   onChange(curve) is called with a new curve object on every edit.
 import { MIN_GAP, NEW_POINT_ROUND, curvePolyline, normalizeCurve } from './curve.js';
+import { doublePress } from './doublepress.js';
 
 const PAD = 12;
 const HIT = 9; // px
@@ -14,6 +16,7 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
   let hover = -1;
   let drag = -1;
   let cursor = null; // {x, y} in curve units while the mouse is over the graph
+  const presses = doublePress();
 
   const el = document.createElement('div');
   el.className = 'curve-editor';
@@ -22,7 +25,7 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
   info.className = 'curve-info';
   const help = document.createElement('p');
   help.className = 'hint';
-  help.innerHTML = '<kbd>Double-click</kbd> adds a point, drag moves it, <kbd>scroll</kbd> on a point rounds its corner, <kbd>right-click</kbd> deletes it.';
+  help.innerHTML = '<kbd>Double-click</kbd> adds a point (hold the second click to drag it), drag moves it, <kbd>scroll</kbd> on a point rounds its corner, <kbd>right-click</kbd> deletes it.';
   el.append(canvas, info, help);
   const g = canvas.getContext('2d');
 
@@ -136,7 +139,9 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
   canvas.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     const [px, py] = local(e);
+    const second = presses.press(e);
     drag = hitTest(px, py);
+    if (drag < 0 && second) drag = insert(px, py); // down-up-DOWN: add a point and drag it at once
     if (drag < 0) return;
     e.preventDefault();
     canvas.setPointerCapture(e.pointerId);
@@ -147,6 +152,7 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
     const c = fromPx(px, py);
     cursor = c.x >= 0 && c.x <= 1 && c.y >= 0 && c.y <= 1 ? c : null;
     if (drag >= 0) {
+      presses.reset();
       const p = pts[drag];
       const last = pts.length - 1;
       if (drag > 0 && drag < last) p.x = Math.min(pts[drag + 1].x - MIN_GAP, Math.max(pts[drag - 1].x + MIN_GAP, c.x));
@@ -163,17 +169,17 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
   canvas.addEventListener('pointercancel', endDrag);
   canvas.addEventListener('pointerleave', () => { cursor = null; if (drag < 0) { hover = -1; draw(); } });
 
-  canvas.addEventListener('dblclick', (e) => {
-    const [px, py] = local(e);
-    if (hitTest(px, py) >= 0) return;
+  // a new point at the pixel position: its index, or -1 when it does not fit there
+  function insert(px, py) {
     const c = fromPx(px, py);
-    if (c.x <= MIN_GAP || c.x >= 1 - MIN_GAP) return;
+    if (c.x <= MIN_GAP || c.x >= 1 - MIN_GAP) return -1;
     const i = pts.findIndex((p) => p.x > c.x);
-    if (c.x - pts[i - 1].x < MIN_GAP || pts[i].x - c.x < MIN_GAP) return;
+    if (c.x - pts[i - 1].x < MIN_GAP || pts[i].x - c.x < MIN_GAP) return -1;
     pts.splice(i, 0, { x: c.x, y: Math.min(1, Math.max(0, c.y)), r: NEW_POINT_ROUND });
     hover = i;
     commit();
-  });
+    return i;
+  }
   canvas.addEventListener('wheel', (e) => {
     const [px, py] = local(e);
     const i = hitTest(px, py);
