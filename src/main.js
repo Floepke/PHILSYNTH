@@ -519,6 +519,9 @@ function drawCables() {
   scope?.setCables(live);
 }
 
+// Shift + drag from a module: every module the pointer moves onto gets connected (or, when that
+// cable exists already, disconnected) at once, so one source can be wired to many targets in one
+// sweep. Moving off a module and back onto it toggles it again; the source itself is ignored.
 function startCable(e, entry) {
   e.stopPropagation();
   e.preventDefault();
@@ -531,27 +534,44 @@ function startCable(e, entry) {
   temp.append(wire, arrow);
   svg.append(temp);
   const box = boxOf(entry);
+  const patch = current();
+  let over = null; // module element under the pointer (already handled)
+  const toggle = (el) => {
+    const toId = +el.dataset.id;
+    const existing = patch.cables.find((c) => c.from === entry.id && c.to === toId);
+    const ok = existing ? (patch.disconnect(existing), true) : patch.connect(entry.id, toId);
+    if (!ok) {
+      $('status').textContent = 'Cannot connect (duplicate, loop, or this module has no input of that kind).';
+      return;
+    }
+    drawCables(); // clears the svg: put the temporary cable back on top
+    svg.append(temp);
+    el.classList.remove('cable-hit', 'cable-cut');
+    void el.offsetWidth; // restart the flash animation
+    el.classList.add(existing ? 'cable-cut' : 'cable-hit');
+    el.addEventListener('animationend', () => el.classList.remove('cable-hit', 'cable-cut'), { once: true });
+  };
   const move = (ev) => {
     const seg = visibleSegment(box, null, clientToWorld(ev.clientX, ev.clientY));
     wire.setAttribute('d', linePath(centerOf(box), seg.to));
     arrow.setAttribute('d', arrowPath(seg.from, seg.to));
+    const el = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.module:not(.ghost)') ?? null;
+    if (el === over) return;
+    over = el;
+    if (el && el !== entry.el && patch.modules.has(+el.dataset.id)) toggle(el);
   };
-  move(e);
-  const up = (ev) => {
+  const up = () => {
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
-    const target = document.elementFromPoint(ev.clientX, ev.clientY)?.closest('.module');
-    if (target) {
-      const patch = current();
-      const toId = +target.dataset.id;
-      const existing = patch.cables.find((c) => c.from === entry.id && c.to === toId);
-      const ok = existing ? (patch.disconnect(existing), true) : patch.connect(entry.id, toId);
-      if (!ok) $('status').textContent = 'Cannot connect (duplicate, loop, or this module has no input of that kind).';
-    }
+    window.removeEventListener('pointercancel', up);
+    temp.remove();
     select(sel); // refresh the panel: e.g. an LFO's Out Controller names follow its cables
   };
+  over = entry.el; // starting on the source: nothing to do until the pointer leaves it
+  move(e);
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', up);
 }
 
 // ---- selection, deletion ----
@@ -752,7 +772,7 @@ function select(s) {
     panel.append(
       panelHeader('No selection', ''),
       hint('<kbd>Double-click</kbd> the canvas to insert a module.'),
-      hint('<kbd>Shift</kbd> + drag from one module to another to connect or disconnect.'),
+      hint('<kbd>Shift</kbd> + drag from a module and move over other modules: each one you touch gets connected (or disconnected when already connected), so one module can feed many in one sweep.'),
       hint('Drag on empty canvas to select several modules. <kbd>Ctrl</kbd> + click toggles a module, <kbd>Ctrl</kbd> + drag adds, <kbd>Ctrl</kbd> + <kbd>A</kbd> selects all.'),
       hint('<kbd>Alt</kbd> + drag a module to duplicate it (or the whole selection).'),
       hint('<kbd>Backspace</kbd> deletes the selection.'),

@@ -364,6 +364,11 @@ body.panel-collapsed #panel { visibility: hidden; }
 }
 #cables .cable.live .wire { stroke-opacity: 0.35; }
 #cables .cable.temp { --c: #a0a0a8; pointer-events: none; }
+/* Shift + drag sweep: flash a module when it gets connected (light) or disconnected (dark) */
+.module.cable-hit { animation: cable-hit 0.35s ease-out; }
+.module.cable-cut { animation: cable-cut 0.35s ease-out; }
+@keyframes cable-hit { from { box-shadow: 0 0 0 3px #f0f0f4, 0 0 18px 4px rgba(240, 240, 244, 0.6); } }
+@keyframes cable-cut { from { box-shadow: 0 0 0 3px #0b0b0d, 0 0 0 5px #8a8a92; } }
 #cables .temp .wire { stroke-dasharray: 6 5; }
 #cables .temp * { pointer-events: none; }
 
