@@ -410,6 +410,7 @@ export class PatchRuntime {
         const out = this.modules.get(0);
         out.x = m.x; out.y = m.y;
         if (cleanName(m.name)) out.name = cleanName(m.name); else delete out.name;
+        if (out.def.defaultState) out.state = m.state ? out.def.normalizeState?.(m.state) ?? structuredClone(m.state) : out.def.defaultState();
         for (const [k, v] of Object.entries(m.values ?? {})) this.setParam(0, k, v);
         continue;
       }

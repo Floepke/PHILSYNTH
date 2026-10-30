@@ -108,6 +108,33 @@ for (let b = 0; b < 200; b++) {
 }
 assert.ok(peak > 0.05 && p.duty >= 0 && p.duty <= 1, `renders (peak ${peak})`);
 
+// MODMIDI phase: where the voice starts in its waveform cycle
+{
+  const { startPhase } = await import('../src/modules/osc.dsp.js');
+  assert.equal(startPhase(0.25), 0.25);
+  assert.equal(startPhase(1.75), 0.75);
+  assert.ok(Math.abs(startPhase(-0.25) - 0.75) < 1e-12);
+  assert.equal(startPhase(undefined), 0, 'no phase: start of the cycle (as before)');
+  assert.equal(startPhase(NaN), 0);
+  assert.equal(startPhase(Infinity), 0);
+  const k = new Proc();
+  const m = (data) => k.port.onmessage({ data });
+  m({ type: 'param', id: 'wave', value: SINE });
+  m({ type: 'param', id: 'attack', value: 0.001 });
+  m({ type: 'noteOn', id: 1, pitch: 60, velocity: 1 });
+  m({ type: 'noteOn', id: 2, pitch: 60, velocity: 1, phase: 0.5 });
+  const [v1, v2] = k.voices;
+  assert.equal(v1.phase, 0);
+  assert.equal(v2.phase, 0.5);
+  const o = [new Float32Array(128), new Float32Array(128)];
+  k.process([], [o]);
+  // same pitch, half a cycle apart: the two sines cancel out
+  assert.ok(o[0].every((x) => Math.abs(x) < 1e-3), 'phase 0 and 0.5 of a sine cancel');
+  m({ type: 'noteOn', id: 2, pitch: 60, velocity: 1, phase: 0 });
+  k.process([], [o]);
+  assert.ok(Math.max(...o[0].map(Math.abs)) > 0.01, 'retriggered in phase: they add up');
+}
+
 // Exercise the actual audio renderer and duty smoothing, not just the shape helper.
 const half = new Proc();
 const halfMsg = (data) => half.port.onmessage({ data });

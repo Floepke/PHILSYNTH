@@ -21,13 +21,14 @@
 //             (LFO, ...) change them right inside the audio thread,
 //       onModulated?(id, v)  controllers applied on the main thread (PATCH, MULTIMIDI): called
 //             when a modulator changed one (setParam must still send it to ctl),
-//       noteOn(id, pitch, vel), noteMod(id, pitch, vel), noteOff(id), allOff()  (MODMIDI, see
+//       noteOn(id, pitch, vel, phase), noteMod(id, pitch, vel), noteOff(id), allOff()  (MODMIDI, see
 //       src/modmidi.js; only for acceptsMidi modules),
 //       setBpm?(bpm) (called with the BPM of the patch's Output) }
 //   editor(entry, api)  optional panel part above the controllers (e.g. WAVESHAPER curve editor)
 //   view(entry, api)    optional display below the controllers (e.g. this waveform preview):
 //                       { el, refresh?(values), modulate?(id, value|null) }; api.setParam(id, v)
-//                       changes a controller (e.g. dragging an EQ band)
+//                       changes a controller (e.g. dragging an EQ band), api.setState(state)
+//                       replaces the module state (e.g. the Output's comments)
 //   linked(values, id, v, params)  optional: other controllers that follow a changed one,
 //                       { id: value } or null (e.g. Decay <-> Release here, see envlink.js)
 //   system / isOutput  reserved for the Output module
@@ -70,8 +71,8 @@ export default {
       node,
       input: null,
       setParam: (id, value) => send({ type: 'param', id, value }),
-      // MODMIDI (src/modmidi.js): float pitch, float velocity, per-note id
-      noteOn: (id, pitch, velocity) => { flushMods(); send({ type: 'noteOn', id, pitch, velocity }); },
+      // MODMIDI (src/modmidi.js): float pitch, float velocity, start phase 0..1, per-note id
+      noteOn: (id, pitch, velocity, phase = 0) => { flushMods(); send({ type: 'noteOn', id, pitch, velocity, phase }); },
       noteMod(id, pitch, velocity) {
         if (!mods) { mods = new Map(); queueMicrotask(flushMods); }
         mods.set(id, [id, pitch, velocity]);

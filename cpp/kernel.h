@@ -28,7 +28,8 @@ struct Kernel {
   explicit Kernel(double sampleRate) : sr(sampleRate) {}
   virtual ~Kernel() {}
   virtual void param(int, double) {}
-  virtual void note(int, double, double, double) {}
+  // type, note id, pitch, velocity, phase (NOTE_ON: start phase of the waveform cycle, 0..1)
+  virtual void note(int, double, double, double, double) {}
   // Shared memory the JS side fills (e.g. the WAVESHAPER curve table); nullptr if unknown.
   virtual float* data(int, int) { return nullptr; }
   // inL == nullptr: nothing connected. outR may equal outL (mono). Returns 0 for a silent output.

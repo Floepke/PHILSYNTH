@@ -358,6 +358,48 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.equal(ons[0].pitch, 72.5); assert.equal(ons[0].velocity, 0.5);
   assert.equal(ons[1].pitch, 48);
 
+  assert.equal(ons[0].phase, 0, 'no Random Phase: the incoming phase (0) is passed on');
+
+  // Random Phase: a per-note random offset of up to amount × cycle, added to the incoming phase
+  {
+    const pr = await PatchRuntime.create(engine, dsp.destination);
+    const mm = await pr.addModule('MULTIMIDI', { values: { randomPhase: 0.5 } });
+    const o = await pr.addModule('OSC');
+    const ol = capture(o);
+    pr.connect(mm.id, o.id);
+    const def = mm.def.params.at(-1);
+    assert.deepEqual([def.id, def.label, def.min, def.max, def.default], ['randomPhase', 'Random Phase', 0, 1, 0], 'appended last (controller numbers unchanged)');
+    assert.equal(def.format(0.25), '25 %');
+    const phases = [];
+    for (let n = 0; n < 200; n++) mm.inst.noteOn(5000 + n, 60, 1, 0.2);
+    for (const m of ol) if (m.type === 'noteOn') phases.push(m.phase);
+    assert.equal(phases.length, 200);
+    assert.ok(phases.every((p) => p >= 0.2 && p < 0.7 + 1e-9), 'incoming 0.2 + up to 50 %');
+    assert.ok(new Set(phases.map((p) => p.toFixed(6))).size > 150, 'every note its own phase');
+    pr.setParam(mm.id, 'randomPhase', 1);
+    ol.length = 0;
+    for (let n = 0; n < 200; n++) mm.inst.noteOn(6000 + n, 60, 1, 0.9);
+    const wide = ol.filter((m) => m.type === 'noteOn').map((m) => m.phase);
+    assert.ok(wide.every((p) => p >= 0 && p < 1), 'wrapped into [0, 1)');
+    assert.ok(wide.some((p) => p < 0.5) && wide.some((p) => p > 0.95), 'anywhere in the cycle');
+    pr.setParam(mm.id, 'randomPhase', 0);
+    ol.length = 0;
+    mm.inst.noteOn(7000, 60, 1, 0.3);
+    assert.equal(ol.find((m) => m.type === 'noteOn').phase, 0.3, 'amount 0: passed through');
+    // through a Patch module and a chained MULTIMIDI the phase reaches the inner OSC
+    const p = await pr.addModule('PATCH');
+    const io = await p.inst.patch.addModule('OSC');
+    const il = capture(io);
+    p.inst.noteOn(8000, 60, 1, 0.4);
+    assert.equal(il.find((m) => m.type === 'noteOn').phase, 0.4, 'Patch forwards the phase');
+    const mm2 = await pr.addModule('MULTIMIDI');
+    pr.connect(mm2.id, mm.id);
+    ol.length = 0;
+    mm2.inst.noteOn(9000, 60, 1, 0.65);
+    assert.equal(ol.find((m) => m.type === 'noteOn').phase, 0.65, 'chained MULTIMIDIs pass it on');
+    pr.destroy();
+  }
+
   // per-note drift: every note gets its own random offset
   r.setParam(mmA.id, 'drift', 1); r.setParam(mmA.id, 'velDrift', 0.5);
   mmA.inst.noteOn(1002, 64, 1);
@@ -416,7 +458,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   const imm = await ip.addModule('MULTIMIDI', { values: { finetune: 0.25 } });
   const ilog = capture(iosc);
   pm.inst.noteOn(50, 60, 1);
-  assert.deepEqual(ilog.at(-1), { type: 'noteOn', id: 50, pitch: 60, velocity: 1 });
+  assert.deepEqual(ilog.at(-1), { type: 'noteOn', id: 50, pitch: 60, velocity: 1, phase: 0 });
   ip.connect(imm.id, iosc.id);
   pm.inst.noteOff(50);
   assert.deepEqual(ilog.at(-1), { type: 'noteOff', id: 50 }, 'off reaches the module that got the note, despite the new cable');
@@ -904,6 +946,32 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.equal(into.length, 2);
   assert.ok(inner.cables.some((c) => c.from === into[0].id && c.to === into[1].id));
   assert.deepEqual(await r.pasteMany(null), []);
+  r.destroy();
+  r2.destroy();
+}
+
+// ---- Output: song comments, BPM up to 1000 ----
+{
+  const r = await PatchRuntime.create(engine, dsp.destination);
+  const out = r.modules.get(0);
+  assert.deepEqual(out.state, { comment: '' }, 'empty comment by default');
+  assert.equal(out.def.params.find((p) => p.id === 'bpm').max, 1000);
+  r.setParam(0, 'bpm', 1000);
+  assert.equal(r.bpm, 1000);
+  r.setState(0, { comment: 'Intro 8 bars\nverse: Em C G D' });
+  r.setState(0, { comment: 42 });
+  assert.deepEqual(out.state, { comment: '' }, 'normalized');
+  r.setState(0, { comment: 'Intro 8 bars\nverse: Em C G D', junk: 1 });
+  assert.deepEqual(out.state, { comment: 'Intro 8 bars\nverse: Em C G D' });
+  const json = JSON.parse(JSON.stringify(r.toJSON()));
+  const r2 = await PatchRuntime.create(engine, dsp.destination);
+  await r2.load(json);
+  assert.equal(r2.modules.get(0).state.comment, 'Intro 8 bars\nverse: Em C G D', 'saved with the project');
+  assert.equal(r2.bpm, 1000);
+  // older projects without Output state load with an empty comment
+  delete json.modules.find((m) => m.id === 0).state;
+  await r2.load(json);
+  assert.deepEqual(r2.modules.get(0).state, { comment: '' });
   r.destroy();
   r2.destroy();
 }

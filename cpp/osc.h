@@ -102,8 +102,8 @@ struct Osc : Kernel {
     } else if (id >= 0 && id < PARAMS) p[id] = value;
   }
 
-  void note(int type, double id, double pitch, double vel) override {
-    if (type == NOTE_ON) noteOn(id, pitch, vel);
+  void note(int type, double id, double pitch, double vel, double phase) override {
+    if (type == NOTE_ON) noteOn(id, pitch, vel, phase);
     else if (type == NOTE_MOD) {
       Voice* v = voiceOf(id);
       if (v) { v->pitchT = pitch; v->velT = vel; }
@@ -123,7 +123,8 @@ struct Osc : Kernel {
 
   double incOf(double pitch) const { return mind(0.45, (440 * pow(2, (pitch - 69) / 12)) / sr); }
 
-  void noteOn(double id, double pitch, double velocity) {
+  // phase: where in the waveform cycle the note starts (0..1, wrapped), see startPhase() in osc.dsp.js
+  void noteOn(double id, double pitch, double velocity, double phase) {
     Voice* v = voiceOf(id);
     if (!v) for (int i = 0; i < poly; i++) if (!voices[i].stage) { v = &voices[i]; break; }
     if (!v) {
@@ -134,7 +135,7 @@ struct Osc : Kernel {
     v->pitch = v->pitchT = pitch;
     v->vel = v->velT = velocity;
     v->inc = incOf(pitch);
-    v->phase = 0;
+    v->phase = phase == phase && !isinf(phase) ? phase - floor(phase) : 0;
     v->level = 0;
     v->noise = NoiseState();
     v->stage = 1;

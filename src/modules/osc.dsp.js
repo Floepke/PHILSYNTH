@@ -8,6 +8,10 @@ import { Kernel } from '../dsp/kernel.js';
 const MAX_VOICES = 32;
 const SMOOTH_S = 0.006;
 
+// Start phase of a note (MODMIDI phase, 0..1 of the waveform cycle): wrapped into [0, 1); missing or
+// invalid -> 0 (every note starts at the beginning of the cycle, as before phase existed).
+export const startPhase = (phase) => (Number.isFinite(phase) ? phase - Math.floor(phase) : 0);
+
 export default class OscKernel extends Kernel {
   // seed: noise generator start (random by default, so every OSC / Patch instance has its own noise)
   constructor({ seed } = {}) {
@@ -35,7 +39,7 @@ export default class OscKernel extends Kernel {
 
   message(m) {
     if (m.type === 'param') this.param(m.id, m.value);
-    else if (m.type === 'noteOn') this.noteOn(m.id, m.pitch, m.velocity);
+    else if (m.type === 'noteOn') this.noteOn(m.id, m.pitch, m.velocity, m.phase);
     else if (m.type === 'noteMod') for (const [id, pitch, vel] of m.notes) this.noteMod(id, pitch, vel);
     else if (m.type === 'noteOff') this.noteOff(m.id);
     else if (m.type === 'allOff') this.voices.forEach((v) => (v.stage = 0));
@@ -46,7 +50,7 @@ export default class OscKernel extends Kernel {
     return null;
   }
 
-  noteOn(id, pitch, velocity) {
+  noteOn(id, pitch, velocity, phase) {
     // retrigger the same note, else a free voice, else steal the oldest
     let v = this.voiceOf(id);
     if (!v) for (let i = 0; i < this.poly; i++) if (!this.voices[i].stage) { v = this.voices[i]; break; }
@@ -58,7 +62,7 @@ export default class OscKernel extends Kernel {
     v.pitch = v.pitchT = pitch; // a new note starts directly at its values, no glide
     v.vel = v.velT = velocity;
     v.inc = this.incOf(pitch);
-    v.phase = 0;
+    v.phase = startPhase(phase);
     v.level = 0;
     v.noise = noiseState();
     v.stage = 1;

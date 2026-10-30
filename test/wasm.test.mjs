@@ -66,7 +66,7 @@ function compare(kind, { opts = {}, script = [], input = null, blocks = 200, tol
   return worst;
 }
 const param = (id, value) => ({ type: 'param', id, value });
-const noteOn = (id, pitch, velocity = 0.8) => ({ type: 'noteOn', id, pitch, velocity });
+const noteOn = (id, pitch, velocity = 0.8, phase) => ({ type: 'noteOn', id, pitch, velocity, ...(phase === undefined ? {} : { phase }) });
 
 // OSC: every waveform, duty sweeps, glides, release, voice stealing, polyphony changes
 for (let wave = 0; wave <= 4; wave++) {
@@ -78,6 +78,18 @@ for (let wave = 0; wave <= 4; wave++) {
       [8, { type: 'noteMod', notes: [[1, 67, 0.3], [2, 52, 1]] }], [12, noteOn(3, 72)], [14, noteOn(4, 40)],
       [20, param('duty', 85)], [30, { type: 'noteOff', id: 3 }], [40, param('sustain', 0.3)],
       [60, param('polyphony', 1)], [70, { type: 'allOff' }], [80, noteOn(5, 100, 1)], [100, { type: 'noteOff', id: 5 }],
+    ],
+  });
+}
+
+// OSC start phase (MODMIDI phase): wrapped into [0, 1), invalid -> 0, retrigger takes the new phase
+for (let wave = 0; wave <= 4; wave++) {
+  compare('osc', {
+    blocks: 60,
+    script: [
+      [0, param('wave', wave)], [0, param('polyphony', 4)], [0, param('attack', 0.001)],
+      [0, noteOn(1, 60, 0.8, 0.25)], [2, noteOn(2, 64, 0.6, 0.5)], [4, noteOn(3, 67, 0.7, 1.75)],
+      [6, noteOn(4, 48, 0.9, -0.3)], [10, noteOn(1, 60, 0.8, 0.9)], [20, noteOn(2, 64, 0.6, NaN)],
     ],
   });
 }

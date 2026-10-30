@@ -5,7 +5,7 @@ import { createPersistence, connectLiveReload } from './persist.js';
 import { paramsOf, toNorm, wheelNotches } from './params.js';
 import { initCpuMeter } from './cpumeter.js';
 import { createController } from './controller.js';
-import { curvePath, arrowPath } from './cable.js';
+import { linePath, arrowPath, centerOf, visibleSegment } from './cable.js';
 import { Transport } from './transport.js';
 import { confirmDialog } from './dialogs.js';
 import { createSequencer } from './seq/index.js';
@@ -340,6 +340,7 @@ function startRename(entry) {
     input.remove();
     label.hidden = false;
     showName(entry);
+    drawCables(); // the box width follows the name
     canvas.focus({ preventScroll: true });
   };
   input.addEventListener('keydown', (e) => {
@@ -370,12 +371,6 @@ function createBox(entry) {
   el.append(name, num);
   entry.el = el;
 
-  for (const dir of ['in', 'out']) {
-    if (!(dir === 'in' ? def.hasInput : def.hasOutput)) continue;
-    const port = document.createElement('span');
-    port.className = `port ${dir}`;
-    el.append(port);
-  }
 
   el.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
@@ -482,21 +477,9 @@ window.addEventListener('keyup', (e) => {
 });
 
 // ---- cables ----
-// world coordinates; computed from layout offsets so the camera transform does not matter
-function portPos(entry, dir) {
-  const el = entry.el;
-  const port = el.querySelector(`.port.${dir}`);
-  if (!port) return { x: entry.x, y: entry.y + el.offsetHeight / 2 }; // control cables may end on modules without an audio input
-  let x = port.offsetWidth / 2;
-  let y = port.offsetHeight / 2;
-  for (let n = port; n && n !== el;) {
-    x += n.offsetLeft;
-    y += n.offsetTop;
-    n = n.offsetParent;
-    if (n) { x += n.clientLeft; y += n.clientTop; }
-  }
-  return { x: entry.x + x, y: entry.y + y };
-}
+// Straight lines from module centre to module centre (see cable.js). The box of a module in world
+// coordinates, from layout sizes so the camera transform does not matter.
+const boxOf = (entry) => ({ x: entry.x, y: entry.y, w: entry.el.offsetWidth, h: entry.el.offsetHeight });
 
 function drawCables() {
   svg.replaceChildren();
@@ -505,8 +488,9 @@ function drawCables() {
   for (const cable of patch.cables) {
     const a = patch.modules.get(cable.from);
     const b = patch.modules.get(cable.to);
-    const from = portPos(a, 'out');
-    const to = portPos(b, 'in');
+    const ra = boxOf(a);
+    const rb = boxOf(b);
+    const { from, to } = visibleSegment(ra, rb); // arrow and audio wave go on the visible part
     const g = document.createElementNS(SVGNS, 'g');
     g.classList.add('cable');
     g.cable = cable; // for the right-click menu
@@ -516,7 +500,7 @@ function drawCables() {
     setColor(g, a.def);
     const wire = document.createElementNS(SVGNS, 'path');
     wire.classList.add('wire');
-    wire.setAttribute('d', curvePath(from, to));
+    wire.setAttribute('d', linePath(centerOf(ra), centerOf(rb)));
     const arrow = document.createElementNS(SVGNS, 'path');
     arrow.classList.add('arrow');
     arrow.setAttribute('d', arrowPath(from, to));
@@ -544,11 +528,11 @@ function startCable(e, entry) {
   arrow.classList.add('arrow');
   temp.append(wire, arrow);
   svg.append(temp);
-  const from = portPos(entry, 'out');
+  const box = boxOf(entry);
   const move = (ev) => {
-    const to = clientToWorld(ev.clientX, ev.clientY);
-    wire.setAttribute('d', curvePath(from, to));
-    arrow.setAttribute('d', arrowPath(from, to));
+    const seg = visibleSegment(box, null, clientToWorld(ev.clientX, ev.clientY));
+    wire.setAttribute('d', linePath(centerOf(box), seg.to));
+    arrow.setAttribute('d', arrowPath(seg.from, seg.to));
   };
   move(e);
   const up = (ev) => {
@@ -560,7 +544,7 @@ function startCable(e, entry) {
       const toId = +target.dataset.id;
       const existing = patch.cables.find((c) => c.from === entry.id && c.to === toId);
       const ok = existing ? (patch.disconnect(existing), true) : patch.connect(entry.id, toId);
-      if (!ok) $('status').textContent = 'Cannot connect (duplicate, loop, or incompatible ports).';
+      if (!ok) $('status').textContent = 'Cannot connect (duplicate, loop, or this module has no input of that kind).';
     }
     select(sel); // refresh the panel: e.g. an LFO's Out Controller names follow its cables
   };
@@ -679,7 +663,7 @@ canvas.addEventListener('contextmenu', (e) => {
     { label: 'Delete', shortcut: '⌫', disabled: !(onModule ? copyable : sel?.kind === 'cable'), action: deleteSelection },
   ];
   if (onModule) items.push('-', { label: 'Rename…', shortcut: 'F2', disabled: mods.length > 1, action: () => startRename(entry) });
-  if (onModule && entry.name) items.push({ label: 'Reset name', action: () => { current().rename(entry.id, ''); showName(entry); } });
+  if (onModule && entry.name) items.push({ label: 'Reset name', action: () => { current().rename(entry.id, ''); showName(entry); drawCables(); } });
   showMenu({ x: e.clientX, y: e.clientY, items });
 });
 
@@ -835,7 +819,7 @@ function select(s) {
       : `${what}. Select an OSC or Patch to play it with MIDI.`));
   }
   if (entry.def.midiOut) {
-    panel.append(hint('<kbd>Shift</kbd> + drag to an OSC, Patch or another MultiMIDI. Every note drifts on its own. Several MultiMIDIs can feed one synth in parallel (each plays its own voices); chained ones add up.'));
+    panel.append(hint('<kbd>Shift</kbd> + drag to an OSC, Patch or another MultiMIDI. Every note drifts on its own. Several MultiMIDIs can feed one synth in parallel (each plays its own voices); chained ones add up. <b>Random Phase</b> starts every note at its own random point of the OSC waveform cycle (0 % = all start at the beginning, 100 % = anywhere).'));
   }
   if (entry.def.modulator) {
     panel.append(hint('<kbd>Shift</kbd> + drag to a module, then pick its controller number with <kbd>Out Controller</kbd>.'));
@@ -883,6 +867,7 @@ function select(s) {
   view = entry.def.view?.(entry, {
     color: entry.def.color,
     setParam: (id, v) => { current().setParam(entry.id, id, v); refresh(); }, // e.g. dragging an EQ band
+    setState: (st) => current().setState(entry.id, st), // e.g. the Output's comments
     // Patch: "Controllers…" opens the mapping dialog; the panel shows the new controllers after it
     patchControllers: (e) => patchControllersView(e, {
       open: async () => {

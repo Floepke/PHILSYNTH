@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { midpoint, arrowPath, curvePath, samplePoints } from '../src/cable.js';
+import { midpoint, arrowPath, linePath, samplePoints, edgePoint, visibleSegment, centerOf } from '../src/cable.js';
 import { Ring, displace, scopePath, AMP } from '../src/cablescope.js';
 
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
@@ -21,9 +21,33 @@ near(Math.hypot(m.tx, m.ty), 1); assert.ok(m.ty > 0); near(m.y, 150);
 
 // degenerate (same point) does not produce NaN
 assert.ok(!arrowPath({ x: 5, y: 5 }, { x: 5, y: 5 }).includes('NaN'));
-assert.ok(curvePath({ x: 0, y: 0 }, { x: 10, y: 10 }).startsWith('M0,0 C'));
+assert.equal(linePath({ x: 0, y: 0 }, { x: 10, y: 10 }), 'M0,0 L10,10', 'a straight line');
 
-// points along the curve for the audio scope: evenly spaced, from a to b, unit normals
+// centre to centre: the visible part runs from box edge to box edge
+{
+  const A = { x: 0, y: 0, w: 100, h: 40 }; // centre 50,20
+  const B = { x: 300, y: 0, w: 100, h: 40 }; // centre 350,20
+  assert.deepEqual(centerOf(A), { x: 50, y: 20 });
+  assert.deepEqual(visibleSegment(A, B), { from: { x: 100, y: 20 }, to: { x: 300, y: 20 } });
+  const C = { x: 0, y: 200, w: 100, h: 40 }; // straight below A
+  assert.deepEqual(visibleSegment(A, C), { from: { x: 50, y: 40 }, to: { x: 50, y: 200 } });
+  // diagonal: leaves through the edge the ray crosses first, stays on the centre line
+  const D = { x: 400, y: 300, w: 100, h: 40 }; // centre 450,320
+  const s = visibleSegment(A, D);
+  near(s.from.y, 40); near(s.from.x, 50 + 400 * (20 / 300)); // bottom edge of A (flat box)
+  near(s.to.y, 300); // top edge of D
+  const cross = (p) => (p.x - 50) * 300 - (p.y - 20) * 400;
+  near(cross(s.from), 0, 1e-6); near(cross(s.to), 0, 1e-6);
+  // overlapping boxes: nothing visible, fall back to the centre line (no NaN, no reversed arrow)
+  const o = visibleSegment(A, { x: 20, y: 10, w: 100, h: 40 });
+  assert.deepEqual(o, { from: { x: 50, y: 20 }, to: { x: 70, y: 30 } });
+  // a point instead of a box (dragging a new cable to the pointer)
+  assert.deepEqual(visibleSegment(A, null, { x: 50, y: 120 }), { from: { x: 50, y: 40 }, to: { x: 50, y: 120 } });
+  assert.deepEqual(visibleSegment(A, null, { x: 60, y: 25 }), { from: { x: 50, y: 20 }, to: { x: 60, y: 25 } }, 'pointer inside the box');
+  assert.deepEqual(edgePoint(A, { x: 50, y: 20 }), { x: 50, y: 20 }, 'degenerate');
+}
+
+// points along the cable for the audio scope: evenly spaced, from a to b, unit normals
 {
   const a = { x: 10, y: 20 }, b = { x: 400, y: 260 };
   const p = samplePoints(a, b, 3);
@@ -32,7 +56,12 @@ assert.ok(curvePath({ x: 0, y: 0 }, { x: 10, y: 10 }).startsWith('M0,0 C'));
   for (let i = 1; i < p.n; i++) gaps.push(Math.hypot(p.x[i] - p.x[i - 1], p.y[i] - p.y[i - 1]));
   assert.ok(Math.max(...gaps) < 3.1 && Math.min(...gaps) > 2.7, `even spacing ${Math.min(...gaps)}..${Math.max(...gaps)}`);
   for (let i = 0; i < p.n; i++) near(Math.hypot(p.nx[i], p.ny[i]), 1, 1e-5);
-  near(p.nx[0], 0, 1e-6); near(Math.abs(p.ny[0]), 1, 1e-6); // leaves the port horizontally
+  // a straight line: every point on it, one normal for all
+  for (let i = 0; i < p.n; i++) {
+    near((p.x[i] - 10) * 240 - (p.y[i] - 20) * 390, 0, 0.5);
+    near(p.nx[i], p.nx[0]); near(p.ny[i], p.ny[0]);
+  }
+  near(p.nx[0] * 390 + p.ny[0] * 240, 0, 1e-4); // perpendicular to the cable
   const z = samplePoints({ x: 5, y: 5 }, { x: 5, y: 5 });
   assert.ok(z.n >= 2 && [...z.x, ...z.y, ...z.nx, ...z.ny].every(Number.isFinite), 'degenerate cable');
 }

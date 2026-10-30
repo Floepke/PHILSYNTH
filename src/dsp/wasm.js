@@ -12,7 +12,7 @@
 import { Kernel } from './kernel.js';
 import { curveTable, defaultCurve } from '../curve.js';
 
-export const WASM_VERSION = 2;
+export const WASM_VERSION = 3;
 
 // kind = Kind in cpp/engine.cpp; params in the order of the kernel's enum
 export const SPECS = {
@@ -116,10 +116,10 @@ function kernelClass(name, spec, x, heap, sr) {
     message(m) {
       switch (m.type) {
         case 'param': this.param(m.id, m.value); break;
-        case 'noteOn': x.ms_note(this.ptr, NOTE.noteOn, m.id, m.pitch, m.velocity); break;
-        case 'noteMod': for (const [id, pitch, vel] of m.notes) x.ms_note(this.ptr, NOTE.noteMod, id, pitch, vel); break;
-        case 'noteOff': x.ms_note(this.ptr, NOTE.noteOff, m.id, 0, 0); break;
-        case 'allOff': x.ms_note(this.ptr, NOTE.allOff, 0, 0, 0); break;
+        case 'noteOn': x.ms_note(this.ptr, NOTE.noteOn, m.id, m.pitch, m.velocity, +m.phase || 0); break;
+        case 'noteMod': for (const [id, pitch, vel] of m.notes) x.ms_note(this.ptr, NOTE.noteMod, id, pitch, vel, 0); break;
+        case 'noteOff': x.ms_note(this.ptr, NOTE.noteOff, m.id, 0, 0, 0); break;
+        case 'allOff': x.ms_note(this.ptr, NOTE.allOff, 0, 0, 0, 0); break;
       }
     }
 

@@ -7,6 +7,11 @@
 // note's float pitch; the result is sent as noteMod updates and the synth glides to it.
 // Several MULTIMIDIs can feed one synth in parallel (each plays its own copy of the note);
 // chained MULTIMIDIs add up.
+//
+// Random Phase: every note starts its waveform at its own random point of the cycle (MODMIDI
+// phase, 0..1): 0 % passes the incoming phase on unchanged (OSC starts at the cycle's beginning),
+// 100 % = anywhere in the cycle. The offset is drawn once per note and added to the incoming phase
+// (so chained MULTIMIDIs add up here too).
 import { newNoteId } from '../modmidi.js';
 
 const RELEASE_KEEP_S = 6; // released notes keep drifting through the synth's release tail
@@ -35,6 +40,7 @@ export class Drifter {
   }
 }
 
+const wrapPhase = (p) => p - Math.floor(p); // into [0, 1)
 const st = (v) => `${v > 0 ? '+' : ''}${v} st`;
 const cents = (v) => `${v > 0 ? '+' : ''}${Math.round(v * 100)} ct`;
 const hz = (v) => (v ? `${v < 10 ? v.toFixed(2) : v.toFixed(1)} Hz` : 'Hold');
@@ -54,12 +60,13 @@ export default {
     { id: 'driftFreq', label: 'Drift Freq', min: 0, max: 20, default: 1, step: 0.01, format: hz },
     { id: 'velDrift', label: 'Velocity Drift', min: 0, max: 1, default: 0, step: 0.01, format: (v) => `-${Math.round(v * 100)} %` },
     { id: 'velDriftFreq', label: 'Velocity Drift Freq', min: 0, max: 20, default: 1, step: 0.01, format: hz },
+    { id: 'randomPhase', label: 'Random Phase', min: 0, max: 1, default: 0, step: 0.01, format: (v) => `${Math.round(v * 100)} %` },
   ],
   create(_ctx, _def, host, { rand = Math.random } = {}) {
     // no DSP: its controllers live here; the node only receives modulation (LFO -> Transpose ...)
     const ctl = host.dsp.create('none');
 
-    const v = { transpose: 0, finetune: 0, drift: 0, driftFreq: 1, velDrift: 0, velDriftFreq: 1 };
+    const v = { transpose: 0, finetune: 0, drift: 0, driftFreq: 1, velDrift: 0, velDriftFreq: 1, randomPhase: 0 };
     // incoming note id -> { id (outgoing), pitch, vel (incoming), pd, vd (drifters), out: [pitch, vel] sent, off (time released) }
     const notes = new Map();
     const sentTo = new Map(); // outgoing id -> targets that got the noteOn
@@ -96,14 +103,16 @@ export default {
         ctl.param(id, val);
       },
       onModulated(id, val) { v[id] = val; },
-      noteOn(inId, pitch, vel) {
+      noteOn(inId, pitch, vel, phase = 0) {
         inst.noteOff(inId); // same id again: release the old copy first
         const n = { id: newNoteId(), pitch, vel, pd: new Drifter(true, rand), vd: new Drifter(false, rand), off: 0 };
+        const amount = Math.min(1, Math.max(0, v.randomPhase));
+        n.phase = wrapPhase((Number.isFinite(phase) ? phase : 0) + (amount ? rand() * amount : 0));
         n.out = outOf(n);
         notes.set(inId, n);
         const targets = [...inst.getMidiTargets()];
         sentTo.set(n.id, targets);
-        for (const t of targets) t.noteOn(n.id, n.out[0], n.out[1]);
+        for (const t of targets) t.noteOn(n.id, n.out[0], n.out[1], n.phase);
       },
       noteMod(inId, pitch, vel) {
         const n = notes.get(inId);

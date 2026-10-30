@@ -21,7 +21,7 @@ using namespace ms;
 enum Kind { KIND_OSC = 1, KIND_FILTER = 2, KIND_REVERB = 3, KIND_WAVESHAPER = 4, KIND_BUS = 5, KIND_AMP = 6, KIND_OUT = 7, KIND_DCBLOCK = 8, KIND_EQ = 9 };
 
 // Bumped when the API changes; src/dsp/wasm.js refuses other versions.
-EXPORT(ms_version) int ms_version() { return 2; }
+EXPORT(ms_version) int ms_version() { return 3; }
 
 EXPORT(ms_param_count) int ms_param_count(int kind) {
   switch (kind) {
@@ -59,7 +59,7 @@ EXPORT(ms_create) Kernel* ms_create(int kind, double sampleRate, int salt, uint3
 
 EXPORT(ms_destroy) void ms_destroy(Kernel* k) { delete k; }
 EXPORT(ms_param) void ms_param(Kernel* k, int id, double v) { k->param(id, v); }
-EXPORT(ms_note) void ms_note(Kernel* k, int type, double id, double pitch, double vel) { k->note(type, id, pitch, vel); }
+EXPORT(ms_note) void ms_note(Kernel* k, int type, double id, double pitch, double vel, double phase) { k->note(type, id, pitch, vel, phase); }
 EXPORT(ms_data) float* ms_data(Kernel* k, int slot, int size) { return k->data(slot, size); }
 EXPORT(ms_process) int ms_process(Kernel* k, const float* inL, const float* inR, float* outL, float* outR, int n) {
   return k->process(inL, inR, outL, outR, n);
