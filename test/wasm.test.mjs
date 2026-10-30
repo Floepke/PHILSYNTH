@@ -170,6 +170,36 @@ compare('out', { input: signal, blocks: 30, script: [[0, param('volume', 0.5)], 
 compare('out', { input: signal, blocks: 10 }); // no volume message yet: starts at the target
 compare('dcblock', { input: (b, i, ch) => signal(b, i, ch) + 0.3, blocks: 60, tol: 1e-6 });
 compare('dcblock', { blocks: 2 });
+// EQ: band gains glide, Q change recomputes all, level glide, ring-out after the input stops
+compare('eq', {
+  input: (b, i, ch) => (b < 60 ? signal(b, i, ch) : 0), blocks: 120,
+  script: [[0, param('b3', 9)], [0, param('b8', -12)], [5, param('b12', 6)], [15, param('q', 0.7)], [20, param('level', -6)], [30, param('b8', 0)], [40, param('b0', 12)]],
+});
+{ // input disconnected: rings out, then reports silence like the JS kernel
+  let n = 0;
+  compare('eq', { input: null, blocks: 3 });
+  const js = new KERNELS.eq();
+  js.message(param('b5', 12));
+  js.process([[Float32Array.from({ length: N }, (_, i) => Math.sin(i))]], [stereo()]);
+  while (js.process([[]], [stereo()]) !== false && n < 5000) n++;
+  assert.ok(n > 0 && n < 5000, `EQ rings out for ${n} blocks, then is silent`);
+  // the same in C++: identical samples and the same block where it turns silent
+  const a = new KERNELS.eq(), w = new WASM.eq();
+  for (const k of [a, w]) { k.message(param('b2', 12)); k.message(param('q', 6)); }
+  let worst = 0, endA = -1, endW = -1;
+  for (let b = 0; b < 4000 && (endA < 0 || endW < 0); b++) {
+    const ins = b < 20 ? [[Float32Array.from({ length: N }, (_, i) => signal(b, i, 0)), Float32Array.from({ length: N }, (_, i) => signal(b, i, 1))]] : [[]];
+    const oa = [stereo()], ow = [stereo()];
+    const ra = endA < 0 ? a.process(ins, oa) !== false : false;
+    const rw = endW < 0 ? w.process(ins, ow) !== false : false;
+    if (!ra && endA < 0) endA = b;
+    if (!rw && endW < 0) endW = b;
+    if (ra && rw) for (let c = 0; c < 2; c++) for (let i = 0; i < N; i++) worst = Math.max(worst, Math.abs(oa[0][c][i] - ow[0][c][i]));
+  }
+  assert.ok(endA > 20, 'rings out after the input stops');
+  assert.equal(endW, endA, 'C++ turns silent at the same block');
+  assert.ok(worst < 1e-5, `ring-out parity ${worst}`);
+}
 
 // FILTER random LFO shapes use a different random source: only check they stay sane
 {

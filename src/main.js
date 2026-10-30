@@ -747,7 +747,10 @@ function select(s) {
   });
 
   // display below the controllers (e.g. the OSC waveform preview)
-  view = entry.def.view?.(entry, { color: entry.def.color }) ?? null;
+  view = entry.def.view?.(entry, {
+    color: entry.def.color,
+    setParam: (id, v) => { current().setParam(entry.id, id, v); refresh(); }, // e.g. dragging an EQ band
+  }) ?? null;
   panelView = view;
   if (view) {
     panel.append(view.el);

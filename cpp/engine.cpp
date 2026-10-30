@@ -2,6 +2,7 @@
 // src/dsp/wasm.js (adapters that plug these kernels into the engine graph, src/dsp/graph.js).
 // Pointers are byte offsets into the module's memory; audio buffers are float[n].
 #include "basic.h"
+#include "eq.h"
 #include "filter.h"
 #include "kernel.h"
 #include "osc.h"
@@ -17,7 +18,7 @@ void operator delete(void* p, __SIZE_TYPE__) noexcept { free(p); }
 
 using namespace ms;
 
-enum Kind { KIND_OSC = 1, KIND_FILTER = 2, KIND_REVERB = 3, KIND_WAVESHAPER = 4, KIND_BUS = 5, KIND_AMP = 6, KIND_OUT = 7, KIND_DCBLOCK = 8 };
+enum Kind { KIND_OSC = 1, KIND_FILTER = 2, KIND_REVERB = 3, KIND_WAVESHAPER = 4, KIND_BUS = 5, KIND_AMP = 6, KIND_OUT = 7, KIND_DCBLOCK = 8, KIND_EQ = 9 };
 
 // Bumped when the API changes; src/dsp/wasm.js refuses other versions.
 EXPORT(ms_version) int ms_version() { return 2; }
@@ -32,6 +33,7 @@ EXPORT(ms_param_count) int ms_param_count(int kind) {
     case KIND_AMP: return Amp::PARAMS;
     case KIND_OUT: return Out::PARAMS;
     case KIND_DCBLOCK: return DcBlock::PARAMS;
+    case KIND_EQ: return Eq::PARAMS;
   }
   return 0;
 }
@@ -50,6 +52,7 @@ EXPORT(ms_create) Kernel* ms_create(int kind, double sampleRate, int salt, uint3
     case KIND_AMP: return new Amp(sampleRate);
     case KIND_OUT: return new Out(sampleRate);
     case KIND_DCBLOCK: return new DcBlock(sampleRate);
+    case KIND_EQ: return new Eq(sampleRate);
   }
   return nullptr;
 }

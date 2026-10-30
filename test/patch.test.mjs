@@ -187,6 +187,57 @@ assert.equal((await c2.inst.patch.addModule('OSC')).id, 1, 'numbering is per pat
   r.destroy();
 }
 
+// ---- EQ: 16 bands, Q, level ----
+{
+  const { BANDS, responseDb, peaking } = await import('../src/modules/eq.dsp.js');
+  const r = await PatchRuntime.create(engine, dsp.destination);
+  const eq = await r.addModule('EQ');
+  assert.equal(BANDS.length, 16);
+  assert.deepEqual(eq.def.params.map((p) => p.id), [...BANDS.map((_, i) => `b${i}`), 'q', 'level'], 'controllers 0..15 are the bands');
+  assert.equal(eq.def.params[8].label, '800 Hz');
+  assert.equal(eq.def.params[9].label, '1.25 kHz');
+  assert.equal(eq.def.params[0].format(3), '+3.0 dB');
+  const k = kernel(eq.inst.node);
+  // gain of a steady sine through the kernel (after the glide and the filter settle)
+  const gainAt = (f) => {
+    const out = [[new Float32Array(128), new Float32Array(128)]];
+    let pk = 0;
+    for (let b = 0; b < 200; b++) {
+      const L = Float32Array.from({ length: 128 }, (_, i) => 0.25 * Math.sin((2 * Math.PI * f * (b * 128 + i)) / 48000));
+      k.process([[L, L]], out);
+      if (b >= 150) pk = Math.max(pk, ...out[0][0].map(Math.abs), ...out[0][1].map(Math.abs));
+    }
+    return 20 * Math.log10(pk / 0.25);
+  };
+  const near = (a, b, eps, msg) => assert.ok(Math.abs(a - b) < eps, `${msg}: ${a} vs ${b}`);
+  near(gainAt(1000), 0, 0.01, 'flat EQ passes unchanged');
+  r.setParam(eq.id, 'b8', 12); // 800 Hz
+  near(gainAt(800), 12, 0.1, 'a band boosts its centre by its gain');
+  near(gainAt(100), 0, 0.2, 'far away bands are untouched');
+  r.setParam(eq.id, 'b8', 0);
+  r.setParam(eq.id, 'b4', -12); // 125 Hz
+  near(gainAt(125), -12, 0.2, 'cut');
+  r.setParam(eq.id, 'level', -6);
+  near(gainAt(5000), -6, 0.05, 'level');
+  // response used by the panel display agrees with the coefficients
+  const gs = new Array(16).fill(0);
+  gs[10] = 6;
+  near(responseDb(gs, 2.1, 0, 2000), 6, 1e-9, 'response at the band centre');
+  near(responseDb(gs, 2.1, -3, 20), -3, 0.01, 'level only far away');
+  assert.ok(responseDb(gs, 0.7, 0, 1000) > responseDb(gs, 4, 0, 1000), 'lower Q is wider');
+  const c = peaking(1000, 0, 2, 48000);
+  near(c[0], 1, 1e-12, '0 dB is the identity'); near(c[1], c[3], 1e-12, '');
+  assert.ok(peaking(20000, 6, 2, 44100).every(Number.isFinite), 'top band below Nyquist at 44.1 kHz');
+  // cable OSC -> EQ -> Output plays
+  const osc = await r.addModule('OSC');
+  assert.ok(r.connect(osc.id, eq.id) && r.connect(eq.id, 0));
+  osc.inst.noteOn(1, 69, 1);
+  render(10);
+  assert.equal(graph.nodes.get(eq.inst.node.h).silent, false);
+  osc.inst.allOff();
+  r.destroy();
+}
+
 // ---- LFO modulation (applied by the engine graph on the audio thread) ----
 // Modulator kernels are stubbed to output a fixed value: set(lfo, x) renders one block with it.
 const hold = (e, x) => { const k = kernel(e.inst.node); k.process = () => false; k.value = x; };
