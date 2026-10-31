@@ -249,12 +249,12 @@ export default {
       onModulated: (id, v) => apply(id, v),
       // a note's mod/off go to the modules that got its noteOn, even if cables changed since
       // (released notes stay known for a while, so drift still reaches their release tail)
-      noteOn(id, pitch, vel, phase) {
+      noteOn(id, pitch, vel, phase, time) {
         const now = Date.now();
         for (const [k, n] of notes) if ((n.off && now - n.off > RELEASE_KEEP_MS) || n.rt.dead) notes.delete(k);
         const rt = pickRuntime();
         const insts = midiOf(rt);
-        insts.forEach((i) => i.noteOn(id, pitch, vel, phase));
+        insts.forEach((i) => i.noteOn(id, pitch, vel, phase, time));
         notes.set(id, { rt, insts, off: 0 });
       },
       noteMod(id, pitch, vel) {

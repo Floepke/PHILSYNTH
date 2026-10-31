@@ -1141,6 +1141,11 @@ function select(s) {
   }
   if (entry.def.type === 'MULTIMIDI') {
     explanations.append(hint('<kbd>Shift</kbd> + drag to an OSC, Patch or another MultiMIDI. Every note drifts on its own. Several MultiMIDIs can feed one synth in parallel (each plays its own voices); chained ones add up. <b>Random Phase</b> starts every note at its own random point of the OSC waveform cycle (0 % = all start at the beginning, 100 % = anywhere).'));
+    explanations.append(hint('<b>Random Delay</b> independently delays each incoming note by 0 to the selected maximum (0–5000 ms; default 0). Velocity changes and note-off use that same delay, preserving the note’s length. Chained MIDI processors add their delays. Stop ends input notes normally; Panic cancels pending notes.'));
+  }
+  if (entry.def.type === 'STRUM') {
+    explanations.append(hint('Send equal-start chord notes from the sequencer to STRUM, then MIDI-cable it to an OSC, Patch or another MIDI module. <b>Strum Type</b> orders notes lowest-to-highest, highest-to-lowest or randomly. Notes with different start times remain separate, even in the same delivery tick.'));
+    explanations.append(hint('<b>Strum Duration</b> (0–5000 ms) is the time from the first to the last chord note; single notes pass without strum delay. <b>Timing Humanize</b> adds bounded variation to the interior timing (0 % = evenly spaced), keeping the first/last endpoints and note order. Note-off and velocity changes follow each note’s delay, preserving lengths. Panic cancels pending strums.'));
   }
   if (entry.def.routeParams) {
     explanations.append(hint('<kbd>Shift</kbd> + drag over the modules to control, then pick their controllers under <b>Routes</b>. <b>Value</b> sets all of them at once (inside <kbd>Out Min</kbd>..<kbd>Out Max</kbd> of each slider). A controller picked on one module is also routed on connected modules of the same type that have no route yet, and newly connected ones copy it.'));

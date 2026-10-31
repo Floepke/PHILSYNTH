@@ -15,13 +15,13 @@ function notePlayer(getTarget) {
     playing.delete(key);
     n.inst.noteOff?.(n.id);
   };
-  const noteOn = (key, velocity, pitch = key) => {
+  const noteOn = (key, velocity, pitch = key, time) => {
     noteOff(key); // the same key again without a note-off: release the old note first
     const t = getTarget();
     if (!t?.def.acceptsMidi || t.def.liveMidi === false) return false;
     const id = newNoteId();
     playing.set(key, { id, inst: t.inst });
-    t.inst.noteOn?.(id, pitch, velocity);
+    t.inst.noteOn?.(id, pitch, velocity, 0, time);
     return true;
   };
   const releaseAll = () => [...playing.keys()].forEach(noteOff);
@@ -56,7 +56,7 @@ export function initKeyboard({ getTarget, onActivity, onNoTarget }) {
     e.preventDefault();
     if (e.repeat) return; // held key: one note, no retrigger
     onActivity?.();
-    if (!player.noteOn(e.code, KEYBOARD_VEL, KEYBOARD_BASE + semi)) onNoTarget?.();
+    if (!player.noteOn(e.code, KEYBOARD_VEL, KEYBOARD_BASE + semi, e.timeStamp / 1000)) onNoTarget?.();
   });
   window.addEventListener('keyup', (e) => player.noteOff(e.code));
   // a key released while the window is not focused never sends keyup
@@ -74,7 +74,7 @@ export function initMidi({ getTarget, onStatus, onActivity }) {
   const onMessage = (e) => {
     const [status, d1, d2 = 0] = e.data;
     const cmd = status & 0xf0;
-    if (cmd === 0x90 && d2 > 0) send('noteOn', d1, d2 / 127);
+    if (cmd === 0x90 && d2 > 0) send('noteOn', d1, d2 / 127, d1, e.timeStamp / 1000);
     else if (cmd === 0x80 || cmd === 0x90) send('noteOff', d1);
     else if (cmd === 0xb0 && (d1 === 120 || d1 === 123)) send('allOff');
   };

@@ -72,11 +72,12 @@ export default {
     const inst = {
       node,
       input: node,
+      get hasPendingMidi() { return queue.some(e => !e.note.cancelled); },
       getMidiTargets: () => [],
       setParam(id, value) { values[id] = value; node.param(id, value); },
       onModulated(id, value) { values[id] = value; },
       setBpm(value) { bpm = value; node.send({ type: 'bpm', value }); },
-      noteOn(inId, pitch, velocity, phase = 0) {
+      noteOn(inId, pitch, velocity, phase = 0, time) {
         inst.noteOff(inId);
         const note = {
           inId, id: newNoteId(), targets: [...inst.getMidiTargets()],
@@ -84,7 +85,8 @@ export default {
         };
         notes.set(inId, note);
         records.add(note);
-        enqueue(note, 'noteOn', [pitch, velocity, phase]);
+        const onset = Number.isFinite(time) ? time + delaySeconds(values.left, values.unit, bpm) : now() + delaySeconds(values.left, values.unit, bpm);
+        enqueue(note, 'noteOn', [pitch, velocity, phase, onset]);
       },
       noteMod(inId, pitch, velocity) {
         const note = notes.get(inId);

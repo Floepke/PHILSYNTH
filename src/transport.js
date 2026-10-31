@@ -241,7 +241,9 @@ export class Transport {
     if (!inst) return;
     const id = newNoteId();
     const vel = noteVelAt(ev.note, at - ev.start);
-    inst.noteOn(id, ev.note.pitch, vel);
+    // Preserve distinct musical onsets even when one transport tick delivers several notes.
+    const time = this.last / 1000 + (at - this.pos) * 60 / this.getBpm();
+    inst.noteOn(id, ev.note.pitch, vel, 0, time);
     this.active.push({ id, inst, end: ev.end, note: ev.note, start: ev.start, vel, clip: ev.clip, song: layer.song });
   }
 

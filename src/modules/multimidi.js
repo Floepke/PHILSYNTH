@@ -12,7 +12,9 @@
 // phase, 0..1): 0 % passes the incoming phase on unchanged (OSC starts at the cycle's beginning),
 // 100 % = anywhere in the cycle. The offset is drawn once per note and added to the incoming phase
 // (so chained MULTIMIDIs add up here too).
-import { newNoteId } from '../modmidi.js';
+// Random Delay: sample one 0..maximum delay per note, keeping that offset for its
+// onset, modulation, and release so short notes retain their length.
+import { createMidiScheduler } from '../midischedule.js';
 
 const RELEASE_KEEP_S = 6; // released notes keep drifting through the synth's release tail
 
@@ -61,35 +63,36 @@ export default {
     { id: 'velDrift', label: 'Velocity Drift', min: 0, max: 1, default: 0, step: 0.01, format: (v) => `-${Math.round(v * 100)} %` },
     { id: 'velDriftFreq', label: 'Velocity Drift Freq', min: 0, max: 20, default: 1, step: 0.01, format: hz },
     { id: 'randomPhase', label: 'Random Phase', min: 0, max: 1, default: 0, step: 0.01, format: (v) => `${Math.round(v * 100)} %` },
+    { id: 'randomDelay', label: 'Random Delay', min: 0, max: 5000, default: 0, step: 1, format: (v) => `${Math.round(v)} ms` },
   ],
-  create(_ctx, _def, host, { rand = Math.random } = {}) {
+  create(ctx, _def, host, { rand = Math.random } = {}) {
     // no DSP: its controllers live here; the node only receives modulation (LFO -> Transpose ...)
     const ctl = host.dsp.create('none');
 
-    const v = { transpose: 0, finetune: 0, drift: 0, driftFreq: 1, velDrift: 0, velDriftFreq: 1, randomPhase: 0 };
-    // incoming note id -> { id (outgoing), pitch, vel (incoming), pd, vd (drifters), out: [pitch, vel] sent, off (time released) }
+    const v = { transpose: 0, finetune: 0, drift: 0, driftFreq: 1, velDrift: 0, velDriftFreq: 1, randomPhase: 0, randomDelay: 0 };
+    // Incoming id -> per-note pitch/velocity drift, including its delayed release tail.
     const notes = new Map();
-    const sentTo = new Map(); // outgoing id -> targets that got the noteOn
+    const midi = createMidiScheduler(ctx, host.dsp, () => inst.getMidiTargets());
     let lastTime = null;
 
     const outOf = (n) => [
       n.pitch + v.transpose + v.finetune + v.drift * n.pd.value,
       Math.max(0, n.vel * (1 - v.velDrift * n.vd.value)),
     ];
-    const update = (n) => {
+    const update = (inId, n) => {
       const out = outOf(n);
       if (Math.abs(out[0] - n.out[0]) < 1e-4 && Math.abs(out[1] - n.out[1]) < 1e-4) return;
       n.out = out;
-      for (const t of sentTo.get(n.id) ?? []) t.noteMod(n.id, out[0], out[1]);
+      midi.noteMod(inId, out[0], out[1]);
     };
     const tick = (time) => {
       const dt = lastTime === null ? 0 : Math.min(0.1, time - lastTime);
       lastTime = time;
       for (const [inId, n] of notes) {
-        if (n.off && time - n.off > RELEASE_KEEP_S) { notes.delete(inId); sentTo.delete(n.id); continue; }
+        if (n.off !== null && time - n.off > RELEASE_KEEP_S + n.delay) { notes.delete(inId); continue; }
         n.pd.step(dt, v.driftFreq);
         n.vd.step(dt, v.velDriftFreq);
-        update(n);
+        update(inId, n);
       }
     };
 
@@ -97,52 +100,45 @@ export default {
       node: null,
       input: null,
       ctl,
+      get hasPendingMidi() { return midi.hasPending; },
       getMidiTargets: () => [], // set by the patch: instances this module is MIDI-cabled to
       setParam(id, val) {
         v[id] = val; // pitch/velocity changes reach the notes on the next clock tick
         ctl.param(id, val);
       },
       onModulated(id, val) { v[id] = val; },
-      noteOn(inId, pitch, vel, phase = 0) {
+      noteOn(inId, pitch, vel, phase = 0, time) {
         inst.noteOff(inId); // same id again: release the old copy first
-        const n = { id: newNoteId(), pitch, vel, pd: new Drifter(true, rand), vd: new Drifter(false, rand), off: 0 };
+        const n = { pitch, vel, pd: new Drifter(true, rand), vd: new Drifter(false, rand), off: null };
+        const delay = Math.max(0, Math.min(5000, v.randomDelay));
+        n.delay = delay ? rand() * delay / 1000 : 0;
         const amount = Math.min(1, Math.max(0, v.randomPhase));
         n.phase = wrapPhase((Number.isFinite(phase) ? phase : 0) + (amount ? rand() * amount : 0));
         n.out = outOf(n);
         notes.set(inId, n);
-        const targets = [...inst.getMidiTargets()];
-        sentTo.set(n.id, targets);
-        for (const t of targets) t.noteOn(n.id, n.out[0], n.out[1], n.phase);
+        midi.noteOn(inId, n.out[0], n.out[1], n.phase, n.delay, time);
       },
       noteMod(inId, pitch, vel) {
         const n = notes.get(inId);
         if (!n) return;
         n.pitch = pitch;
         n.vel = vel;
-        update(n);
+        update(inId, n);
       },
       noteOff(inId) {
         const n = notes.get(inId);
-        if (!n || n.off) return;
-        n.off = lastTime ?? 0;
-        for (const t of sentTo.get(n.id) ?? []) t.noteOff(n.id);
+        if (!n || n.off !== null) return;
+        n.off = midi.now();
+        midi.noteOff(inId);
       },
       allOff() {
         notes.clear();
-        sentTo.clear();
-        for (const t of inst.getMidiTargets()) t.allOff();
+        midi.allOff();
       },
       // a MIDI cable to `t` was removed: release the notes it got from us
-      releaseTarget(t) {
-        for (const [id, targets] of sentTo) {
-          const i = targets.indexOf(t);
-          if (i < 0) continue;
-          targets.splice(i, 1);
-          t.noteOff(id);
-        }
-      },
+      releaseTarget: midi.releaseTarget,
       destroy() {
-        for (const t of inst.getMidiTargets()) inst.releaseTarget(t);
+        midi.destroy();
         notes.clear();
         stopClock();
         ctl.destroy();

@@ -48,6 +48,26 @@ barline uses the same thickness as ordinary barlines. Barlines leave half-semito
 clearance beyond both edges of notes crossing or touching them; musical-time
 comparisons tolerate rounding errors up to 0.0000001 quarter notes.
 
+## MIDI chord processing
+
+Insert **STRUM**, target it with a sequencer clip, and MIDI-cable its output to an
+OSC, Patch, or another MIDI-capable module. Notes sharing a start time form a
+chord; nearby but different starts stay independent.
+
+- **Strum Type**: strum upwards (low to high), strum downwards (high to low), or
+  strum random order.
+- **Strum Duration**: 0–5000 ms from the first note to the last (default 100 ms).
+  A single note has no strum delay.
+- **Timing Humanize**: 0–100%; zero gives evenly spaced notes, higher values vary
+  the interior timing while preserving order and the duration endpoints.
+
+**MULTIMIDI / Random Delay** delays each note independently by a random amount
+from zero to the chosen maximum (0–5000 ms, default zero). Both processors delay
+note-off and velocity updates by the same per-note amount, preserving note
+lengths even for very short notes. MIDI phase and onset metadata survive chaining.
+Cable removal, module deletion, and Panic cancel pending notes and release only
+the processor's own voices. WAV export includes delayed MIDI in its bounded tail.
+
 ## Development
 
 ```sh

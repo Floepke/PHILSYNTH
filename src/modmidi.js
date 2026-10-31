@@ -5,13 +5,16 @@
 //   velocity  float 0..1
 //   phase     float 0..1: where in its waveform cycle the oscillator starts the note (0 = start
 //             of the cycle, 0.5 = halfway). Optional, default 0; only OSC uses it (noise ignores it)
+//   time      optional logical onset in seconds: equal values identify simultaneous notes.
+//             Sequencer/device inputs preserve original onsets even in batched delivery;
+//             MIDI delay processors add their per-note delay, Patch modules pass it through.
 // Modules that play notes (acceptsMidi) implement:
-//   noteOn(id, pitch, velocity, phase = 0)   start a note
+//   noteOn(id, pitch, velocity, phase = 0, time)   start a note
 //   noteMod(id, pitch, velocity)  change pitch/velocity of a sounding (or releasing) note; the
 //                                 synth glides to the new values, so it never clicks
 //   noteOff(id)                   release a note
 //   allOff()                      silence everything
-// MIDI processors (MULTIMIDI, DELAY) receive MODMIDI and send it on with their own ids.
+// MIDI processors (MULTIMIDI, STRUM, DELAY) receive MODMIDI and send it on with their own ids.
 // DELAY schedules each message with the current LEFT DELAY, preserving pitch, velocity and
 // phase. allOff / cable removal cancel pending events and release only its own outgoing notes.
 let lastId = 0;

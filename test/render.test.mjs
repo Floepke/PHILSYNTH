@@ -39,6 +39,37 @@ for (const wasm of [null, await readFile(new URL('../src/dsp/modsynth.wasm', imp
 }
 
 // an empty song cannot be exported
+for (const type of ['STRUM', 'MULTIMIDI']) {
+  const delayed = structuredClone(project);
+  const id = 2;
+  delayed.patch.modules.push({
+    id, type, x: 0, y: 0,
+    values: type === 'STRUM' ? { duration: 5000 } : { randomDelay: 5000 },
+  });
+  delayed.patch.cables.push({ from: id, to: osc.id });
+  delayed.song.clips[0].target = id;
+  delayed.song.clips[0].notes = [
+    ...(type === 'STRUM' ? [{ pitch: 60, start: 0, length: 0.25, vel: 0 }] : []),
+    { pitch: 69, start: 0, length: 0.25, vel: 0.8 },
+  ];
+  const oldRandom = Math.random;
+  Math.random = () => 0.8;
+  let out;
+  try { out = await renderSong(delayed, { sampleRate: rate }); }
+  finally { Math.random = oldRandom; }
+  const onset = type === 'STRUM' ? 5 : 4;
+  let early = 0, late = 0;
+  for (let i = 0; i < out.length; i++) {
+    const a = Math.abs(out.left[i]);
+    if (i < (onset - 0.02) * rate) early = Math.max(early, a);
+    if (i > (onset + 0.02) * rate) late = Math.max(late, a);
+  }
+  assert.ok(early < 1e-3, `${type}: delayed note does not sound early`);
+  assert.ok(late > 0.01, `${type}: pending MIDI survives silent offline tail until delayed onset`);
+  assert.ok(out.seconds > onset, `${type}: export includes all delayed notes`);
+}
+
+// an empty song cannot be exported
 await assert.rejects(renderSong({ ...structuredClone(project), song: emptySong() }, { sampleRate: rate }), /empty/);
 
 // the live project is not touched

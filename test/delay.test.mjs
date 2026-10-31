@@ -86,7 +86,7 @@ function midiHarness() {
   h.at(0.06); h.inst.noteOff(7);
   h.at(0.099); assert.deepEqual(h.calls, []);
   h.at(0.1);
-  assert.deepEqual(h.calls[0].slice(1), ['noteOn', h.calls[0][2], 60.25, 0.63, 0.75]);
+  assert.deepEqual(h.calls[0].slice(1), ['noteOn', h.calls[0][2], 60.25, 0.63, 0.75, 0.1]);
   const id = h.calls[0][2];
   h.at(0.15); assert.deepEqual(h.calls[1].slice(1), ['noteMod', id, 61.5, 0.4]);
   h.at(0.16); assert.deepEqual(h.calls[2].slice(1), ['noteOff', id]);

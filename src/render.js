@@ -15,6 +15,9 @@ export const TAIL_MAX_S = 10;
 const SILENCE = 1e-4; // -80 dBFS
 const SILENT_TAIL_S = 0.25; // the tail ends after this much silence
 const YIELD_MS = 30; // give the UI a turn this often
+const hasPendingMidi = (patch) => [...patch.modules.values()].some(({ inst }) =>
+  inst.hasPendingMidi || (inst.patch && hasPendingMidi(inst.patch))
+  || inst.clones?.some(hasPendingMidi));
 
 // A new task without setTimeout: timers are throttled hard in background windows, messages are not.
 function nextTask() {
@@ -102,7 +105,7 @@ export async function renderSong(project, { sampleRate = 48000, wasm = null, onP
       peak = Math.max(peak, blockPeak);
       if (!playing) {
         tail += BLOCK;
-        quiet = blockPeak < SILENCE ? quiet + BLOCK : 0;
+        quiet = blockPeak < SILENCE && !hasPendingMidi(root) ? quiet + BLOCK : 0;
         if (quiet >= SILENT_TAIL_S * sampleRate || tail >= TAIL_MAX_S * sampleRate) break;
       }
       if (performance.now() - lastYield > YIELD_MS) {
