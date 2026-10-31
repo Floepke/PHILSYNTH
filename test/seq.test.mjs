@@ -2395,4 +2395,29 @@ for (const width of [300, 480, 900, 1912]) {
   assert.equal(seq.viewState().panelWidth, 876, 'horizontal drag starts from the rendered, clamped controller width');
 }
 
+// while playing (song or / clip loop) the piano roll keeps the playhead centred; the TimeLine stays put
+{
+  const { clip, roll, rollHost, arranger, ctx } = setup();
+  const follow = (pos, playing = true) => {
+    Object.assign(ctx.transport, { playing, pos, following: (song) => ctx.transport.playing && song === ctx.song() });
+    roll.redraw();
+    arranger.redraw();
+    flush();
+  };
+  const grid = rollHost.clientHeight - 64; // piano roll grid height (above the keyboard)
+  const sx0 = arranger.getView().sx;
+  follow(6);
+  const at6 = roll.getView().sy;
+  follow(10);
+  assert.equal(roll.getView().sy - at6, 4 * 48, 'piano roll scrolls with the playhead (4 quarters at 48 px)');
+  assert.ok(Math.abs((10 - clip.start) * 48 - roll.getView().sy - grid / 2) < 80, 'playhead near the middle of the grid');
+  follow(0);
+  assert.ok(roll.getView().sy < 0, 'centred even at the clip start (past the usual scroll limit)');
+  follow(40);
+  assert.equal(roll.getView().sy - at6, 34 * 48, 'keeps following past the clip end (song playback)');
+  assert.equal(arranger.getView().sx, sx0, 'the TimeLine does not scroll with the playhead');
+  follow(8, false);
+  assert.ok(roll.getView().sy >= -40, 'stopped: the normal scroll limits apply again');
+}
+
 console.log('sequencer interaction tests passed');

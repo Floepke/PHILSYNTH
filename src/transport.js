@@ -74,6 +74,11 @@ export class Transport {
     return !this.playing || this.layers().some((l) => l.song === song);
   }
 
+  // true while this song is playing (song or / clip loop): the clip editors keep the playhead centred
+  following(song) {
+    return this.playing && this.layers().some((l) => l.song === song);
+  }
+
   // the looped clip (playClip), or null
   loopClip() {
     return this.clipId === null ? null : getClip(this.clipSong ?? this.getSong(), this.clipId);
@@ -108,7 +113,8 @@ export class Transport {
     return this.start(clip.start);
   }
 
-  start(pos) {
+  start(pos = this.pos) {
+    if (!Number.isFinite(pos)) pos = Number.isFinite(this.pos) ? this.pos : 0; // a NaN position would feed garbage to the engine
     this.releaseAll();
     this.releaseAuto();
     this.scope = this.getScope();

@@ -17,7 +17,7 @@ export default {
   params: [
     { id: 'volume', label: 'Master volume', min: 0, max: 1, default: 0.8, step: 0.01 },
     // tempo of this patch level; LFO, DELAY and ECHO sync to it
-    { id: 'bpm', label: 'BPM', min: 20, max: 1000, default: 120, step: 1 },
+    { id: 'bpm', label: 'BPM', min: 20, max: 1000, default: 120, step: 1, wheelStep: 1 }, // 1 BPM per wheel click
   ],
   defaultState: () => ({ comment: '' }),
   normalizeState: normalizeComment,

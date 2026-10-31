@@ -563,13 +563,13 @@ body.panel-collapsed #panel { visibility: hidden; }
 .seq-play.playing { background: #ff5a36; border-color: #ff5a36; color: #0b0b0c; }
 .seq-pos {
   min-width: 7ch;
-  color: var(--text);
+  color: var(--beam-ink);
   font: 500 12px var(--mono);
 }
-.seq-sep { width: 1px; height: 20px; background: var(--border-strong); }
+.seq-sep { width: 1px; height: 20px; background: rgba(12, 6, 2, 0.7); box-shadow: 1px 0 0 rgba(255, 220, 170, 0.2); }
 .seq-field { display: inline-flex; align-items: center; gap: 5px; }
 .seq-field[hidden] { display: none; }
-.seq-field > span { color: var(--text-dim); font-size: 11px; letter-spacing: 0.03em; }
+.seq-field > span { color: var(--beam-ink); font-size: 11px; font-weight: 600; letter-spacing: 0.03em; }
 #seq-bar input, #seq-bar select {
   height: var(--control-height);
   padding: 0 6px;
@@ -585,7 +585,7 @@ body.panel-collapsed #panel { visibility: hidden; }
 #seq-bar .spin-buttons button { min-height: calc(var(--control-height) / 2); }
 #seq-name { width: 92px; }
 #seq-target { box-shadow: inset 3px 0 0 var(--clip-color); }
-.seq-div { color: var(--text); font-size: 16px; line-height: 1; }
+.seq-div { color: var(--beam-ink); font-size: 16px; line-height: 1; }
 #seq-bar .seq-div-input { width: 48px; }
 #workspace.roll-collapsed #roll,
 #workspace.patcher-collapsed #patcher,
@@ -593,13 +593,25 @@ body.panel-collapsed #panel { visibility: hidden; }
 .seq-view { position: relative; min-height: 0; overflow: hidden; }
 .seq-view canvas { position: absolute; inset: 0; display: block; outline: none; touch-action: none; }
 .seq-view canvas.panning { cursor: grabbing !important; }
-/* dividers are shaded like a rod lit from above-left: dark edges, a soft highlight just before the centre */
+:root {
+  /* wood grain textures for the divider beams: stretched fractal noise banded into growth rings
+     plus fine fibres, grain running along the beam */
+  --wood-h: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27900%27 height=%2764%27%3E%3Cfilter id=%27r%27 x=%270%27 y=%270%27 width=%27100%25%27 height=%27100%25%27 color-interpolation-filters=%27sRGB%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%270.0022 0.09%27 numOctaves=%274%27 seed=%2711%27 stitchTiles=%27stitch%27/%3E%3CfeColorMatrix values=%270 0 0 0 .13 0 0 0 0 .07 0 0 0 0 .03 1.6 0 0 0 -.3%27/%3E%3CfeComponentTransfer%3E%3CfeFuncA type=%27table%27 tableValues=%270 .62 .08 .5 0 .66 .12 .55 0 .7%27/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Cfilter id=%27f%27 x=%270%27 y=%270%27 width=%27100%25%27 height=%27100%25%27 color-interpolation-filters=%27sRGB%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%270.012 0.6%27 numOctaves=%272%27 seed=%2714%27 stitchTiles=%27stitch%27/%3E%3CfeColorMatrix values=%270 0 0 0 .08 0 0 0 0 .04 0 0 0 0 .01 0 0 0 -2.2 1.35%27/%3E%3C/filter%3E%3Crect width=%27100%25%27 height=%27100%25%27 fill=%27%237b5132%27/%3E%3Crect width=%27100%25%27 height=%27100%25%27 filter=%27url%28%23r%29%27/%3E%3Crect width=%27100%25%27 height=%27100%25%27 filter=%27url%28%23f%29%27 opacity=%27.55%27/%3E%3C/svg%3E");
+  --wood-v: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2764%27 height=%27900%27%3E%3Cfilter id=%27r%27 x=%270%27 y=%270%27 width=%27100%25%27 height=%27100%25%27 color-interpolation-filters=%27sRGB%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%270.09 0.0022%27 numOctaves=%274%27 seed=%2723%27 stitchTiles=%27stitch%27/%3E%3CfeColorMatrix values=%270 0 0 0 .13 0 0 0 0 .07 0 0 0 0 .03 1.6 0 0 0 -.3%27/%3E%3CfeComponentTransfer%3E%3CfeFuncA type=%27table%27 tableValues=%270 .62 .08 .5 0 .66 .12 .55 0 .7%27/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Cfilter id=%27f%27 x=%270%27 y=%270%27 width=%27100%25%27 height=%27100%25%27 color-interpolation-filters=%27sRGB%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%270.6 0.012%27 numOctaves=%272%27 seed=%2726%27 stitchTiles=%27stitch%27/%3E%3CfeColorMatrix values=%270 0 0 0 .08 0 0 0 0 .04 0 0 0 0 .01 0 0 0 -2.2 1.35%27/%3E%3C/filter%3E%3Crect width=%27100%25%27 height=%27100%25%27 fill=%27%237b5132%27/%3E%3Crect width=%27100%25%27 height=%27100%25%27 filter=%27url%28%23r%29%27/%3E%3Crect width=%27100%25%27 height=%27100%25%27 filter=%27url%28%23f%29%27 opacity=%27.55%27/%3E%3C/svg%3E");
+}
+/* dividers are oak beams lit from above-left: rounded shading over the grain, dark chamfered edges
+   (the piano roll's velocity / bar ruler is drawn on its canvas, not wood) */
 .splitter {
   --bevel-dir: to right;
-  --bevel-hi: inset 1px 0 0 rgba(255, 255, 255, 0.07);
-  --bevel-lo: inset -1px 0 0 rgba(0, 0, 0, 0.7);
+  --bevel-hi: inset 1px 0 0 rgba(255, 220, 170, 0.22);
+  --bevel-lo: inset -1px 0 0 rgba(12, 6, 2, 0.9);
+  --wood: var(--wood-v);
+  --beam-ink: #f4e4c8; /* text and marks drawn straight on the wood */
   position: relative;
-  background: var(--border) linear-gradient(var(--bevel-dir), #08080a 0%, #1f1f23 7%, #2e2e33 16%, #303036 50%, #2a2a2f 84%, #18181b 93%, #060607 100%);
+  background-color: #6a4429;
+  background-image:
+    linear-gradient(var(--bevel-dir), rgba(8, 4, 1, 0.85) 0%, rgba(20, 10, 3, 0.45) 7%, rgba(255, 215, 160, 0.06) 22%, rgba(255, 220, 170, 0.14) 38%, rgba(0, 0, 0, 0) 55%, rgba(20, 10, 3, 0.18) 78%, rgba(12, 6, 2, 0.55) 93%, rgba(6, 3, 1, 0.9) 100%),
+    var(--wood);
   box-shadow: var(--bevel-hi), var(--bevel-lo);
   cursor: move;
   transition: filter 0.12s;
@@ -608,8 +620,9 @@ body.panel-collapsed #panel { visibility: hidden; }
 }
 .splitter.horizontal {
   --bevel-dir: to bottom;
-  --bevel-hi: inset 0 1px 0 rgba(255, 255, 255, 0.07);
-  --bevel-lo: inset 0 -1px 0 rgba(0, 0, 0, 0.7);
+  --bevel-hi: inset 0 1px 0 rgba(255, 220, 170, 0.22);
+  --bevel-lo: inset 0 -1px 0 rgba(12, 6, 2, 0.9);
+  --wood: var(--wood-h);
 }
 #seq-split {
   display: grid;
@@ -626,7 +639,7 @@ body.panel-collapsed #panel { visibility: hidden; }
   gap: 2px;
   min-width: 0;
   max-width: calc(50% - 24px); /* stays clear of the centre grip */
-  color: var(--text-faint);
+  color: var(--beam-ink);
   font-size: 12px;
 }
 #crumbs button {
@@ -640,15 +653,16 @@ body.panel-collapsed #panel { visibility: hidden; }
   padding: 0 10px;
   border-color: transparent;
   background: transparent;
-  color: var(--text-dim);
+  color: var(--beam-ink);
+  font-weight: 600;
   cursor: default;
 }
 #crumbs button:hover { background: var(--surface-3); color: var(--text); }
 #crumbs button.current { background: var(--surface-3); border-color: var(--border-strong); color: var(--text); }
 #seq-bar button, #seq-bar select, #seq-bar .spinbox { cursor: default; }
 #seq-bar input { user-select: text; }
-.splitter:hover { filter: brightness(1.3); }
-.splitter:focus-visible { outline: 1px solid var(--text-dim); outline-offset: -2px; }
+.splitter:hover { filter: brightness(1.12); }
+.splitter:focus-visible { outline: 1px solid var(--beam-ink); outline-offset: -2px; }
 /* grip: four tiny squares in the middle of every divider */
 .splitter::after {
   content: '';
@@ -658,8 +672,8 @@ body.panel-collapsed #panel { visibility: hidden; }
   width: 2px;
   height: 2px;
   transform: translate(-3px, -3px);
-  background: var(--text-dim, #8a8a92);
-  box-shadow: 4px 0 0 var(--text-dim, #8a8a92), 0 4px 0 var(--text-dim, #8a8a92), 4px 4px 0 var(--text-dim, #8a8a92);
+  background: var(--beam-ink);
+  box-shadow: 4px 0 0 var(--beam-ink), 0 4px 0 var(--beam-ink), 4px 4px 0 var(--beam-ink);
   pointer-events: none;
   opacity: 0.7;
   filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.85));

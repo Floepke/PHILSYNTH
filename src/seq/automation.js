@@ -68,7 +68,10 @@ export function createAutomationLane(host, ctx) {
 
   function paint(g, w, h) {
     if (!w || !h) return;
-    limitScroll();
+    // while this layer plays: keep the playhead in the middle of the lane (no scroll limits meanwhile)
+    const follow = ctx.clip();
+    if (follow && ctx.transport.following?.(ctx.song())) view.sy = (ctx.transport.pos - follow.start) * view.ppq - bottom() / 2;
+    else limitScroll();
     syncSelection();
     const clip = ctx.clip();
     const bot = bottom();

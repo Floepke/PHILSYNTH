@@ -69,4 +69,15 @@ assert.ok(Math.abs(wheelNotches(-10, 0) - 0.1) < 1e-9, 'trackpad: small fraction
   assert.equal(cont(ev(500, 100)), -1, 'mouse notch');
 }
 
+// wheelStep: a fixed amount per wheel click (the Output's BPM moves 1 BPM per click)
+{
+  const { nudge: nudgeBy } = await import('../src/params.js');
+  const { getModule } = await import('../src/modules/index.js');
+  const bpm = getModule('OUT').params.find((x) => x.id === 'bpm');
+  assert.equal(bpm.wheelStep, 1);
+  assert.equal(nudgeBy(bpm, 120, 1), 121, 'one click up = +1 BPM');
+  assert.equal(nudgeBy(bpm, 120, -3), 117);
+  assert.equal(nudgeBy(bpm, 120, 1, true), 121, 'Shift: still 1 BPM');
+  assert.equal(nudgeBy(bpm, 1000, 1), 1000, 'clamped to the range');
+}
 console.log('all params tests passed');

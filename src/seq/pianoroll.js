@@ -151,7 +151,10 @@ export function createPianoRoll(host, ctx) {
 
   function paint(g, w, h) {
     if (!w || !h) return;
-    limitScroll();
+    // while this layer plays: keep the playhead in the middle of the grid (no scroll limits meanwhile)
+    const follow = ctx.clip();
+    if (follow && ctx.transport.following?.(ctx.song())) view.sy = (ctx.transport.pos - follow.start) * view.ppq - gridBottom() / 2;
+    else limitScroll();
     syncSelection();
     const clip = ctx.clip();
     const kw = keyWidth();

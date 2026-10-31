@@ -186,6 +186,7 @@ export default {
         max: p.max,
         default: p.default ?? p.min,
         ...(p.step !== undefined ? { step: p.step } : {}),
+        ...(p.wheelStep ? { wheelStep: p.wheelStep } : {}),
         ...(p.scale ? { scale: p.scale } : {}),
         ...(p.options ? { options: p.options } : {}),
         format: (v) => (p.format ? p.format(v, t.values) : p.options ? p.options[v] : String(+(+v).toFixed(3))),

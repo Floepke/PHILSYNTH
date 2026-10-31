@@ -20,11 +20,13 @@ export const paramsOf = (entry) => entry.inst.params?.() ?? entry.def.params;
 
 // Mouse-wheel / nudge step: `notches` wheel clicks (fractional for trackpads, + = up).
 // One notch moves 1 % of the slider (0.1 % with `fine`); stepped controllers always move at
-// least one step so option lists and integers advance one entry per click.
+// least one step so option lists and integers advance one entry per click. A controller with
+// p.wheelStep moves exactly that much per notch instead (e.g. BPM: 1 per click), `fine` too.
 export const WHEEL_COARSE = 0.01;
 export const WHEEL_FINE = 0.001;
 export function nudge(p, v, notches, fine = false) {
   if (!notches) return v;
+  if (p.wheelStep) return Math.min(p.max, Math.max(p.min, +(v + Math.round(notches) * p.wheelStep).toFixed(6)));
   const next = fromNorm(p, toNorm(p, v) + notches * (fine ? WHEEL_FINE : WHEEL_COARSE));
   if (p.step && next === v) return Math.min(p.max, Math.max(p.min, +(v + Math.sign(notches) * p.step).toFixed(6)));
   return next;
