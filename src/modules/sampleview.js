@@ -8,7 +8,7 @@
 //   Backspace / Delete   cut the selected region out of the sample (the sample gets shorter)
 //   short right-click    inside the region: the same cut
 //   hold right 250 ms    menu: Normalize / Center (the selected region), Delete region, Select all
-// A live-modulated region is outlined dashed. All edits are undoable.
+// A driven (LFO / automation) region moves like an edited one. All edits are undoable.
 import { addSample, decodeAudioFile, getSample, sampleFromFile, tableFromFile, MAX_SECONDS, onSample } from '../samples.js';
 import { BLOCK_SIZES, DEFAULT_FRAME, builtinTable } from './wavetable.dsp.js';
 import { rightHold } from '../seq/surface.js';
@@ -94,12 +94,10 @@ export function createSampleView(entry, api, { table = false } = {}) {
   el.append(button, input, info, box);
   const g = cv.getContext('2d');
   let values = { ...entry.values };
-  let modPos = null;
-  const modSel = { selStart: null, selLength: null };
-  // the selection as fractions of the sample (base values, or the modulated ones)
-  const selection = (live = false) => {
-    const st = (live ? modSel.selStart ?? values.selStart : values.selStart) ?? 0;
-    const ln = (live ? modSel.selLength ?? values.selLength : values.selLength) ?? 100;
+  // the selection as fractions of the sample
+  const selection = () => {
+    const st = values.selStart ?? 0;
+    const ln = values.selLength ?? 100;
     const a = Math.max(0, Math.min(1, st / 100));
     return { a, b: Math.max(a, Math.min(1, a + Math.max(0, ln) / 100)) };
   };
@@ -119,7 +117,7 @@ export function createSampleView(entry, api, { table = false } = {}) {
     if (table) {
       const t = tableNow();
       const { size, frames } = layout(t);
-      const pos = (modPos ?? values.position) / 100;
+      const pos = values.position / 100;
       info.textContent = `${t.name} · ${frames} frame${frames > 1 ? 's' : ''} × ${size} · frame ${(pos * (frames - 1) + 1).toFixed(1)}`;
       return;
     }
@@ -157,7 +155,7 @@ export function createSampleView(entry, api, { table = false } = {}) {
     if (table) {
       const t = tableNow();
       const { size, frames } = layout(t);
-      const fp = ((modPos ?? values.position) / 100) * (frames - 1);
+      const fp = (values.position / 100) * (frames - 1);
       const f0 = Math.floor(fp);
       const f1 = Math.min(frames - 1, f0 + 1);
       const at = (f, x) => t.data[f * size + Math.min(size - 1, Math.floor(x * size))];
@@ -194,7 +192,7 @@ export function createSampleView(entry, api, { table = false } = {}) {
         g.fillRect(x, mid - hi * amp, 1, Math.max(1, (hi - lo) * amp));
       }
     }
-    // selection: dim what is outside, edges with grab handles; a modulated window dashed
+    // selection: dim what is outside, edges with grab handles
     const { a, b } = selection();
     const xa = a * w;
     const xb = b * w;
@@ -209,13 +207,6 @@ export function createSampleView(entry, api, { table = false } = {}) {
       g.fillRect(px - 0.5, 0, 1, h);
       g.fillRect(px - 3, 0, 6, 6);
       g.fillRect(px - 3, h - 6, 6, 6);
-    }
-    if (modSel.selStart !== null || modSel.selLength !== null) {
-      const m = selection(true);
-      g.strokeStyle = '#fff';
-      g.setLineDash([4, 3]);
-      g.strokeRect(m.a * w + 0.5, 1.5, Math.max(1, (m.b - m.a) * w - 1), h - 3);
-      g.setLineDash([]);
     }
     cv.setAttribute('aria-label', `Sample waveform, ${entry.state.name}, selected ${Math.round(a * 1000) / 10} % to ${Math.round(b * 1000) / 10} %`);
   };
@@ -422,17 +413,6 @@ export function createSampleView(entry, api, { table = false } = {}) {
         || v.selStart !== values.selStart || v.selLength !== values.selLength;
       values = { ...v };
       if (changed) show();
-    },
-    modulate(id, v) {
-      if (!table) {
-        if (!(id in modSel) || modSel[id] === v) return;
-        modSel[id] = v;
-        draw();
-        return;
-      }
-      if (id !== 'position' || v === modPos) return;
-      modPos = v;
-      show();
     },
   };
 }

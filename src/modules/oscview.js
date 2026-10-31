@@ -32,7 +32,6 @@ export function createWaveView({ color = '#db7c3d', values }) {
   const g = cv.getContext('2d');
   let wave = values.wave;
   let duty = values.duty;
-  let modDuty = null; // live (modulated) duty, null = follow the controller
 
   const draw = () => {
     const dpr = window.devicePixelRatio || 1;
@@ -55,7 +54,7 @@ export function createWaveView({ color = '#db7c3d', values }) {
     g.moveTo(0, Math.round(mid) + 0.5);
     g.lineTo(w, Math.round(mid) + 0.5);
     g.stroke();
-    const d = modDuty ?? duty;
+    const d = duty;
     const ys = waveformPoints(wave, d, Math.max(64, Math.round(w * 2)));
     g.strokeStyle = color;
     g.lineWidth = 2;
@@ -76,11 +75,6 @@ export function createWaveView({ color = '#db7c3d', values }) {
       if (v.wave === wave && v.duty === duty) return;
       wave = v.wave;
       duty = v.duty;
-      draw();
-    },
-    modulate(id, v) {
-      if (id !== 'duty' || v === modDuty) return;
-      modDuty = v;
       draw();
     },
   };

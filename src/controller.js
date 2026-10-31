@@ -19,8 +19,6 @@ export function createController(p, { index, value, onInput, format, onBegin, on
 
   const fill = document.createElement('span');
   fill.className = 'ctl-fill';
-  const marker = document.createElement('span');
-  marker.className = 'mod-marker';
   const num = document.createElement('span');
   num.className = 'ctl-num';
   num.textContent = index;
@@ -30,7 +28,7 @@ export function createController(p, { index, value, onInput, format, onBegin, on
   name.textContent = p.label;
   const out = document.createElement('output');
   out.className = 'ctl-value';
-  el.append(fill, marker, num, name, out);
+  el.append(fill, num, name, out);
 
   const origin = p.min < 0 && p.max > 0 && p.scale !== 'log' ? toNorm(p, 0) : 0;
   el.style.setProperty('--origin', origin);
@@ -110,13 +108,5 @@ export function createController(p, { index, value, onInput, format, onBegin, on
     el._wheelTimer = setTimeout(() => el.classList.remove('wheel'), 400);
   }, { passive: false });
 
-  return {
-    el,
-    show,
-    // live modulation position (0..1) or null when not modulated
-    setMod(norm) {
-      el.classList.toggle('modulated', norm !== null);
-      if (norm !== null) el.style.setProperty('--mod', Math.min(1, Math.max(0, norm)));
-    },
-  };
+  return { el, show }; // show(v): a driven value (LFO, automation, …) moved the controller
 }

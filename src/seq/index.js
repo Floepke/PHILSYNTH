@@ -173,6 +173,17 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
     arranger.redraw();
     onChange();
   });
+  // The first click selects the whole name, so typing replaces it; clicks while editing place the caret.
+  let selectOnUp = false;
+  ui.name.addEventListener('pointerdown', () => { selectOnUp = document.activeElement !== ui.name; });
+  ui.name.addEventListener('mouseup', (e) => {
+    if (!selectOnUp) return;
+    selectOnUp = false;
+    if (ui.name.selectionStart !== ui.name.selectionEnd) return; // the user dragged a selection
+    e.preventDefault();
+    ui.name.select();
+  });
+  ui.name.addEventListener('focus', () => ui.name.select());
   ui.name.addEventListener('change', () => {
     undoHistory?.record();
     if (!undoHistory) record();

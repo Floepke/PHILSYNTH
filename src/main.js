@@ -2,7 +2,7 @@ import { Engine } from './engine.js';
 import { modules, getModule } from './modules/index.js';
 import { initMidi, initKeyboard } from './midi.js';
 import { createPersistence, connectLiveReload } from './persist.js';
-import { paramsOf, toNorm, wheelNotches } from './params.js';
+import { paramsOf, wheelNotches } from './params.js';
 import { initCpuMeter } from './cpumeter.js';
 import { createController } from './controller.js';
 import { linePath, arrowPath, centerOf, visibleSegment } from './cable.js';
@@ -165,10 +165,7 @@ function showDocument({ name, ref, dirty }) {
 const persist = createPersistence({
   getState: () => withSamples({ ...engine.saveProject(), view: viewState(), doc: projectFile.toJSON() }),
   onSaved: ({ local, disk, at }) => {
-    const t = new Date(at).toLocaleTimeString();
-    $('saved').textContent = disk ? `Autosaved ${t}` : local ? `Autosaved in browser ${t}` : 'Autosave failed!';
-    $('saved').title = disk ? 'Autosave: projects/autosave.json (+ browser storage)' : 'Autosave: browser localStorage only. Run "node server.mjs" to also save to disk.';
-    $('saved').classList.toggle('error', !local && !disk);
+    if (!local && !disk) $('status').textContent = `Autosave failed! (${new Date(at).toLocaleTimeString()})`;
     showDocument(projectFile.info());
   },
 });
@@ -350,7 +347,8 @@ function renderCrumbs() {
     // a renamed Patch module shows its own name (looked up now, so renames show up right away)
     const entry = i ? path[i - 1].patch.modules.get(lvl.id) : null;
     b.textContent = entry?.name || lvl.name;
-    if (entry?.name) b.title = `${entry.name} (${lvl.name})`;
+    const label = entry?.name ? `${entry.name} (${lvl.name})` : lvl.name;
+    b.title = i === path.length - 1 ? `${label} — the patch level shown in the patcher` : `Go up to ${label}`;
     b.classList.toggle('current', i === path.length - 1);
     b.onclick = () => { path.length = i + 1; render(); };
     nav.append(b);
@@ -965,8 +963,7 @@ function select(s) {
   drawCables();
   panel.replaceChildren();
   panel.classList.toggle('no-selection', !s); // larger help text when nothing is selected
-  panelRows.clear();
-  panelView = null;
+  panelRefresh = null;
   if (s?.kind === 'cable') {
     panel.append(panelHeader('Cable', `#${s.cable.from} → #${s.cable.to}`));
     const patch = current();
@@ -1021,9 +1018,9 @@ function select(s) {
       hint('<b>Playback:</b> <kbd>/</kbd> loops the time range of the selected clip from its start, with every other clip playing in that range (muted lanes stay silent, the selected clip too when its lane is muted). <kbd>\'</kbd> stops playback; pressing <kbd>\'</kbd> again is a panic (all notes off, echo / reverb tails cut, all audio state reset). <kbd>.</kbd> plays/resumes the full song, and <kbd>,</kbd> restarts the song at zero. <kbd>Space</kbd> toggles play/stop; with the pointer over the piano-roll note grid, playback starts at its snapped time and continues through the song beyond the selected clip. Only <kbd>/</kbd> loops the selected clip. Stopping with <kbd>Space</kbd> (or the ■ button) moves the playhead to the start of the selected clip; outside the note grid, the next <kbd>Space</kbd> resumes from the parked playhead. Shortcuts are inactive while typing in a field. Note chasing: starting or jumping into the middle of a note plays it for the rest of its length.'),
       hint('<b>Controls:</b> scroll a dropdown to change its selection. Number fields have permanent up/down buttons and also support scrolling; <kbd>Double-click</kbd> a number (or use <kbd>Tab</kbd>) to type. Mouse adjustments leave keyboard focus in the editor so <kbd>Space</kbd> still plays.'),
       hint('<b>Toolbar:</b> controls stay on one row. When space is tight, move the pointer toward the left or right edge to reveal hidden controls; the closer to the edge, the faster it moves. Move to the middle to stop. Clicking, typing or using the wheel pauses motion; the wheel still changes control values. <kbd>Tab</kbd> also reveals focused controls.'),
-      hint(`<b>Main menu:</b> click the logo / <b>MODSYNTH</b> (top left) for <b>New</b> (<kbd>${shortcut('N')}</kbd>), <b>Open…</b> (<kbd>${shortcut('O')}</kbd>), <b>Save</b> (<kbd>${shortcut('S')}</kbd>), <b>Save As…</b> (<kbd>${shortcut('⇧S')}</kbd>) and <b>Export Audio…</b>. Projects are <b>.mds</b> files (older .json projects open too; Save then asks for a new .mds file). The file name is shown top right, with <b>•</b> while there are unsaved changes; New and Open ask whether to save them first (Yes / No / Cancel). Independently, every change is autosaved, so the app always starts with your latest project, its file name and unsaved state.`),
+      hint(`<b>Main menu:</b> click the logo / <b>MODSYNTH</b> (always in the top-right corner of the window) for <b>New</b> (<kbd>${shortcut('N')}</kbd>), <b>Open…</b> (<kbd>${shortcut('O')}</kbd>), <b>Save</b> (<kbd>${shortcut('S')}</kbd>), <b>Save As…</b> (<kbd>${shortcut('⇧S')}</kbd>) <b>Export Audio…</b> and <b>Enable / Re-scan MIDI</b>. Projects are <b>.mds</b> files (older .json projects open too; Save then asks for a new .mds file). The file name is shown in the status bar (bottom right) and the window title, with <b>•</b> while there are unsaved changes; New and Open ask whether to save them first (Yes / No / Cancel). Independently, every change is autosaved, so the app always starts with your latest project, its file name and unsaved state.`),
       hint('<b>Export Audio…</b> (main menu): choose where to save, then the song renders offline (much faster than real time) from its start to the end of the last clip, or just the loop region when one is set, plus the sound tail (releases, echoes, reverb; at most 10 s). The file is a 24-bit stereo WAV at the audio device\'s sample rate. The status bar warns when the mix clips.'),
-      hint('<b>Layout:</b> piano roll, patcher and TimeLine are stacked top to bottom. The play/stop, clip and snap controls sit on the upper divider and remain visible even when the piano roll is hidden. Drag the exposed divider grip or empty space up/down to resize (left/right resizes the controller panel); the widgets do not drag the divider. When the patcher closes, the dragged divider pushes the other one. Drag to an edge to hide a pane and back to reopen it. Positions are saved with the project. The piano keyboard stays at the bottom of the roll; selected notes are filled blue.'),
+      hint('<b>Layout:</b> piano roll, patcher and TimeLine are stacked top to bottom. The main menu button stays in the top-right corner, on top of everything. Play/stop, clip and snap controls sit on the upper divider (it can be dragged up to the window edge, under the menu button) and remain visible even when the piano roll is hidden. The patch path (<b>Main</b> / …, click a level to go up) sits at the left of the lower divider. Drag the exposed divider grip or empty space up/down to resize (left/right resizes the controller panel); the widgets do not drag the divider. When the patcher closes, the dragged divider pushes the other one. Drag to an edge to hide a pane and back to reopen it. Positions are saved with the project. The piano keyboard stays at the bottom of the roll; selected notes are filled blue.'),
       hint('The piano roll fits all <b>128 MIDI notes (0–127)</b> across its width and rescales with the window width. Horizontal zoom is automatic; <kbd>Alt</kbd> + scroll no longer changes key width. Each mouse-wheel step scrolls exactly one snap step (the selected snap); scroll upward to reveal a small margin above beat zero. <kbd>Ctrl/Cmd</kbd> + scroll still zooms time.'),
       hint('Drag the left controller-panel divider to resize the panel, or fully left to hide it. Its handle stays available to reopen it, and the width is saved with the project.'),
       hint('All three dividers resize the controller panel when dragged left/right. Dragging the controller-panel divider up/down also moves the upper horizontal divider. Each horizontal divider supports <kbd>Up</kbd>/<kbd>Down</kbd> (hold <kbd>Shift</kbd> for larger steps) and <kbd>Home</kbd>/<kbd>End</kbd> to reach the edges. Every divider shows a small four-dot grip.'),
@@ -1143,8 +1140,6 @@ function select(s) {
     const row = ctl.el;
     controllers.appendChild(row);
     rows.push({ p, row, show: ctl.show });
-    panelRows.set(p.id, { p, ctl });
-    if (p.id in entry.mod) showModulation(entry, p.id, entry.mod[p.id]);
   });
   panel.insertBefore(controllers, header.nextSibling);
 
@@ -1166,36 +1161,30 @@ function select(s) {
       },
     }),
   }) ?? null;
-  panelView = view;
-  if (view) {
-    panel.append(view.el);
-    for (const id in entry.mod) view.modulate?.(id, entry.mod[id]);
-  }
+  if (view) panel.append(view.el);
   panel.append(explanations);
+  panelRefresh = refresh;
   refresh();
 }
 
-// ---- live modulation display (LFO -> controller) ----
-const panelRows = new Map(); // controller id -> row of the module shown in the panel
-let panelView = null; // def.view() of the module shown in the panel
-let modPending = new Map();
-let modFrame = 0;
-function showModulation(entry, id, v) {
-  if (sel?.entry !== entry) return;
-  panelView?.modulate?.(id, v);
-  const r = panelRows.get(id);
-  if (!r) return;
-  r.ctl.setMod(v === null ? null : toNorm(r.p, v));
-}
-engine.onModulate = (entry, id, v) => {
-  if (sel?.entry !== entry) return;
-  modPending.set(id, v);
-  modFrame ||= requestAnimationFrame(() => {
-    modFrame = 0;
-    const pending = modPending;
-    modPending = new Map();
-    if (sel?.entry === entry) pending.forEach((val, pid) => showModulation(entry, pid, val));
-  });
+// ---- driven controllers (LFO, ADSR, VELO2CTL, SOUND2CTL, MULTICTL, automation clips) ----
+// They move the real controller value (src/patch.js drive()): the panel follows once per frame,
+// and the project is autosaved now and then while values keep moving (no undo steps).
+let panelRefresh = null; // redraws the controllers of the module shown in the panel
+let driveFrame = 0;
+let driveSaveTimer = 0;
+const DRIVE_SAVE_MS = 3000;
+engine.onDrive = (entry) => {
+  if (sel?.entry === entry && !driveFrame) {
+    driveFrame = requestAnimationFrame(() => {
+      driveFrame = 0;
+      panelRefresh?.();
+    });
+  }
+  driveSaveTimer ||= setTimeout(() => {
+    driveSaveTimer = 0;
+    persist.schedule();
+  }, DRIVE_SAVE_MS);
 };
 
 // ---- main menu: New / Open / Save / Save As / Export Audio ----
@@ -1242,6 +1231,7 @@ const openFile = () => fileCommand('Open', async () => {
 const saveCommand = (as) => fileCommand(as ? 'Save As' : 'Save', () => saveFile(as));
 
 const brand = $('brand');
+let midi = null; // MIDI input, set up once the project is restored (see the end of this file)
 let mainMenuOpen = false;
 let brandClosesMenu = false;
 // a click on the logo while its menu is open only closes the menu (runs before the menu's own listener)
@@ -1251,7 +1241,7 @@ function openMainMenu(focusFirst) {
   mainMenuOpen = true;
   brand.setAttribute('aria-expanded', 'true');
   showMenu({
-    x: r.left - 2,
+    x: r.right + 2, // no room to the right: the menu opens right-aligned under the button
     y: r.bottom + 2,
     className: 'main-menu',
     onClose: () => {
@@ -1265,6 +1255,8 @@ function openMainMenu(focusFirst) {
       { label: 'Save As…', shortcut: shortcut('⇧S'), action: () => saveCommand(true) },
       '-',
       { label: 'Export Audio…', disabled: exporting, action: exportAudio },
+      '-',
+      { label: 'Enable / Re-scan MIDI', disabled: !midi, action: () => midi.enable() },
     ],
   });
   if (focusFirst) document.querySelector('.main-menu .ctx-item')?.focus();
@@ -1466,17 +1458,20 @@ if (!restored) {
   projectFile.reset();
 }
 undoHistory.reset();
-$('saved').textContent = restored ? `Restored from ${restored}` : saved.copies.length ? 'Autosave unreadable, started empty' : '';
-if (!saved.disk) $('saved').title = 'Autosave: browser localStorage only. Run "node server.mjs" to also save to disk.';
+if (restored || saved.copies.length) $('status').textContent = restored ? `Restored from ${restored}` : 'Autosave unreadable, started empty';
 persist.start();
-window.addEventListener('pagehide', () => persist.flushNow());
-connectLiveReload(() => persist.flushNow());
-const midi = initMidi({
+// driven controller values that are still waiting for the throttled autosave are written too
+const flushAll = () => {
+  if (driveSaveTimer) persist.schedule();
+  persist.flushNow();
+};
+window.addEventListener('pagehide', flushAll);
+connectLiveReload(flushAll);
+midi = initMidi({
   getTarget: midiTarget,
   onStatus: (msg) => ($('status').textContent = msg),
   onActivity: () => engine.resume(),
 });
-$('midi').onclick = () => midi.enable();
 midi.enable();
 // Q..P (and the number row) play the current MIDI module, else the first one in the main patch
 initKeyboard({

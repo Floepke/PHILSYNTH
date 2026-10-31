@@ -40,8 +40,7 @@ export default {
     el.append(wrap, meter.el);
     const g = cv.getContext('2d');
     let values = entry.values;
-    const mod = {};
-    const val = (id) => mod[id] ?? values[id];
+    const val = (id) => values[id];
     const draw = () => {
       const dpr = window.devicePixelRatio || 1;
       const w = cv.clientWidth;
@@ -91,10 +90,6 @@ export default {
     return {
       el,
       refresh(v) { values = v; draw(); },
-      modulate(id, v) {
-        if (v === null) delete mod[id]; else mod[id] = v;
-        draw();
-      },
     };
   },
   create(_ctx, def, host) {

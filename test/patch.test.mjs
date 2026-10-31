@@ -250,8 +250,8 @@ const set = (e, x) => { hold(e, x); render(1); };
   const lfo = await r.addModule('LFO');
   const ko = kernel(osc.inst.node);
   const kf = kernel(flt.inst.node);
-  const shown = []; // engine.onModulate (panel display)
-  engine.onModulate = (e, id, v) => shown.push([e.id, id, v]);
+  const shown = []; // engine.onDrive (panel display, throttled autosave)
+  engine.onDrive = (e, id, v) => shown.push([e.id, id, v]);
 
   assert.ok(r.connect(lfo.id, osc.id), 'LFO may connect to a module without audio input');
   assert.equal(r.connect(osc.id, lfo.id), false, 'LFO has no audio input');
@@ -263,9 +263,9 @@ const set = (e, x) => { hold(e, x); render(1); };
   r.setParam(lfo.id, 'outMax', 60);
   set(lfo, 0.5);
   assert.equal(ko.p.gain, 0.4, '50% between 20% and 60% of 0..1, applied in the kernel');
-  assert.equal(osc.mod.gain, 0.4, 'reported back for display');
+  assert.equal(osc.values.gain, 0.4, 'the reported value becomes the real controller value');
   assert.deepEqual(shown.at(-1), [osc.id, 'gain', 0.4]);
-  assert.equal(osc.values.gain, 0.5, 'modulation does not change the saved value');
+  assert.equal(r.toJSON().modules.find((m) => m.id === osc.id).values.gain, 0.4, 'and is saved');
   const n = shown.length;
   set(lfo, 0.5);
   assert.equal(shown.length, n, 'unchanged values are not reported again');
@@ -275,7 +275,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.equal(ko.p.gain, 0.9);
   render(1);
   assert.equal(ko.p.gain, 0.4, 'modulation re-applied');
-  assert.equal(osc.mod.gain, 0.4);
+  assert.equal(osc.values.gain, 0.4);
 
   // amplitude scales the swing around the centre, then Out Min/Max trim it
   r.setParam(lfo.id, 'amp', 50);
@@ -293,8 +293,8 @@ const set = (e, x) => { hold(e, x); render(1); };
   r.setParam(lfo.id, 'outMin', 0);
   r.setParam(lfo.id, 'outMax', 100);
   set(lfo, 0.7);
-  assert.equal(ko.p.gain, 0.9, 'previous controller gets its own value back');
-  assert.equal(osc.mod.gain, undefined);
+  assert.ok(Math.abs(ko.p.gain - 0.4) < 1e-9, 'the previous controller keeps its last driven value');
+  assert.ok(Math.abs(osc.values.gain - 0.4) < 1e-9);
   assert.equal(ko.p.wave, 6, '70% of 0..9 rounds to step 6');
   set(lfo, 1);
   assert.equal(ko.p.wave, 9, 'modulation can select violet noise');
@@ -306,14 +306,17 @@ const set = (e, x) => { hold(e, x); render(1); };
   const fp = flt.def.params[2];
   assert.ok(Math.abs(kf.p.cutoff - Math.sqrt(fp.min * fp.max)) < 1e-6, `log mapping (${kf.p.cutoff})`);
 
-  // disconnect restores
+  // disconnecting keeps the last value
+  assert.equal(flt.values.cutoff, kf.p.cutoff, 'the driven cutoff is the real value');
+  const lastCutoff = kf.p.cutoff;
   r.disconnect(r.cables.find((c) => c.to === flt.id));
-  assert.equal(kf.p.cutoff, flt.values.cutoff, 'disconnect gives the cutoff back');
-  render(2);
-  assert.equal(kf.p.cutoff, flt.values.cutoff, 'and the graph no longer drives it');
+  set(lfo, 0.9);
+  assert.equal(kf.p.cutoff, lastCutoff, 'disconnected: the graph no longer drives it');
+  assert.equal(flt.values.cutoff, lastCutoff, 'and it keeps its last value');
+  const wave = osc.values.wave;
   r.removeModule(lfo.id);
-  assert.equal(Object.keys(osc.mod).length, 0, 'deleting the LFO releases its targets');
-  assert.equal(ko.p.attack, osc.values.attack);
+  assert.equal(osc.values.wave, wave, 'deleting the LFO keeps the values it set');
+  assert.equal(ko.p.wave, wave);
 
   // BPM sync from this patch's Output
   assert.equal(lfoRateHz(3, 0, 120), 3, 'Hz unit');
@@ -330,7 +333,8 @@ const set = (e, x) => { hold(e, x); render(1); };
   const seen = new Set();
   for (let i = 0; i < 20; i++) { render(1); seen.add(ko.p.gain); }
   assert.ok(seen.size > 5, 'running LFO modulates every block');
-  engine.onModulate = null;
+  assert.equal(osc.values.gain, ko.p.gain, 'the controller follows it');
+  engine.onDrive = null;
   r.destroy();
 }
 
@@ -594,15 +598,14 @@ const set = (e, x) => { hold(e, x); render(1); };
   // the real envelope runs: attack (10 ms) reaches the peak 0.25 -> 10 + 0.25 × 80 = 30 %
   render(10);
   assert.equal(k.stage, 2, 'decaying after the attack');
-  assert.ok(osc.mod.duty > 10 && osc.mod.duty <= 30, `envelope drives the duty (${osc.mod.duty})`);
-  assert.equal(kernel(osc.inst.node).p.duty, osc.mod.duty, 'applied in the OSC kernel');
+  assert.ok(osc.values.duty > 10 && osc.values.duty <= 30, `envelope drives the duty (${osc.values.duty})`);
+  assert.equal(kernel(osc.inst.node).p.duty, osc.values.duty, 'applied in the OSC kernel');
   set(env, 0.5);
-  assert.equal(osc.mod.duty, 50, 'envelope 0.5 = middle of 10..90 %');
+  assert.equal(osc.values.duty, 50, 'envelope 0.5 = middle of 10..90 %');
   set(env, 0);
-  assert.equal(osc.mod.duty, 10);
-  assert.equal(osc.values.duty, 50, 'saved value untouched');
+  assert.equal(osc.values.duty, 10, 'the real controller value follows the envelope');
   r.removeModule(env.id);
-  assert.ok(!('duty' in osc.mod), 'deleting the ADSR releases the controller');
+  assert.equal(osc.values.duty, 10, 'deleting the ADSR keeps the last value');
 }
 
 // ---- SOUND2CTL: audio input with a control-only output ----
@@ -618,29 +621,30 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.equal(r.connect(mm.id, ctl.id), false, 'no MIDI input');
   assert.match(ctl.inst.params()[0].format(0), /Amplification/);
   render();
-  assert.equal(target.mod.amp, 2, 'silent voltage is the midpoint of the range');
+  assert.equal(target.values.amp, 2, 'silent voltage is the midpoint of the range');
   assert.ok(graph.order.some((n) => n.h === src.inst.node.h), 'inaudible input is rendered');
   r.setParam(ctl.id, 'outMin', 20);
   r.setParam(ctl.id, 'outMax', 60);
   render();
-  assert.equal(target.mod.amp, 1.6, 'trimming maps into the target range');
+  assert.equal(target.values.amp, 1.6, 'trimming maps into the target range');
   r.setParam(ctl.id, 'outController', 1);
   render();
-  assert.ok(!('amp' in target.mod), 'changing controller releases the old one');
-  assert.equal(target.mod.pan, -0.2);
+  assert.equal(target.values.amp, 1.6, 'the old controller keeps its last value');
+  assert.equal(target.values.pan, -0.2);
   const saved = JSON.parse(JSON.stringify(r.toJSON()));
   const restored = await PatchRuntime.create(engine, dsp.destination);
   await restored.load(saved);
   render();
-  assert.equal(restored.modules.get(target.id).mod.pan, -0.2, 'routing and trim survive save/load');
+  assert.equal(restored.modules.get(target.id).values.pan, -0.2, 'routing and trim survive save/load');
   const [copySrc, copyCtl, copyTarget] = await r.duplicateMany([src.id, ctl.id, target.id], 10, 10);
   render();
-  assert.equal(copyTarget.mod.pan, -0.2, 'copied control chain works');
+  assert.equal(copyTarget.values.pan, -0.2, 'copied control chain works');
   assert.ok(r.cables.some((c) => c.from === copySrc.id && c.to === copyCtl.id));
   r.disconnect(r.cables.find((c) => c.from === ctl.id && c.to === target.id));
-  assert.ok(!('pan' in target.mod), 'disconnect restores the saved controller value');
+  assert.ok(!r.isDriven(target.id, 'pan'), 'disconnected');
+  assert.equal(target.values.pan, -0.2, 'disconnect keeps the last value');
   r.removeModule(copyCtl.id);
-  assert.ok(!('pan' in copyTarget.mod), 'deleting converter releases controller');
+  assert.equal(copyTarget.values.pan, -0.2, 'deleting the converter keeps it too');
   r.destroy();
   restored.destroy();
 }
@@ -659,31 +663,33 @@ const set = (e, x) => { hold(e, x); render(1); };
 
   r.setParam(v2c.id, 'outController', 7); // OSC duty 0..100
   render(2);
-  assert.ok(!('duty' in osc.mod), 'nothing modulated before the first note');
+  r.setParam(osc.id, 'duty', 70);
+  render(2);
+  assert.equal(osc.values.duty, 70, 'nothing driven before the first note');
   mm.inst.noteOn(1, 60, 0.5);
   render(1); // the graph applies the value on the next render quantum
   render(1);
-  assert.equal(osc.mod.duty, 50, 'velocity 0.5 = middle of 0..100 %');
+  assert.equal(osc.values.duty, 50, 'velocity 0.5 = middle of 0..100 %');
   r.setParam(v2c.id, 'outMin', 20);
   r.setParam(v2c.id, 'outMax', 60);
   render(1);
-  assert.equal(osc.mod.duty, 40, 'Out Min / Out Max re-apply the held velocity at once');
+  assert.equal(osc.values.duty, 40, 'Out Min / Out Max re-apply the held velocity at once');
   mm.inst.noteOn(2, 64, 1);
   render(1);
-  assert.equal(osc.mod.duty, 60, 'newest note wins');
+  assert.equal(osc.values.duty, 60, 'newest note wins');
   mm.inst.noteMod(1, 60, 0);
   render(1);
-  assert.equal(osc.mod.duty, 60, 'older notes do not change it');
+  assert.equal(osc.values.duty, 60, 'older notes do not change it');
   mm.inst.noteMod(2, 64, 0.25);
   render(1);
-  assert.equal(osc.mod.duty, 30, 'velocity curve of the newest note is followed');
+  assert.equal(osc.values.duty, 30, 'velocity curve of the newest note is followed');
   mm.inst.noteOff(2);
   mm.inst.noteOff(1);
   render(1);
-  assert.equal(osc.mod.duty, 30, 'value is held after note off');
+  assert.equal(osc.values.duty, 30, 'value is held after note off');
   v2c.inst.noteOn(3, 60, 0);
   render(1);
-  assert.equal(osc.mod.duty, 20, 'velocity 0 = Out Min');
+  assert.equal(osc.values.duty, 20, 'velocity 0 = Out Min');
 
   // Noteoff Action: Control Down -> Out Min, Control Up -> Out Max when the newest note ends
   const action = v2c.def.params.find((p) => p.id === 'noteOffAction');
@@ -693,33 +699,32 @@ const set = (e, x) => { hold(e, x); render(1); };
   mm.inst.noteOn(4, 60, 0.5);
   mm.inst.noteOn(5, 62, 0.75);
   render(1);
-  assert.equal(osc.mod.duty, 50);
+  assert.equal(osc.values.duty, 50);
   mm.inst.noteOff(4);
   render(1);
-  assert.equal(osc.mod.duty, 50, 'an older note ending does nothing');
+  assert.equal(osc.values.duty, 50, 'an older note ending does nothing');
   mm.inst.noteOff(5);
   render(1);
-  assert.equal(osc.mod.duty, 60, 'Control Up = Out Max');
+  assert.equal(osc.values.duty, 60, 'Control Up = Out Max');
   r.setParam(v2c.id, 'noteOffAction', 1);
   mm.inst.noteOn(6, 60, 0.5);
   render(1);
-  assert.equal(osc.mod.duty, 40);
+  assert.equal(osc.values.duty, 40);
   mm.inst.noteOff(6);
   render(1);
-  assert.equal(osc.mod.duty, 20, 'Control Down = Out Min');
+  assert.equal(osc.values.duty, 20, 'Control Down = Out Min');
   v2c.inst.noteOn(7, 60, 0.5);
   render(1);
   v2c.inst.allOff();
   render(1);
-  assert.equal(osc.mod.duty, 20, 'all notes off releases too');
+  assert.equal(osc.values.duty, 20, 'all notes off releases too');
   r.setParam(v2c.id, 'noteOffAction', 0);
   v2c.inst.noteOn(8, 60, 0.5);
   v2c.inst.noteOff(8);
   render(1);
-  assert.equal(osc.mod.duty, 40, 'Do Nothing holds the value');
-  assert.equal(osc.values.duty, 50, 'saved value untouched');
+  assert.equal(osc.values.duty, 40, 'Do Nothing holds the value');
   r.removeModule(v2c.id);
-  assert.ok(!('duty' in osc.mod), 'deleting it releases the controller');
+  assert.equal(osc.values.duty, 40, 'deleting it keeps the last value');
 }
 
 // ---- MULTICTL: one Value drives chosen controllers of every connected module ----
@@ -734,45 +739,48 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.ok(r.connect(mc.id, o1.id) && r.connect(mc.id, o2.id) && r.connect(mc.id, amp.id));
   assert.equal(r.connect(o1.id, mc.id), false, 'no input');
   render(2);
-  assert.ok(!('decay' in o1.mod), 'nothing routed yet: nothing modulated');
+  const decay0 = o1.values.decay;
+  const release0 = o1.values.release;
+  assert.equal(o1.values.decay, decay0, 'nothing routed yet: nothing modulated');
 
   // decay on both OSCs, gain on the AMP (two controllers on one module are possible too)
   r.setState(mc.id, { routes: [{ to: o1.id, param: 'decay' }, { to: o2.id, param: 'decay' }, { to: o2.id, param: 'release' }, { to: amp.id, param: 'amp' }] });
   r.setParam(mc.id, 'value', 100);
   render(1); render(1);
-  assert.equal(o1.mod.decay, 10);
-  assert.equal(o2.mod.decay, 10);
-  assert.equal(o2.mod.release, 10);
-  assert.ok(!('release' in o1.mod), 'only routed controllers move');
-  assert.equal(amp.mod.amp, 4);
+  assert.equal(o1.values.decay, 10);
+  assert.equal(o2.values.decay, 10);
+  assert.equal(o2.values.release, 10);
+  assert.equal(o1.values.release, release0, 'only routed controllers move');
+  assert.equal(amp.values.amp, 4);
   r.setParam(mc.id, 'outMax', 50);
   r.setParam(mc.id, 'value', 0);
   render(1);
-  assert.equal(o1.mod.decay, 0.001, 'Value 0 = Out Min of each slider');
+  assert.equal(o1.values.decay, 0.001, 'Value 0 = Out Min of each slider');
   r.setParam(mc.id, 'value', 100);
   render(1);
-  assert.ok(Math.abs(o1.mod.decay - 5) < 0.01, 'Value 100 % = Out Max (50 %) of the range');
+  assert.ok(Math.abs(o1.values.decay - 5) < 0.01, 'Value 100 % = Out Max (50 %) of the range');
   assert.match(mc.inst.params()[0].format(100, mc.values), /→ 4 controllers/, 'mixed routes: count');
 
-  // unrouting gives the controller back its own value
+  // unrouting keeps the controller's last value
   r.setState(mc.id, { routes: mc.state.routes.filter((x) => !(x.to === o2.id && x.param === 'release')) });
-  assert.ok(!('release' in o2.mod));
-  assert.equal(o2.values.release, 0.4, 'saved value untouched');
+  assert.ok(!r.isDriven(o2.id, 'release'));
+  assert.ok(Math.abs(o2.values.release - 5) < 0.01, 'last value kept');
 
   // a new OSC copies the routes of the OSCs; another type does not
   const o3 = await r.addModule('OSC');
   r.connect(mc.id, o3.id);
   assert.deepEqual(mc.state.routes.filter((x) => x.to === o3.id).map((x) => x.param), ['decay']);
   render(1);
-  assert.ok(Math.abs(o3.mod.decay - 5) < 0.01);
+  assert.ok(Math.abs(o3.values.decay - 5) < 0.01);
   const flt = await r.addModule('FILTER');
   r.connect(mc.id, flt.id);
   assert.ok(!mc.state.routes.some((x) => x.to === flt.id));
 
-  // disconnecting forgets that module's routes and releases its controller
+  // disconnecting forgets that module's routes; its controller keeps the last value
   r.disconnect(r.cables.find((c) => c.from === mc.id && c.to === o1.id));
   assert.ok(!mc.state.routes.some((x) => x.to === o1.id));
-  assert.ok(!('decay' in o1.mod));
+  assert.ok(!r.isDriven(o1.id, 'decay'));
+  assert.ok(Math.abs(o1.values.decay - 5) < 0.01);
   r.setState(mc.id, { routes: mc.state.routes.filter((x) => x.to !== amp.id) });
   assert.match(mc.inst.params()[0].format(100, mc.values), /Decay \(s\) ×2/, 'one shared controller: shown with its value');
 
@@ -783,17 +791,21 @@ const set = (e, x) => { hold(e, x); render(1); };
   await r2.load(saved);
   assert.deepEqual(r2.modules.get(mc.id).state, mc.state);
   render(1);
-  assert.ok('decay' in r2.modules.get(o2.id).mod, 'routes work after loading');
+  assert.ok(r2.isDriven(o2.id, 'decay'), 'routes work after loading');
+  r2.setParam(o2.id, 'decay', 1);
+  render(1);
+  assert.ok(Math.abs(r2.modules.get(o2.id).values.decay - 5) < 0.01, 'and drive it after loading');
   const [mc2, o2b] = await r.duplicateMany([mc.id, o2.id], 10, 10);
   assert.deepEqual(mc2.state.routes, [{ to: o2b.id, param: 'decay' }], 'routes inside the copied group follow the copies');
   const pasted = await r.pasteMany(r.copyMany([mc.id, o2.id]), { x: 0, y: 0 });
   assert.deepEqual(pasted[0].state.routes, [{ to: pasted[1].id, param: 'decay' }]);
   assert.ok(r.cables.some((c) => c.from === pasted[0].id && c.to === pasted[1].id));
 
-  // invalid state is cleaned up; deleting the MULTICTL releases everything
+  // invalid state is cleaned up; deleting the MULTICTL keeps the values it set
   assert.deepEqual(mc.def.normalizeState({ routes: [{ to: 'x', param: 1 }, { to: 2, param: 'gain' }, { to: 2, param: 'gain' }] }), { routes: [{ to: 2, param: 'gain' }] });
   r.removeModule(mc.id);
-  assert.ok(!('decay' in o2.mod) && !('decay' in o3.mod));
+  assert.ok(!r.isDriven(o2.id, 'decay') && !r.isDriven(o3.id, 'decay'));
+  assert.ok(Math.abs(o3.values.decay - 5) < 0.01);
 }
 
 // ---- WAVESHAPER: curve state is saved, duplicated and mirrored to Patch instances ----
@@ -856,34 +868,38 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.ok(pm.inst.clones.every((c) => c.modules.get(w.id).state.points[1].y === 1), 'copies follow the curve');
 }
 
-// automation clips drive a controller by number, and give it back when released
+// automation clips drive a controller by number for real: the last value stays after the clip
 {
   const target = await root.addModule('OSC', { x: 300, y: 300 });
   const { paramsOf, fromNorm } = await import('../src/params.js');
   const ps = paramsOf(target);
   const seen = [];
-  root.engine.onModulate = (t, pid, v) => seen.push({ t: t.id, pid, v });
+  root.engine.onDrive = (t, pid, v) => seen.push({ t: t.id, pid, v });
+  const changes = [];
+  const watch = () => changes.push(1);
+  root.watchers.add(watch);
   const p1 = ps[1];
-  const own = target.values[p1.id];
   assert.equal(root.automate(77, target.id, 1, 0.5), true);
-  assert.equal(target.mod[p1.id], fromNorm(p1, 0.5));
-  assert.equal(target.values[p1.id], own, 'saved value untouched');
+  assert.equal(target.values[p1.id], fromNorm(p1, 0.5), 'the real value moves');
+  assert.equal(kernel(target.inst.node).p[p1.id], fromNorm(p1, 0.5), 'and is applied');
+  assert.equal(root.toJSON().modules.find((m) => m.id === target.id).values[p1.id], fromNorm(p1, 0.5), 'and saved');
+  assert.equal(changes.length, 0, 'no undo step (no change notification)');
   assert.deepEqual(seen.at(-1), { t: target.id, pid: p1.id, v: fromNorm(p1, 0.5) });
-  // switching controller releases the old one
+  // switching controller: the old one keeps its last value
   const p2 = ps[2];
   root.automate(77, target.id, 2, 1);
-  assert.equal(p1.id in target.mod, false);
-  assert.equal(target.mod[p2.id], fromNorm(p2, 1));
-  // two clips on the same controller: releasing one keeps the other's value
+  assert.equal(target.values[p1.id], fromNorm(p1, 0.5));
+  assert.equal(target.values[p2.id], fromNorm(p2, 1));
+  // the clip ends: the controller keeps its last value
   root.automate(78, target.id, 2, 0);
   root.automate(77, null, 0, null);
-  assert.ok(p2.id in target.mod, 'other clip still drives it');
   root.automate(78, null, 0, null);
-  assert.equal(p2.id in target.mod, false);
-  assert.deepEqual(seen.at(-1), { t: target.id, pid: p2.id, v: null });
+  assert.equal(target.values[p2.id], fromNorm(p2, 0), 'last value stays after the clip');
+  assert.equal(kernel(target.inst.node).p[p2.id], fromNorm(p2, 0));
   assert.equal(root.automate(79, 9999, 0, 0.3), false, 'missing module');
   assert.equal(root.automate(79, target.id, 999, 0.3), false, 'missing controller');
-  root.engine.onModulate = undefined;
+  root.watchers.delete(watch);
+  root.engine.onDrive = undefined;
 }
 
 // ---- Patch: controllers inside mapped to controllers of the Patch module ----
@@ -926,9 +942,9 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.equal(pm2.values.map1, 800, 'loaded value mirrored');
   r2.destroy();
 
-  // an LFO outside on the mapped controller modulates the inner kernel, unsaved, and is shown on both
+  // an LFO outside on the mapped controller drives the inner controller for real, shown on both
   const shown = [];
-  engine.onModulate = (e, id, v) => shown.push([e.id, id, v]);
+  engine.onDrive = (e, id, v) => shown.push([e.id, id, v]);
   const lfo = await r.addModule('LFO');
   assert.ok(r.connect(lfo.id, pm.id));
   r.setParam(lfo.id, 'outController', 2);
@@ -936,9 +952,8 @@ const set = (e, x) => { hold(e, x); render(1); };
   set(lfo, 0.5);
   const half = fromNorm(cutoff, 0.5);
   assert.equal(kf().p.cutoff, half, 'applied on the inner kernel by the engine graph');
-  assert.equal(flt.values.cutoff, 800, 'saved value untouched');
-  assert.equal(pm.mod.map1, half, 'mapped controller shows the modulation');
-  assert.equal(flt.mod.cutoff, half, 'inner controller shows it too');
+  assert.equal(flt.values.cutoff, half, 'the inner controller takes the value');
+  assert.equal(pm.values.map1, half, 'the mapped controller shows it');
   assert.ok(shown.some(([id, pid, v]) => id === pm.id && pid === 'map1' && v === half));
 
   // every instance follows
@@ -950,31 +965,32 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.equal(kf().p.cutoff, 20000);
   assert.equal(copy().p.cutoff, 20000, 'the instance copy is modulated as well');
 
-  // disconnecting gives the inner controllers their own value back
+  assert.equal(flt.values.cutoff, 20000);
+  assert.equal(pm.values.map1, 20000);
+
+  // disconnecting keeps the last value
   r.disconnect(r.cables.find((c) => c.from === lfo.id));
-  assert.equal(kf().p.cutoff, 800);
-  assert.equal(copy().p.cutoff, 800);
-  assert.equal('map1' in pm.mod, false);
-  assert.equal('cutoff' in flt.mod, false);
+  assert.equal(kf().p.cutoff, 20000);
+  assert.equal(copy().p.cutoff, 20000);
+  assert.equal(flt.values.cutoff, 20000);
   r.removeModule(lfo.id);
 
-  // automation clips on the mapped controller (by number), released afterwards
+  // automation clips on the mapped controller (by number): every instance, the value stays
   assert.equal(r.automate(5, pm.id, 2, 0), true);
   assert.equal(kf().p.cutoff, 20);
   assert.equal(copy().p.cutoff, 20);
-  assert.equal(flt.values.cutoff, 800);
-  assert.equal(pm.values.map1, 800);
+  assert.equal(flt.values.cutoff, 20);
+  assert.equal(pm.values.map1, 20);
   r.automate(5, null, 0, null);
-  assert.equal(kf().p.cutoff, 800);
-  assert.equal(copy().p.cutoff, 800);
-  // removing a mapping while it is automated releases the inner controller
+  assert.equal(kf().p.cutoff, 20, 'the last value stays after the clip');
+  assert.equal(copy().p.cutoff, 20);
+  // removing a mapping keeps the inner controller's value
   r.automate(6, pm.id, 2, 1);
   assert.equal(kf().p.cutoff, 20000);
   r.setState(pm.id, { maps: [] });
-  assert.equal(kf().p.cutoff, 800);
+  assert.equal(kf().p.cutoff, 20000);
   assert.equal('map1' in pm.values, false);
-  r.automate(6, null, 0, null);
-  assert.equal(kf().p.cutoff, 800);
+  assert.equal(r.automate(6, pm.id, 2, 0.5), false, 'no mapped controller any more');
 
   // mapped controllers of a nested Patch can be mapped again one level up
   const nested = await ip.addModule('PATCH');
@@ -986,11 +1002,11 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.equal(deep.values.amp, 3, 'reaches the module two levels down');
   assert.equal(pm.values.map3, 3);
   r.automate(7, pm.id, 3, 0);
-  assert.equal(deep.mod.amp, 0, 'automation reaches it too');
+  assert.equal(deep.values.amp, 0, 'automation reaches it too');
   assert.equal(kernel(deep.inst.node).t[0], 0);
+  assert.equal(pm.values.map3, 0, 'and shows on the outer mapped controller');
   r.automate(7, null, 0, null);
-  assert.equal('amp' in deep.mod, false);
-  assert.equal(kernel(deep.inst.node).t[0], 3);
+  assert.equal(deep.values.amp, 0, 'the last value stays');
 
   // a mapping whose module is deleted inside is no controller any more (kept as missing)
   ip.removeModule(flt.id);
@@ -1001,7 +1017,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   // duplicates carry the mappings
   const dup = await r.duplicate(pm.id);
   assert.deepEqual(dup.state.maps, pm.state.maps);
-  assert.equal(dup.values.map3, 3);
+  assert.equal(dup.values.map3, 0);
 
   // state repair
   assert.deepEqual(normalizeMaps({ maps: [
@@ -1015,7 +1031,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.deepEqual(normalizeMaps(null), { maps: [] });
   assert.equal(nextMapKey([{ key: 'map1' }, { key: 'map7' }]), 'map8');
   assert.equal(nextMapKey([]), 'map1');
-  engine.onModulate = undefined;
+  engine.onDrive = undefined;
 }
 
 // ---- envelopes: Sustain at 0 links Decay and Release ----

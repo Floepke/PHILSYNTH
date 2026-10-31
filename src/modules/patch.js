@@ -11,8 +11,8 @@
 // Mapped controllers (state.maps, edited in the Controllers dialog): any controller of any module
 // inside can be mapped to an extra controller of this module (numbered after Input Module and
 // Instances). It shows and sets that inner controller's value (saved inside, every instance
-// follows), and LFOs / automation clips on it drive the inner controller (on the audio thread,
-// every instance). A nested Patch's own mapped controllers can be mapped again one level up.
+// follows), and LFOs / automation clips on it drive the inner controller for real (on the audio
+// thread, every instance). A nested Patch's own mapped controllers can be mapped again one level up.
 import { paramsOf } from '../params.js';
 
 const RELEASE_KEEP_MS = 10000;
@@ -193,11 +193,16 @@ export default {
         routes: () => runtimes().flatMap((rt) => rt.routesTo(m.module, m.param)),
       };
     };
-    // an LFO inside reported a value on a mapped controller: show it on ours if our parent drives it
+    // a modulator in our parent patch drives a mapped controller (it is applied on the inner kernels)
+    patch.drivenFromOutside = (tid, pid) => maps.some((m) => m.module === tid && m.param === pid && owner?.isDriven(entry.id, m.key, true));
+    // a driven inner controller moved: ours follows (and so on up), without an undo step
     patch.forward = (tid, pid, v) => {
-      let ok = false;
-      for (const m of maps) if (m.module === tid && m.param === pid && owner?.modulated(entry, m.key, v)) ok = true;
-      return ok;
+      for (const m of maps) {
+        if (m.module !== tid || m.param !== pid || !entry || entry.values[m.key] === v) continue;
+        entry.values[m.key] = v;
+        owner?.engine.onDrive?.(entry, m.key, v);
+        owner?.forward?.(entry.id, m.key, v);
+      }
     };
 
     return {
@@ -220,13 +225,7 @@ export default {
       },
       mirror,
       setState(st) {
-        const next = normalizeMaps(st).maps;
-        // a removed mapping gives the inner controller its own value back (if it was driven)
-        for (const m of maps) {
-          if (next.some((x) => x.module === m.module && x.param === m.param)) continue;
-          runtimes().forEach((rt) => rt.override(m.module, m.param, null));
-        }
-        maps = next;
+        maps = normalizeMaps(st).maps;
         mirror();
       },
       setParam(id, v) {
@@ -239,11 +238,11 @@ export default {
         apply(id, v);
         outGain.param(id, v);
       },
-      // automation / release of a mapped controller: drive the inner one (every instance), unsaved
-      liveParam(id, v) {
+      // automation of a mapped controller: drive the inner one (every instance), no undo step
+      driveParam(id, v) {
         const m = mapOf(id);
         if (!m) return MAP_KEY.test(id);
-        runtimes().forEach((rt) => rt.override(m.module, m.param, v));
+        runtimes().forEach((rt) => rt.driveId(m.module, m.param, v));
         return true;
       },
       onModulated: (id, v) => apply(id, v),

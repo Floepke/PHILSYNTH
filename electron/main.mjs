@@ -65,6 +65,7 @@ function createWindow(url) {
     backgroundColor: '#050505',
     title: 'MODSYNTH',
     show: false,
+    fullscreen: true, // F11 toggles
     webPreferences: {
       contextIsolation: true,
       sandbox: true,
@@ -72,7 +73,10 @@ function createWindow(url) {
       preload: join(dirname(fileURLToPath(import.meta.url)), 'preload.cjs'), // native project files
     },
   });
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => {
+    win.setFullScreen(true); // some window managers (Wayland) ignore the constructor option
+    win.show();
+  });
   // links to other sites open in the normal browser
   win.webContents.setWindowOpenHandler(({ url: target }) => {
     if (!target.startsWith(url)) shell.openExternal(target);

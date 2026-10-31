@@ -21,8 +21,7 @@ export function createEqView({ color = '#7a6aa8', values, setParam, beginEdit, e
   el.append(cv);
   const g = cv.getContext('2d');
   let vals = { ...values };
-  const mod = {}; // live (modulated) controller values
-  const val = (id) => (id in mod ? mod[id] : vals[id]);
+  const val = (id) => vals[id];
   const gains = () => BANDS.map((_, i) => val(bandId(i)) ?? 0);
 
   const xOf = (f, w) => (Math.log(f / F_LO) / Math.log(F_HI / F_LO)) * w;
@@ -129,10 +128,6 @@ export function createEqView({ color = '#7a6aa8', values, setParam, beginEdit, e
   return {
     el,
     refresh(v) { vals = { ...v }; draw(); },
-    modulate(id, v) {
-      if (v === null) delete mod[id]; else mod[id] = v;
-      draw();
-    },
   };
 }
 

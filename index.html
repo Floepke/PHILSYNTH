@@ -6,15 +6,8 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header id="bar">
-    <div class="brand-slot"><button id="brand" class="brand" type="button" aria-haspopup="menu" aria-expanded="false" title="Main menu: New, Open, Save, Export Audio…"><span class="logo"></span>MODSYNTH</button></div>
-    <nav id="crumbs"></nav>
-    <span class="spacer"></span>
-    <span id="doc-name" class="doc-name" title="Project file"></span>
-    <span id="saved" class="saved"></span>
-    <button id="midi" title="Enable / re-scan MIDI input">MIDI</button>
-    <input id="file" type="file" accept=".mds,.json" hidden>
-  </header>
+  <input id="file" type="file" accept=".mds,.json" hidden>
+  <button id="brand" class="brand" type="button" aria-haspopup="menu" aria-expanded="false" title="Main menu: New, Open, Save, Export Audio, MIDI…"><span class="logo"></span>MODSYNTH</button>
   <div id="workspace">
     <section id="seq" aria-label="Piano roll">
       <div id="roll" class="seq-view"></div>
@@ -43,12 +36,15 @@
         <button id="zoom" title="Zoom level — click to fit all modules in view">100%</button>
       </main>
     </section>
-    <div id="seq-hsplit" class="splitter horizontal" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Patcher / TimeLine divider" aria-controls="patcher arranger" title="Drag up/down to resize the TimeLine and left/right to resize the controller panel; pushes the upper divider when they meet. Arrow keys resize; Home/End move to an edge."></div>
+    <div id="seq-hsplit" class="splitter horizontal" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Patcher / TimeLine divider" aria-controls="patcher arranger" title="Drag up/down to resize the TimeLine and left/right to resize the controller panel; pushes the upper divider when they meet. Arrow keys resize; Home/End move to an edge.">
+      <nav id="crumbs" aria-label="Patch path"></nav>
+    </div>
     <div id="arranger" class="seq-view" role="region" aria-label="TimeLine"></div>
   </div>
   <footer id="statusbar">
     <span id="status"></span>
     <span id="tip" role="status" hidden></span>
+    <span id="doc-name" class="doc-name" title="Project file"></span>
     <div id="cpu" title="DSP load: share of the audio thread's real-time budget used to render the patch">
       <span class="cpu-label">DSP</span>
       <canvas id="cpu-graph" width="60" height="14"></canvas>

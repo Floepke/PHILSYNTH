@@ -6,8 +6,9 @@ import { fromNorm, paramsOf } from './params.js';
 // Controllers (params) are numbered 0.. in definition order; modulator modules (LFO) use
 // control cables to drive controller number `outController` of the modules they connect to.
 // All DSP runs in one engine graph on the audio thread (src/dsp/): modules create their nodes
-// with host.dsp, and the modulation itself is applied there (see updateRoutes); the patch only
-// tells the graph which controllers each modulator drives and mirrors the values for display.
+// with host.dsp, and the modulation itself is applied there (see updateRoutes); the patch tells
+// the graph which controllers each modulator drives and takes the reported values over as the
+// controllers' real values (see drive()).
 // Seed salt of one Patch instance (Instances > 1): instance k (0 = the edited one) of a patch
 // whose runtime has salt `parent`. It encodes the whole instance path, so every instance at any
 // nesting depth gets its own salt (0 only when every level is instance 0, i.e. as before);
@@ -75,11 +76,11 @@ export class PatchRuntime {
     } finally {
       this.reserved.delete(id);
     }
-    const entry = { id, def, inst, x, y, values: {}, mod: {} };
+    const entry = { id, def, inst, x, y, values: {} };
     const label = cleanName(name);
     if (label) entry.name = label; // custom name shown on the module box (the panel keeps the type)
     inst.attach?.(entry, this); // e.g. a Patch mirrors its mapped inner controllers into entry.values
-    // the DSP node whose kernel gets the controllers; reports their modulated values back
+    // the DSP node whose kernel gets the controllers; reports their driven values back
     entry.ctl = inst.ctl ?? inst.node ?? inst.input ?? null;
     if (entry.ctl) entry.ctl.onMod = (pid, v) => this.modulated(entry, pid, v);
     for (const p of def.params) {
@@ -200,8 +201,7 @@ export class PatchRuntime {
     const linked = e.def.linked?.(e.values, key, value, e.def.params) ?? {};
     for (const [k, v] of [[key, value], ...Object.entries(linked)]) {
       e.values[k] = v;
-      e.inst.setParam(k, v);
-      delete e.mod[k]; // a modulated controller is re-applied (and reported) by the engine graph
+      e.inst.setParam(k, v); // a modulated controller is re-applied (and reported) by the engine graph
     }
     if (e.def.isOutput && key === 'bpm') this.modules.forEach((m) => m.inst.setBpm?.(value));
     this.changed();
@@ -216,17 +216,19 @@ export class PatchRuntime {
     this.changed();
   }
 
-  // ---- modulation (LFO -> controller), never saved ----
+  // ---- modulation: LFO, ADSR, VELO2CTL, SOUND2CTL and MULTICTL cables, automation clips ----
+  // A modulation source moves the controller for real: its value changes (the panel shows it) and
+  // stays when the source stops, and it is saved with the project. It is no undo step, though.
   // The engine graph applies a modulator's value to the controllers in its route list on the audio
-  // thread (Out Min/Out Max/Amplitude mapping, see src/dsp/graph.js). Here we keep those lists in
-  // sync with the cables and Out Controller, and mirror the reported values in `mod` (display).
+  // thread (Out Min/Out Max/Amplitude mapping, see src/dsp/graph.js) and reports it back; here we
+  // keep those lists in sync with the cables and Out Controller.
   refreshRoutes() {
     for (const m of this.modules.values()) if (m.def.modulator) this.updateRoutes(m);
   }
 
   updateRoutes(m) {
     if (m.dead || !m.ctl) return;
-    const controller = (m.mod.outController ?? m.values.outController) | 0;
+    const controller = m.values.outController | 0;
     const driven = new Map(); // `${target id} ${controller id}` -> [target id, controller id]
     const list = [];
     for (const c of this.cables) {
@@ -249,9 +251,7 @@ export class PatchRuntime {
       m.routeSig = sig;
       m.ctl.routes(list);
     }
-    const old = m.modTargets;
     m.modTargets = driven;
-    for (const [key, [tid, pid]] of old) if (!driven.has(key) && !this.isDriven(tid, pid)) this.unmodulate(tid, pid);
   }
 
   // Graph routes that modulate controller `p` of module `t`. A controller a Patch module maps to
@@ -268,78 +268,49 @@ export class PatchRuntime {
     return p ? this.routesOf(t, p) : [];
   }
 
-  isDriven(tid, pid) {
+  // a modulator cable in this patch drives controller `pid` of module `tid`; `outside` also counts
+  // a modulator on a parent Patch controller that is mapped to it
+  isDriven(tid, pid, outside = false) {
     for (const m of this.modules.values()) if (m.modTargets?.has(`${tid} ${pid}`)) return true;
-    return false;
+    return outside && !!this.drivenFromOutside?.(tid, pid);
   }
 
-  // report from the engine graph: controller `pid` of module `t` is modulated to `v`. Controllers
-  // driven from outside (mapped to a parent Patch controller) are reported up through `forward`.
-  // Returns whether the value was accepted (driven).
+  // report from the engine graph: controller `pid` of module `t` was driven to `v` (the kernel
+  // already has it). Returns whether the value was accepted (driven).
   modulated(t, pid, v) {
-    if (t.dead || this.dead) return false;
-    if (!this.isDriven(t.id, pid) && !this.forward?.(t.id, pid, v)) return false;
-    if (t.mod[pid] === v) return true;
-    t.mod[pid] = v;
-    t.inst.onModulated?.(pid, v);
-    if (t.def.modulator && pid === 'outController') this.updateRoutes(t);
-    this.engine.onModulate?.(t, pid, v);
+    if (t.dead || this.dead || !this.isDriven(t.id, pid, true)) return false;
+    this.drive(t, pid, v, true);
     return true;
   }
 
-  // Apply a temporary (unsaved) controller value, or the module's own value again (v === null).
-  // A Patch module passes values of its mapped controllers on to the controllers inside it.
-  live(t, pid, v) {
-    if (!t.inst.liveParam?.(pid, v)) t.inst.setParam(pid, v ?? t.values[pid]);
+  // A modulation source sets controller `pid` of module `t` to `v` for real (see above).
+  // `applied`: the DSP already has the value (reported by the graph).
+  drive(t, pid, v, applied = false) {
+    if (t.dead || this.dead || t.values[pid] === v) return;
+    t.values[pid] = v;
+    if (applied) t.inst.onModulated?.(pid, v);
+    else if (!t.inst.driveParam?.(pid, v)) t.inst.setParam(pid, v);
+    if (t.def.isOutput && pid === 'bpm') this.modules.forEach((m) => m.inst.setBpm?.(v));
+    if (t.def.modulator && pid === 'outController') this.updateRoutes(t);
+    this.engine.onDrive?.(t, pid, v);
+    this.forward?.(t.id, pid, v); // a parent Patch shows it on its mapped controller
   }
 
-  // A parent Patch drives controller `pid` of module `id` (automation of a mapped controller):
-  // like automate(), never saved; v === null gives the controller back its own value.
-  override(id, pid, v) {
+  // drive() by module number
+  driveId(id, pid, v) {
     const t = this.modules.get(id);
-    if (!t || !paramsOf(t).some((q) => q.id === pid) || this.isDriven(id, pid)) return;
-    if (v === null) {
-      const had = pid in t.mod;
-      delete t.mod[pid];
-      this.live(t, pid, null);
-      if (had) this.engine.onModulate?.(t, pid, null);
-      return;
-    }
-    if (t.mod[pid] === v) return;
-    t.mod[pid] = v;
-    this.live(t, pid, v);
-    this.engine.onModulate?.(t, pid, v);
+    if (t && pid in t.values) this.drive(t, pid, v);
   }
 
-  // ---- automation clips (see song.js): like modulation, never saved ----
-  // key = automation clip id; norm 0..1 over the controller range, or targetId null to release.
+  // ---- automation clips (see song.js) ----
+  // key = automation clip id; norm 0..1 over the controller range, or targetId null when the clip
+  // ends (the controller keeps its last value).
   automate(key, targetId, controller, norm) {
-    this.autoBindings ??= new Map(); // key -> { tid, pid }
-    const prev = this.autoBindings.get(key);
     const t = targetId === null || norm === null ? null : this.modules.get(targetId);
     const p = t ? paramsOf(t)[controller | 0] : null;
-    if (prev && (!p || prev.tid !== t.id || prev.pid !== p.id)) {
-      this.autoBindings.delete(key);
-      if (![...this.autoBindings.values()].some((b) => b.tid === prev.tid && b.pid === prev.pid)) this.unmodulate(prev.tid, prev.pid);
-    }
     if (!p) return false;
-    this.autoBindings.set(key, { tid: t.id, pid: p.id });
-    const v = fromNorm(p, norm);
-    if (t.mod[p.id] !== v) {
-      t.mod[p.id] = v;
-      this.live(t, p.id, v);
-      this.engine.onModulate?.(t, p.id, v);
-    }
+    this.drive(t, p.id, fromNorm(p, norm));
     return true;
-  }
-
-  // Give a controller back its own (saved) value.
-  unmodulate(targetId, paramId) {
-    const t = this.modules.get(targetId);
-    if (!t || !(paramId in t.mod)) return;
-    delete t.mod[paramId];
-    this.live(t, paramId, null);
-    this.engine.onModulate?.(t, paramId, null);
   }
 
   removeModule(id) {
