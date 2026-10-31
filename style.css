@@ -148,6 +148,19 @@ kbd {
   overflow-y: auto;
 }
 #panel-content { padding: 16px; }
+/* Wide scrollbar (32px). The standard scrollbar-* properties must be unset here: while they are
+   set, Chromium ignores the ::-webkit-scrollbar rules (and scrollbar-width takes no px value). */
+#panel { scrollbar-width: auto; scrollbar-color: auto; }
+#panel::-webkit-scrollbar { width: 32px; }
+#panel::-webkit-scrollbar-track { background: var(--surface-2); }
+#panel::-webkit-scrollbar-thumb {
+  min-height: 48px;
+  border: 8px solid transparent;
+  border-radius: 16px;
+  background: var(--surface-4) padding-box;
+}
+#panel::-webkit-scrollbar-thumb:hover { background-color: #4a4a52; }
+#panel::-webkit-scrollbar-thumb:active { background-color: #5a5a64; }
 body.panel-collapsed #panel { visibility: hidden; }
 .panel-header {
   display: flex;

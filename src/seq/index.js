@@ -30,6 +30,8 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
   const song = () => engine.song;
   const clip = () => getClip(song(), song().selected);
   const entryOf = (id) => (id === null ? null : engine.root.modules.get(id) ?? null);
+  // the module's name in the patcher: its custom name, else the default for its type
+  const nameOf = (e) => e.name || (e.def.isOutput ? 'Output' : e.def.type === 'PATCH' ? 'Patch' : e.def.type);
 
   const ctx = {
     song,
@@ -40,9 +42,9 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
       if (c.target === null) return '→ none';
       const e = entryOf(c.target);
       if (!e) return `→ #${c.target} (missing)`;
-      if (!isAuto(c)) return `→ #${c.target} ${e.def.type}`;
+      if (!isAuto(c)) return `→ #${c.target} ${nameOf(e)}`;
       const p = paramsOf(e)[c.controller];
-      return `→ #${c.target} ${e.def.type} · ${c.controller} ${p?.label ?? '(missing)'}`;
+      return `→ #${c.target} ${nameOf(e)} · ${c.controller} ${p?.label ?? '(missing)'}`;
     },
     defaultTarget: () => (isAuto(clip()) ? null : clip()?.target) ?? defaultTarget(),
     defaultAutoTarget: () => defaultAutoTarget() ?? (isAuto(clip()) ? clip().target : null),
@@ -125,7 +127,7 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
     const auto = isAuto(c);
     const opts = [new Option('— none —', '')];
     for (const e of engine.root.modules.values()) {
-      if (auto ? paramsOf(e).length : e.def.acceptsMidi) opts.push(new Option(`#${e.id} ${e.def.type}`, e.id));
+      if (auto ? paramsOf(e).length : e.def.acceptsMidi) opts.push(new Option(`#${e.id} ${nameOf(e)}`, e.id));
     }
     if (c?.target !== null && c?.target !== undefined && !entryOf(c.target)) opts.push(new Option(`#${c.target} (missing)`, c.target));
     ui.target.replaceChildren(...opts);
