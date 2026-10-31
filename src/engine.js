@@ -2,6 +2,7 @@ import { PatchRuntime } from './patch.js';
 import { DspHost } from './dsp/host.js';
 import { emptySong, normalizeSong } from './song.js';
 import { importSamples } from './samples.js';
+import { MicHub, MIC_SLOTS } from './mics.js';
 
 // The C++ DSP kernels (src/dsp/modsynth.wasm, built from cpp/ by `npm run build:wasm`), compiled in
 // the worklet. `?dsp=js` in the URL or localStorage['modsynth.dsp'] = 'js' forces the JS kernels.
@@ -26,6 +27,7 @@ export class Engine {
     this.onCpu = null;
     this.song = emptySong(); // clips + notes of the TimeLine (song.js)
     this.dspInfo = null; // { dsp: 'wasm' | 'js', error? } reported by the engine worklet
+    this.mics = null; // MicHub (src/mics.js); none in offline renders
   }
 
   // Creates the context (suspended until the first user gesture), the engine worklet that runs
@@ -36,9 +38,12 @@ export class Engine {
     const wasm = await loadWasm();
     this.wasm = wasm; // kept for offline renders (src/render.js)
     this.node = new AudioWorkletNode(this.ctx, 'modsynth-engine', {
-      numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { wasm },
+      // inputs: microphone slots of the INPUT modules (src/mics.js)
+      numberOfInputs: MIC_SLOTS, channelCount: 2, channelCountMode: 'explicit', channelInterpretation: 'speakers',
+      numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { wasm },
     });
     this.node.connect(this.ctx.destination);
+    this.mics = new MicHub(this.ctx, this.node);
     this.dsp = new DspHost(this.node.port);
     this.dsp.onError = (err) => console.error('DSP engine:', err);
     this.dsp.onInfo = (info) => {

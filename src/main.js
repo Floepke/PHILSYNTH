@@ -1021,6 +1021,13 @@ function select(s) {
   if (entry.def.type === 'WAVETABLE') {
     explanations.append(hint('A wavetable is a row of single-cycle waveforms (frames). <b>Wave Select</b> scans through them and crossfades between neighbouring frames: route an LFO or ADSR to it for movement. <b>Block Size</b> is the number of samples per frame; <i>Auto</i> reads it from the file (Serum / Vital WAVs: 2048, Surge .wt / WAV, WaveEdit: 256) or guesses it. Set it by hand for raw WAV tables. <b>Load Wavetable</b> (or drop a .wav / .wt on the picture) replaces the built-in table (sine → triangle → saw → square). High notes play band-limited copies of each frame, so they do not alias.'));
   }
+  if (entry.def.type === 'INPUT') {
+    explanations.append(hint('Plays a microphone or other audio input of your computer. <b>Microphone</b> lists the inputs once access is granted (the browser or macOS asks the first time); <i>System default</i> follows the system setting. <b>Gain</b> trims the level (watch the meter: 0 dB is full scale), <b>Channels</b>: Stereo, Left or Right input on both sides, or Mono (L+R). Echo cancellation, noise suppression and auto gain are off. <b>Use headphones</b>: a microphone near the speakers feeds back. Microphones are not recorded in WAV exports.'));
+  }
+  if (entry.def.type === 'COMPRESSOR') {
+    explanations.append(hint('Above <b>Threshold</b> the level is reduced by <b>Slope</b> (1 - 1/ratio: 0.5 = 2:1, 0.75 = 4:1, 1 = limiter). <b>Knee</b> softens the bend around the threshold. <b>Attack</b> / <b>Release</b> set how fast the gain reduction starts and recovers. <b>Mode</b>: Peak follows the peaks with a 5 ms look-ahead (the audio is delayed 5 ms so transients are caught), RMS follows loudness (10 ms average), Peak Zero Latency follows the peaks without delay. Both channels are reduced together (stereo-linked). <b>Makeup Gain</b> raises the result, <b>Mix</b> blends in the dry signal (parallel compression).'));
+    explanations.append(hint('<b>Side Chain</b>: Off compresses the audio by its own level. Pick an input to use it as the key (e.g. a kick drum ducking a bass): that input is only listened to, all other inputs are compressed and played. Inputs are numbered in cable connection order. <b>Side Chain HPF</b> filters the lows out of the key, so bass does not pump the compressor.'));
+  }
   if (entry.def.type === 'DELAY') {
     explanations.append(hint('<b>Left Delay</b> delays left audio and each incoming MODMIDI message; <b>Right Delay</b> delays right audio only. No dry signal or feedback. Cables carry audio, MIDI, or both, according to the destination. Notes keep their pitch, velocity and start phase. Changing the delay affects new messages, not ones already queued; a release that overtakes its pending note cancels that note. MIDI delivery runs on the audio-clock reports (about every 5 ms).'));
   }
@@ -1096,6 +1103,7 @@ function select(s) {
     beginEdit: () => undoHistory?.begin(),
     endEdit: () => undoHistory?.end(),
     refresh: () => refresh(), // e.g. MULTICTL: the Value text names its routed controllers
+    rebuild: () => { if (sel?.entry === entry) select(sel); }, // e.g. INPUT: the Microphone list changed
     // Patch: "Controllers…" opens the mapping dialog; the panel shows the new controllers after it
     patchControllers: (e) => patchControllersView(e, {
       open: async () => {

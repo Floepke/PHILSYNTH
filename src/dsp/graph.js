@@ -57,6 +57,8 @@ export class Graph {
     this.scopeN = 0;
     this.scopeBlk = 0;
     this.scopeQuiet = SCOPE_QUIET + 1;
+    this.meters = new Set(); // nodes whose kernel has a `meter` value (static meter = true)
+    this.ext = null; // inputs of the engine worklet (microphones, see src/mics.js) for this quantum
     this.master = this.add(0, 'bus');
   }
 
@@ -100,6 +102,8 @@ export class Graph {
     };
     if (this.heap) node.outPtr = this.heap.alloc(2 * BLOCK * 4);
     node.outs = this.stereo(node.outPtr);
+    if (K.external) node.k.graph = this; // reads this.ext (e.g. the INPUT kernel)
+    if (K.meter) { node.meterSent = NaN; this.meters.add(node); }
     if (this.x && K.wasm) node.rec = this.x.ms_node(node.k.ptr, node.outPtr, (node.passive ? 1 : 0) | (node.carrierInputs ? 2 : 0));
     this.nodes.set(h, node);
     this.dirty = true;
@@ -124,6 +128,7 @@ export class Graph {
     const node = this.nodes.get(h);
     if (!node || node === this.master) return;
     node.k.destroy?.();
+    this.meters.delete(node);
     if (node.rec) this.x.ms_node_free(node.rec);
     if (this.heap) {
       this.heap.free(node.outPtr);
@@ -363,10 +368,18 @@ export class Graph {
       if (this.scopeQuiet <= SCOPE_QUIET) scope = { h: H, n: this.scopeN, v: this.scopeBuf.slice(0, this.scopeN * H.length) };
       this.scopeN = 0;
     }
-    if (!this.pending.size && !this.clock && !scope) return null;
+    let meters = null;
+    for (const n of this.meters) {
+      const v = n.k.meter;
+      if (!(Math.abs(v - n.meterSent) < 0.01)) (meters ??= []).push(n.h, (n.meterSent = v));
+    }
+    if (!this.pending.size && !this.clock && !scope && !meters) return null;
     const mods = [];
     for (const r of this.pending) mods.push(r.node.h, r.id, r.last);
     this.pending.clear();
-    return scope ? { time, mods, scope } : { time, mods };
+    const r = { time, mods };
+    if (scope) r.scope = scope;
+    if (meters) r.meters = meters;
+    return r;
   }
 }

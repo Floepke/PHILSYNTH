@@ -19,6 +19,8 @@ import EchoKernel from '../modules/echo.dsp.js';
 import ModulatorKernel from '../modules/modulator.dsp.js';
 import SamplerKernel from '../modules/sampler.dsp.js';
 import WavetableKernel from '../modules/wavetable.dsp.js';
+import InputKernel from '../modules/input.dsp.js';
+import CompressorKernel from '../modules/compressor.dsp.js';
 
 export const KERNELS = {
   bus: BusKernel,
@@ -41,4 +43,6 @@ export const KERNELS = {
   modulator: ModulatorKernel,
   sampler: SamplerKernel,
   wavetable: WavetableKernel,
+  input: InputKernel,
+  compressor: CompressorKernel,
 };

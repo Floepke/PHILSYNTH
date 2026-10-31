@@ -9,6 +9,7 @@
 //   param(id, value)     = send({ type: 'param', id, value })
 //   routes(list)         modulators: the controllers they drive (see Graph.setRoutes)
 //   onMod(id, value)     set by the patch: a modulated controller of this node changed
+//   onMeter(value)       the kernel's meter changed (kernels with static meter = true)
 //   destroy()
 export class DspNode {
   constructor(host, h) {
@@ -17,6 +18,7 @@ export class DspNode {
     this.out = new Set();
     this.inputs = new Set(); // incoming audio sources, in cable connection order
     this.onMod = null;
+    this.onMeter = null;
     this.dead = false;
     this.port = { postMessage: (m) => host.post(['msg', h, m]) };
   }
@@ -59,6 +61,7 @@ export class DspNode {
     this.out.clear();
     this.inputs.clear();
     this.onMod = null;
+    this.onMeter = null;
     this.host.nodes.delete(this.h);
     this.host.post(['del', this.h]);
   }
@@ -121,7 +124,7 @@ export class DspHost {
   // Cable display: the graph reports the output of these nodes (see Graph.scope) to onScope.
   scope(handles) { this.post(['scope', handles]); }
 
-  // report from the graph: { time, mods: [handle, controller id, value, ...], scope? }
+  // report from the graph: { time, mods: [handle, controller id, value, ...], scope?, meters?: [handle, value, ...] }
   receive(r) {
     if (!r) return;
     if (r.error) { this.onError?.(r.error); return; }
@@ -129,6 +132,8 @@ export class DspHost {
     if (r.scope) this.onScope?.(r.scope);
     const m = r.mods;
     if (m) for (let i = 0; i < m.length; i += 3) this.nodes.get(m[i])?.onMod?.(m[i + 1], m[i + 2]);
+    const v = r.meters;
+    if (v) for (let i = 0; i < v.length; i += 2) this.nodes.get(v[i])?.onMeter?.(v[i + 1]);
     if (r.time !== undefined) for (const fn of this.clocks) fn(r.time);
   }
 }

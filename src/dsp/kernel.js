@@ -14,6 +14,9 @@
 // Static flags: modulator (no audio, runs first every block), audio = false (never rendered),
 // passive (memoryless: skipped while all of its inputs are silent).
 // audioInput + modulator: runs in audio dependency order; value controls the next quantum.
+// meter: the kernel keeps a number in `meter` (e.g. gain reduction in dB); changes are reported to
+// the main-thread node's onMeter(value). external: the kernel gets `graph`, whose `ext` holds the
+// engine worklet's inputs of the current quantum (microphones, see src/mics.js).
 // carrierInput: inputs[0] is the source selected by the kernel's `carrier` index; inputs[1]
 // is the sum of all other sources. Silent sources keep their positions in the input list.
 // Kernels use the AudioWorkletGlobalScope global `sampleRate`.

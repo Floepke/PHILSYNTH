@@ -42,7 +42,10 @@ const [appDir] = await packager({
   prune: true,
   asar: true,
   ignore: (path) => path !== '' && !KEEP.test(path) && !/^\/(src|electron)$/.test(path),
-  extendInfo: { NSHighResolutionCapable: true },
+  extendInfo: {
+    NSHighResolutionCapable: true,
+    NSMicrophoneUsageDescription: 'MODSYNTH uses the microphone for its INPUT module.',
+  },
 });
 const appPath = join(appDir, 'MODSYNTH.app');
 

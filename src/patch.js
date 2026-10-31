@@ -31,7 +31,7 @@ export class PatchRuntime {
     this.salt = salt;
     this.watchers = new Set(); // called on any change inside (structure, controllers, nested patches)
     // what modules get as `host` in create(): nested patches inherit this runtime's salt
-    this.host = { salt, dsp: engine.dsp, createPatch: (s, k = 0) => PatchRuntime.create(engine, s, instanceSalt(salt, k)) };
+    this.host = { salt, dsp: engine.dsp, mics: engine.mics ?? null, createPatch: (s, k = 0) => PatchRuntime.create(engine, s, instanceSalt(salt, k)) };
     this.modules = new Map(); // id -> { id, def, inst, x, y, values }
     this.cables = []; // { from, to } module ids
     this.reserved = new Set(); // ids claimed by inserts still being created

@@ -1,15 +1,20 @@
 // ModSynth desktop app:  npm start   (or: npx electron .)
 // Runs the dev server in-process (static files, disk autosave, live reload) and opens the app
 // in a Chromium window where Web MIDI is allowed without a prompt.
-import { app, BrowserWindow, Menu, session, shell } from 'electron';
+import { app, BrowserWindow, Menu, session, shell, systemPreferences } from 'electron';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // MODSYNTH.app (npm run build:mac) is its own app next to the dev app (npm start): own name,
 // data folder (~/Library/Application Support/MODSYNTH), single-instance lock and port.
+// The dev app gets its own folder: macOS file names ignore case, so 'modsynth' (the package name)
+// would be the app's 'MODSYNTH' folder and the shared single-instance lock would stop npm start
+// while MODSYNTH.app runs.
 if (app.isPackaged) {
   app.setName('MODSYNTH');
   app.setPath('userData', join(app.getPath('appData'), 'MODSYNTH'));
+} else {
+  app.setPath('userData', join(app.getPath('appData'), 'modsynth-dev'));
 }
 
 // A fixed port keeps the same origin, so the browser-storage autosave survives restarts.
@@ -23,6 +28,15 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 let win = null;
 let server = null;
+
+// macOS keeps its own microphone permission per app (System Settings > Privacy > Microphone)
+async function micAccess() {
+  if (process.platform !== 'darwin') return true;
+  const status = systemPreferences.getMediaAccessStatus('microphone');
+  if (status === 'granted') return true;
+  if (status !== 'not-determined') return false;
+  return systemPreferences.askForMediaAccess('microphone');
+}
 
 async function startServer() {
   process.env.HOST = '127.0.0.1';
@@ -87,6 +101,7 @@ function createWindow(url) {
 }
 
 if (!app.requestSingleInstanceLock()) {
+  console.log('ModSynth is already running: focusing that window.');
   app.quit();
 } else {
   app.on('second-instance', () => {
@@ -102,7 +117,11 @@ if (!app.requestSingleInstanceLock()) {
     const local = (u) => typeof u === 'string' && u.startsWith(url);
     // Web MIDI (and the other trusted features) are granted to the app's own pages only
     session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
-      callback(TRUSTED.has(permission) && local(details.requestingUrl || wc.getURL()));
+      const ok = TRUSTED.has(permission) && local(details.requestingUrl || wc.getURL());
+      if (!ok || permission !== 'media') return callback(ok);
+      // microphone (INPUT module): audio only, and macOS must allow it too (asked once)
+      if ((details.mediaTypes ?? []).includes('video')) return callback(false);
+      micAccess().then(callback, () => callback(false));
     });
     session.defaultSession.setPermissionCheckHandler((_wc, permission, origin) => TRUSTED.has(permission) && local(`${origin}/`));
     createWindow(url);

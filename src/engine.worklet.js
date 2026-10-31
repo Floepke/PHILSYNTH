@@ -34,8 +34,9 @@ class EngineProcessor extends AudioWorkletProcessor {
     };
   }
 
-  process(_inputs, outputs) {
+  process(inputs, outputs) {
     const out = outputs[0];
+    this.graph.ext = inputs; // microphones (src/mics.js), read by the INPUT kernels
     try {
       this.graph.render(out[0], out[1] ?? out[0]);
       this.failed = false;
