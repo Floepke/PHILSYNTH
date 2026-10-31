@@ -212,6 +212,35 @@ assert.ok(Math.abs(readWrapped(sine, 64, 10.37, 2) - exact) < Math.abs(readWrapp
   assert.equal(cutRegion({ rate: SR, length: 10, channels: [L] }, 7, 30).channels[0].length, 7, 'clipped at the end');
 }
 
+// ---- sample editor: Normalize / Center ----
+{
+  const { normalizeRegion, centerRegion } = await import('../src/modules/sampleview.js');
+  const L = Float32Array.from([0.1, -0.2, 0.25, -0.1, 0.05, 0.5]);
+  const R = Float32Array.from([0.05, 0.1, -0.125, 0, 0, 0]);
+  const s = { rate: SR, length: 6, channels: [L, R] };
+  const n = normalizeRegion(s, 0, 6);
+  close(Math.max(...n.channels[0].map(Math.abs)), 1, 1e-6, 'peak at full scale');
+  close(n.channels[1][2], -0.25, 1e-6, 'one gain for both channels (stereo balance kept)');
+  assert.equal(L[5], 0.5, 'the original stays untouched');
+  const part = normalizeRegion(s, 1, 3); // peak 0.25 there
+  close(part.channels[0][2], 1, 1e-6, 'region normalized');
+  close(part.channels[0][5], 0.5, 1e-6, 'outside the region unchanged');
+  close(part.channels[0][0], 0.1, 1e-6);
+  assert.equal(normalizeRegion({ rate: SR, length: 3, channels: [new Float32Array(3)] }, 0, 3), null, 'silence');
+
+  const dc = { rate: SR, length: 4, channels: [Float32Array.from([0.6, 0.4, 0.6, 0.4]), Float32Array.from([-0.2, -0.2, 0, 0])] };
+  const c = centerRegion(dc, 0, 4);
+  [0.1, -0.1, 0.1, -0.1].forEach((v, i) => close(c.channels[0][i], v, 1e-6, `centered L ${i}`));
+  [-0.1, -0.1, 0.1, 0.1].forEach((v, i) => close(c.channels[1][i], v, 1e-6, `centered R ${i} (own offset)`));
+  const big = centerRegion({ rate: SR, length: 2, channels: [Float32Array.from([1, -0.5])] }, 0, 2); // mean 0.25 -> 0.75, -0.75
+  close(big.channels[0][0], 0.75, 1e-6, 'no scaling needed');
+  const clip = centerRegion({ rate: SR, length: 4, channels: [Float32Array.from([1, 1, 1, -1])] }, 0, 4); // mean .5 -> .5,.5,.5,-1.5
+  close(Math.max(...clip.channels[0].map(Math.abs)), 1, 1e-6, 'scaled back to full scale if centering clips');
+  const cr = centerRegion(dc, 2, 4);
+  close(cr.channels[0][0], 0.6, 1e-6, 'outside the region unchanged');
+  close(cr.channels[0][2], 0.1, 1e-6, 'region centered');
+}
+
 // ---- WAVETABLE kernel ----
 {
   const Proc = await loadKernel('wavetable.dsp.js', SR);

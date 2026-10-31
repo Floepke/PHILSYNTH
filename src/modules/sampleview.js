@@ -6,11 +6,51 @@
 //   drag a region edge   trim that edge
 //   double-click         select the whole sample
 //   Backspace / Delete   cut the selected region out of the sample (the sample gets shorter)
+//   short right-click    inside the region: the same cut
+//   hold right 250 ms    menu: Normalize / Center (the selected region), Delete region, Select all
 // A live-modulated region is outlined dashed. All edits are undoable.
 import { addSample, decodeAudioFile, getSample, sampleFromFile, tableFromFile, MAX_SECONDS, onSample } from '../samples.js';
 import { BLOCK_SIZES, DEFAULT_FRAME, builtinTable } from './wavetable.dsp.js';
+import { rightHold } from '../seq/surface.js';
+import { showMenu } from '../seq/menu.js';
 
 const EDGE_PX = 6; // grab distance of a region edge
+
+const span = (s, a, b) => {
+  a = Math.max(0, Math.min(s.length, Math.round(a)));
+  return [a, Math.max(a, Math.min(s.length, Math.round(b)))];
+};
+const copyAudio = (s) => ({ rate: s.rate, channels: s.channels.map((c) => Float32Array.from(c)) });
+
+// Audio of `s` with samples [a, b) scaled so their peak (over all channels, keeping the stereo
+// balance) is full scale. null if that range is silent.
+export function normalizeRegion(s, a, b) {
+  [a, b] = span(s, a, b);
+  let peak = 0;
+  for (const c of s.channels) for (let i = a; i < b; i++) peak = Math.max(peak, Math.abs(c[i]));
+  if (!(peak > 1e-6)) return null;
+  const out = copyAudio(s);
+  const g = 1 / peak;
+  for (const c of out.channels) for (let i = a; i < b; i++) c[i] *= g;
+  return out;
+}
+
+// Audio of `s` with the DC offset of samples [a, b) removed (each channel's average moved to 0),
+// then scaled down only if that pushed a peak past full scale.
+export function centerRegion(s, a, b) {
+  [a, b] = span(s, a, b);
+  if (b <= a) return null;
+  const out = copyAudio(s);
+  let peak = 0;
+  for (const c of out.channels) {
+    let sum = 0;
+    for (let i = a; i < b; i++) sum += c[i];
+    const mean = sum / (b - a);
+    for (let i = a; i < b; i++) { c[i] -= mean; peak = Math.max(peak, Math.abs(c[i])); }
+  }
+  if (peak > 1) for (const c of out.channels) for (let i = a; i < b; i++) c[i] /= peak;
+  return out;
+}
 
 // Audio of `s` without samples [a, b) (null if nothing would be left)
 export function cutRegion(s, a, b) {
@@ -232,6 +272,46 @@ export function createSampleView(entry, api, { table = false } = {}) {
     show();
   }
 
+  // Normalize / Center: replace the sample by an edited copy (same length, the selection stays)
+  function apply(edit, what) {
+    const s = getSample(entry.state?.sampleId);
+    if (!s) return;
+    const { a, b } = selection();
+    const out = edit(s, a * s.length, b * s.length);
+    if (!out) {
+      info.textContent = `${what}: the selected region is silent.`;
+      info.classList.add('error');
+      return;
+    }
+    api.beginEdit?.();
+    api.setState({ ...entry.state, sampleId: addSample(out) });
+    api.endEdit?.();
+    show();
+  }
+
+  const selectAll = () => {
+    api.beginEdit?.();
+    setSelection(0, 1);
+    api.endEdit?.();
+  };
+
+  const openMenu = (x, y) => {
+    const has = !!getSample(entry.state?.sampleId);
+    const { a, b } = selection();
+    const part = has && (a > 0 || b < 1);
+    showMenu({
+      x,
+      y,
+      items: [
+        { label: part ? 'Normalize selection' : 'Normalize', disabled: !has, action: () => apply(normalizeRegion, 'Normalize') },
+        { label: part ? 'Center selection' : 'Center', disabled: !has, action: () => apply(centerRegion, 'Center') },
+        '-',
+        { label: 'Delete region', shortcut: '⌫', disabled: !part, action: cut },
+        { label: 'Select all', disabled: !has, action: selectAll },
+      ],
+    });
+  };
+
   if (!table) {
     cv.tabIndex = 0; // focus for Backspace (keeps it away from the patcher, which would delete the module)
     cv.classList.add('sample-edit');
@@ -253,6 +333,19 @@ export function createSampleView(entry, api, { table = false } = {}) {
       cv.style.cursor = getSample(entry.state?.sampleId) && edgeAt(e) ? 'ew-resize' : 'text';
     });
     cv.addEventListener('pointerdown', (e) => {
+      if (e.button === 2) {
+        e.preventDefault();
+        cv.focus({ preventScroll: true });
+        const x = fracAt(e);
+        rightHold(cv, e, {
+          onShort: () => {
+            const { a, b } = selection();
+            if (x > a && x < b) cut(); // inside the region: delete it
+          },
+          onHold: () => openMenu(e.clientX, e.clientY),
+        });
+        return;
+      }
       if (e.button !== 0) return;
       cv.focus({ preventScroll: true });
       if (!getSample(entry.state?.sampleId)) return;
@@ -282,11 +375,12 @@ export function createSampleView(entry, api, { table = false } = {}) {
       cv.addEventListener('pointerup', up);
       cv.addEventListener('pointercancel', up);
     });
-    cv.addEventListener('dblclick', () => {
-      if (!getSample(entry.state?.sampleId)) return;
-      api.beginEdit?.();
-      setSelection(0, 1);
-      api.endEdit?.();
+    cv.addEventListener('dblclick', () => { if (getSample(entry.state?.sampleId)) selectAll(); });
+    cv.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (e.button === 2 || e.ctrlKey) return; // mouse: the menu needs a 250 ms hold
+      const r = cv.getBoundingClientRect(); // menu key / Shift+F10
+      openMenu(r.left + r.width / 2, r.top + r.height / 2);
     });
     cv.addEventListener('keydown', (e) => {
       const command = (e.ctrlKey || e.metaKey) && !e.altKey;
@@ -297,9 +391,7 @@ export function createSampleView(entry, api, { table = false } = {}) {
       } else if (command && e.key.toLowerCase() === 'a') {
         e.preventDefault();
         e.stopPropagation();
-        api.beginEdit?.();
-        setSelection(0, 1);
-        api.endEdit?.();
+        selectAll();
       }
     });
   }
