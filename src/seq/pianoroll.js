@@ -4,6 +4,7 @@
 // white-key notes sit between the lines (2- and 3-line groups like a keyboard). Outside the
 // piano range there are no lines, notes just float.
 // The keyboard sits below the stave. Noteheads are left-tilted ovals, white/black by key.
+// All 128 MIDI pitches fit the available width; only time can be scrolled / zoomed.
 //   click / drag the keyboard  audition pitches on the clip's target without editing notes
 //   click / drag on empty space  insert a note (last used length), dragging sets its duration
 //   drag a note's coloured body  change the duration (of all selected notes when it is selected)
@@ -11,7 +12,8 @@
 //   Shift + drag / right drag    select notes with a rectangle
 //   Shift + click a note         add it to / remove it from the selection
 //   Alt + drag a note           clone it (or the selection) and move the clones
-//   right click                 menu: cut / copy / paste / delete / duplicate / quantize / octave
+//   right click                 delete the note under the pointer on release
+//   hold right button 500 ms    open the menu instead (release never deletes)
 //   Backspace / Delete          delete selected notes
 //   Left / Right                transpose selected notes by a semitone (Shift: an octave)
 //   Up / Down                   move selected notes by one snap step (Shift: a bar)
@@ -31,6 +33,8 @@ const GRID_LOW = 22; // A#0 (American notation)
 const GRID_HIGH = 106; // A#7
 
 const KEYBOARD = 24;
+const TOP_MARGIN = 32;
+const RIGHT_HOLD_MS = 500;
 const TILT = -Math.PI / 9;
 const GUTTER = 36; // bar / beat ruler (right of the velocity strip)
 const LEFT = VEL_W + GUTTER; // left edge of the note grid
@@ -45,7 +49,7 @@ const BOUNDARY = '#a1a7b3';
 // ctx: { song(), clip(), color(clip), preview: { on(clip, pitch) -> handle, off(handle) }, changed(), transport,
 //        menu?(opts) (context menu, default showMenu) }
 export function createPianoRoll(host, ctx) {
-  const view = { sx: null, sy: 0, ppq: 48, kw: 14, snapVelocity: true };
+  const view = { sy: -TOP_MARGIN, ppq: 48, snapVelocity: true };
   let hover = null; // { pitch, t } where a click would insert a note
   let hoverPitch = null;
   let drag = null;
@@ -58,15 +62,18 @@ export function createPianoRoll(host, ctx) {
 
   const s = createSurface(host, paint);
   const { cv } = s;
-  const xOf = (p) => LEFT + p * view.kw - view.sx;
+  const keyWidth = () => Math.max(0, s.w - LEFT) / (PITCH_MAX + 1);
+  const overlap = () => Math.min(0.5, keyWidth() * 0.05);
+  const dragThreshold = () => Math.min(3, keyWidth() * 0.4);
+  const xOf = (p) => LEFT + p * keyWidth();
   const yOf = (t) => t * view.ppq - view.sy;
-  const pitchAt = (x) => clamp(Math.floor((x - LEFT + view.sx) / view.kw), 0, PITCH_MAX);
+  const pitchAt = (x) => keyWidth() > 0 ? clamp(Math.floor((x - LEFT) / keyWidth()), 0, PITCH_MAX) : 0;
   const timeAt = (y) => (y + view.sy) / view.ppq;
   const gridBottom = () => Math.max(0, s.h - KEYBOARD);
-  const inGrid = (x, y) => x >= LEFT && x <= s.w && y >= 0 && y < gridBottom();
-  const inKeyboard = (x, y) => x >= LEFT && x < s.w && y >= gridBottom() && y < s.h && inPiano(pitchAt(x));
+  const inGrid = (x, y) => x >= LEFT && x < s.w && y >= 0 && y < gridBottom();
+  const inKeyboard = (x, y) => x >= LEFT && x < s.w && y >= gridBottom() && y < s.h;
   const headSize = () => {
-    const rx = (view.kw - 0.5) / (2 * Math.hypot(Math.cos(TILT), 0.72 * Math.sin(TILT)));
+    const rx = (keyWidth() - overlap()) / (2 * Math.hypot(Math.cos(TILT), 0.72 * Math.sin(TILT)));
     const ry = rx * 0.72;
     return { rx, ry, height: Math.hypot(rx * Math.sin(TILT), ry * Math.cos(TILT)) + 0.75 };
   };
@@ -100,7 +107,7 @@ export function createPianoRoll(host, ctx) {
   function syncSelection() {
     const clip = ctx.clip();
     if (clip !== selectionClip) {
-      if (drag?.kind === 'keyboard') drag.stop({ type: 'pointercancel' });
+      drag?.stop?.({ type: 'pointercancel' });
       selectionClip = clip;
       selected.clear();
     } else {
@@ -110,9 +117,8 @@ export function createPianoRoll(host, ctx) {
 
   function limitScroll() {
     const clip = ctx.clip();
-    view.sx = clamp(view.sx ?? 0, 0, Math.max(0, (PITCH_MAX + 1) * view.kw - (s.w - LEFT)));
     const end = clip ? Math.max(clip.length, ...clip.notes.map((n) => n.start + n.length)) : BAR;
-    view.sy = clamp(view.sy, 0, Math.max(0, (end + BAR) * view.ppq - gridBottom()));
+    view.sy = clamp(view.sy, -TOP_MARGIN, Math.max(0, (end + BAR) * view.ppq - gridBottom()));
   }
 
   function head(g, x, y, black, alpha = 1) {
@@ -122,7 +128,7 @@ export function createPianoRoll(host, ctx) {
     g.ellipse(x, headY(y), rx, ry, TILT, 0, Math.PI * 2);
     g.fillStyle = black ? STAVE : '#e0e1dc';
     g.fill();
-    g.lineWidth = 1.5;
+    g.lineWidth = Math.min(1.5, keyWidth() * 0.15);
     g.strokeStyle = STAVE;
     g.stroke();
     g.globalAlpha = 1;
@@ -130,16 +136,13 @@ export function createPianoRoll(host, ctx) {
 
   function paint(g, w, h) {
     if (!w || !h) return;
-    if (view.sx === null) view.sx = 60 * view.kw + view.kw / 2 - (w - LEFT) / 2; // centre middle C
     limitScroll();
     syncSelection();
     const clip = ctx.clip();
-    const kw = view.kw;
+    const kw = keyWidth();
     const bottom = gridBottom();
     const gridLeft = xOf(GRID_LOW) + kw / 2;
     const gridRight = xOf(GRID_HIGH) + kw / 2;
-    const p0 = Math.max(0, Math.floor((view.sx) / kw));
-    const p1 = Math.min(PITCH_MAX, Math.ceil((view.sx + w - LEFT) / kw));
     g.fillStyle = BG;
     g.fillRect(0, 0, w, h);
 
@@ -199,8 +202,8 @@ export function createPianoRoll(host, ctx) {
           ? (isBlack(n.pitch) ? blackSelected : SELECT)
           : (isBlack(n.pitch) ? blackColor : color);
         g.beginPath();
-        // One pixel of overlap prevents antialiased seams between chromatic neighbours.
-        g.roundRect(x - 0.5, y, kw + 1, hh, Math.min((kw + 1) / 2, hh / 2));
+        const edge = overlap();
+        g.roundRect(x - edge, y, kw + 2 * edge, hh, Math.min((kw + 2 * edge) / 2, hh / 2));
         g.fill();
         g.globalAlpha = 1;
       }
@@ -208,16 +211,17 @@ export function createPianoRoll(host, ctx) {
 
     // stave lines (black keys of the 88-key piano), on top of the note bodies
     g.strokeStyle = STAVE;
-    const thin = Math.max(1, kw * 0.11) * 2;
+    const thin = kw * 0.22;
+    const staveTop = Math.min(bottom, Math.max(0, yOf(0)));
     // the group of three (F# G# A#) is twice as thick as the group of two (C# D#)
     const isThree = (p) => [6, 8, 10].includes(p % 12);
     const stave = (dashed, three) => {
       g.lineWidth = three ? thin * 2 : thin;
       g.beginPath();
-      for (let p = Math.max(p0, PIANO_LOW); p <= Math.min(p1, PIANO_HIGH); p++) {
+      for (let p = PIANO_LOW; p <= PIANO_HIGH; p++) {
         if (!isBlack(p) || CENTRAL.includes(p) !== dashed || isThree(p) !== three) continue;
         const x = xOf(p) + kw / 2;
-        g.moveTo(x, 0); g.lineTo(x, bottom);
+        g.moveTo(x, staveTop); g.lineTo(x, bottom);
       }
       g.stroke();
     };
@@ -225,7 +229,7 @@ export function createPianoRoll(host, ctx) {
     stave(false, true);
     // C#4 + D#4 dashed: marks the central octave; the dashes scroll with the notes
     g.setLineDash([7, 5]);
-    g.lineDashOffset = view.sy;
+    g.lineDashOffset = Math.max(0, view.sy);
     stave(true, false);
     g.setLineDash([]);
     g.lineDashOffset = 0;
@@ -274,17 +278,17 @@ export function createPianoRoll(host, ctx) {
     g.clip();
     g.font = '600 8px system-ui, sans-serif';
     g.textAlign = 'center';
-    for (let p = p0; p <= p1; p++) {
+    const keyGap = Math.min(1, kw * 0.1);
+    for (let p = 0; p <= PITCH_MAX; p++) {
       const x = xOf(p);
-      if (inPiano(p)) {
-        g.fillStyle = drag?.kind === 'keyboard' && drag.pitch === p ? PLAYHEAD : isBlack(p) ? '#191a20' : '#bfc1c7';
-        g.fillRect(x + 0.5, bottom + 1, kw - 1, KEYBOARD - 2);
-      }
+      g.fillStyle = drag?.kind === 'keyboard' && drag.pitch === p ? PLAYHEAD
+        : inPiano(p) ? (isBlack(p) ? '#191a20' : '#bfc1c7') : (isBlack(p) ? '#24262c' : '#777a84');
+      g.fillRect(x + keyGap / 2, bottom + 1, kw - keyGap, KEYBOARD - 2);
       if (p === hoverPitch) {
         g.fillStyle = PLAYHEAD;
-        g.fillRect(x + 0.5, h - 5, kw - 1, 4);
+        g.fillRect(x + keyGap / 2, h - 5, kw - keyGap, 4);
       }
-      if (p % 12 === 0 && kw >= 10) {
+      if (p % 12 === 0 && kw * 12 >= 24) {
         g.fillStyle = inPiano(p) ? '#33343b' : '#c3c7d0';
         g.fillText(noteName(p), x + kw / 2, h - 7);
       }
@@ -343,25 +347,26 @@ export function createPianoRoll(host, ctx) {
     const clip = ctx.clip();
     if (!clip || !inGrid(x, y)) return null;
     const { rx, ry } = headSize();
+    const tolerance = Math.min(1, keyWidth() * 0.1);
     for (let i = clip.notes.length - 1; i >= 0; i--) {
       const n = clip.notes[i];
-      const dx = x - (xOf(n.pitch) + view.kw / 2);
+      const dx = x - (xOf(n.pitch) + keyWidth() / 2);
       const dy = y - headY(yOf(n.start));
       const u = dx * Math.cos(TILT) + dy * Math.sin(TILT);
       const v = -dx * Math.sin(TILT) + dy * Math.cos(TILT);
-      if ((u / (rx + 1)) ** 2 + (v / (ry + 1)) ** 2 <= 1) return { note: n, part: 'head' };
+      if ((u / (rx + tolerance)) ** 2 + (v / (ry + tolerance)) ** 2 <= 1) return { note: n, part: 'head' };
     }
     for (let i = clip.notes.length - 1; i >= 0; i--) {
       const n = clip.notes[i];
       const nx = xOf(n.pitch);
       const ny = yOf(n.start);
-      if (x >= nx - 0.5 && x < nx + view.kw + 0.5 && y >= ny && y <= ny + n.length * view.ppq) return { note: n, part: 'body' };
+      if (x >= nx - overlap() && x < nx + keyWidth() + overlap() && y >= ny && y <= ny + n.length * view.ppq) return { note: n, part: 'body' };
     }
     return null;
   }
 
   function updateHover(x, y) {
-    const inside = ctx.clip() && inGrid(x, y);
+    const inside = ctx.clip() && inGrid(x, y) && timeAt(y) >= 0;
     const h = inside ? hit(x, y) : null;
     hoverPitch = x >= LEFT ? pitchAt(x) : null;
     hover = inside && !h ? { pitch: pitchAt(x), t: Math.max(0, snapFloor(timeAt(y), step())) } : null;
@@ -382,40 +387,63 @@ export function createPianoRoll(host, ctx) {
 
   const selectedNotes = () => { syncSelection(); return ctx.clip()?.notes.filter((n) => selected.has(n)) ?? []; };
 
-  // Rectangle selection from (x, y). A press without dragging calls onClick() instead.
-  function selectRect(e, x, y, onClick) {
+  // Rectangle selection; a stationary press clicks or, optionally, opens a menu after a hold.
+  function selectRect(e, x, y, onClick, onHold = null) {
     const clip = ctx.clip();
     const before = selected;
-    drag = { kind: 'select', x0: x, y0: y, x1: x, y1: y, shown: false };
+    const state = drag = { kind: 'select', x0: x, y0: y, x1: x, y1: y, shown: false, stop: null };
+    let timer = null;
+    let held = false;
     hover = null;
+    const hold = () => {
+      if (drag !== state || ctx.clip() !== clip || state.shown || held) return;
+      held = true;
+      clearTimeout(timer);
+      onHold();
+    };
     const update = (ev) => {
+      if (held) return;
       pointer = s.local(ev);
-      if (!drag.shown && Math.hypot(pointer.x - x, pointer.y - y) < 3) return;
-      drag.shown = true;
-      drag.x1 = clamp(pointer.x, LEFT, s.w);
-      drag.y1 = clamp(pointer.y, 0, gridBottom());
-      const left = Math.min(x, drag.x1);
-      const right = Math.max(x, drag.x1);
-      const top = Math.min(y, drag.y1);
-      const bottom = Math.max(y, drag.y1);
+      if (!state.shown && Math.hypot(pointer.x - x, pointer.y - y) < dragThreshold()) return;
+      clearTimeout(timer);
+      state.shown = true;
+      state.x1 = clamp(pointer.x, LEFT, s.w);
+      state.y1 = clamp(pointer.y, 0, gridBottom());
+      const left = Math.min(x, state.x1);
+      const right = Math.max(x, state.x1);
+      const top = Math.min(y, state.y1);
+      const bottom = Math.max(y, state.y1);
       selected = new Set(clip.notes.filter((n) => {
         const nx = xOf(n.pitch);
         const ny = yOf(n.start);
         const height = Math.max(n.length * view.ppq, 2 * headSize().height);
-        return nx + view.kw + 0.5 >= left && nx - 0.5 <= right && ny + height >= top && ny <= bottom;
+        return nx + keyWidth() + overlap() >= left && nx - overlap() <= right && ny + height >= top && ny <= bottom;
       }));
       s.redraw();
     };
     s.redraw();
-    capture(cv, e, update, (ev) => {
-      const shown = drag.shown;
-      if (ev.type === 'pointercancel') selected = before;
-      else if (shown) update(ev);
+    const stop = capture(cv, e, update, (ev) => {
+      const cancelled = ev.type !== 'pointerup' || ctx.clip() !== clip;
+      if (!cancelled && !held) {
+        update(ev);
+        // A busy event loop can deliver release before the overdue timer callback.
+        if (onHold && ev.timeStamp - e.timeStamp >= RIGHT_HOLD_MS) hold();
+      }
+      clearTimeout(timer);
+      cv.removeEventListener('blur', stop);
+      cv.removeEventListener('wheel', stop, true);
+      window.removeEventListener('blur', stop);
+      if (cancelled && !held && ctx.clip() === clip) selected = before;
       drag = null;
-      if (!shown && ev.type !== 'pointercancel') onClick(ev);
+      if (!cancelled && !held && !state.shown) onClick(ev);
       if (pointer) updateHover(pointer.x, pointer.y);
       s.redraw();
     });
+    state.stop = stop;
+    cv.addEventListener('blur', stop);
+    cv.addEventListener('wheel', stop, true);
+    window.addEventListener('blur', stop);
+    if (onHold) timer = setTimeout(hold, RIGHT_HOLD_MS);
   }
 
   cv.addEventListener('pointerdown', (e) => {
@@ -425,7 +453,7 @@ export function createPianoRoll(host, ctx) {
     syncSelection();
     if (e.button === 1) {
       drag = { kind: 'pan' };
-      startPan(s, e, (dx, dy) => { view.sx -= dx; view.sy -= dy; s.redraw(); }, () => { drag = null; });
+      startPan(s, e, (_dx, dy) => { view.sy -= dy; s.redraw(); }, () => { drag = null; });
       return;
     }
     const clip = ctx.clip();
@@ -461,9 +489,14 @@ export function createPianoRoll(host, ctx) {
     }
     if (vel.pointerdown(e, x, y)) { e.preventDefault(); hover = null; return; }
     if (!clip || !inGrid(x, y)) return;
-    if (e.button === 2) { // right drag: selection rectangle; right click: menu
+    if (e.button === 2) {
       e.preventDefault();
-      selectRect(e, x, y, (ev) => openMenu(x, y, ev.clientX, ev.clientY));
+      const note = hit(x, y)?.note;
+      selectRect(e, x, y, () => {
+        if (!note || !clip.notes.includes(note)) return;
+        remove(note);
+        ctx.changed();
+      }, () => openMenu(x, y, e.clientX, e.clientY));
       return;
     }
     if (e.button !== 0) return;
@@ -479,6 +512,7 @@ export function createPianoRoll(host, ctx) {
       });
       return;
     }
+    if (timeAt(y) < 0) return;
     const st = step();
     const h = hit(x, y);
     const dup = !!h && e.altKey;
@@ -509,7 +543,7 @@ export function createPianoRoll(host, ctx) {
     capture(cv, e, (ev) => {
       const p = s.local(ev);
       pointer = p;
-      if (h && !moved && Math.hypot(p.x - x, p.y - y) < 3) return;
+      if (h && !moved && Math.hypot(p.x - x, p.y - y) < dragThreshold()) return;
       moved = true;
       if (dup && !cloned) {
         group = group.map((n) => ({ ...n }));
@@ -665,7 +699,10 @@ export function createPianoRoll(host, ctx) {
     if (!deleting && !arrow && !quant && !(command && ['a', 'x', 'c', 'v', 'd'].includes(key)) && key !== 'escape') return;
     e.preventDefault();
     e.stopPropagation();
-    if (drag) return;
+    if (drag) {
+      if (key === 'escape') drag.stop?.({ type: 'pointercancel' });
+      return;
+    }
     syncSelection();
     const clip = ctx.clip();
     if (!clip) return;
@@ -703,17 +740,9 @@ export function createPianoRoll(host, ctx) {
       view.sy = t * view.ppq - y;
       s.redraw();
     },
-    scroll(dx, dy, e) {
+    scroll(_dx, dy, e) {
       pointer = s.local(e);
-      if (e.altKey) { // Alt + wheel: key width
-        const { x } = s.local(e);
-        const p = (x - LEFT + view.sx) / view.kw;
-        view.kw = clamp(view.kw * Math.pow(1.1, -Math.sign(dy || dx)), 6, 40);
-        view.sx = p * view.kw - (x - LEFT);
-      } else {
-        view.sx += dx;
-        view.sy += dy;
-      }
+      view.sy += dy;
       s.redraw();
     },
   });
@@ -722,14 +751,13 @@ export function createPianoRoll(host, ctx) {
     surface: s,
     redraw: s.redraw,
     // scroll so the clip start is visible (called when another clip gets selected)
-    reveal() { view.sy = 0; s.redraw(); },
+    reveal() { view.sy = -TOP_MARGIN; s.redraw(); },
     getView: () => ({ ...view }),
     setView(v) {
       view.snapVelocity = typeof v?.snapVelocity === 'boolean' ? v.snapVelocity : true;
       if (!v) return;
-      for (const k of ['sx', 'sy', 'ppq', 'kw']) if (Number.isFinite(v[k])) view[k] = v[k];
+      for (const k of ['sy', 'ppq']) if (Number.isFinite(v[k])) view[k] = v[k];
       view.ppq = clamp(view.ppq, 6, 600);
-      view.kw = clamp(view.kw, 6, 40);
       s.redraw();
     },
   };

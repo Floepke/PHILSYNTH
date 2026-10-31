@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { mock } from 'node:test';
 import { emptySong, addClip, addAutoClip, isAuto, cloneClip } from '../src/song.js';
 import { createAutomationLane } from '../src/seq/automation.js';
 import { createPianoRoll } from '../src/seq/pianoroll.js';
@@ -12,7 +13,7 @@ const resizes = [];
 globalThis.requestAnimationFrame = (fn) => { frames.push(fn); return frames.length; };
 globalThis.ResizeObserver = class {
   constructor(fn) { this.fn = fn; }
-  observe() { resizes.push(this.fn); }
+  observe(target) { resizes.push(this.fn); if (target) target.resize = this.fn; }
 };
 
 class Canvas extends EventTarget {
@@ -74,7 +75,19 @@ const click = (cv, x, y, props = {}) => {
   point(cv, 'pointerdown', x, y, { buttons: 1, ...props });
   point(cv, 'pointerup', x, y, props);
 };
+const holdRightClick = (cv, x, y) => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    point(cv, 'pointerdown', x, y, { button: 2, buttons: 2 });
+    mock.timers.tick(500);
+    flush();
+    point(cv, 'pointerup', x, y, { button: 2 });
+  } finally {
+    mock.timers.reset();
+  }
+};
 const host = () => ({ clientWidth: 480, clientHeight: 400, append() {} });
+const ROLL_WIDTH = 120 + 128 * 14;
 const note = (pitch, start, length = 1, vel = 0.8) => ({ pitch, start, length, vel });
 
 function setup({ snapVelocity = false } = {}) {
@@ -96,12 +109,14 @@ function setup({ snapVelocity = false } = {}) {
     select(id) { song.selected = id; roll.reveal(); roll.redraw(); arranger.redraw(); },
     preview: { on() { previews++; return {}; }, off(h) { if (h) previews--; } },
   };
-  const roll = createPianoRoll(host(), ctx);
-  const initialSnap = roll.getView().snapVelocity;
+  const rollHost = { ...host(), clientWidth: ROLL_WIDTH };
+  const roll = createPianoRoll(rollHost, ctx);
+  const initialView = roll.getView();
+  const initialSnap = initialView.snapVelocity;
   const arranger = createArranger(host(), ctx);
-  roll.setView({ sx: 50 * 14, sy: 0, ppq: 48, kw: 14, snapVelocity });
+  roll.setView({ sy: 0, ppq: 48, snapVelocity });
   flush();
-  return { song, clip, roll, arranger, ctx, menus, initialSnap, changes: () => changes, previews: () => previews };
+  return { song, clip, roll, rollHost, arranger, ctx, menus, initialSnap, initialView, changes: () => changes, previews: () => previews };
 }
 // runs the action of the last opened context menu's item with this label
 const pick = (menus, label) => {
@@ -112,7 +127,7 @@ const pick = (menus, label) => {
   flush();
 };
 const labels = (menus) => menus.at(-1).items.filter((i) => i !== '-').map((i) => i.label);
-const nx = (pitch) => 120 + (pitch - 50) * 14 + 7;
+const nx = (pitch) => 120 + pitch * 14 + 7;
 const ny = (start) => start * 48;
 const ax = (start) => 70 + start * 16;
 const ay = (y) => 38 + y + 17;
@@ -215,7 +230,7 @@ for (const reverse of [false, true]) {
   assert.deepEqual(clip.notes.map((n) => n.pitch), [64]);
 }
 
-// Ordinary insertion, duration edits and head moves still work; right click opens a menu.
+// Ordinary insertion, duration edits and head moves still work; short right click deletes.
 {
   const { clip, roll, previews, menus } = setup();
   const cv = roll.surface.cv;
@@ -227,30 +242,145 @@ for (const reverse of [false, true]) {
   assert.deepEqual(clip.notes, [note(62, 2, 1.5)]);
   assert.equal(previews(), 0);
   click(cv, nx(62), ny(2) + 5, { button: 2 });
-  assert.equal(clip.notes.length, 1);
-  assert.equal(menus.length, 1);
-  assert.deepEqual(labels(menus).slice(0, 4), ['Cut', 'Copy', 'Paste', 'Delete']);
-  pick(menus, 'Delete');
   assert.equal(clip.notes.length, 0);
+  assert.equal(menus.length, 0);
 }
 
-// Piano roll menu: cut + paste at the clicked position, copy, octave.
+// Hold-menu actions: cut + paste at the pressed position, copy, octave.
 {
   const { clip, roll, menus } = setup();
   const cv = roll.surface.cv;
   clip.notes.push(note(60, 1), note(64, 2));
-  click(cv, nx(60), ny(1) + 5, { button: 2 });
+  holdRightClick(cv, nx(60), ny(1) + 5);
+  assert.equal(clip.notes.length, 2, 'release after opening a menu never deletes');
+  assert.deepEqual(labels(menus).slice(0, 4), ['Cut', 'Copy', 'Paste', 'Delete']);
   pick(menus, 'Cut');
   assert.deepEqual(clip.notes.map((n) => n.pitch), [64]);
-  click(cv, nx(60), ny(6) + 5, { button: 2 });
+  holdRightClick(cv, nx(60), ny(6) + 5);
   pick(menus, 'Paste');
   assert.deepEqual(clip.notes.map((n) => [n.pitch, n.start]), [[64, 2], [60, 6]]);
-  click(cv, nx(64), ny(2) + 5, { button: 2 });
+  holdRightClick(cv, nx(64), ny(2) + 5);
   pick(menus, 'Octave up');
   assert.deepEqual(clip.notes.map((n) => n.pitch), [76, 60]);
   key(cv, 'Escape');
-  click(cv, nx(70), ny(4), { button: 2 });
+  holdRightClick(cv, nx(70), ny(4));
   assert.equal(menus.at(-1).items.find((i) => i.label === 'Copy').disabled, true);
+}
+
+// Exact hold threshold: menu appears while still pressed, never early and never twice.
+{
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const { clip, roll, menus, changes } = setup();
+    const cv = roll.surface.cv;
+    clip.notes.push(note(60, 1), note(64, 2));
+    point(cv, 'pointerdown', nx(60), ny(1) + 5, { button: 2, buttons: 2 });
+    mock.timers.tick(499);
+    assert.equal(menus.length, 0);
+    assert.equal(clip.notes.length, 2, 'no deletion on press');
+    mock.timers.tick(1); flush();
+    assert.equal(menus.length, 1, 'menu opens at 500 ms before release');
+    assert.equal(clip.notes.length, 2);
+    mock.timers.tick(1000);
+    assert.equal(menus.length, 1);
+    point(cv, 'pointermove', nx(70), ny(3), { button: 2, buttons: 2 });
+    point(cv, 'pointerup', nx(70), ny(3), { button: 2 });
+    assert.equal(clip.notes.length, 2, 'moving/releasing after the menu opens cannot delete');
+    assert.equal(changes(), 0);
+    pick(menus, 'Delete');
+    assert.deepEqual(clip.notes.map((n) => n.pitch), [64], 'menu actions remain usable');
+  } finally {
+    mock.timers.reset();
+  }
+}
+
+// A quick right-click on either the head or body deletes only that note, even in a selection.
+for (const y of [ny(1) + 5, ny(1.5)]) {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const { clip, roll, menus, changes } = setup();
+    const cv = roll.surface.cv;
+    clip.notes.push(note(60, 1), note(64, 2));
+    key(cv, 'a', { ctrlKey: true });
+    point(cv, 'pointerdown', nx(60), y, { button: 2, buttons: 2 });
+    mock.timers.tick(499);
+    point(cv, 'pointerup', nx(60), y, { button: 2 });
+    assert.deepEqual(clip.notes.map((n) => n.pitch), [64]);
+    assert.equal(changes(), 1);
+    mock.timers.tick(1000);
+    assert.equal(menus.length, 0, 'release cancels the hold timer');
+    key(cv, 'Delete');
+    assert.equal(clip.notes.length, 0, 'other selected notes stay selected');
+    click(cv, nx(70), ny(3), { button: 2 });
+    mock.timers.tick(1000);
+    assert.equal(menus.length, 0, 'quick right-click on empty space does nothing');
+    assert.equal(changes(), 2);
+  } finally {
+    mock.timers.reset();
+  }
+}
+
+// Even if the timer is delayed by a busy event loop, a 500 ms release is not a delete.
+{
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const { clip, roll, menus } = setup();
+    const cv = roll.surface.cv;
+    clip.notes.push(note(60, 1));
+    point(cv, 'pointerdown', nx(60), ny(1) + 5, { button: 2, buttons: 2, timeStamp: 1000 });
+    point(cv, 'pointerup', nx(60), ny(1) + 5, { button: 2, timeStamp: 1500 });
+    assert.equal(menus.length, 1);
+    assert.equal(clip.notes.length, 1);
+    mock.timers.tick(1000);
+    assert.equal(menus.length, 1);
+  } finally {
+    mock.timers.reset();
+  }
+}
+
+// Cancelling a pending hold cannot open a late menu or delete a note.
+for (const cancel of ['pointercancel', 'lostpointercapture', 'blur', 'windowBlur', 'Escape', 'wheel', 'clipChange']) {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const { clip, roll, menus, song, changes } = setup();
+    const cv = roll.surface.cv;
+    clip.notes.push(note(60, 1));
+    point(cv, 'pointerdown', nx(60), ny(1) + 5, { button: 2, buttons: 2 });
+    mock.timers.tick(250);
+    if (cancel === 'windowBlur') window.dispatchEvent(new Event('blur'));
+    else if (cancel === 'Escape') key(cv, 'Escape');
+    else if (cancel === 'clipChange') { song.selected = null; roll.redraw(); flush(); }
+    else point(cv, cancel, nx(60), ny(1) + 5, { button: 2, deltaX: 0, deltaY: 10, deltaMode: 0 });
+    mock.timers.tick(1000);
+    point(cv, 'pointerup', nx(60), ny(1) + 5, { button: 2 });
+    assert.equal(menus.length, 0, cancel);
+    assert.equal(clip.notes.length, 1, cancel);
+    assert.equal(changes(), 0, cancel);
+  } finally {
+    mock.timers.reset();
+  }
+}
+
+// Dragging before the hold threshold stays a marquee, even if the button remains down.
+{
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    const { clip, roll, menus, changes } = setup();
+    const cv = roll.surface.cv;
+    clip.notes.push(note(60, 1), note(64, 2));
+    point(cv, 'pointerdown', nx(59), ny(0.5), { button: 2, buttons: 2 });
+    mock.timers.tick(250);
+    point(cv, 'pointermove', nx(61), ny(1.5), { button: 2, buttons: 2 });
+    mock.timers.tick(1000);
+    point(cv, 'pointerup', nx(61), ny(1.5), { button: 2 });
+    assert.equal(menus.length, 0);
+    assert.equal(changes(), 0);
+    assert.equal(clip.notes.length, 2);
+    key(cv, 'Delete');
+    assert.deepEqual(clip.notes.map((n) => n.pitch), [64], 'marquee selected the first note');
+  } finally {
+    mock.timers.reset();
+  }
 }
 
 // Right-drag draws a selection rectangle (no menu); dragging a selected note moves the whole group.
@@ -327,7 +457,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   const destination = addClip(song, { length: 16 });
   ctx.select(destination.id);
   key(cv, 'Backspace'); // old note selection must never carry into another clip
-  point(cv, 'pointermove', nx(75), ny(3.13));
+  point(cv, 'pointermove', nx(75), ny(3.13) - roll.getView().sy);
   key(cv, 'v', { [modifier]: true });
   assert.deepEqual(destination.notes, [note(60.5, 3, 1.25, 0.3), note(64, 3.5, 0.75, 0.9)]);
   key(cv, 'v', { [modifier]: true });
@@ -347,12 +477,12 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   clip.notes.push(note(60, 1));
   key(cv, 'a', { ctrlKey: true });
   key(cv, 'c', { ctrlKey: true });
-  roll.setView({ sx: 55 * 20, sy: 96, ppq: 96, kw: 20 });
+  roll.setView({ sy: 96, ppq: 96 });
   flush();
   point(cv, 'pointermove', 300, 116);
   key(cv, 'v', { ctrlKey: true });
   assert.equal(clip.notes[1].start, 2);
-  drag(cv, 218, 96 + 5, 240, 2.5 * 96 - 96, { shiftKey: true });
+  drag(cv, nx(59), 96 + 5, nx(61), 2.5 * 96 - 96, { shiftKey: true });
   key(cv, 'Delete');
   assert.deepEqual(clip.notes, [note(60, 1)]);
 }
@@ -983,7 +1113,7 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   key(cv, 'v', { ctrlKey: true });
   click(cv, nx(60), 380, { button: 2 });
   assert.deepEqual(clip.notes, before);
-  assert.ok(cv.drawing.some(([op, x, y, w, h]) => op === 'fillRect' && x === 0 && y === 376 && w === 480 && h === 24));
+  assert.ok(cv.drawing.some(([op, x, y, w, h]) => op === 'fillRect' && x === 0 && y === 376 && w === ROLL_WIDTH && h === 24));
   assert.ok(cv.drawing.some(([op, x, y, w, h]) => op === 'roundRect' && x === nx(60) - 7.5 && y === 48 && w === 15 && h === 48));
   assert.ok(cv.drawing.some(([op, x, y, rx, ry, tilt]) => op === 'ellipse' && x === nx(60) && rx > ry && tilt < 0));
   assert.ok(cv.drawing.some(([op, color]) => op === 'fill' && color === '#65b4ff'));
@@ -1091,7 +1221,7 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + 0.05)
     / (Math.min(luminance(a), luminance(b)) + 0.05);
   const background = rgb(cv.drawing.find(([op, x, y, w, h]) =>
-    op === 'fillRect' && x === 0 && y === 0 && w === 480 && h === 400)[5]);
+    op === 'fillRect' && x === 0 && y === 0 && w === ROLL_WIDTH && h === 400)[5]);
   const stave = rgb(cv.drawing.find(([op, color]) => op === 'stroke' && color === '#111216')[1]);
   const selection = rgb(fills().find((color) => color[0] === '#'));
   assert.ok(luminance(background) < 0.08);
@@ -1102,23 +1232,19 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   assert.ok(contrast(rgb('#c3c7d0'), rgb('#292b31')) >= 4.5);
 }
 
-// The time grid spans the A#0/A#7 stave centers, independently of scrolling and key width.
-for (const { sx, kw, width } of [
-  { sx: 0, kw: 6, width: 1000 },
-  { sx: 0, kw: 14, width: 480 },
-  { sx: 1280, kw: 14, width: 480 },
-  { sx: 0, kw: 40, width: 480 },
-  { sx: 4676, kw: 40, width: 480 },
-]) {
-  const { roll, clip } = setup();
+// The A#0/A#7 time grid scales with the viewport; saved manual horizontal zoom is ignored.
+for (const width of [240, 480, 1000, 1912, 3000]) {
+  const { roll, clip, rollHost } = setup();
   const cv = roll.surface.cv;
   clip.notes.push(note(20, 1), note(108, 1));
-  roll.surface.w = width;
+  rollHost.clientWidth = width;
+  rollHost.resize();
   cv.drawing.length = 0;
-  roll.setView({ sx, kw });
+  roll.setView({ sx: 4676, kw: 40 });
   flush();
-  const left = 120 + 22.5 * kw - roll.getView().sx;
-  const right = 120 + 106.5 * kw - roll.getView().sx;
+  const kw = (width - 120) / 128;
+  const left = 120 + 22.5 * kw;
+  const right = 120 + 106.5 * kw;
   const bands = cv.drawing.filter(([op, , , , , color]) => op === 'fillRect' && color === 'rgba(0, 0, 0, 0.06)');
   assert.ok(bands.length > 0);
   assert.ok(bands.every((b) => b[1] === left && b[3] === right - left));
@@ -1131,10 +1257,117 @@ for (const { sx, kw, width } of [
   });
   assert.ok(lines.length > 0);
   assert.ok(lines.every(([from, to]) => from[1] === left && to[1] === right));
-  if (width === 1000) {
-    const bodies = cv.drawing.filter(([op]) => op === 'roundRect');
-    assert.equal(bodies.length, 2, 'notes outside the grid bounds are still drawn');
-    assert.ok(bodies[0][1] < left && bodies[1][1] > right);
+  const bodies = cv.drawing.filter(([op]) => op === 'roundRect');
+  assert.equal(bodies.length, 2, 'notes outside the grid bounds are still drawn');
+  assert.ok(bodies[0][1] < left && bodies[1][1] > right);
+}
+
+// Every MIDI pitch is editable and both end keys audition at real, narrow viewport widths.
+for (const width of [300, 480, 900, 1912]) {
+  const { clip, roll, rollHost, ctx } = setup();
+  const cv = roll.surface.cv;
+  rollHost.clientWidth = width;
+  rollHost.resize();
+  flush();
+  const kw = (width - 120) / 128;
+  const center = (pitch) => 120 + (pitch + 0.5) * kw;
+  for (let pitch = 0; pitch < 128; pitch++) {
+    cv.drawing.length = 0;
+    click(cv, center(pitch), ny(1));
+  }
+  assert.deepEqual(clip.notes.map((n) => n.pitch), Array.from({ length: 128 }, (_, i) => i), `all pitches at width ${width}`);
+  assert.ok(clip.notes.every((n) => n.start === 1));
+  const keys = cv.drawing.filter(([op, , y, , h]) => op === 'fillRect' && y === 377 && h === 22).slice(-128);
+  assert.equal(keys.length, 128);
+  assert.ok(keys[0][1] >= 120 && keys.at(-1)[1] + keys.at(-1)[3] <= width + 1e-9, 'whole keyboard fits');
+  const head = cv.drawing.find(([op, x]) => op === 'ellipse' && Math.abs(x - center(1)) < 1e-9);
+  assert.ok(head);
+  click(cv, center(0), ny(1) + 10, { button: 2 });
+  click(cv, center(127), ny(1) + 10, { button: 2 });
+  assert.deepEqual(clip.notes.map((n) => n.pitch), Array.from({ length: 126 }, (_, i) => i + 1), 'edge hit-testing deletes only the intended notes');
+  drag(cv, center(1), head[2], center(2), head[2]);
+  assert.equal(clip.notes[0].pitch, 2, 'one-column drag works even below three pixels');
+  const played = [];
+  const on = ctx.preview.on;
+  ctx.preview.on = (c, pitch) => { played.push(pitch); return on(c, pitch); };
+  click(cv, center(0), 390);
+  click(cv, center(127), 390);
+  assert.deepEqual(played, [0, 127], 'keys outside the 88-key range also audition');
+  assert.equal(clip.notes.length, 126, 'audition never inserts notes');
+}
+
+// Resizing derives fresh geometry; neither old saved zoom nor Alt-scroll can crop the pitches.
+{
+  const { clip, roll, rollHost } = setup();
+  const cv = roll.surface.cv;
+  clip.notes.push(note(0, 1), note(127, 1));
+  const before = structuredClone(clip.notes);
+  for (const width of [480, 1000, 260, 1500]) {
+    cv.drawing.length = 0;
+    rollHost.clientWidth = width;
+    rollHost.resize();
+    const centers = cv.drawing.filter(([op]) => op === 'ellipse').map((op) => op[1]);
+    const kw = (width - 120) / 128;
+    assert.deepEqual(centers, [120 + kw / 2, 120 + 127.5 * kw]);
+    roll.setView({ sx: 4000, kw: 40, sy: 0, ppq: 48 });
+    flush();
+    fire(cv, 'wheel', { clientX: 200, clientY: 150, deltaX: 100, deltaY: 0, deltaMode: 0 });
+    fire(cv, 'wheel', { clientX: 200, clientY: 150, deltaX: 0, deltaY: -100, deltaMode: 0, altKey: true });
+    drag(cv, 200, 150, 250, 150, { button: 1 });
+    roll.setView({ sy: 0 });
+    cv.drawing.length = 0;
+    roll.redraw(); flush();
+    assert.deepEqual(cv.drawing.filter(([op]) => op === 'ellipse').map((op) => op[1]), centers);
+    assert.deepEqual(clip.notes, before, 'resizing and scrolling do not alter the notes');
+    assert.deepEqual(Object.keys(roll.getView()).sort(), ['ppq', 'snapVelocity', 'sy'], 'horizontal geometry is not persisted');
+  }
+}
+
+// Top overscroll is a bounded, blank margin shared by notes, stave, ruler and velocity lane.
+{
+  const { clip, roll, initialView } = setup();
+  const cv = roll.surface.cv;
+  assert.equal(initialView.sy, -32, 'new rolls start with a little space above beat zero');
+  fire(cv, 'wheel', { clientX: nx(60), clientY: 100, deltaY: -10000, deltaX: 0, deltaMode: 0 });
+  assert.equal(roll.getView().sy, -32, 'upward scrolling stops at the margin');
+  click(cv, nx(60), 16);
+  assert.equal(clip.notes.length, 0, 'blank margin is not note-entry space');
+  cv.drawing.length = 0;
+  point(cv, 'pointermove', nx(60), 16);
+  assert.equal(cv.drawing.some(([op]) => op === 'ellipse'), false, 'no note preview in the margin');
+  assert.ok(cv.drawing.some(([op, x, y]) => op === 'moveTo' && x === nx(61) && y === 32), 'stave starts at beat zero, not at the canvas edge');
+  assert.equal(cv.drawing.some(([op, x, y]) => op === 'moveTo' && x === nx(61) && y === 0), false);
+  clip.notes.push(note(60, 0, 1, 0.5));
+  cv.drawing.length = 0;
+  roll.redraw(); flush();
+  assert.ok(cv.drawing.some(([op, x, y]) => op === 'arc' && x === 42 && y === 32), 'velocity handle aligns with beat zero');
+  assert.ok(cv.drawing.some(([op, x, y]) => op === 'roundRect' && x === nx(60) - 7.5 && y === 32), 'note starts below the margin');
+  drag(cv, nx(59), 8, nx(61), 60, { shiftKey: true });
+  key(cv, 'Delete');
+  assert.equal(clip.notes.length, 0, 'selection can start in the margin to catch the first note');
+  fire(cv, 'wheel', { clientX: nx(60), clientY: 100, deltaY: 16, deltaX: 0, deltaMode: 0 });
+  assert.equal(roll.getView().sy, -16, 'margin scrolls away naturally');
+  roll.reveal(); flush();
+  assert.equal(roll.getView().sy, -32, 'revealing a clip restores the margin');
+  const saved = JSON.parse(JSON.stringify(roll.getView()));
+  roll.setView({ sy: 80, ppq: 96 });
+  roll.setView(saved); flush();
+  assert.deepEqual(roll.getView(), saved, 'negative scroll offset survives a saved view');
+}
+
+// Collapsed panes and sub-pixel key widths must never produce negative radii or NaN geometry.
+{
+  const { clip, roll, rollHost } = setup();
+  clip.notes.push(note(0, 1), note(127, 1));
+  for (const width of [0, 80, 120, 121, 180, 480]) {
+    rollHost.clientWidth = width;
+    const cv = roll.surface.cv;
+    cv.drawing.length = 0;
+    assert.doesNotThrow(() => rollHost.resize());
+    for (const op of cv.drawing) {
+      assert.ok(op.filter((v) => typeof v === 'number').every(Number.isFinite), `finite drawing at width ${width}`);
+      if (op[0] === 'ellipse') assert.ok(op[3] >= 0 && op[4] >= 0);
+    }
   }
 }
 

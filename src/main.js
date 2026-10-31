@@ -813,7 +813,7 @@ function select(s) {
       hint('OSC / ADSR: with <b>Sustain</b> at 0, <b>Decay</b> and <b>Release</b> are linked: moving one moves the other.'),
       hint('<kbd>Middle mouse</kbd> + drag pans the canvas, <kbd>scroll</kbd> zooms. Click the zoom % (bottom right) to fit all modules.'),
       hint('Play with a MIDI controller or keys <kbd>A</kbd>–<kbd>;</kbd>.'),
-      hint('<b>Sequencer</b> (right; <kbd>S</kbd> slides its divider away to hide it, <kbd>S</kbd> again brings it back): <kbd>Double-click</kbd> the TimeLine to add a clip, drag its edges to resize, <kbd>Alt</kbd> + drag to copy. In the piano roll click / drag to write notes (new notes get the last used length), drag a note body for its length, its circle for pitch and time; right click opens a menu (cut / copy / paste / delete / duplicate / quantize / octave). <kbd>Space</kbd> plays. <kbd>Double-click</kbd> the TimeLine ruler to insert a time signature change (right-click it to remove).'),
+      hint('<b>Sequencer</b> (right; <kbd>S</kbd> slides its divider away to hide it, <kbd>S</kbd> again brings it back): <kbd>Double-click</kbd> the TimeLine to add a clip, drag its edges to resize, <kbd>Alt</kbd> + drag to copy. In the piano roll click / drag to write notes (new notes get the last used length), drag a note body for its length, its circle for pitch and time. A short right-click deletes the note under the pointer; hold the right button for <b>500 ms</b> to open the menu instead (cut / copy / paste / delete / duplicate / quantize / octave). Releasing after the menu opens never deletes a note. <kbd>Space</kbd> plays. <kbd>Double-click</kbd> the TimeLine ruler to insert a time signature change (right-click it to remove).'),
       hint('<b>Piano roll selection:</b> <kbd>Shift</kbd> + drag or <kbd>right</kbd> + drag draws a selection rectangle; clicking a note selects it, <kbd>Shift</kbd> + click toggles it. Dragging a selected note moves / resizes the whole selection. <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> duplicates the selection, <kbd>Q</kbd> quantizes note starts (selection, else all). <kbd>Ctrl/Cmd</kbd> + <kbd>A</kbd> selects all notes, <kbd>Esc</kbd> clears the selection, and <kbd>Backspace</kbd> / <kbd>Delete</kbd> deletes it. <kbd>Alt</kbd> + drag a note (body or circle) moves a clone.'),
       hint('<b>Arrow keys:</b> in the piano roll, <kbd>Left</kbd> / <kbd>Right</kbd> transpose selected notes by one semitone; <kbd>Up</kbd> / <kbd>Down</kbd> move them earlier/later by one snap step. With <kbd>Shift</kbd>: an octave / a bar. The selection moves together and stops at time zero or the MIDI pitch limits.'),
       hint('<b>Velocity:</b> the strip left of the piano roll shows every note\'s velocity (stick) and how it changes while the note sounds. Drag a note\'s dot to set its velocity (<kbd>Shift</kbd>-click adds it to the selection). The selected notes share one curve: <kbd>Double-click</kbd> inside them to add a point, drag points (time snaps, <kbd>Shift</kbd> = fine), and use the mouse wheel on a point to round it. Right-click the lane to toggle <b>Snap velocity values</b> (1/16 increments, enabled by default, no grid), or right-click a point and choose <b>Delete point</b>. The snap setting is saved with the project and only affects new edits. One selected note edits its own curve.'),
@@ -827,6 +827,7 @@ function select(s) {
       hint('<b>Controls:</b> scroll a dropdown to change its selection. Number fields have permanent up/down buttons and also support scrolling; <kbd>Double-click</kbd> a number (or use <kbd>Tab</kbd>) to type. Mouse adjustments leave keyboard focus in the editor so <kbd>Space</kbd> still plays.'),
       hint('<b>Toolbar:</b> controls stay on one row. When space is tight, move the pointer toward the left or right edge to reveal hidden controls; the closer to the edge, the faster it moves. Move to the middle to stop. Clicking, typing or using the wheel pauses motion; the wheel still changes control values. <kbd>Tab</kbd> also reveals focused controls.'),
       hint('<b>Layout:</b> drag the wide dividers all the way to an edge to hide the patcher, piano roll or TimeLine. Drag the divider back to reopen a pane. The piano keyboard stays at the bottom of the roll; selected notes are filled blue.'),
+      hint('The piano roll fits all <b>128 MIDI notes (0–127)</b> across its width and rescales when you move the divider. Horizontal zoom is automatic; <kbd>Alt</kbd> + scroll no longer changes key width. Scroll upward to reveal a small margin above beat zero. <kbd>Ctrl/Cmd</kbd> + scroll still zooms time.'),
       hint('Drag the left controller-panel divider to resize the panel, or fully left to hide it. Its handle stays available to reopen it, and the width is saved with the project.'),
       hint('Both sequencer dividers move both splits together: drag left/right for the sequencer width and up/down for the piano roll / TimeLine split. Every divider shows a small four-dot grip.'),
       hint('<b>Piano roll colors:</b> charcoal paper keeps the stave dark rather than inverted. Notes use a lighter version of their module color; black-key bodies are slightly darker, including in blue selections, so dense chromatic chords retain the keyboard pattern.'),
@@ -858,43 +859,45 @@ function select(s) {
   }
 
   const entry = s.entry;
-  panel.append(panelHeader(entry.def.label, `#${entry.id}`, entry.def));
+  const header = panelHeader(entry.def.label, `#${entry.id}`, entry.def);
+  panel.append(header);
+  const explanations = document.createDocumentFragment();
   if (entry.def.type === 'SOUND2CTL') {
-    panel.append(hint('Cable an audio source into this module, then cable this module to the module to control and select <kbd>Out Controller</kbd>. Voltage -1 = <kbd>Out Min</kbd>, +1 = <kbd>Out Max</kbd>; silence (0) is halfway. Stereo channels are averaged and voltage is clamped to -1..1. Direct voltage conversion, not an envelope follower: the last sample of each audio block controls the next block (128 samples).'));
+    explanations.append(hint('Cable an audio source into this module, then cable this module to the module to control and select <kbd>Out Controller</kbd>. Voltage -1 = <kbd>Out Min</kbd>, +1 = <kbd>Out Max</kbd>; silence (0) is halfway. Stereo channels are averaged and voltage is clamped to -1..1. Direct voltage conversion, not an envelope follower: the last sample of each audio block controls the next block (128 samples).'));
   }
   if (entry.def.type === 'VELOCITY2CTL') {
-    panel.append(hint('The velocity of the newest incoming note (and its velocity curve while it sounds) sets the controller: velocity 0 = <kbd>Out Min</kbd>, 127 = <kbd>Out Max</kbd>. When the note ends, <kbd>Noteoff Action</kbd> holds the value (Do Nothing) or moves it to <kbd>Out Min</kbd> (Control Down) or <kbd>Out Max</kbd> (Control Up).'));
+    explanations.append(hint('The velocity of the newest incoming note (and its velocity curve while it sounds) sets the controller: velocity 0 = <kbd>Out Min</kbd>, 127 = <kbd>Out Max</kbd>. When the note ends, <kbd>Noteoff Action</kbd> holds the value (Do Nothing) or moves it to <kbd>Out Min</kbd> (Control Down) or <kbd>Out Max</kbd> (Control Up).'));
   }
   if (entry.def.type === 'OSC') {
-    panel.append(hint('<b>Half sine:</b> one positive sine bow followed by zero. <b>Duty Cycle</b> sets the bow length: 100% fills the period, 25% fills its first quarter, and 0% is silent. <b>Noise</b> (white, pink, brown, blue, violet: dark to bright) ignores the note pitch; every note gets its own noise, shaped by the envelope and velocity.'));
+    explanations.append(hint('<b>Half sine:</b> one positive sine bow followed by zero. <b>Duty Cycle</b> sets the bow length: 100% fills the period, 25% fills its first quarter, and 0% is silent. <b>Noise</b> (white, pink, brown, blue, violet: dark to bright) ignores the note pitch; every note gets its own noise, shaped by the envelope and velocity.'));
   }
   if (!takesLiveMidi(entry.def)) {
     const what = entry.def.acceptsMidi ? 'Not played by the MIDI keyboard' : entry.def.modulator ? 'Modulator' : 'Audio only';
-    panel.append(hint(target
+    explanations.append(hint(target
       ? `${what}. MIDI keeps playing <kbd>${target.def.type} #${target.id}</kbd>.`
       : `${what}. Select an OSC or Patch to play it with MIDI.`));
   }
   if (entry.def.type === 'DELAY') {
-    panel.append(hint('<b>Left Delay</b> delays left audio and each incoming MODMIDI message; <b>Right Delay</b> delays right audio only. No dry signal or feedback. Cables carry audio, MIDI, or both, according to the destination. Notes keep their pitch, velocity and start phase. Changing the delay affects new messages, not ones already queued; a release that overtakes its pending note cancels that note. MIDI delivery runs on the audio-clock reports (about every 5 ms).'));
+    explanations.append(hint('<b>Left Delay</b> delays left audio and each incoming MODMIDI message; <b>Right Delay</b> delays right audio only. No dry signal or feedback. Cables carry audio, MIDI, or both, according to the destination. Notes keep their pitch, velocity and start phase. Changing the delay affects new messages, not ones already queued; a release that overtakes its pending note cancels that note. MIDI delivery runs on the audio-clock reports (about every 5 ms).'));
   }
   if (entry.def.type === 'ECHO') {
-    panel.append(hint('<b>STEREO</b> repeats left and right together, preserving their separation. <b>PINGPONG</b> averages the input into a left-first echo, then alternates sides. <b>Filter</b> processes the first echo and every feedback repeat; dry audio is unaffected. Feedback is limited to 99%. At 0 ms, the echo uses a one-sample delay.'));
+    explanations.append(hint('<b>STEREO</b> repeats left and right together, preserving their separation. <b>PINGPONG</b> averages the input into a left-first echo, then alternates sides. <b>Filter</b> processes the first echo and every feedback repeat; dry audio is unaffected. Feedback is limited to 99%. At 0 ms, the echo uses a one-sample delay.'));
   }
   if (entry.def.type === 'DELAY' || entry.def.type === 'ECHO') {
-    panel.append(hint('<b>Delay Unit:</b> ms gives 0–10,000 milliseconds. In 1/4, 1/8 or 1/16 mode, the same slider selects musical lengths from 1/4 to 64 of that note unit, synced to this patch’s Output BPM (including dotted and triplet lengths). Audio delay changes glide to avoid abrupt jumps.'));
+    explanations.append(hint('<b>Delay Unit:</b> ms gives 0–10,000 milliseconds. In 1/4, 1/8 or 1/16 mode, the same slider selects musical lengths from 1/4 to 64 of that note unit, synced to this patch’s Output BPM (including dotted and triplet lengths). Audio delay changes glide to avoid abrupt jumps.'));
   }
   if (entry.def.type === 'MULTIMIDI') {
-    panel.append(hint('<kbd>Shift</kbd> + drag to an OSC, Patch or another MultiMIDI. Every note drifts on its own. Several MultiMIDIs can feed one synth in parallel (each plays its own voices); chained ones add up. <b>Random Phase</b> starts every note at its own random point of the OSC waveform cycle (0 % = all start at the beginning, 100 % = anywhere).'));
+    explanations.append(hint('<kbd>Shift</kbd> + drag to an OSC, Patch or another MultiMIDI. Every note drifts on its own. Several MultiMIDIs can feed one synth in parallel (each plays its own voices); chained ones add up. <b>Random Phase</b> starts every note at its own random point of the OSC waveform cycle (0 % = all start at the beginning, 100 % = anywhere).'));
   }
   if (entry.def.routeParams) {
-    panel.append(hint('<kbd>Shift</kbd> + drag over the modules to control, then pick their controllers under <b>Routes</b>. <b>Value</b> sets all of them at once (inside <kbd>Out Min</kbd>..<kbd>Out Max</kbd> of each slider). A controller picked on one module is also routed on connected modules of the same type that have no route yet, and newly connected ones copy it.'));
+    explanations.append(hint('<kbd>Shift</kbd> + drag over the modules to control, then pick their controllers under <b>Routes</b>. <b>Value</b> sets all of them at once (inside <kbd>Out Min</kbd>..<kbd>Out Max</kbd> of each slider). A controller picked on one module is also routed on connected modules of the same type that have no route yet, and newly connected ones copy it.'));
   } else if (entry.def.modulator) {
-    panel.append(hint('<kbd>Shift</kbd> + drag to a module, then pick its controller number with <kbd>Out Controller</kbd>.'));
-    if (takesLiveMidi(entry.def)) panel.append(hint('Notes trigger it: select it and play, send a clip to it, or <kbd>Shift</kbd> + drag a MultiMIDI into it.'));
-    else if (entry.def.acceptsMidi) panel.append(hint('Notes trigger it: send a clip to it, or <kbd>Shift</kbd> + drag a MultiMIDI into it.'));
+    explanations.append(hint('<kbd>Shift</kbd> + drag to a module, then pick its controller number with <kbd>Out Controller</kbd>.'));
+    if (takesLiveMidi(entry.def)) explanations.append(hint('Notes trigger it: select it and play, send a clip to it, or <kbd>Shift</kbd> + drag a MultiMIDI into it.'));
+    else if (entry.def.acceptsMidi) explanations.append(hint('Notes trigger it: send a clip to it, or <kbd>Shift</kbd> + drag a MultiMIDI into it.'));
   }
 
-  // custom editor of the module's state (e.g. the WAVESHAPER curve), above the controllers
+  // custom editor of the module's state (e.g. the WAVESHAPER curve), below the controllers
   const editor = entry.def.editor?.(entry, {
     color: entry.def.color,
     setState: (st) => current().setState(entry.id, st),
@@ -912,6 +915,7 @@ function select(s) {
     view?.refresh?.(entry.values);
   };
 
+  const controllers = document.createDocumentFragment();
   paramsOf(entry).forEach((p, index) => {
     const format = (v) => (p.format ? p.format(v, entry.values) : p.options ? p.options[v] : String(+v.toFixed(3)));
     const ctl = createController(p, {
@@ -925,11 +929,12 @@ function select(s) {
     });
     setColor(ctl.el, entry.def);
     const row = ctl.el;
-    panel.appendChild(row);
+    controllers.appendChild(row);
     rows.push({ p, row, show: ctl.show });
     panelRows.set(p.id, { p, ctl });
     if (p.id in entry.mod) showModulation(entry, p.id, entry.mod[p.id]);
   });
+  panel.insertBefore(controllers, header.nextSibling);
 
   // display below the controllers (e.g. the OSC waveform preview)
   view = entry.def.view?.(entry, {
@@ -951,6 +956,7 @@ function select(s) {
     panel.append(view.el);
     for (const id in entry.mod) view.modulate?.(id, entry.mod[id]);
   }
+  panel.append(explanations);
   refresh();
 }
 

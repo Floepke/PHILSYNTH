@@ -26,7 +26,7 @@
 //       noteOn(id, pitch, vel, phase), noteMod(id, pitch, vel), noteOff(id), allOff()  (MODMIDI, see
 //       src/modmidi.js; only for acceptsMidi modules),
 //       setBpm?(bpm) (called with the BPM of the patch's Output) }
-//   editor(entry, api)  optional panel part above the controllers (e.g. WAVESHAPER curve editor)
+//   editor(entry, api)  optional panel part below the controllers (e.g. WAVESHAPER curve editor)
 //   view(entry, api)    optional display below the controllers (e.g. this waveform preview):
 //                       { el, refresh?(values), modulate?(id, value|null) }; api.setParam(id, v)
 //                       changes a controller (e.g. dragging an EQ band), api.setState(state)
