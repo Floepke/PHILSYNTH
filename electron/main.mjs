@@ -5,8 +5,15 @@ import { app, BrowserWindow, Menu, session, shell } from 'electron';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+// MODSYNTH.app (npm run build:mac) is its own app next to the dev app (npm start): own name,
+// data folder (~/Library/Application Support/MODSYNTH), single-instance lock and port.
+if (app.isPackaged) {
+  app.setName('MODSYNTH');
+  app.setPath('userData', join(app.getPath('appData'), 'MODSYNTH'));
+}
+
 // A fixed port keeps the same origin, so the browser-storage autosave survives restarts.
-const PORT = Number(process.env.MODSYNTH_PORT) || 8767;
+const PORT = Number(process.env.MODSYNTH_PORT) || (app.isPackaged ? 8768 : 8767);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // fileSystem: writing the file chosen in the EXPORT WAV save dialog (File System Access API)
 const TRUSTED = new Set(['midi', 'midiSysex', 'media', 'clipboard-sanitized-write', 'fullscreen', 'fileSystem']);
@@ -19,6 +26,11 @@ let server = null;
 
 async function startServer() {
   process.env.HOST = '127.0.0.1';
+  if (app.isPackaged) {
+    // MODSYNTH.app: autosaves go to ~/Library/Application Support/MODSYNTH/projects, no live reload
+    process.env.MODSYNTH_PROJECTS ??= join(app.getPath('userData'), 'projects');
+    process.env.MODSYNTH_NO_WATCH ??= '1';
+  }
   server = await import(pathToFileURL(join(ROOT, 'server.mjs')).href);
   try {
     return await server.start(PORT);

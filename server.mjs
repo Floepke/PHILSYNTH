@@ -3,6 +3,8 @@
 //  - serves the app with caching disabled (worklet edits are picked up on reload)
 //  - GET/PUT /api/autosave  stores the project in projects/autosave.json (previous copy kept as autosave.prev.json)
 //  - /api/live              server-sent events: reloads the page when code changes, hot-swaps CSS
+// MODSYNTH_PROJECTS moves the projects folder (the packaged MODSYNTH.app keeps it in its
+// Application Support folder, the bundle itself is read-only); MODSYNTH_NO_WATCH=1 turns live reload off.
 import http from 'node:http';
 import { watch } from 'node:fs';
 import { readFile, writeFile, rename, mkdir, copyFile, stat } from 'node:fs/promises';
@@ -10,7 +12,7 @@ import { dirname, extname, join, normalize, relative, resolve, sep } from 'node:
 import { fileURLToPath } from 'node:url';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
-const PROJECTS = join(ROOT, 'projects');
+const PROJECTS = process.env.MODSYNTH_PROJECTS || join(ROOT, 'projects');
 const AUTOSAVE = join(PROJECTS, 'autosave.json');
 const PORT = Number(process.env.PORT) || 8080;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -149,7 +151,7 @@ export function start(port = PORT, host = HOST) {
     server.once('error', fail);
     server.listen(port, host, () => {
       server.off('error', fail);
-      watcher ??= watchCode();
+      if (!process.env.MODSYNTH_NO_WATCH) watcher ??= watchCode();
       ok(server.address().port);
     });
   });
