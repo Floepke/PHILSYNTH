@@ -12,7 +12,7 @@
 //   double-click inside the selection  insert a curve point (hold the second press to drag it)
 //   mouse wheel on a point             round the corner
 //   right click on a curve point       delete it (not the first point)
-//   hold right button 500 ms           menu: toggle velocity snapping (1/16 increments, no grid);
+//   hold right button 250 ms           menu: toggle velocity snapping (1/16 increments, no grid);
 //                                       on a curve point, the menu also offers Delete point
 import { snapStep, snapRound, clean, notePoints, noteVelAt, groupVelCurve, applyVelCurve } from '../song.js';
 import { curvePolyline, NEW_POINT_ROUND } from '../curve.js';

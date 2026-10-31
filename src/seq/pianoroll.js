@@ -14,7 +14,7 @@
 //   Shift + click a note         add it to / remove it from the selection
 //   Alt + drag a note           clone it (or the selection) and move the clones
 //   right click                 delete the note under the pointer on release
-//   hold right button 500 ms    open the menu instead (release never deletes)
+//   hold right button 250 ms    open the menu instead (release never deletes)
 //   Backspace / Delete          delete selected notes
 //   Left / Right                transpose selected notes by a semitone (Shift: an octave)
 //   Up / Down                   move selected notes by one snap step (Shift: a bar)
@@ -36,6 +36,7 @@ const GRID_HIGH = 106; // A#7
 const KEYBOARD = 24;
 const TOP_MARGIN = 32;
 const TILT = -Math.PI / 9;
+const HEAD_STRETCH = 1.25; // noteheads are stretched along the time (y) axis
 const GUTTER = 36; // bar / beat ruler (right of the velocity strip)
 const LEFT = VEL_W + GUTTER; // left edge of the note grid
 const BG = '#45464e';
@@ -75,7 +76,7 @@ export function createPianoRoll(host, ctx) {
   const headSize = () => {
     const rx = (keyWidth() - overlap()) / (2 * Math.hypot(Math.cos(TILT), 0.72 * Math.sin(TILT)));
     const ry = rx * 0.72;
-    return { rx, ry, height: Math.hypot(rx * Math.sin(TILT), ry * Math.cos(TILT)) + 0.75 };
+    return { rx, ry, height: Math.hypot(rx * Math.sin(TILT), ry * Math.cos(TILT)) * HEAD_STRETCH + 0.75 };
   };
   const headY = (y) => y + headSize().height;
   const step = () => snapStep(ctx.song().snap);
@@ -125,10 +126,14 @@ export function createPianoRoll(host, ctx) {
     g.globalAlpha = alpha;
     g.beginPath();
     const { rx, ry } = headSize();
-    g.ellipse(x, headY(y), rx, ry, TILT, 0, Math.PI * 2);
+    g.save(); // stretch the path only: the outline keeps an even width
+    g.translate(x, headY(y));
+    g.scale(1, HEAD_STRETCH);
+    g.ellipse(0, 0, rx, ry, TILT, 0, Math.PI * 2);
+    g.restore();
     g.fillStyle = black ? STAVE : '#e0e1dc';
     g.fill();
-    g.lineWidth = Math.min(1.5, keyWidth() * 0.15);
+    g.lineWidth = Math.min(3, keyWidth() * 0.3);
     g.strokeStyle = STAVE;
     g.stroke();
     g.globalAlpha = 1;
@@ -351,7 +356,7 @@ export function createPianoRoll(host, ctx) {
     for (let i = clip.notes.length - 1; i >= 0; i--) {
       const n = clip.notes[i];
       const dx = x - (xOf(n.pitch) + keyWidth() / 2);
-      const dy = y - headY(yOf(n.start));
+      const dy = (y - headY(yOf(n.start))) / HEAD_STRETCH;
       const u = dx * Math.cos(TILT) + dy * Math.sin(TILT);
       const v = -dx * Math.sin(TILT) + dy * Math.cos(TILT);
       if ((u / (rx + tolerance)) ** 2 + (v / (ry + tolerance)) ** 2 <= 1) return { note: n, part: 'head' };

@@ -389,6 +389,61 @@ export function trimClipStart(clip, newStart, original = clip) {
   clip.points?.forEach((p, i) => (p.t = clean(original.points[i].t - delta)));
 }
 
+// Clips that can be consolidated: two or more of one kind on one lane, with no other clip of that
+// lane inside their span.
+export function canConsolidate(song, clips) {
+  if (clips.length < 2 || clips.some((c) => c.y !== clips[0].y || isAuto(c) !== isAuto(clips[0]))) return false;
+  const start = Math.min(...clips.map((c) => c.start));
+  const end = Math.max(...clips.map((c) => c.start + c.length));
+  return !song.clips.some((c) => !clips.includes(c) && c.y === clips[0].y && c.start < end - 1e-9 && start < c.start + c.length - 1e-9);
+}
+
+// Replace clips (see canConsolidate) by one standalone clip spanning them. It keeps what played:
+// the notes inside each clip (cut at its end), the automation curves (with points at each clip's
+// edges). Name, module and controller come from the first clip in time. Returns the new clip.
+export function consolidateClips(song, clips) {
+  if (!canConsolidate(song, clips)) return null;
+  const order = [...clips].sort((a, b) => a.start - b.start || a.id - b.id);
+  const start = order[0].start;
+  const end = Math.max(...order.map((c) => c.start + c.length));
+  const merged = duplicateClip(song, order[0]);
+  merged.start = start;
+  merged.length = clean(end - start);
+  merged.notes = [];
+  if (merged.points) merged.points = [];
+  for (const c of order) {
+    const dt = c.start - start;
+    for (const n of c.notes) {
+      if (n.start < -1e-9 || n.start >= c.length - 1e-9) continue; // not played
+      merged.notes.push({ ...structuredClone(n), start: clean(n.start + dt), length: clean(Math.min(n.length, c.length - n.start)) });
+    }
+    const poly = isAuto(c) ? autoPolyline(c) : null;
+    if (poly) {
+      merged.points.push(
+        { t: clean(dt), v: autoValue(c, 0, poly), r: 0 },
+        ...c.points.filter((p) => p.t > 1e-9 && p.t < c.length - 1e-9).map((p) => ({ ...p, t: clean(p.t + dt) })),
+        { t: clean(dt + c.length), v: autoValue(c, c.length, poly), r: 0 },
+      );
+    }
+  }
+  for (const c of order) removeClip(song, c.id);
+  return merged;
+}
+
+// Split a clip at song time `at` (strictly inside it): the clip keeps the part before, a new
+// standalone clip (same name, module) gets the rest. A linked clone is detached first so its
+// group stays as it was. Notes still sounding at the cut end there. Returns the new clip or null.
+export function splitClip(song, clip, at) {
+  if (!(at > clip.start + 1e-9 && at < clip.start + clip.length - 1e-9)) return null;
+  detachClip(song, clip);
+  const right = duplicateClip(song, clip);
+  trimClipStart(right, clean(at), clip);
+  right.notes = right.notes.filter((n) => n.start >= -1e-9);
+  clip.length = clean(at - clip.start);
+  clip.notes = clip.notes.filter((n) => n.start < clip.length - 1e-9);
+  return right;
+}
+
 export const songEnd = (song) => song.clips.reduce((m, c) => Math.max(m, c.start + c.length), 0);
 // Playback loops at the end of the last clip, rounded up to a whole bar.
 export const loopEnd = (song) => {

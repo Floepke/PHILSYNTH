@@ -19,12 +19,12 @@ const NO_COLOR = '#8a8a92';
 // engine: Engine (song, root patch); transport: Transport; getTarget(moduleNumber) -> instance;
 // defaultTarget() -> module number for new clips; defaultAutoTarget() -> module number (or null)
 // for new automation clips; onChange() after every edit
-export function createSequencer({ engine, transport, getTarget, defaultTarget, defaultAutoTarget = () => null, onChange }) {
+export function createSequencer({ engine, transport, getTarget, defaultTarget, defaultAutoTarget = () => null, onChange, undoHistory }) {
   const $ = (id) => document.getElementById(id);
   const seq = $('seq');
   const ui = {
     play: $('seq-play'), pos: $('seq-pos'), name: $('seq-name'), target: $('seq-target'),
-    start: $('seq-start'), length: $('seq-length'), base: $('seq-snap-base'), div: $('seq-snap-div'),
+    base: $('seq-snap-base'), div: $('seq-snap-div'),
     ctl: $('seq-ctl'), ctlField: $('seq-ctl-field'), targetField: $('seq-target-field'),
   };
   const song = () => engine.song;
@@ -63,7 +63,8 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
       onChange();
     },
     changed() {
-      record();
+      undoHistory?.record();
+      if (!undoHistory) record();
       onChange();
       sync();
     },
@@ -83,7 +84,8 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
       if (!r) return;
       if (r === 'delete') removeSig(sg, at);
       else setSig(sg, at, r.num, r.den);
-      record();
+      undoHistory?.record();
+      if (!undoHistory) record();
       onChange();
       sync();
     },
@@ -139,12 +141,10 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
 
   const fmt = (v) => String(+v.toFixed(6));
   function sync() {
-    trackSong();
+    if (!undoHistory) trackSong();
     const c = clip();
-    for (const k of ['name', 'target', 'start', 'length']) ui[k].disabled = !c;
+    for (const k of ['name', 'target']) ui[k].disabled = !c;
     if (document.activeElement !== ui.name) ui.name.value = c?.name ?? '';
-    if (document.activeElement !== ui.start) ui.start.value = c ? fmt(c.start) : '';
-    if (document.activeElement !== ui.length) ui.length.value = c ? fmt(c.length) : '';
     ui.base.value = song().snap.base;
     ui.div.value = song().snap.div;
     ui.div.title = `Grid step: ${fmt(snapStep(song().snap))} quarter notes`;
@@ -179,15 +179,6 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
     for (const l of linkedClips(song(), c)) l.controller = +ui.ctl.value;
     ctx.changed();
   });
-  const numberField = (input, apply) => input.addEventListener('change', () => {
-    const c = clip();
-    const v = parseFloat(input.value);
-    if (c && Number.isFinite(v)) apply(c, v);
-    input.blur();
-    ctx.changed();
-  });
-  numberField(ui.start, (c, v) => arranger.place(c, { start: v })); // negative: parked before time zero
-  numberField(ui.length, (c, v) => arranger.setLength(c, Math.max(1e-3, v)));
   ui.base.addEventListener('change', () => { song().snap.base = +ui.base.value; ctx.changed(); });
   ui.div.addEventListener('input', () => {
     const v = Math.round(+ui.div.value);
@@ -197,13 +188,11 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
   });
   ui.div.addEventListener('change', () => sync()); // normalise what is shown
   // Enter / Escape in a field: back to the views (so Space plays again)
-  for (const el of [ui.name, ui.start, ui.length, ui.div]) {
+  for (const el of [ui.name, ui.div]) {
     el.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === 'Escape') el.blur(); });
   }
 
-  // ---- undo / redo of song edits: Ctrl/Cmd + Z, Ctrl/Cmd + Shift + Z or Ctrl + Y ----
-  // Snapshots use the saved JSON form; normalizeSong re-shares the notes of linked clones.
-  // A new project (or a loaded one) starts a new history.
+  // Standalone sequencer consumers keep local undo; the app supplies a project-wide history.
   const history = { owner: null, stack: [], i: -1 };
   const HISTORY_MAX = 200;
   const snapshot = () => JSON.stringify({ ...song(), selected: null });
@@ -241,8 +230,12 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
     if (k !== 'z' && !(k === 'y' && !e.shiftKey)) return;
     e.preventDefault();
     e.stopPropagation();
-    const ok = travel(k === 'y' || e.shiftKey ? 1 : -1);
-    $('status').textContent = ok ? (k === 'y' || e.shiftKey ? 'Redo (sequencer)' : 'Undo (sequencer)') : 'Nothing to undo / redo in the sequencer.';
+    const result = undoHistory ? undoHistory.travel(k === 'y' || e.shiftKey ? 1 : -1) : travel(k === 'y' || e.shiftKey ? 1 : -1);
+    const label = k === 'y' || e.shiftKey ? 'Redo' : 'Undo';
+    if (result && typeof result.then === 'function') {
+      result.then((ok) => { $('status').textContent = ok ? label : 'Nothing to undo / redo.'; })
+        .catch((err) => { $('status').textContent = `${label} failed: ${err.message}`; });
+    } else $('status').textContent = result ? label : 'Nothing to undo / redo.';
   });
 
   // ---- transport ----
@@ -318,13 +311,24 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
   const controller = $('panel-split');
   const upper = $('seq-split');
   const lower = $('seq-hsplit');
+  // The piano roll toolbar (play / stop) never disappears: the upper divider stops right under it,
+  // where the piano roll with its keyboard is just gone (CSS keeps the row at least this high too).
+  const room = () => Math.max(0, (workspace.getBoundingClientRect?.().height ?? 0)
+    - (upper.getBoundingClientRect?.().height ?? 0) - (lower.getBoundingClientRect?.().height ?? 0));
+  const barHeight = () => $('seq-bar').getBoundingClientRect?.().height ?? 0;
+  const minTop = () => {
+    const bar = barHeight();
+    const r = room();
+    return r > 0 ? Math.min(1, bar / r) : 0;
+  };
   function applyLayout() {
+    if (barHeight() > 0) workspace.style.setProperty('--seq-bar-h', `${barHeight()}px`);
     document.body.classList.toggle('panel-collapsed', layout.panelWidth === 0);
     document.body.style.setProperty('--panel-width', `${layout.panelWidth}px`);
     workspace.style.setProperty('--roll-fr', `${layout.top}fr`);
     workspace.style.setProperty('--patch-fr', `${layout.bottom - layout.top}fr`);
     workspace.style.setProperty('--arr-fr', `${1 - layout.bottom}fr`);
-    workspace.classList.toggle('roll-collapsed', layout.top === 0);
+    workspace.classList.toggle('roll-collapsed', layout.top <= minTop() + 1e-6);
     workspace.classList.toggle('patcher-collapsed', layout.top === layout.bottom);
     workspace.classList.toggle('arranger-collapsed', layout.bottom === 1);
     for (const [handle, value] of [[upper, layout.top], [lower, layout.bottom]]) {
@@ -335,13 +339,13 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
   }
   // S maximizes the patcher, then restores both surrounding panes to their saved positions.
   function toggleRoll() {
-    if (layout.top > 0 || layout.bottom < 1) {
+    if (layout.top > minTop() + 1e-6 || layout.bottom < 1) {
       layout.restoreTop = layout.top;
       layout.restoreBottom = layout.bottom;
       layout.top = 0;
       layout.bottom = 1;
     } else {
-      const restorable = layout.restoreTop > 0 || layout.restoreBottom < 1;
+      const restorable = layout.restoreTop > minTop() + 1e-6 || layout.restoreBottom < 1;
       layout.top = restorable ? layout.restoreTop : defaults.top;
       layout.bottom = restorable ? layout.restoreBottom : defaults.bottom;
     }
@@ -349,13 +353,14 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
     onChange();
   }
   function moveBoundary(boundary, value) {
-    layout[boundary] = clamp(value, 0, 1);
+    layout[boundary] = clamp(value, minTop(), 1); // neither divider can cover the toolbar
     if (boundary === 'top') layout.bottom = Math.max(layout.bottom, layout.top);
     else layout.top = Math.min(layout.top, layout.bottom);
     applyLayout();
   }
   function saveLayout(start) {
-    if (layout.top === 0 && layout.bottom === 1 && (start.top > 0 || start.bottom < 1)) {
+    const min = minTop() + 1e-6;
+    if (layout.top <= min && layout.bottom === 1 && (start.top > min || start.bottom < 1)) {
       layout.restoreTop = start.top;
       layout.restoreBottom = start.bottom;
     }
@@ -365,7 +370,7 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
     handle.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       e.preventDefault();
-      const room = Math.max(0, workspace.getBoundingClientRect().height - upper.getBoundingClientRect().height - lower.getBoundingClientRect().height);
+      const space = room();
       const panelHandle = controller.getBoundingClientRect();
       const patcher = $('patcher').getBoundingClientRect();
       const available = Math.max(0, patcher.width - panelHandle.width);
@@ -376,7 +381,7 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
       capture(handle, e, (ev) => {
         const dx = ev.clientX - x0;
         layout.panelWidth = dx ? clamp(panelStart + dx, 0, available) : start.panelWidth;
-        if (room > 0) moveBoundary(boundary, start[boundary] + (ev.clientY - y0) / room);
+        if (space > 0) moveBoundary(boundary, start[boundary] + (ev.clientY - y0) / space);
         else applyLayout();
       }, () => saveLayout(start));
     });

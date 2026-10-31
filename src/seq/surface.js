@@ -53,7 +53,7 @@ export function capture(cv, e, onMove, onUp) {
   return up;
 }
 
-export const RIGHT_HOLD_MS = 500;
+export const RIGHT_HOLD_MS = 250;
 export const RIGHT_HOLD_SLOP = 5; // px the pointer may move before a right-button hold is cancelled
 
 // Right button press: holding it still for RIGHT_HOLD_MS calls onHold() (the release then does

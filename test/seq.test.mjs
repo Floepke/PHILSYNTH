@@ -25,7 +25,7 @@ class Canvas extends EventTarget {
   context = Object.fromEntries([
     'setTransform', 'fillRect', 'strokeRect', 'beginPath', 'arc', 'fill', 'stroke',
     'save', 'rect', 'clip', 'setLineDash', 'moveTo', 'lineTo', 'restore',
-    'fillText', 'arcTo', 'closePath', 'ellipse', 'roundRect', 'quadraticCurveTo',
+    'fillText', 'arcTo', 'closePath', 'ellipse', 'roundRect', 'quadraticCurveTo', 'translate', 'scale',
   ].map((name) => [name, (...args) => this.drawing.push([name, ...args])]));
   constructor() {
     super();
@@ -278,11 +278,11 @@ for (const reverse of [false, true]) {
     const cv = roll.surface.cv;
     clip.notes.push(note(60, 1), note(64, 2));
     point(cv, 'pointerdown', nx(60), ny(1) + 5, { button: 2, buttons: 2 });
-    mock.timers.tick(499);
+    mock.timers.tick(249);
     assert.equal(menus.length, 0);
     assert.equal(clip.notes.length, 2, 'no deletion on press');
     mock.timers.tick(1); flush();
-    assert.equal(menus.length, 1, 'menu opens at 500 ms before release');
+    assert.equal(menus.length, 1, 'menu opens at 250 ms before release');
     assert.equal(clip.notes.length, 2);
     mock.timers.tick(1000);
     assert.equal(menus.length, 1);
@@ -306,7 +306,7 @@ for (const y of [ny(1) + 5, ny(1.5)]) {
     clip.notes.push(note(60, 1), note(64, 2));
     key(cv, 'a', { ctrlKey: true });
     point(cv, 'pointerdown', nx(60), y, { button: 2, buttons: 2 });
-    mock.timers.tick(499);
+    mock.timers.tick(249);
     point(cv, 'pointerup', nx(60), y, { button: 2 });
     assert.deepEqual(clip.notes.map((n) => n.pitch), [64]);
     assert.equal(changes(), 1);
@@ -323,7 +323,7 @@ for (const y of [ny(1) + 5, ny(1.5)]) {
   }
 }
 
-// Even if the timer is delayed by a busy event loop, a 500 ms release is not a delete.
+// Even if the timer is delayed by a busy event loop, a 250 ms release is not a delete.
 {
   mock.timers.enable({ apis: ['setTimeout'] });
   try {
@@ -331,7 +331,7 @@ for (const y of [ny(1) + 5, ny(1.5)]) {
     const cv = roll.surface.cv;
     clip.notes.push(note(60, 1));
     point(cv, 'pointerdown', nx(60), ny(1) + 5, { button: 2, buttons: 2, timeStamp: 1000 });
-    point(cv, 'pointerup', nx(60), ny(1) + 5, { button: 2, timeStamp: 1500 });
+    point(cv, 'pointerup', nx(60), ny(1) + 5, { button: 2, timeStamp: 1250 });
     assert.equal(menus.length, 1);
     assert.equal(clip.notes.length, 1);
     mock.timers.tick(1000);
@@ -349,7 +349,7 @@ for (const cancel of ['pointercancel', 'lostpointercapture', 'blur', 'windowBlur
     const cv = roll.surface.cv;
     clip.notes.push(note(60, 1));
     point(cv, 'pointerdown', nx(60), ny(1) + 5, { button: 2, buttons: 2 });
-    mock.timers.tick(250);
+    mock.timers.tick(249);
     if (cancel === 'windowBlur') window.dispatchEvent(new Event('blur'));
     else if (cancel === 'Escape') key(cv, 'Escape');
     else if (cancel === 'clipChange') { song.selected = null; roll.redraw(); flush(); }
@@ -372,7 +372,7 @@ for (const cancel of ['pointercancel', 'lostpointercapture', 'blur', 'windowBlur
     const cv = roll.surface.cv;
     clip.notes.push(note(60, 1), note(64, 2));
     point(cv, 'pointerdown', nx(59), ny(0.5), { button: 2, buttons: 2 });
-    mock.timers.tick(250);
+    mock.timers.tick(249);
     point(cv, 'pointermove', nx(61), ny(1.5), { button: 2, buttons: 2 });
     mock.timers.tick(1000);
     point(cv, 'pointerup', nx(61), ny(1.5), { button: 2 });
@@ -640,6 +640,51 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   point(cv, 'pointerup', ax(11), RY, { button: 2 });
   assert.equal(song.loop, null, 'right-click on the region removes it');
   assert.equal(changes(), c1 + 1);
+}
+
+// Context menu: Consolidate the selected clips of one lane, Split at the playhead; the signature
+// row sets / scrubs the play position.
+{
+  const { song, clip, arranger, ctx, menus, changes } = setup();
+  const cv = arranger.surface.cv;
+  clip.length = 4;
+  clip.notes.push(note(60, 1));
+  const b = addClip(song, { start: 6, length: 2, target: 9 });
+  b.notes.push(note(64, 0.5));
+  const lower = addClip(song, { start: 0, length: 2, y: 34, target: 7 });
+  holdRightClick(cv, ax(1), ay(0));
+  assert.ok(menus.at(-1).items.find((i) => i.label === 'Consolidate').disabled, 'one clip: nothing to consolidate');
+  click(cv, ax(7), ay(0), { ctrlKey: true });
+  click(cv, ax(1), ay(34), { ctrlKey: true });
+  holdRightClick(cv, ax(7), ay(0));
+  assert.ok(menus.at(-1).items.find((i) => i.label === 'Consolidate').disabled, 'clips on different lanes');
+  click(cv, ax(1), ay(34), { ctrlKey: true }); // drop the lower clip again
+  holdRightClick(cv, ax(7), ay(0));
+  const c0 = changes();
+  pick(menus, 'Consolidate');
+  assert.equal(changes(), c0 + 1);
+  assert.equal(song.clips.length, 2);
+  const merged = ctx.clip();
+  assert.deepEqual([merged.start, merged.length, merged.target], [0, 8, 7]);
+  assert.deepEqual(merged.notes.map((n) => [n.pitch, n.start]), [[60, 1], [64, 6.5]]);
+  assert.equal(ctx.transport.pos, 0, 'stopped: playhead at the new clip');
+  assert.ok(song.clips.includes(lower));
+
+  // split at the playhead (set in the signature row)
+  click(cv, ax(3.1), 8);
+  assert.equal(ctx.transport.pos, 3, 'a click in the signature row sets the play position');
+  drag(cv, ax(3.1), 8, ax(5.1), 8);
+  assert.equal(ctx.transport.pos, 5, 'dragging there scrubs');
+  assert.equal(song.loop, null, 'and makes no loop region');
+  holdRightClick(cv, ax(1), ay(0));
+  pick(menus, 'Split at playhead');
+  assert.equal(song.clips.length, 3);
+  const right = ctx.clip();
+  assert.deepEqual([merged.length, right.start, right.length, right.y], [5, 5, 3, 0]);
+  assert.deepEqual(right.notes.map((n) => [n.pitch, n.start]), [[64, 1.5]]);
+  assert.equal(ctx.transport.pos, 5, 'the playhead stays at the cut');
+  holdRightClick(cv, ax(1), ay(34));
+  assert.ok(menus.at(-1).items.find((i) => i.label === 'Split at playhead').disabled, 'playhead outside the clip');
 }
 
 // Clipboard placement follows the current triplet grid and scrolled arranger coordinates.
@@ -1080,7 +1125,7 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   }
 }
 
-// Hold the right button 500 ms for the TimeLine menu; shorter presses and right-drags open nothing.
+// Hold the right button 250 ms for the TimeLine menu; shorter presses and right-drags open nothing.
 {
   const { song, arranger, menus, clip } = setup();
   const cv = arranger.surface.cv;
@@ -1088,14 +1133,14 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   mock.timers.enable({ apis: ['setTimeout'] });
   try {
     point(cv, 'pointerdown', ax(1), ay(0), { button: 2, buttons: 2 });
-    mock.timers.tick(499);
+    mock.timers.tick(249);
     point(cv, 'pointerup', ax(1), ay(0), { button: 2 });
     assert.equal(menus.length, 0, 'short right-click opens no menu');
     point(cv, 'pointerdown', ax(1), ay(0), { button: 2, buttons: 2 });
-    mock.timers.tick(499);
+    mock.timers.tick(249);
     assert.equal(menus.length, 0);
     mock.timers.tick(1);
-    assert.equal(menus.length, 1, 'menu opens at 500 ms while the button is still down');
+    assert.equal(menus.length, 1, 'menu opens at 250 ms while the button is still down');
     assert.ok(labels(menus).includes('Cut'));
     point(cv, 'pointerup', ax(1), ay(0), { button: 2 });
     assert.equal(menus.length, 1, 'release adds nothing');
@@ -1306,7 +1351,13 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   assert.deepEqual(clip.notes, before);
   assert.ok(cv.drawing.some(([op, x, y, w, h]) => op === 'fillRect' && x === 0 && y === 376 && w === ROLL_WIDTH && h === 24));
   assert.ok(cv.drawing.some(([op, x, y, w, h]) => op === 'roundRect' && x === nx(60) - 7.5 && y === 48 && w === 15 && h === 48));
-  assert.ok(cv.drawing.some(([op, x, y, rx, ry, tilt]) => op === 'ellipse' && x === nx(60) && rx > ry && tilt < 0));
+  // noteheads: tilted ovals stretched 1.25× along time, with a thick (unstretched) outline
+  const ei = cv.drawing.findIndex(([op, x, y, rx, ry, tilt]) => op === 'ellipse' && x === 0 && y === 0 && rx > ry && tilt < 0);
+  assert.ok(ei > 1);
+  assert.deepEqual(cv.drawing[ei - 1], ['scale', 1, 1.25]);
+  assert.equal(cv.drawing[ei - 2][0], 'translate');
+  assert.equal(cv.drawing[ei - 2][1], nx(60));
+  assert.ok(cv.drawing.some(([op, color, width]) => op === 'stroke' && color === '#111216' && width === 3), 'outline twice as thick');
   assert.ok(cv.drawing.some(([op, color]) => op === 'fill' && color === '#65b4ff'));
   assert.ok(cv.drawing.some(([op, color, width]) => op === 'stroke' && color === '#5d606a' && width === 2));
   assert.ok(cv.drawing.some(([op, color, width]) => op === 'stroke' && color === '#a1a7b3' && width === 4));
@@ -1471,7 +1522,7 @@ for (const width of [300, 480, 900, 1912]) {
   const keys = cv.drawing.filter(([op, , y, , h]) => op === 'fillRect' && y === 377 && h === 22).slice(-128);
   assert.equal(keys.length, 128);
   assert.ok(keys[0][1] >= 120 && keys.at(-1)[1] + keys.at(-1)[3] <= width + 1e-9, 'whole keyboard fits');
-  const head = cv.drawing.find(([op, x]) => op === 'ellipse' && Math.abs(x - center(1)) < 1e-9);
+  const head = cv.drawing.find(([op, x]) => op === 'translate' && Math.abs(x - center(1)) < 1e-9); // notehead centre
   assert.ok(head);
   click(cv, center(0), ny(1) + 10, { button: 2 });
   click(cv, center(127), ny(1) + 10, { button: 2 });
@@ -1497,7 +1548,7 @@ for (const width of [300, 480, 900, 1912]) {
     cv.drawing.length = 0;
     rollHost.clientWidth = width;
     rollHost.resize();
-    const centers = cv.drawing.filter(([op]) => op === 'ellipse').map((op) => op[1]);
+    const centers = cv.drawing.filter(([op]) => op === 'translate').map((op) => op[1]);
     const kw = (width - 120) / 128;
     assert.deepEqual(centers, [120 + kw / 2, 120 + 127.5 * kw]);
     roll.setView({ sx: 4000, kw: 40, sy: 0, ppq: 48 });
@@ -1508,7 +1559,7 @@ for (const width of [300, 480, 900, 1912]) {
     roll.setView({ sy: 0 });
     cv.drawing.length = 0;
     roll.redraw(); flush();
-    assert.deepEqual(cv.drawing.filter(([op]) => op === 'ellipse').map((op) => op[1]), centers);
+    assert.deepEqual(cv.drawing.filter(([op]) => op === 'translate').map((op) => op[1]), centers);
     assert.deepEqual(clip.notes, before, 'resizing and scrolling do not alter the notes');
     assert.deepEqual(Object.keys(roll.getView()).sort(), ['ppq', 'snapVelocity', 'sy'], 'horizontal geometry is not persisted');
   }
@@ -1586,7 +1637,7 @@ for (const width of [300, 480, 900, 1912]) {
     closest(selector) { return this.kind !== 'div' && selector.includes(this.kind) ? this : null; }
   }
   const elements = new Map();
-  const inputIds = ['seq-name', 'seq-start', 'seq-length', 'seq-snap-div'];
+  const inputIds = ['seq-name', 'seq-snap-div'];
   for (const id of ['seq', 'seq-bar', 'seq-bar-content', 'seq-play', 'seq-pos', 'seq-target', 'seq-snap-base', 'seq-ctl', 'seq-ctl-field', 'seq-target-field', ...inputIds,
     'workspace', 'patcher', 'roll', 'arranger', 'seq-split', 'seq-hsplit', 'panel', 'panel-split', 'status']) {
     elements.set(id, new Element(inputIds.includes(id) ? 'input' : id === 'seq-play' ? 'button' : 'div'));
@@ -1867,6 +1918,30 @@ for (const width of [300, 480, 900, 1912]) {
   drag(lower, 300, 510, 300, 200);
   assert.deepEqual(positions(), beforeZero, 'zero available height never creates invalid fractions');
   workspace.getBoundingClientRect = () => ({ top: 100, height: 548 });
+
+  // The upper divider stops under the piano roll toolbar (play / stop): the roll is just gone there.
+  const bar = elements.get('seq-bar');
+  bar.getBoundingClientRect = () => ({ top: 100, height: 50 });
+  seq.applyView({ top: 0.4, bottom: 0.75 });
+  drag(upper, 300, 310, 300, -1000);
+  near(seq.viewState().top, 0.1);
+  assert.ok(workspace.classes.has('roll-collapsed'), 'at the toolbar the piano roll counts as collapsed');
+  assert.equal(workspace.style.props?.get?.('--seq-bar-h') ?? '50px', '50px');
+  drag(lower, 300, 510, 300, -1000);
+  assert.deepEqual(positions().map((v) => +v.toFixed(9)), [0.1, 0.1], 'the lower divider cannot push it past the toolbar');
+  key(upper, 'Home');
+  near(seq.viewState().top, 0.1);
+  seq.applyView({ top: 0.4, bottom: 0.75 });
+  drag(upper, 300, 310, 300, -1000);
+  drag(lower, 300, 510, 300, 1000);
+  press('s');
+  near(positions()[0], 0.1);
+  assert.equal(positions()[1], 0.75, 'dragged to the toolbar + bottom: S restores the last visible layout');
+  press('s');
+  assert.deepEqual(positions(), [0, 1], 'S maximizes the patcher (CSS keeps the toolbar row)');
+  press('s');
+  near(positions()[0], 0.1);
+  delete bar.getBoundingClientRect;
 
   seq.applyView({ top: 0.4, bottom: 0.75 });
   key(lower, 'ArrowUp', { shiftKey: true });

@@ -12,12 +12,13 @@
 //   Alt + drag                 duplicate (standalone copies with the same name)
 //   Shift + drag               linked clone: shares the notes with the source (see song.js); clones
 //                              are hatched, a selected clone shows a dashed arrow to its source
-//   hold right button 500 ms   menu: cut / copy / paste / delete / duplicate / clone / detach / go to source
+//   hold right button 250 ms   menu: cut / copy / paste / delete / duplicate / clone / detach / go to source /
+//                              consolidate (selected clips on one lane -> one clip) / split at the playhead
 //   Backspace / Delete         delete the selected clips
 //   Ctrl/Cmd + X / C / V       cut / copy / paste clips at the snapped pointer position
 //   Ctrl/Cmd + D / Shift + D   duplicate / clone the selection right after itself
 //   Ctrl/Cmd + A, Escape       select all / clear the selection
-//   click the ruler            set the play position
+//   click the ruler            set the play position (the signature row too: click / drag scrubs)
 //   drag on the ruler          select a loop region (snapped); song playback loops inside it
 //   right-click the region     remove it (the ruler, a short click)
 //   double-click the ruler     insert a time signature change at the nearest bar line (or edit it)
@@ -26,6 +27,7 @@
 import {
   snapStep, snapFloor, snapRound, loopEnd, getClip, addClip, addAutoClip, isAuto, autoPolyline, duplicateClip, removeClip, trimClipStart, BAR, clean,
   meter, barLines, barRound, barLength, removeSig, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource, setLoop,
+  canConsolidate, consolidateClips, splitClip,
 } from '../song.js';
 import { createSurface, capture, startPan, onWheel, clamp, snapBands, rightHold } from './surface.js';
 import { CLIP_H, findClipPosition, clipResizeBounds } from './clipplacement.js';
@@ -493,7 +495,7 @@ export function createArranger(host, ctx) {
   function hoverAt(x, y) {
     const h = hit(x, y);
     const id = h?.clip.id ?? null;
-    cv.style.cursor = !h ? (y < RULER && x >= x0 ? (y < SIG_H ? (sigAt(x, y) ? 'pointer' : 'copy') : 'text') : 'default') : h.part === 'body' ? 'grab' : 'ew-resize';
+    cv.style.cursor = !h ? (y < RULER && x >= x0 ? (sigAt(x, y) ? 'pointer' : 'text') : 'default') : h.part === 'body' ? 'grab' : 'ew-resize';
     if (id !== hoverId) { hoverId = id; s.redraw(); }
   }
 
@@ -545,7 +547,14 @@ export function createArranger(host, ctx) {
     lastRight = null;
     if (e.button !== 0) return;
     const st = step();
-    if (y < SIG_H) return; // signature row: double-click to insert / edit
+    if (y < SIG_H) { // signature row: set / scrub the play position (double-click inserts / edits a signature)
+      if (x < x0) return;
+      const seek = (ev) => { ctx.transport.seek(Math.max(0, snapRound(timeAt(s.local(ev).x), st))); s.redraw(); };
+      seek(e);
+      dragging = true;
+      capture(cv, e, seek, () => { dragging = false; });
+      return;
+    }
     if (y < RULER) { // ruler: a click sets the play position, a drag selects the loop region
       if (x < x0) return;
       const at = (ev) => Math.max(0, snapRound(timeAt(s.local(ev).x), st));
@@ -715,6 +724,23 @@ export function createArranger(host, ctx) {
     for (const c of selectedClips()) if (detachClip(ctx.song(), c)) n++;
     if (n) ctx.changed();
   }
+  function consolidate() {
+    const merged = consolidateClips(ctx.song(), selectedClips());
+    if (!merged) return;
+    setSelection([merged], merged);
+    ctx.changed();
+  }
+  // splits the selected clips under the playhead; the right parts join the selection
+  const splittable = () => selectedClips().filter((c) => ctx.transport.pos > c.start + 1e-9 && ctx.transport.pos < c.start + c.length - 1e-9);
+  function split() {
+    const clips = splittable();
+    if (!clips.length) return;
+    const song = ctx.song();
+    const rights = clips.map((c) => splitClip(song, c, ctx.transport.pos));
+    const primary = rights[clips.findIndex((c) => c.id === song.selected)] ?? rights[0];
+    setSelection([...selectedClips(), ...rights], primary); // primary starts at the playhead: it stays put
+    ctx.changed();
+  }
   const selectAll = () => setSelection(ctx.song().clips);
   function goToSource(clip) {
     const src = linkSource(ctx.song(), clip);
@@ -739,6 +765,9 @@ export function createArranger(host, ctx) {
         { label: 'Clone (linked)', shortcut: shortcut('⇧D'), action: () => repeat(true) },
         { label: 'Detach clone', disabled: !clips.some((c) => isLinked(ctx.song(), c)), action: detach },
         { label: 'Go to source', disabled: !(h && isClone(ctx.song(), h.clip)), action: () => goToSource(h.clip) },
+        '-',
+        { label: 'Consolidate', disabled: !canConsolidate(ctx.song(), clips), action: consolidate },
+        { label: 'Split at playhead', disabled: !splittable().length, action: split },
         '-',
         { label: 'Select all', shortcut: shortcut('A'), action: selectAll },
       ]

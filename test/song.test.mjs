@@ -4,7 +4,7 @@ import {
   trimClipStart, loopEnd, notesStarting, isBlack, inPiano, formatPos, noteName, clean,
   meter, barLines, beatLines, barRound, barCeil, barLength, setSig, removeSig, normalizeSigs,
   addAutoClip, isAuto, autoValue, automationAt, pointIndex,
-  notePoints, noteVelAt, groupVelCurve, applyVelCurve,
+  notePoints, noteVelAt, groupVelCurve, applyVelCurve, canConsolidate, consolidateClips, splitClip,
 } from '../src/song.js';
 import { Transport } from '../src/transport.js';
 
@@ -349,5 +349,67 @@ console.log('song tests passed');
   assert.equal(formatPos(-3, song), '0.2.00');
   assert.equal(formatPos(-8, song), '-1.1.00');
   assert.equal(formatPos(5, song), '2.2.00');
+}
+// ---- consolidate / split: the song plays the same afterwards ----
+{
+  const played = (song) => notesStarting(song, -100, 100)
+    .map((e) => `${e.note.pitch}@${clean(e.start)}-${clean(e.end)}v${e.note.vel}`).sort();
+  const song = emptySong();
+  const a = addClip(song, { start: 0, length: 4, target: 3 });
+  a.notes.push({ pitch: 60, start: 0, length: 6, vel: 0.5 }, { pitch: 61, start: 5, length: 1, vel: 0.5 }, { pitch: 62, start: -1, length: 3, vel: 0.5 });
+  const b = addClip(song, { start: 6, length: 2, target: 9 });
+  b.notes.push({ pitch: 64, start: 1, length: 1, vel: 0.9, vels: [{ t: 0.5, v: 0.2, r: 0 }] });
+  const clone = cloneClip(song, b);
+  clone.start = 8;
+  const other = addClip(song, { start: 2, length: 4, y: LANE_H, target: 1 });
+  const auto = addAutoClip(song, { start: 0, length: 2, y: 2 * LANE_H });
+  assert.equal(canConsolidate(song, [a]), false, 'one clip');
+  assert.equal(canConsolidate(song, [a, other]), false, 'different lanes');
+  assert.equal(canConsolidate(song, [a, clone]), false, 'b sits between them');
+  assert.equal(canConsolidate(song, [a, auto]), false);
+  const before = played(song);
+  const m = consolidateClips(song, [clone, a, b]);
+  assert.deepEqual(played(song), before, 'same notes, same times, cut where the clips ended');
+  assert.deepEqual([m.start, m.length, m.target, m.name, m.link], [0, 10, 3, a.name, undefined], 'module and name of the first clip');
+  assert.equal(song.clips.length, 3);
+  assert.ok(!song.clips.includes(a) && !song.clips.includes(b) && !song.clips.includes(clone));
+  assert.equal(m.notes.find((n) => n.pitch === 60).length, 4, 'cut at the old clip end');
+  assert.ok(!m.notes.some((n) => n.pitch === 61 || n.pitch === 62), 'hidden notes are dropped');
+  m.notes.find((n) => n.pitch === 64).vel = 0.1;
+  assert.equal(b.notes[0].vel, 0.9, 'own copies of the notes');
+
+  // split: same sound, linked clones are detached first, edges are strict
+  const before2 = played(song);
+  assert.equal(splitClip(song, m, 0), null);
+  assert.equal(splitClip(song, m, 10), null);
+  const r = splitClip(song, m, 7.5);
+  assert.deepEqual([m.start, m.length, r.start, r.length, r.target, r.y], [0, 7.5, 7.5, 2.5, 3, m.y]);
+  assert.deepEqual(played(song).filter((x) => !x.startsWith('64@7')), before2.filter((x) => !x.startsWith('64@7')));
+  assert.ok(played(song).includes('64@7-7.5v0.1'), 'a note across the cut ends there');
+  assert.ok(r.notes.every((n) => n.start >= 0) && m.notes.every((n) => n.start < 7.5));
+  const src = addClip(song, { start: 20, length: 4 });
+  src.notes.push({ pitch: 50, start: 3, length: 1, vel: 0.5 });
+  const twin = cloneClip(song, src);
+  twin.start = 30;
+  const tr = splitClip(song, twin, 32);
+  assert.ok(!isLinked(song, twin) && !isLinked(song, src), 'the split clone is detached');
+  assert.equal(src.length, 4);
+  assert.equal(src.notes.length, 1);
+  assert.equal(tr.notes[0].start, 1);
+  // automation: the curve plays the same after consolidating and splitting
+  const s2 = emptySong();
+  const p = addAutoClip(s2, { start: 0, length: 2, target: 4, controller: 2 });
+  p.points = [{ t: -1, v: 0, r: 0 }, { t: 1, v: 1, r: 0 }];
+  const q = addAutoClip(s2, { start: 3, length: 2, target: 5, controller: 7 });
+  q.points = [{ t: 0, v: 0.2, r: 0 }, { t: 4, v: 1, r: 0 }];
+  const values = (sg, ts) => ts.map((t) => automationAt(sg, t)[0]?.value ?? null);
+  const ts = [0, 0.5, 1, 1.5, 1.99, 3, 3.5, 4.5, 4.99];
+  const v0 = values(s2, ts);
+  const am = consolidateClips(s2, [p, q]);
+  assert.deepEqual([am.target, am.controller, am.kind], [4, 2, 'auto']);
+  values(s2, ts).forEach((v, i) => assert.ok(Math.abs(v - v0[i]) < 1e-9, `auto at ${ts[i]}: ${v} vs ${v0[i]}`));
+  const ar = splitClip(s2, am, 3.5);
+  values(s2, ts).forEach((v, i) => assert.ok(Math.abs(v - v0[i]) < 1e-9, `split auto at ${ts[i]}`));
+  assert.equal(ar.start, 3.5);
 }
 console.log('link tests passed');

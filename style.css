@@ -494,7 +494,7 @@ body.panel-collapsed #panel { visibility: hidden; }
 #workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(0, var(--roll-fr, 0.4fr)) var(--seq-divider) minmax(0, var(--patch-fr, 0.35fr)) var(--seq-divider) minmax(0, var(--arr-fr, 0.25fr));
+  grid-template-rows: minmax(var(--seq-bar-h, 49px), var(--roll-fr, 0.4fr)) var(--seq-divider) minmax(0, var(--patch-fr, 0.35fr)) var(--seq-divider) minmax(0, var(--arr-fr, 0.25fr));
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -571,7 +571,7 @@ body.panel-collapsed #panel { visibility: hidden; }
 #seq-target { box-shadow: inset 3px 0 0 var(--clip-color); }
 .seq-div { color: var(--text); font-size: 16px; line-height: 1; }
 #seq-bar .seq-div-input { width: 48px; }
-#workspace.roll-collapsed #seq,
+#workspace.roll-collapsed #roll,
 #workspace.patcher-collapsed #patcher,
 #workspace.arranger-collapsed #arranger { visibility: hidden; }
 .seq-view { position: relative; min-height: 0; overflow: hidden; }
