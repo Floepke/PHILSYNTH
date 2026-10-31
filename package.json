@@ -9,6 +9,7 @@
     "start": "electron .",
     "serve": "node server.mjs",
     "build:wasm": "node build-wasm.mjs",
+    "build:linux": "node build-linux.mjs",
     "build:mac": "node build-mac.mjs",
     "build:mac:zip": "node build-mac.mjs --zip",
     "build:icon": "node build/make-icon.mjs",
@@ -17,6 +18,7 @@
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",
-    "electron": "^45.0.0"
+    "electron": "^45.0.0",
+    "electron-builder": "^26.0.12"
   }
 }

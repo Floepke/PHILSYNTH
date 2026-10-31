@@ -897,7 +897,7 @@ canvas.addEventListener('contextmenu', (e) => {
   openPatcherMenu(box ?? canvas, p.x, p.y);
 });
 
-// Mouse back button (button 3): one patch level up, like Esc. Its default (history back) is
+// Mouse back button (button 3): one patch level up. Its default (history back) is
 // suppressed so the page never navigates away.
 const MOUSE_BACK = 3;
 window.addEventListener('mousedown', (e) => { if (e.button === MOUSE_BACK) e.preventDefault(); }, true);
@@ -911,12 +911,9 @@ window.addEventListener('mouseup', (e) => {
 }, true);
 
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && path.length && !document.querySelector('dialog[open]')) {
+  if (e.key === 'Escape' && !document.querySelector('dialog[open]')) {
     if (e.repeat) return;
-    if (path.length > 1) {
-      path.pop();
-      render();
-    } else if (!e.defaultPrevented && !e.target.closest('input, select, textarea, dialog, #seq, #arranger')) {
+    if (!e.defaultPrevented && !e.target.closest('input, select, textarea, dialog, [contenteditable]:not([contenteditable="false"])')) {
       e.preventDefault();
       exitToOS(persist, (message) => { $('status').textContent = message; });
     }
@@ -1049,7 +1046,7 @@ function select(s) {
       hint('<kbd>Backspace</kbd> deletes the selection.'),
       hint('<b>Context menus:</b> in the patcher, the TimeLine and the velocity lane a normal <kbd>right</kbd>-click opens the menu. In the piano roll hold the right mouse button still for <b>250 ms</b> (moving 5 px or more first cancels it); there a short right-click deletes a note. On the TimeLine ruler a right-click removes a time signature or the loop region.'),
       hint(`Right-click a module, cable or the canvas for <b>Cut / Copy / Paste / Delete</b> (or press the keyboard menu key; shortcuts <kbd>${shortcut('X')}</kbd> <kbd>${shortcut('C')}</kbd> <kbd>${shortcut('V')}</kbd>; paste lands at the mouse pointer). <b>Rename…</b> (or <kbd>F2</kbd>) gives a module its own name on its box; the controller panel keeps showing the module type.`),
-      hint('Select a module and press <kbd>F2</kbd> (or right-click → Rename…) to rename it. <kbd>Double-click</kbd> a Patch (or select it and press <kbd>Enter</kbd>, or right-click → Open patch) to enter it, <kbd>Esc</kbd> (or the mouse <b>back</b> button) to go up. Inside a Patch the piano roll and TimeLine show that Patch\'s <b>own sequencer</b>: its clips send to modules of that level only. Play inside a Patch plays that level\'s TimeLine (with its own meter and loop region) at the BPM of its own <b>Output</b> module, plus the TimeLines of the Patches inside it; play on the main level plays everything at the main BPM. At the main layer, <kbd>Esc</kbd> asks <b>Exit to OS?</b>; Yes autosaves and closes the app.'),
+      hint('Select a module and press <kbd>F2</kbd> (or right-click → Rename…) to rename it. <kbd>Double-click</kbd> a Patch (or select it and press <kbd>Enter</kbd>, or right-click → Open patch) to enter it; use the mouse <b>back</b> button or patch-path breadcrumbs to go up. Inside a Patch the piano roll and TimeLine show that Patch\'s <b>own sequencer</b>: its clips send to modules of that level only. Play inside a Patch plays that level\'s TimeLine (with its own meter and loop region) at the BPM of its own <b>Output</b> module, plus the TimeLines of the Patches inside it; play on the main level plays everything at the main BPM. <kbd>Esc</kbd> or <b>Exit</b> at the bottom of the main menu asks <b>Exit to OS?</b>; <kbd>Enter</kbd> / Yes autosaves and closes the app, while <kbd>Esc</kbd> / No cancels. Escape still dismisses open menus and editing controls first.'),
       hint('Select a Patch and click <b>Controllers…</b> to map controllers of any module inside to controllers of the Patch module, so they can be set, modulated (LFO) and automated from outside.'),
       hint('OSC / ADSR: with <b>Sustain</b> at 0, <b>Decay</b> and <b>Release</b> are linked: moving one moves the other.'),
       hint('<kbd>Middle mouse</kbd> + drag pans the canvas, <kbd>scroll</kbd> zooms. Click the zoom % (bottom right) to fit all modules.'),
@@ -1067,13 +1064,13 @@ function select(s) {
       hint('<b>TimeLine placement:</b> moving, cloning, pasting or creating a clip snaps it to the nearest non-overlapping position. Clip edges take priority over the time grid; resizing stops at neighbouring clips. Use separate vertical rows for clips that play at the same time.'),
       hint('<b>Playback:</b> <kbd>/</kbd> loops the time range of the selected clip from its start, with every other clip playing in that range (muted lanes stay silent, the selected clip too when its lane is muted). <kbd>\'</kbd> stops playback; pressing <kbd>\'</kbd> again is a panic (all notes off, echo / reverb tails cut, all audio state reset). <kbd>.</kbd> plays/resumes the full song, and <kbd>,</kbd> restarts the song at zero. <kbd>Space</kbd> toggles play/stop; with the pointer over the piano-roll note grid, playback starts at its snapped time and continues through the song beyond the selected clip. Only <kbd>/</kbd> loops the selected clip. Stopping with <kbd>Space</kbd> (or the ■ button) moves the playhead to the start of the selected clip; outside the note grid, the next <kbd>Space</kbd> resumes from the parked playhead. Shortcuts are inactive while typing in a field. Note chasing: starting or jumping into the middle of a note plays it for the rest of its length.'),
       hint('<b>Controls:</b> scroll a dropdown to change its selection. Number fields have permanent up/down buttons and also support scrolling; <kbd>Double-click</kbd> a number (or use <kbd>Tab</kbd>) to type. Mouse adjustments leave keyboard focus in the editor so <kbd>Space</kbd> still plays.'),
-      hint('<b>Toolbar:</b> controls stay on one row. When space is tight, move the pointer toward the left or right edge to reveal hidden controls; the closer to the edge, the faster it moves. Move to the middle to stop. Clicking, typing or using the wheel pauses motion; the wheel still changes control values. <kbd>Tab</kbd> also reveals focused controls.'),
+      hint('<b>Toolbar:</b> controls stay on one row. When space is tight, move the pointer across the toolbar to continuously reveal its controls: left shows the beginning, the middle shows the middle, and right shows the end. Scrolling follows the pointer position and stops when the pointer stops. Clicking, typing or using the wheel pauses motion; the wheel still changes control values. <kbd>Tab</kbd> also reveals focused controls.'),
       hint(`<b>Main menu:</b> click the logo / <b>MODSYNTH</b> (always in the top-right corner of the window) for <b>New</b> (<kbd>${shortcut('N')}</kbd>), <b>Open…</b> (<kbd>${shortcut('O')}</kbd>), <b>Save</b> (<kbd>${shortcut('S')}</kbd>), <b>Save As…</b> (<kbd>${shortcut('⇧S')}</kbd>) <b>Export Audio…</b> and <b>Enable / Re-scan MIDI</b>. Projects are <b>.mds</b> files (older .json projects open too; Save then asks for a new .mds file). The file name is shown in the status bar (bottom right) and the window title, with <b>•</b> while there are unsaved changes; New and Open ask whether to save them first (Yes / No / Cancel). Independently, every change is autosaved, so the app always starts with your latest project, its file name and unsaved state.`),
-      hint('<b>Export Audio…</b> (main menu): choose where to save, then the song renders offline (much faster than real time) from its start to the end of the last clip, or just the loop region when one is set, plus the sound tail (releases, echoes, reverb; at most 10 s). The file is a 24-bit stereo WAV at the audio device\'s sample rate. The status bar warns when the mix clips.'),
+      hint(`<b>Export Audio…</b> (main menu or <kbd>${shortcut('E')}</kbd>): choose where to save, then the song renders offline (much faster than real time) from its start to the end of the last clip, or just the loop region when one is set, plus the sound tail (releases, echoes, reverb; at most 10 s). The file is a 24-bit stereo WAV at the audio device's sample rate. The status bar warns when the mix clips.`),
       hint('<b>Layout:</b> piano roll, patcher and TimeLine are stacked top to bottom. The main menu button stays in the top-right corner, on top of everything. Play/stop, clip and snap controls sit on the upper divider (it can be dragged up to the window edge, under the menu button) and remain visible even when the piano roll is hidden. The patch path (<b>Main</b> / …, click a level to go up) sits at the left of the lower divider. Drag the exposed divider grip or empty space up/down to resize (left/right resizes the controller panel); the widgets do not drag the divider. When the patcher closes, the dragged divider pushes the other one. Drag to an edge to hide a pane and back to reopen it. Positions are saved with the project. The piano keyboard stays at the bottom of the roll; selected notes are filled blue.'),
       hint('The piano roll fits all <b>128 MIDI notes (0–127)</b> across its width and rescales with the window width. Horizontal zoom is automatic; <kbd>Alt</kbd> + scroll no longer changes key width. Each mouse-wheel step scrolls exactly one snap step (the selected snap); scroll upward to reveal a small margin above beat zero. <kbd>Ctrl/Cmd</kbd> + scroll still zooms time.'),
       hint('Drag the left controller-panel divider to resize the panel, or fully left to hide it. Its handle stays available to reopen it, and the width is saved with the project.'),
-      hint('All three dividers resize the controller panel when dragged left/right. Dragging the controller-panel divider up/down also moves the upper horizontal divider. Each horizontal divider supports <kbd>Up</kbd>/<kbd>Down</kbd> (hold <kbd>Shift</kbd> for larger steps) and <kbd>Home</kbd>/<kbd>End</kbd> to reach the edges. Every divider shows a small four-dot grip.'),
+      hint('All three dividers resize the controller panel when dragged left/right. On the controller-panel divider, grab above the four-dot grip to move the upper horizontal divider up/down, or below it to move the lower one. The chosen divider stays attached for the whole drag. Each horizontal divider supports <kbd>Up</kbd>/<kbd>Down</kbd> (hold <kbd>Shift</kbd> for larger steps) and <kbd>Home</kbd>/<kbd>End</kbd> to reach the edges. Every divider shows a small four-dot grip.'),
       hint('<b>Piano roll colors:</b> charcoal paper keeps the stave dark rather than inverted. Notes use a lighter version of their module color; black-key bodies are slightly darker, including in blue selections, so dense chromatic chords retain the keyboard pattern.'),
       hint('The piano-roll snap bands and horizontal grid/bar lines run from the center of <b>A#0</b> to the center of <b>A#7</b> (American notation). Notes outside this range can still be edited and played.'),
     );
@@ -1304,9 +1301,11 @@ function openMainMenu(focusFirst) {
       { label: 'Save', shortcut: shortcut('S'), action: () => saveCommand(false) },
       { label: 'Save As…', shortcut: shortcut('⇧S'), action: () => saveCommand(true) },
       '-',
-      { label: 'Export Audio…', disabled: exporting, action: exportAudio },
+      { label: 'Export Audio…', shortcut: shortcut('E'), disabled: exporting, action: exportAudio },
       '-',
       { label: 'Enable / Re-scan MIDI', disabled: !midi, action: () => midi.enable() },
+      '-',
+      { label: 'Exit', shortcut: 'Esc', action: () => exitToOS(persist, (message) => { $('status').textContent = message; }) },
     ],
   });
   if (focusFirst) document.querySelector('.main-menu .ctx-item')?.focus();
@@ -1318,7 +1317,7 @@ brand.addEventListener('click', (e) => {
   }
   openMainMenu(e.detail === 0); // detail 0: opened with Enter / Space
 });
-// Ctrl/Cmd + N / O / S / Shift + S work everywhere (also while typing), except in dialogs
+// Ctrl/Cmd + N / O / S / Shift + S / E work everywhere (also while typing), except in dialogs
 window.addEventListener('keydown', (e) => {
   if (!(e.ctrlKey || e.metaKey) || e.altKey || document.querySelector('dialog[open]')) return;
   const k = e.key.toLowerCase();
@@ -1326,7 +1325,8 @@ window.addEventListener('keydown', (e) => {
     : e.shiftKey ? null
       : k === 'n' ? newFile
         : k === 'o' ? openFile
-          : null;
+          : k === 'e' ? exportAudio
+            : null;
   if (!run) return;
   e.preventDefault();
   e.stopPropagation();

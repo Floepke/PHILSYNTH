@@ -55,42 +55,57 @@ assert.equal(bar.classes.has('can-scroll-left'), false);
 assert.equal(bar.classes.has('can-scroll-right'), true);
 move(250);
 advance(1000);
-assert.equal(bar.scrollLeft, 0, 'middle does not pan');
-move(399);
+assert.equal(bar.scrollLeft, 300, 'middle reveals the middle of the overflow');
+move(400);
 advance(2000);
 assert.equal(bar.scrollLeft, 600, 'right edge reveals the final controls');
 assert.equal(frames.size, 0, 'animation stops at the boundary');
 assert.equal(bar.classes.has('can-scroll-right'), false);
 assert.equal(bar.classes.has('can-scroll-left'), true);
-move(101);
+move(100);
 advance(2000);
 assert.equal(bar.scrollLeft, 0, 'left edge reveals the first controls');
 assert.equal(frames.size, 0);
 
-// Slow edge motion must accumulate even when a browser rounds scrolling to whole pixels.
+// The full pointer journey maps to the full scroll range, without edge-only zones.
+for (const [x, expected] of [[100, 0], [160, 120], [220, 240], [280, 360], [340, 480], [400, 600], [250, 300], [100, 0]]) {
+  move(x);
+  advance(16);
+  assert.equal(bar.scrollLeft, expected);
+  assert.equal(frames.size, 0, 'a stationary pointer never keeps scrolling');
+}
+// Pointer positions outside the row clamp to the endpoints.
+move(450);
+advance(16);
+assert.equal(bar.scrollLeft, 600);
+move(50);
+advance(16);
+assert.equal(bar.scrollLeft, 0);
+
+// Rounded scroll positions remain tied to pointer position, not accumulated speed.
 bar.quantum = 1;
-move(337);
+move(250.25);
+advance(16);
+assert.equal(bar.scrollLeft, 301);
 advance(1000);
-assert.ok(bar.scrollLeft > 5);
+assert.equal(bar.scrollLeft, 301, 'holding still does not drift');
 pause();
 bar.quantum = 0;
 bar.scrollLeft = 0;
 
-// Movement near the inside of an edge zone is gentler than at the outside.
+// Rapid pointer moves are coalesced into the latest position for the next paint.
+move(160);
 move(340);
-advance(160);
-const slow = bar.scrollLeft;
-pause();
-bar.scrollLeft = 0;
-move(399);
-advance(160);
-assert.ok(bar.scrollLeft > slow * 3);
+assert.equal(frames.size, 1);
+advance(16);
+assert.equal(bar.scrollLeft, 480);
 
 // Clicking, leaving, typing, cancelling, wheeling and losing the window stop motion immediately.
 for (const event of ['pointerdown', 'pointerleave', 'pointercancel', 'keydown', 'wheel']) {
   bar.scrollLeft = 100;
   move(399);
   advance(32);
+  move(150);
   fire(bar, event);
   const stopped = bar.scrollLeft;
   advance(500);
@@ -150,7 +165,7 @@ bar.clientWidth = 300;
 bar.scrollWidth = 1200;
 resize();
 assert.equal(bar.classes.has('can-scroll-right'), true);
-move(399);
+move(400);
 advance(2500);
 assert.equal(bar.scrollLeft, 900);
 bar.clientWidth = 0;
@@ -162,7 +177,7 @@ assert.equal(frames.size, 0);
 bar.clientWidth = 500;
 resize();
 assert.equal(bar.scrollLeft, 700);
-move(101);
+move(100);
 advance(2500);
 assert.equal(bar.scrollLeft, 0);
 

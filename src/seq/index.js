@@ -398,6 +398,9 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
       e.preventDefault();
       const space = room();
       const panelHandle = controller.getBoundingClientRect();
+      const dragBoundary = handle === controller
+        ? (e.clientY > panelHandle.top + panelHandle.height / 2 ? 'bottom' : 'top')
+        : boundary;
       const patcher = $('patcher').getBoundingClientRect();
       const available = Math.max(0, patcher.width - panelHandle.width);
       const panelStart = panelHandle.left - patcher.left;
@@ -407,7 +410,7 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
       capture(handle, e, (ev) => {
         const dx = ev.clientX - x0;
         layout.panelWidth = dx ? clamp(panelStart + dx, 0, available) : start.panelWidth;
-        if (space > 0) moveBoundary(boundary, start[boundary] + (ev.clientY - y0) / space);
+        if (space > 0) moveBoundary(dragBoundary, start[dragBoundary] + (ev.clientY - y0) / space);
         else applyLayout();
       }, () => saveLayout(start));
     });

@@ -2201,7 +2201,8 @@ for (const width of [300, 480, 900, 1912]) {
   const controller = elements.get('panel-split');
   controller.getBoundingClientRect = () => {
     const left = Math.min(seq.viewState().panelWidth, window.innerWidth - 24);
-    return { left, right: left + 24, width: 24 };
+    const { top, bottom } = seq.viewState();
+    return { left, right: left + 24, width: 24, top: 124 + top * 500, height: (bottom - top) * 500 };
   };
   upper.getBoundingClientRect = () => ({ top: 100 + seq.viewState().top * 500, height: 24 });
   lower.getBoundingClientRect = () => ({ top: 124 + seq.viewState().bottom * 500, height: 24 });
@@ -2344,7 +2345,49 @@ for (const width of [300, 480, 900, 1912]) {
   near(seq.viewState().top, 0.5);
   near(seq.viewState().bottom, 0.85);
 
-  // The controller divider also moves the upper boundary, keeping both grab offsets.
+  // The controller divider picks a boundary at grab time, relative to its centred grip.
+  const controllerY = (offset) => {
+    const rect = controller.getBoundingClientRect();
+    return rect.top + rect.height / 2 + offset;
+  };
+  for (const [offset, expected] of [[-10, [0.5, 0.75]], [10, [0.4, 0.85]], [0, [0.5, 0.75]]]) {
+    seq.applyView({ top: 0.4, bottom: 0.75, panelWidth: 280 });
+    const y = controllerY(offset);
+    const before = viewChanges;
+    point(controller, 'pointerdown', 292, y);
+    assert.deepEqual(positions(), [0.4, 0.75], 'grabbing either half does not jump');
+    point(controller, 'pointermove', 412, y + 50);
+    assert.equal(seq.viewState().panelWidth, 400, 'both halves also resize controller width');
+    near(seq.viewState().top, expected[0]);
+    near(seq.viewState().bottom, expected[1]);
+    point(controller, 'pointerup', 412, y + 50);
+    assert.equal(viewChanges, before + 1, 'each controller drag saves once');
+  }
+  seq.applyView({ top: 0.4, bottom: 0.75, panelWidth: 280 });
+  let y = controllerY(10);
+  point(controller, 'pointerdown', 292, y);
+  point(controller, 'pointermove', 292, y - 250);
+  assert.deepEqual(positions(), [0.25, 0.25], 'lower-half grab pushes the upper boundary on collision');
+  point(controller, 'pointermove', 292, y - 100);
+  near(seq.viewState().top, 0.25);
+  near(seq.viewState().bottom, 0.55);
+  point(controller, 'pointercancel', 292, y - 100);
+  point(controller, 'pointermove', 292, y + 100);
+  near(seq.viewState().bottom, 0.55, 'cancelled lower-half drag stops moving');
+  const savedLowerDrag = JSON.parse(JSON.stringify(seq.viewState()));
+  seq.applyView(null);
+  seq.applyView(savedLowerDrag);
+  near(seq.viewState().bottom, 0.55, 'lower-half resize survives saving/restoring');
+
+  seq.applyView({ top: 0.4, bottom: 0.75, panelWidth: 280 });
+  y = controllerY(10);
+  drag(controller, 292, y, 292, y + 500);
+  assert.deepEqual(positions(), [0.4, 1], 'lower half collapses the TimeLine without moving the upper divider');
+  y = controllerY(10);
+  drag(controller, 292, y, 292, y - 50);
+  near(seq.viewState().bottom, 0.9, 'lower half reopens the TimeLine');
+
+  // Upper-half grabs retain the existing behaviour and both grab offsets.
   seq.applyView({ top: 0.4, bottom: 0.75, panelWidth: 280 });
   assert.equal(seq.viewState().panelWidth, 280, 'legacy layouts keep the original panel width');
   const changesBefore = viewChanges;

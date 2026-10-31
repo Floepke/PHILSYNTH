@@ -1,10 +1,8 @@
 import { clamp } from './surface.js';
 
-// A stationary pointer near an edge reveals overflow; the middle is a stable editing zone.
+// Pointer position across the visible row maps continuously to its full scroll range.
 export function createHoverToolbar(bar, content) {
   let frame = 0;
-  let last = 0;
-  let speed = 0;
   let position = 0;
   const end = () => Math.max(0, bar.scrollWidth - bar.clientWidth);
   const showEdges = () => {
@@ -14,19 +12,11 @@ export function createHoverToolbar(bar, content) {
   const stop = () => {
     if (frame) cancelAnimationFrame(frame);
     frame = 0;
-    last = 0;
-    speed = 0;
   };
-  const tick = (time) => {
+  const tick = () => {
     frame = 0;
-    const dt = Math.min(50, last ? time - last : 16) / 1000;
-    last = time;
-    // Retain subpixel movement: browsers may round each scrollLeft assignment.
-    position = clamp(position + speed * dt, 0, end());
-    bar.scrollLeft = position;
+    bar.scrollLeft = clamp(position, 0, end());
     showEdges();
-    if ((speed < 0 && position > 0) || (speed > 0 && position < end())) frame = requestAnimationFrame(tick);
-    else last = 0;
   };
   bar.addEventListener('pointermove', (e) => {
     if (e.buttons || e.pointerType === 'touch' || bar.contains(document.activeElement) || !bar.clientWidth || end() <= 1) {
@@ -35,14 +25,8 @@ export function createHoverToolbar(bar, content) {
     }
     const r = bar.getBoundingClientRect();
     const x = e.clientX - r.left;
-    const edge = Math.min(72, r.width / 3);
-    speed = x < edge ? -560 * (1 - clamp(x / edge, 0, 1)) ** 2
-      : x > r.width - edge ? 560 * (1 - clamp((r.width - x) / edge, 0, 1)) ** 2 : 0;
-    if (!speed) stop();
-    else if (!frame) {
-      position = bar.scrollLeft;
-      frame = requestAnimationFrame(tick);
-    }
+    position = clamp(x / r.width, 0, 1) * end();
+    if (!frame) frame = requestAnimationFrame(tick);
   });
   for (const event of ['pointerleave', 'pointerdown', 'pointercancel', 'keydown']) bar.addEventListener(event, stop);
   bar.addEventListener('wheel', (e) => {

@@ -18,6 +18,36 @@ const messages = [];
 const notify = (message) => messages.push(message);
 let saves = 0;
 const persist = { async flush() { saves++; return { local: true, disk: true }; } };
+const key = (value, repeat = false) => {
+  const e = new Event('keydown', { cancelable: true });
+  Object.assign(e, { key: value, repeat });
+  dialog.dispatchEvent(e);
+  return e;
+};
+
+{
+  const done = exitToOS(persist, notify);
+  assert.equal(key('Escape', true).defaultPrevented, true);
+  assert.equal(dialog.open, true, 'held Escape must not dismiss the newly opened prompt');
+  assert.equal(key('Escape').defaultPrevented, true);
+  await done;
+  assert.equal(saves, 0, 'Escape means No');
+  assert.equal(closes, 0);
+  assert.equal(key('Enter').defaultPrevented, false, 'exit key handler is removed after cancellation');
+}
+{
+  const done = exitToOS(persist, notify);
+  assert.equal(key('Enter', true).defaultPrevented, true);
+  assert.equal(dialog.open, true, 'held Enter cannot confirm accidentally');
+  assert.equal(key('Enter').defaultPrevented, true);
+  await done;
+  assert.equal(saves, 1, 'Enter means Yes and autosaves');
+  assert.equal(closes, 1);
+  assert.equal(key('Enter').defaultPrevented, false, 'exit handler is removed after confirmation');
+  saves = 0;
+  closes = 0;
+  window.closed = false;
+}
 
 for (const cancel of ['cancel', '']) {
   const done = exitToOS(persist, notify);
