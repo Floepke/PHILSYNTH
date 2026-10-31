@@ -140,6 +140,33 @@ const assertNoOverlap = (song) => {
   }
 };
 
+// Playback uses the same floor-snapped time as note insertion, in absolute song quarters.
+{
+  const { song, clip, roll } = setup();
+  const cv = roll.surface.cv;
+  clip.start = 8.25;
+  assert.equal(roll.getPointerTime(), null);
+  point(cv, 'pointermove', nx(60), ny(1.4));
+  assert.equal(roll.getPointerTime(), 9.5);
+  clip.notes.push(note(60, 1.25));
+  roll.redraw();
+  flush();
+  assert.equal(roll.getPointerTime(), 9.5, 'hovering a note still gives the pointer time');
+  song.snap.div = 2;
+  assert.equal(roll.getPointerTime(), 9.625, 'snap changes apply without moving the pointer');
+  roll.setView({ sy: 96, ppq: 96 });
+  flush();
+  assert.equal(roll.getPointerTime(), 9.875, 'uses the current scroll and zoom');
+  point(cv, 'pointermove', nx(60), 390);
+  assert.equal(roll.getPointerTime(), null, 'keyboard is not a time position');
+  point(cv, 'pointermove', nx(60), ny(1));
+  point(cv, 'pointerleave', nx(60), ny(1));
+  assert.equal(roll.getPointerTime(), null, 'leaving the roll clears the start position');
+  song.selected = null;
+  point(cv, 'pointermove', nx(60), ny(1));
+  assert.equal(roll.getPointerTime(), null, 'no selected note clip');
+}
+
 // The keyboard auditions white/black keys without inserting notes or changing the selection.
 for (const ending of ['pointerup', 'pointercancel', 'lostpointercapture', 'blur']) {
   const { clip, roll, ctx, changes } = setup();
@@ -1397,7 +1424,7 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   }
 }
 
-// Hold the right button 250 ms for the TimeLine menu; shorter presses and right-drags open nothing.
+// A normal right-click opens the TimeLine menu at once (no 250 ms hold).
 {
   const { song, arranger, menus, clip } = setup();
   const cv = arranger.surface.cv;
@@ -1405,22 +1432,14 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   mock.timers.enable({ apis: ['setTimeout'] });
   try {
     point(cv, 'pointerdown', ax(1), ay(0), { button: 2, buttons: 2 });
-    mock.timers.tick(249);
-    point(cv, 'pointerup', ax(1), ay(0), { button: 2 });
-    assert.equal(menus.length, 0, 'short right-click opens no menu');
-    point(cv, 'pointerdown', ax(1), ay(0), { button: 2, buttons: 2 });
-    mock.timers.tick(249);
-    assert.equal(menus.length, 0);
-    mock.timers.tick(1);
-    assert.equal(menus.length, 1, 'menu opens at 250 ms while the button is still down');
+    assert.equal(menus.length, 1, 'the press opens the menu');
     assert.ok(labels(menus).includes('Cut'));
+    mock.timers.tick(500);
     point(cv, 'pointerup', ax(1), ay(0), { button: 2 });
-    assert.equal(menus.length, 1, 'release adds nothing');
-    point(cv, 'pointerdown', ax(40), ay(100), { button: 2, buttons: 2 });
-    point(cv, 'pointermove', ax(42), ay(100), { button: 2, buttons: 2 });
-    mock.timers.tick(600);
-    point(cv, 'pointerup', ax(42), ay(100), { button: 2 });
-    assert.equal(menus.length, 1, 'moving cancels the hold');
+    assert.equal(menus.length, 1, 'holding / releasing adds nothing');
+    click(cv, ax(40), ay(100), { button: 2 });
+    assert.equal(menus.length, 2, 'empty space: menu too');
+    assert.ok(labels(menus).includes('Insert automation clip'));
     assert.equal(song.clips.length, 1);
     // a time signature change: a short right-click removes it, a hold does not
     song.sigs = [{ at: 0, num: 4, den: 4 }, { at: 16, num: 3, den: 4 }];
@@ -1436,7 +1455,7 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   }
 }
 
-// rightHold: overdue release, Escape, wheel and blur cancel; the velocity lane deletes a point on a short right-click.
+// rightHold: overdue release, Escape, wheel and blur cancel; the velocity lane opens its menu on a normal right-click.
 {
   const cv = new Canvas();
   const log = [];
@@ -1465,8 +1484,10 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   dbl(rc, 7 + 0.9 * 70, ny(2));
   assert.equal(clip.notes[0].vels.length, 1);
   click(rc, 7 + 0.9 * 70, ny(2), { button: 2 });
-  assert.equal(menus.length, 0);
-  assert.equal('vels' in clip.notes[0], false, 'short right-click deletes the point');
+  assert.equal(menus.length, 1, 'a normal right-click opens the velocity menu');
+  assert.equal(clip.notes[0].vels.length, 1, 'and deletes nothing by itself');
+  menus[0].items.find((it) => it.label === 'Delete point').action();
+  assert.equal('vels' in clip.notes[0], false, 'Delete point removes it');
 }
 
 // Automation lane: insert, drag (snapped, between neighbours), round, delete.
@@ -1900,7 +1921,8 @@ for (const width of [300, 480, 900, 1912]) {
       this.scrollWidth = 480;
       this.scrollLeft = 0;
     }
-    append() {}
+    children = [];
+    append(child) { this.children.push(child); }
     add() {}
     setAttribute(name, value) { this.attributes.set(name, value); }
     replaceChildren() {}
@@ -2018,6 +2040,27 @@ for (const width of [300, 480, 900, 1912]) {
   assert.equal(transport.playing, true);
   elements.get('seq-play').onclick();
   assert.equal(transport.pos, clip.start, 'the stop button does the same');
+  const rollCanvas = elements.get('roll').children[0];
+  seq.applyView({ roll: { sy: 0, ppq: 48 } });
+  flush();
+  point(rollCanvas, 'pointermove', 200, ny(0.37));
+  assert.ok(press(' ', {}, rollCanvas).defaultPrevented);
+  assert.equal(transport.pos, 4.5, 'Space starts at clip start plus floor-snapped mouse time');
+  assert.equal(transport.clipId, null, 'Space plays the song, not a clip loop');
+  transport.tick(200);
+  assert.ok(transport.pos > clip.start + clip.length, 'song playback continues past the selected clip end');
+  press(' ', {}, rollCanvas);
+  assert.equal(transport.pos, clip.start, 'Space still stops and parks at the clip start');
+  press('/');
+  assert.equal(transport.pos, clip.start, 'slash ignores the mouse time');
+  assert.equal(transport.clipId, clip.id);
+  transport.tick(250);
+  assert.ok(transport.pos < clip.start + clip.length, 'only slash loops the selected clip');
+  press(' ');
+  point(rollCanvas, 'pointerleave', 200, ny(0.37));
+  press(' ');
+  assert.equal(transport.pos, clip.start, 'outside the roll, Space uses the parked playhead');
+  press(' ');
   song.selected = null;
   press('/');
   assert.equal(transport.playing, false);
@@ -2191,29 +2234,42 @@ for (const width of [300, 480, 900, 1912]) {
   assert.deepEqual(positions(), beforeZero, 'zero available height never creates invalid fractions');
   workspace.getBoundingClientRect = () => ({ top: 100, height: 548 });
 
-  // The upper divider stops under the piano roll toolbar (play / stop): the roll is just gone there.
+  // The toolbar is on the divider: it does not reserve space in the piano-roll pane.
   const bar = elements.get('seq-bar');
   bar.getBoundingClientRect = () => ({ top: 100, height: 50 });
   seq.applyView({ top: 0.4, bottom: 0.75 });
   drag(upper, 300, 310, 300, -1000);
-  near(seq.viewState().top, 0.1);
-  assert.ok(workspace.classes.has('roll-collapsed'), 'at the toolbar the piano roll counts as collapsed');
-  assert.equal(workspace.style.props?.get?.('--seq-bar-h') ?? '50px', '50px');
+  near(seq.viewState().top, 0);
+  assert.ok(workspace.classes.has('roll-collapsed'), 'the piano roll collapses completely');
   drag(lower, 300, 510, 300, -1000);
-  assert.deepEqual(positions().map((v) => +v.toFixed(9)), [0.1, 0.1], 'the lower divider cannot push it past the toolbar');
+  assert.deepEqual(positions(), [0, 0], 'the lower divider can push it all the way to the top');
   key(upper, 'Home');
-  near(seq.viewState().top, 0.1);
+  near(seq.viewState().top, 0);
   seq.applyView({ top: 0.4, bottom: 0.75 });
   drag(upper, 300, 310, 300, -1000);
   drag(lower, 300, 510, 300, 1000);
   press('s');
-  near(positions()[0], 0.1);
-  assert.equal(positions()[1], 0.75, 'dragged to the toolbar + bottom: S restores the last visible layout');
+  near(positions()[0], 0);
+  assert.equal(positions()[1], 0.75, 'dragged to the top + bottom: S restores the last visible layout');
   press('s');
-  assert.deepEqual(positions(), [0, 1], 'S maximizes the patcher (CSS keeps the toolbar row)');
+  assert.deepEqual(positions(), [0, 1], 'S maximizes the patcher while the divider toolbar stays visible');
   press('s');
-  near(positions()[0], 0.1);
+  near(positions()[0], 0);
   delete bar.getBoundingClientRect;
+
+  for (const kind of ['button', 'input', 'select', 'label', '.spinbox']) {
+    const target = new Element(kind);
+    const down = new Event('pointerdown', { cancelable: true });
+    Object.assign(down, { button: 0, pointerId: 1, clientX: 300, clientY: 310 });
+    Object.defineProperty(down, 'target', { value: target });
+    upper.dispatchEvent(down);
+    assert.equal(down.defaultPrevented, false, 'divider does not capture toolbar controls');
+    const arrow = new Event('keydown', { cancelable: true });
+    Object.assign(arrow, { key: 'ArrowDown' });
+    Object.defineProperty(arrow, 'target', { value: target });
+    upper.dispatchEvent(arrow);
+    assert.equal(arrow.defaultPrevented, false, 'widget navigation never resizes the divider');
+  }
 
   seq.applyView({ top: 0.4, bottom: 0.75 });
   key(lower, 'ArrowUp', { shiftKey: true });

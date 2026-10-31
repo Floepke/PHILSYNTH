@@ -12,7 +12,7 @@ export async function exitToOS(persist, notify) {
     if (!yes) return;
     const saved = await persist.flush();
     if (!saved.local && !saved.disk) {
-      notify('Exit cancelled: autosave failed. Use Save to download your project before closing.');
+      notify('Exit cancelled: autosave failed. Use Save in the main menu (top-left logo) to keep your project before closing.');
       return;
     }
     // Closes the Electron window. Browsers may refuse to close a manually opened tab.
@@ -20,7 +20,7 @@ export async function exitToOS(persist, notify) {
     await new Promise((resolve) => setTimeout(resolve, 250));
     if (!window.closed) notify('Your browser did not close this tab. Close the tab or window manually to exit.');
   } catch (err) {
-    console.error('Could not exit ModSynth:', err);
+    console.error('Could not exit MODSYNTH:', err);
     notify(`Exit failed: ${err.message}`);
   } finally {
     pending = false;

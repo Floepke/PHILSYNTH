@@ -7,7 +7,7 @@ import { initCpuMeter } from './cpumeter.js';
 import { createController } from './controller.js';
 import { linePath, arrowPath, centerOf, visibleSegment } from './cable.js';
 import { Transport } from './transport.js';
-import { confirmDialog } from './dialogs.js';
+import { unsavedDialog } from './dialogs.js';
 import { exitToOS } from './exit.js';
 import { createSequencer } from './seq/index.js';
 import { defaultCam, validCam, toWorld, zoomAt, fitBox, ZOOM_STEP } from './camera.js';
@@ -16,11 +16,12 @@ import { snapStep } from './song.js';
 import { CableScope } from './cablescope.js';
 import { openMapDialog, patchControllersView } from './mapdialog.js';
 import { MAX_NAME, cableSignals } from './patch.js';
-import { showMenu, shortcut } from './seq/menu.js';
-import { rightHold } from './seq/surface.js';
+import { showMenu, closeMenu, shortcut } from './seq/menu.js';
 import { createHistory } from './history.js';
 import { renderSong, encodeWav } from './render.js';
 import { withSamples, importSamples } from './samples.js';
+import { createProjectFile, pickBackend } from './projectfile.js';
+import { initStatusTips } from './statustips.js';
 
 const engine = new Engine();
 let transport = null; // song playback (created after the engine)
@@ -47,13 +48,15 @@ const selectEntries = (entries) => select(entries.length > 1 ? { kind: 'group', 
 // Modules with liveMidi: false (VELOCITY2CTL) only get notes from clips and MIDI cables.
 const takesLiveMidi = (def) => !!def?.acceptsMidi && def.liveMidi !== false;
 let midiHistory = []; // most recent last
+// Clicking the MIDI badge locks MIDI onto its module: selecting other modules no longer moves it.
+let midiLocked = false;
 const midiTarget = () => {
-  while (midiHistory.length && midiHistory.at(-1).dead) midiHistory.pop();
+  while (midiHistory.length && midiHistory.at(-1).dead) { midiHistory.pop(); midiLocked = false; }
   return midiHistory.at(-1) ?? null;
 };
 function setMidiTarget(entry) {
   const prev = midiTarget();
-  if (prev === entry) return;
+  if (prev === entry || midiLocked) return;
   // no allOff on the old module: song notes and held keys play on (their note-offs still reach
   // the module that got the note-on, see midi.js)
   midiHistory = midiHistory.filter((e) => e !== entry && !e.dead);
@@ -139,13 +142,34 @@ canvas.addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefau
 canvas.addEventListener('auxclick', (e) => { if (e.button === 1) e.preventDefault(); });
 
 // ---- persistence ----
+// The project file (main menu: New / Open / Save / Save As). Unsaved = the project differs from
+// what was last opened or saved; view and selection changes do not count.
+const projectFile = createProjectFile({
+  fingerprint() {
+    const project = engine.saveProject();
+    return { ...project, song: { ...project.song, selected: null } };
+  },
+  serialize: () => JSON.stringify(withSamples({ ...engine.saveProject(), view: viewState() }), null, 2),
+  backend: pickBackend(window, $('file')),
+  onChange: showDocument,
+});
+function showDocument({ name, ref, dirty }) {
+  const el = $('doc-name');
+  el.textContent = name;
+  el.classList.toggle('dirty', dirty);
+  const where = typeof ref === 'string' && !/^(fsa|download):/.test(ref) ? ref : name;
+  el.title = dirty ? `${where} (unsaved changes)` : where;
+  document.title = `${dirty ? '• ' : ''}${name} — MODSYNTH`;
+}
+// Autosave: the latest state always comes back on start, with its file name and unsaved state.
 const persist = createPersistence({
-  getState: () => withSamples({ ...engine.saveProject(), view: viewState() }),
+  getState: () => withSamples({ ...engine.saveProject(), view: viewState(), doc: projectFile.toJSON() }),
   onSaved: ({ local, disk, at }) => {
     const t = new Date(at).toLocaleTimeString();
-    $('saved').textContent = disk ? `Saved to disk ${t}` : local ? `Saved in browser ${t}` : 'Not saved!';
-    $('saved').title = disk ? 'projects/autosave.json (+ browser storage)' : 'Browser localStorage only. Run "node server.mjs" to also save to disk.';
+    $('saved').textContent = disk ? `Autosaved ${t}` : local ? `Autosaved in browser ${t}` : 'Autosave failed!';
+    $('saved').title = disk ? 'Autosave: projects/autosave.json (+ browser storage)' : 'Autosave: browser localStorage only. Run "node server.mjs" to also save to disk.';
     $('saved').classList.toggle('error', !local && !disk);
+    showDocument(projectFile.info());
   },
 });
 engine.onChange = () => {
@@ -172,7 +196,7 @@ function viewState() {
     path: path.slice(1).map((l) => l.id),
     cams: path.map((l) => l.cam ?? defaultCam()),
     seq: seq?.viewState(),
-    midi: midiPath ? { path: midiPath, id: midi.id } : null,
+    midi: midiPath ? { path: midiPath, id: midi.id, locked: midiLocked } : null,
   };
 }
 
@@ -195,11 +219,12 @@ function applyView(view) {
   });
   seq?.applyView(view?.seq);
   midiHistory = [];
+  midiLocked = false;
   if (view?.midi) {
     const levels = patchAt(view.midi.path);
     if (levels.length === view.midi.path.length + 1) {
       const e = levels.at(-1).patch.modules.get(view.midi.id);
-      if (takesLiveMidi(e?.def)) midiHistory.push(e);
+      if (takesLiveMidi(e?.def)) { midiHistory.push(e); midiLocked = !!view.midi.locked; }
     }
   }
   render();
@@ -322,7 +347,10 @@ function renderCrumbs() {
   path.forEach((lvl, i) => {
     if (i) nav.append('/');
     const b = document.createElement('button');
-    b.textContent = lvl.name;
+    // a renamed Patch module shows its own name (looked up now, so renames show up right away)
+    const entry = i ? path[i - 1].patch.modules.get(lvl.id) : null;
+    b.textContent = entry?.name || lvl.name;
+    if (entry?.name) b.title = `${entry.name} (${lvl.name})`;
     b.classList.toggle('current', i === path.length - 1);
     b.onclick = () => { path.length = i + 1; render(); };
     nav.append(b);
@@ -405,6 +433,24 @@ function createBox(entry) {
   num.className = 'module-id';
   num.textContent = entry.id;
   el.append(name, num);
+  if (takesLiveMidi(def)) {
+    // shown only on the MIDI target (CSS); click toggles the lock
+    const badge = document.createElement('button');
+    badge.type = 'button';
+    badge.className = 'midi-badge';
+    badge.textContent = 'MIDI';
+    badge.addEventListener('pointerdown', (e) => e.stopPropagation()); // no drag / selection change
+    badge.addEventListener('dblclick', (e) => e.stopPropagation()); // no rename
+    badge.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (midiTarget() !== entry) return;
+      midiLocked = !midiLocked;
+      showMidiTarget();
+      persist.schedule();
+      $('status').textContent = midiLocked ? `MIDI locked to ${entry.name || def.type} — click MIDI again to unlock.` : 'MIDI unlocked: it follows the selected module again.';
+    });
+    el.append(badge);
+  }
   entry.el = el;
 
 
@@ -721,7 +767,7 @@ async function saveModules() {
   let saved = false;
   if (typeof window.showSaveFilePicker === 'function') {
     try {
-      const handle = await window.showSaveFilePicker({ suggestedName, types: [{ description: 'ModSynth module', accept: { 'application/octet-stream': ['.synth'] } }] });
+      const handle = await window.showSaveFilePicker({ suggestedName, types: [{ description: 'MODSYNTH module', accept: { 'application/octet-stream': ['.synth'] } }] });
       const writable = await handle.createWritable();
       await writable.write(blob);
       await writable.close();
@@ -741,7 +787,7 @@ async function saveModules() {
 }
 function parseSynthFile(text) {
   const data = JSON.parse(text);
-  if (data?.format !== SYNTH_FORMAT || !Array.isArray(data.modules)) throw new Error('not a ModSynth .synth module file');
+  if (data?.format !== SYNTH_FORMAT || !Array.isArray(data.modules)) throw new Error('not a MODSYNTH .synth module file');
   const known = data.modules.filter((m) => getModule(m.type) && !getModule(m.type).isOutput);
   if (!known.length) throw new Error('no module types this version knows');
   return data;
@@ -764,7 +810,7 @@ async function insertSynthFile(file) {
   }
 }
 
-// Right-click menu (hold the right button 250 ms, or the keyboard menu key): on a module (it joins /
+// Right-click menu (right-click, or the keyboard menu key): on a module (it joins /
 // becomes the selection), a cable, or empty canvas.
 function openPatcherMenu(target, x, y) {
   const box = target.closest('.module');
@@ -788,16 +834,16 @@ function openPatcherMenu(target, x, y) {
   if (onModule && entry.name) items.push({ label: 'Reset name', action: () => { current().rename(entry.id, ''); showName(entry); drawCables(); } });
   showMenu({ x, y, items });
 }
-// Double right-click a PATCH module opens it (the first press is a short click: no menu).
+// Right-click a module, cable or the canvas: menu. Double right-click a PATCH module opens it (the
+// second press closes the menu the first one opened and reaches the canvas again).
 const DOUBLE_RIGHT_MS = 400;
 let lastRight = null; // { entry, time } of the last right press on a patch module
 canvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 2 || e.target.closest('input, .module-rename')) return;
   e.preventDefault();
-  const patch = current();
   const target = e.target;
   const box = target.closest('.module');
-  const entry = box ? patch.modules.get(+box.dataset.id) : null;
+  const entry = box ? current().modules.get(+box.dataset.id) : null;
   if (entry?.inst.patch) {
     if (lastRight?.entry === entry && e.timeStamp - lastRight.time < DOUBLE_RIGHT_MS) {
       lastRight = null;
@@ -806,20 +852,31 @@ canvas.addEventListener('pointerdown', (e) => {
     }
     lastRight = { entry, time: e.timeStamp };
   } else lastRight = null;
-  rightHold(canvas, e, {
-    onHold: () => { lastRight = null; if (patch === current() && target.isConnected) openPatcherMenu(target, e.clientX, e.clientY); },
-  });
+  openPatcherMenu(target, e.clientX, e.clientY);
 });
 canvas.addEventListener('contextmenu', (e) => {
   if (e.target.closest('input, .module-rename')) return;
   e.preventDefault();
-  if (e.button === 2 || e.ctrlKey) return; // mouse: the menu needs a 250 ms hold
+  if (e.button === 2 || e.ctrlKey) return; // mouse: the menu already opened on the press
   // keyboard menu key / Shift+F10: open at the selected module, the pointer or the canvas centre
   const box = selectedEntries()[0]?.el;
   const r = (box ?? canvas).getBoundingClientRect();
   const p = box ? { x: r.left + 8, y: r.top + 8 } : lastPointer ?? { x: r.left + r.width / 2, y: r.top + r.height / 2 };
   openPatcherMenu(box ?? canvas, p.x, p.y);
 });
+
+// Mouse back button (button 3): one patch level up, like Esc. Its default (history back) is
+// suppressed so the page never navigates away.
+const MOUSE_BACK = 3;
+window.addEventListener('mousedown', (e) => { if (e.button === MOUSE_BACK) e.preventDefault(); }, true);
+window.addEventListener('mouseup', (e) => {
+  if (e.button !== MOUSE_BACK) return;
+  e.preventDefault();
+  if (path.length > 1 && !document.querySelector('dialog[open]')) {
+    path.pop();
+    render();
+  }
+}, true);
 
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && path.length && !document.querySelector('dialog[open]')) {
@@ -902,17 +959,26 @@ function hint(html) {
   return p;
 }
 
+function showMidiTarget() {
+  const target = midiTarget();
+  document.querySelectorAll('.module:not(.ghost)').forEach((el) => {
+    const on = target?.el === el;
+    el.classList.toggle('midi-target', on);
+    el.classList.toggle('midi-locked', on && midiLocked);
+    const badge = el.querySelector(':scope > .midi-badge');
+    if (badge) badge.title = midiLocked ? 'MIDI locked to this module — click to unlock' : 'MIDI follows the selection — click to lock it to this module';
+  });
+}
+
 function select(s) {
   sel = s;
   if (s?.kind === 'module' && takesLiveMidi(s.entry.def)) setMidiTarget(s.entry);
-  const target = midiTarget();
   const chosen = new Set(selectedEntries().map((m) => m.el));
-  document.querySelectorAll('.module:not(.ghost)').forEach((el) => {
-    el.classList.toggle('selected', chosen.has(el));
-    el.classList.toggle('midi-target', target?.el === el);
-  });
+  document.querySelectorAll('.module:not(.ghost)').forEach((el) => el.classList.toggle('selected', chosen.has(el)));
+  showMidiTarget();
   drawCables();
   panel.replaceChildren();
+  panel.classList.toggle('no-selection', !s); // larger help text when nothing is selected
   panelRows.clear();
   panelView = null;
   if (s?.kind === 'cable') {
@@ -948,17 +1014,17 @@ function select(s) {
       hint('Drag on empty canvas to select several modules. <kbd>Ctrl</kbd> + click toggles a module, <kbd>Ctrl</kbd> + drag adds, <kbd>Ctrl</kbd> + <kbd>A</kbd> selects all.'),
       hint('<kbd>Alt</kbd> + drag a module to duplicate it (or the whole selection).'),
       hint('<kbd>Backspace</kbd> deletes the selection.'),
-      hint('<b>Context menus:</b> everywhere (patcher, piano roll, velocity lane, TimeLine) hold the <kbd>right</kbd> mouse button still for <b>250 ms</b> to open the menu; moving 5 px or more first cancels it. A short right-click keeps its own action (delete a note / point, remove a time signature) or does nothing.'),
-      hint(`Hold right-click on a module, cable or the canvas for <b>Cut / Copy / Paste / Delete</b> (or press the keyboard menu key; shortcuts <kbd>${shortcut('X')}</kbd> <kbd>${shortcut('C')}</kbd> <kbd>${shortcut('V')}</kbd>; paste lands at the mouse pointer). <b>Rename…</b> (or <kbd>F2</kbd>) gives a module its own name on its box; the controller panel keeps showing the module type.`),
-      hint('<kbd>Double-click</kbd> a module (or <kbd>F2</kbd>) to rename it. Select a Patch and press <kbd>Enter</kbd> (or <kbd>Double right-click</kbd> it, or hold right-click → Open patch) to enter it, <kbd>Esc</kbd> to go up. At the main layer, <kbd>Esc</kbd> asks <b>Exit to OS?</b>; Yes autosaves and closes the app.'),
+      hint('<b>Context menus:</b> in the patcher, the TimeLine and the velocity lane a normal <kbd>right</kbd>-click opens the menu. In the piano roll hold the right mouse button still for <b>250 ms</b> (moving 5 px or more first cancels it); there a short right-click deletes a note. On the TimeLine ruler a right-click removes a time signature or the loop region.'),
+      hint(`Right-click a module, cable or the canvas for <b>Cut / Copy / Paste / Delete</b> (or press the keyboard menu key; shortcuts <kbd>${shortcut('X')}</kbd> <kbd>${shortcut('C')}</kbd> <kbd>${shortcut('V')}</kbd>; paste lands at the mouse pointer). <b>Rename…</b> (or <kbd>F2</kbd>) gives a module its own name on its box; the controller panel keeps showing the module type.`),
+      hint('<kbd>Double-click</kbd> a module (or <kbd>F2</kbd>) to rename it. Select a Patch and press <kbd>Enter</kbd> (or <kbd>Double right-click</kbd> it, or right-click → Open patch) to enter it, <kbd>Esc</kbd> (or the mouse <b>back</b> button) to go up. At the main layer, <kbd>Esc</kbd> asks <b>Exit to OS?</b>; Yes autosaves and closes the app.'),
       hint('Select a Patch and click <b>Controllers…</b> to map controllers of any module inside to controllers of the Patch module, so they can be set, modulated (LFO) and automated from outside.'),
       hint('OSC / ADSR: with <b>Sustain</b> at 0, <b>Decay</b> and <b>Release</b> are linked: moving one moves the other.'),
       hint('<kbd>Middle mouse</kbd> + drag pans the canvas, <kbd>scroll</kbd> zooms. Click the zoom % (bottom right) to fit all modules.'),
-      hint('Play the MIDI module marked red in the patcher (the last selected one, e.g. OSC) with a MIDI controller, the piano roll keyboard or the computer keyboard: <kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>T</kbd> <kbd>Y</kbd> <kbd>U</kbd> <kbd>I</kbd> <kbd>O</kbd> <kbd>P</kbd> are the white keys C4–E5, the number row above them (<kbd>2</kbd> <kbd>3</kbd> <kbd>5</kbd> <kbd>6</kbd> <kbd>7</kbd> <kbd>9</kbd> <kbd>0</kbd>) the black keys. In a focused piano roll <kbd>Q</kbd> quantizes instead.'),
+      hint('Play the MIDI module marked red in the patcher (the last selected one, e.g. OSC; click its blinking <b>MIDI</b> badge to lock MIDI to it, click again to unlock) with a MIDI controller, the piano roll keyboard or the computer keyboard: <kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>T</kbd> <kbd>Y</kbd> <kbd>U</kbd> <kbd>I</kbd> <kbd>O</kbd> <kbd>P</kbd> are the white keys C4–E5, the number row above them (<kbd>2</kbd> <kbd>3</kbd> <kbd>5</kbd> <kbd>6</kbd> <kbd>7</kbd> <kbd>9</kbd> <kbd>0</kbd>) the black keys. In a focused piano roll <kbd>Q</kbd> quantizes instead.'),
       hint('<b>Sequencer</b> (piano roll above the patcher, TimeLine below; <kbd>S</kbd> maximizes the patcher, <kbd>S</kbd> again restores both panes): <kbd>Double-click</kbd> the TimeLine to add a clip, drag its edges to resize, <kbd>Alt</kbd> + drag to copy. In the piano roll click / drag to write notes (new notes get the last used length), drag a note body for its length (the end jumps to the pointer, snapped to the grid), its circle for pitch and time. A short right-click deletes the note under the pointer; hold the right button for <b>250 ms</b> to open the menu instead (cut / copy / paste / delete / duplicate / quantize / octave). Releasing after the menu opens never deletes a note. <kbd>Space</kbd> plays. <kbd>Double-click</kbd> the TimeLine ruler to insert a time signature change (right-click it to remove). Selecting a clip while stopped moves the playhead to its start (during playback it keeps playing).'),
       hint('<b>Piano roll selection:</b> <kbd>Shift</kbd> + drag or <kbd>right</kbd> + drag draws a selection rectangle; clicking a note selects it, <kbd>Shift</kbd> + click toggles it. Dragging a selected note moves / resizes the whole selection. <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> duplicates the selection, <kbd>Q</kbd> quantizes note starts (selection, else all). <kbd>Ctrl/Cmd</kbd> + <kbd>A</kbd> selects all notes, <kbd>Esc</kbd> clears the selection, and <kbd>Backspace</kbd> / <kbd>Delete</kbd> deletes it. <kbd>Alt</kbd> + drag a note (body or circle) moves a clone.'),
       hint('<b>Arrow keys:</b> in the piano roll, <kbd>Left</kbd> / <kbd>Right</kbd> transpose selected notes by one semitone; <kbd>Up</kbd> / <kbd>Down</kbd> move them earlier/later by one snap step. With <kbd>Shift</kbd>: an octave / a bar. The selection moves together and stops at time zero or the MIDI pitch limits.'),
-      hint('<b>Velocity:</b> the strip left of the piano roll shows every note\'s velocity (stick) and how it changes while the note sounds. Drag a note\'s dot to set its velocity (<kbd>Shift</kbd>-click adds it to the selection). The selected notes share one curve: <kbd>Double-click</kbd> inside them to add a point, drag points (time snaps, <kbd>Shift</kbd> = fine), and use the mouse wheel on a point to round it. Hold right-click on the lane to toggle <b>Snap velocity values</b> (1/16 increments, enabled by default, no grid); a short right-click on a point deletes it (also <b>Delete point</b> in the menu). The snap setting is saved with the project and only affects new edits. One selected note edits its own curve.'),
+      hint('<b>Velocity:</b> the strip left of the piano roll shows every note\'s velocity (stick) and how it changes while the note sounds. Drag a note\'s dot to set its velocity (<kbd>Shift</kbd>-click adds it to the selection). The selected notes share one curve: <kbd>Double-click</kbd> inside them to add a point, drag points (time snaps, <kbd>Shift</kbd> = fine), and use the mouse wheel on a point to round it. Right-click the lane for the menu: <b>Snap velocity values</b> (1/16 increments, enabled by default, no grid) and, on a point, <b>Delete point</b>. The snap setting is saved with the project and only affects new edits. One selected note edits its own curve.'),
       hint('<b>Automation:</b> <kbd>Double right-click</kbd> the TimeLine to add an automation clip, then pick the module (<i>Send to</i>) and its <i>Controller</i> in the toolbar. In the automation lane <kbd>Double-click</kbd> inserts a point (snapped to the grid), drag moves it (<kbd>Shift</kbd> = fine), the mouse wheel on a point rounds the corner and right click deletes it. While playing, the clip drives the controller like an LFO; outside the clip (or when stopped) the controller has its own value again.'),
       hint('<b>Sequencer clipboard:</b> click the piano roll or TimeLine to focus it, then use <kbd>Ctrl/Cmd</kbd> + <kbd>X</kbd> / <kbd>C</kbd> / <kbd>V</kbd> to cut / copy / paste selected notes or the selected clip. Each view has its own in-app clipboard. Paste at the mouse pointer, snapped to the grid; note pitches and relative timing are preserved.'),
       hint('<b>TimeLine selection &amp; clones:</b> drag on empty TimeLine space for a selection rectangle (<kbd>Ctrl/Cmd</kbd> adds), <kbd>Ctrl/Cmd</kbd> + click toggles a clip. Dragging moves the whole selection; <kbd>Alt</kbd> + drag copies it, <kbd>Shift</kbd> + drag makes <i>linked clones</i> that share their notes with the source (marked ⧉): editing one edits all. Clones are drawn with diagonal stripes and a dashed outline; a selected clone shows a dashed arrow to its source. Hold right-click on a clip for cut / copy / paste / delete / duplicate / clone / detach (turns a clone into a standalone clip) / go to source / <i>Consolidate</i> (two or more selected clips on one lane become one clip spanning them; module and name come from the first clip) / <i>Split at playhead</i> (cuts the selected clips under the playhead in two). <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> clones, <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd> duplicates.'),
@@ -966,11 +1032,12 @@ function select(s) {
       hint('<b>Loop region:</b> click the TimeLine ruler (the signature row too, where dragging scrubs) to set the play position, drag along it to select a loop region (snapped to the grid, shown in blue). Song playback then loops inside the region and starts at its beginning. Right-click the region in the ruler to remove it; playback goes back to looping the whole song.'),
       hint('<b>TimeLine lanes:</b> clips sit on numbered lanes (the numbers left of the clips), one clip high; dragging up / down snaps to them. Scroll left past the bright zero line to park clips before the song start: they are not played (<kbd>/</kbd> still auditions them), which suits source clips whose clones make up the song. The mouse wheel scrolls sideways over time, <kbd>Shift</kbd> + wheel scrolls the lanes, middle-drag pans and <kbd>Ctrl/Cmd</kbd> + wheel zooms. Dragging a clip close to an edge auto-scrolls the TimeLine, so a clip can be moved anywhere in one drag. The <b>M</b> button left of a lane number mutes that lane, the <b>S</b> button solos it (lit when on): while any lane is soloed only the soloed lanes play, and mute wins over solo. Drag over a column of M or S buttons to switch many lanes in one go. A silenced clip is silent everywhere, also with <kbd>/</kbd>, and its piano roll / automation editor shows a big M.'),
       hint('<b>TimeLine placement:</b> moving, cloning, pasting or creating a clip snaps it to the nearest non-overlapping position. Clip edges take priority over the time grid; resizing stops at neighbouring clips. Use separate vertical rows for clips that play at the same time.'),
-      hint('<b>Playback:</b> <kbd>/</kbd> loops the time range of the selected clip from its start, with every other clip playing in that range (muted lanes stay silent, the selected clip too when its lane is muted). <kbd>\'</kbd> stops playback; pressing <kbd>\'</kbd> again is a panic (all notes off, echo / reverb tails cut, all audio state reset). <kbd>.</kbd> plays/resumes the full song, and <kbd>,</kbd> restarts the song at zero. <kbd>Space</kbd> toggles play/stop; stopping with <kbd>Space</kbd> (or the ■ button) moves the playhead to the start of the selected clip, so the next <kbd>Space</kbd> plays from there. Shortcuts are inactive while typing in a field. Note chasing: starting or jumping into the middle of a note plays it for the rest of its length.'),
+      hint('<b>Playback:</b> <kbd>/</kbd> loops the time range of the selected clip from its start, with every other clip playing in that range (muted lanes stay silent, the selected clip too when its lane is muted). <kbd>\'</kbd> stops playback; pressing <kbd>\'</kbd> again is a panic (all notes off, echo / reverb tails cut, all audio state reset). <kbd>.</kbd> plays/resumes the full song, and <kbd>,</kbd> restarts the song at zero. <kbd>Space</kbd> toggles play/stop; with the pointer over the piano-roll note grid, playback starts at its snapped time and continues through the song beyond the selected clip. Only <kbd>/</kbd> loops the selected clip. Stopping with <kbd>Space</kbd> (or the ■ button) moves the playhead to the start of the selected clip; outside the note grid, the next <kbd>Space</kbd> resumes from the parked playhead. Shortcuts are inactive while typing in a field. Note chasing: starting or jumping into the middle of a note plays it for the rest of its length.'),
       hint('<b>Controls:</b> scroll a dropdown to change its selection. Number fields have permanent up/down buttons and also support scrolling; <kbd>Double-click</kbd> a number (or use <kbd>Tab</kbd>) to type. Mouse adjustments leave keyboard focus in the editor so <kbd>Space</kbd> still plays.'),
       hint('<b>Toolbar:</b> controls stay on one row. When space is tight, move the pointer toward the left or right edge to reveal hidden controls; the closer to the edge, the faster it moves. Move to the middle to stop. Clicking, typing or using the wheel pauses motion; the wheel still changes control values. <kbd>Tab</kbd> also reveals focused controls.'),
-      hint('<b>EXPORT WAV:</b> choose where to save, then the song renders offline (much faster than real time) from its start to the end of the last clip, or just the loop region when one is set, plus the sound tail (releases, echoes, reverb; at most 10 s). The file is 24-bit stereo at the audio device\'s sample rate. The status bar warns when the mix clips.'),
-      hint('<b>Layout:</b> piano roll, patcher and TimeLine are stacked top to bottom. Drag either horizontal divider up/down; when the patcher closes, the dragged divider pushes the other one. Drag to an edge to hide a pane and back to reopen it; at the top the dividers stop under the play/stop toolbar, where the piano keyboard is just hidden. Positions are saved with the project. The piano keyboard stays at the bottom of the roll; selected notes are filled blue.'),
+      hint(`<b>Main menu:</b> click the logo / <b>MODSYNTH</b> (top left) for <b>New</b> (<kbd>${shortcut('N')}</kbd>), <b>Open…</b> (<kbd>${shortcut('O')}</kbd>), <b>Save</b> (<kbd>${shortcut('S')}</kbd>), <b>Save As…</b> (<kbd>${shortcut('⇧S')}</kbd>) and <b>Export Audio…</b>. Projects are <b>.mds</b> files (older .json projects open too; Save then asks for a new .mds file). The file name is shown top right, with <b>•</b> while there are unsaved changes; New and Open ask whether to save them first (Yes / No / Cancel). Independently, every change is autosaved, so the app always starts with your latest project, its file name and unsaved state.`),
+      hint('<b>Export Audio…</b> (main menu): choose where to save, then the song renders offline (much faster than real time) from its start to the end of the last clip, or just the loop region when one is set, plus the sound tail (releases, echoes, reverb; at most 10 s). The file is a 24-bit stereo WAV at the audio device\'s sample rate. The status bar warns when the mix clips.'),
+      hint('<b>Layout:</b> piano roll, patcher and TimeLine are stacked top to bottom. The play/stop, clip and snap controls sit on the upper divider and remain visible even when the piano roll is hidden. Drag the exposed divider grip or empty space up/down to resize (left/right resizes the controller panel); the widgets do not drag the divider. When the patcher closes, the dragged divider pushes the other one. Drag to an edge to hide a pane and back to reopen it. Positions are saved with the project. The piano keyboard stays at the bottom of the roll; selected notes are filled blue.'),
       hint('The piano roll fits all <b>128 MIDI notes (0–127)</b> across its width and rescales with the window width. Horizontal zoom is automatic; <kbd>Alt</kbd> + scroll no longer changes key width. Each mouse-wheel step scrolls exactly one snap step (the selected snap); scroll upward to reveal a small margin above beat zero. <kbd>Ctrl/Cmd</kbd> + scroll still zooms time.'),
       hint('Drag the left controller-panel divider to resize the panel, or fully left to hide it. Its handle stays available to reopen it, and the width is saved with the project.'),
       hint('All three dividers resize the controller panel when dragged left/right. Dragging the controller-panel divider up/down also moves the upper horizontal divider. Each horizontal divider supports <kbd>Up</kbd>/<kbd>Down</kbd> (hold <kbd>Shift</kbd> for larger steps) and <kbd>Home</kbd>/<kbd>End</kbd> to reach the edges. Every divider shows a small four-dot grip.'),
@@ -1145,25 +1212,109 @@ engine.onModulate = (entry, id, v) => {
   });
 };
 
-// ---- save / load ----
-// Project files are .mds (ModSynth project: JSON text inside). Older .json projects still load.
-$('save').onclick = () => {
-  const blob = new Blob([JSON.stringify(withSamples({ ...engine.saveProject(), view: viewState() }), null, 2)], { type: 'application/octet-stream' });
-  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'project.mds' });
-  a.click();
-  URL.revokeObjectURL(a.href);
-};
-$('load').onclick = () => $('file').click();
+// ---- main menu: New / Open / Save / Save As / Export Audio ----
+// Project files are .mds (MODSYNTH project: JSON text inside). Older .json projects still open;
+// Save then asks for a new .mds file instead of overwriting them.
+let fileBusy = false;
+async function fileCommand(label, fn) {
+  if (fileBusy) return;
+  fileBusy = true;
+  try {
+    await fn();
+  } catch (err) {
+    console.error(`${label} failed:`, err);
+    $('status').textContent = `${label} failed: ${err.message}`;
+  } finally {
+    fileBusy = false;
+  }
+}
+async function saveFile(as = false) {
+  const name = await (as ? projectFile.saveAs() : projectFile.save());
+  if (name) $('status').textContent = `Saved ${name}`;
+  persist.schedule(); // the autosave remembers the file and that it is saved
+  return name;
+}
+// Unsaved changes: Yes saves first, No discards them, Cancel (or Escape) keeps the project.
+async function keepGoing(action) {
+  if (!projectFile.isDirty()) return true;
+  const answer = await unsavedDialog(projectFile.name, { action });
+  if (answer === 'cancel') return false;
+  if (answer === 'no') return true;
+  return !!(await saveFile());
+}
+const newFile = () => fileCommand('New', async () => {
+  if (!(await keepGoing('starting a new project'))) return;
+  await openProject(emptyProject(), null);
+  projectFile.reset();
+  $('status').textContent = 'New project';
+});
+const openFile = () => fileCommand('Open', async () => {
+  if (!(await keepGoing('opening another project'))) return;
+  const name = await projectFile.open((data) => openProject(data, data.view));
+  if (name) $('status').textContent = `Opened ${name}`;
+});
+const saveCommand = (as) => fileCommand(as ? 'Save As' : 'Save', () => saveFile(as));
 
-// ---- EXPORT WAV ----
+const brand = $('brand');
+let mainMenuOpen = false;
+let brandClosesMenu = false;
+// a click on the logo while its menu is open only closes the menu (runs before the menu's own listener)
+window.addEventListener('pointerdown', (e) => { brandClosesMenu = mainMenuOpen && brand.contains(e.target); }, true);
+function openMainMenu(focusFirst) {
+  const r = brand.getBoundingClientRect();
+  mainMenuOpen = true;
+  brand.setAttribute('aria-expanded', 'true');
+  showMenu({
+    x: r.left - 2,
+    y: r.bottom + 2,
+    className: 'main-menu',
+    onClose: () => {
+      mainMenuOpen = false;
+      brand.setAttribute('aria-expanded', 'false');
+    },
+    items: [
+      { label: 'New', shortcut: shortcut('N'), action: newFile },
+      { label: 'Open…', shortcut: shortcut('O'), action: openFile },
+      { label: 'Save', shortcut: shortcut('S'), action: () => saveCommand(false) },
+      { label: 'Save As…', shortcut: shortcut('⇧S'), action: () => saveCommand(true) },
+      '-',
+      { label: 'Export Audio…', disabled: exporting, action: exportAudio },
+    ],
+  });
+  if (focusFirst) document.querySelector('.main-menu .ctx-item')?.focus();
+}
+brand.addEventListener('click', (e) => {
+  if (brandClosesMenu) {
+    brandClosesMenu = false;
+    return;
+  }
+  openMainMenu(e.detail === 0); // detail 0: opened with Enter / Space
+});
+// Ctrl/Cmd + N / O / S / Shift + S work everywhere (also while typing), except in dialogs
+window.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || document.querySelector('dialog[open]')) return;
+  const k = e.key.toLowerCase();
+  const run = k === 's' ? () => saveCommand(e.shiftKey)
+    : e.shiftKey ? null
+      : k === 'n' ? newFile
+        : k === 'o' ? openFile
+          : null;
+  if (!run) return;
+  e.preventDefault();
+  e.stopPropagation();
+  if (e.repeat) return;
+  closeMenu();
+  run();
+}, true);
+
+// ---- Export Audio ----
 // The save dialog comes first (it needs the click's user activation), then the song renders
 // offline (src/render.js) and is written there. Without the File System Access API the file is
 // downloaded instead (the desktop app shows a save dialog for it, see electron/main.mjs).
 let exporting = false;
-$('export-wav').onclick = async () => {
+async function exportAudio() {
   if (exporting) return;
-  const button = $('export-wav');
-  const suggestedName = 'modsynth-song.wav';
+  const suggestedName = `${projectFile.name.replace(/\.(mds|json)$/i, '') || 'modsynth-song'}.wav`;
   let handle = null;
   if (typeof window.showSaveFilePicker === 'function') {
     try {
@@ -1174,17 +1325,16 @@ $('export-wav').onclick = async () => {
     }
   }
   exporting = true;
-  button.disabled = true;
   const status = $('status');
   try {
     const project = JSON.parse(JSON.stringify(engine.saveProject()));
     const sampleRate = engine.ctx?.sampleRate || 48000;
     const wasm = engine.dspInfo?.dsp === 'wasm' ? engine.wasm : null;
-    status.textContent = 'Rendering WAV… 0%';
+    status.textContent = 'Rendering audio… 0%';
     const out = await renderSong(project, {
       sampleRate,
       wasm,
-      onProgress: (f) => { status.textContent = `Rendering WAV… ${Math.round(f * 100)}%`; },
+      onProgress: (f) => { status.textContent = `Rendering audio… ${Math.round(f * 100)}%`; },
     });
     const blob = new Blob([encodeWav(out.left, out.right, sampleRate)], { type: 'audio/wav' });
     const name = handle?.name ?? suggestedName;
@@ -1209,38 +1359,29 @@ $('export-wav').onclick = async () => {
     const clipped = out.peak > 1 ? ` Clipped: peak +${(20 * Math.log10(out.peak)).toFixed(1)} dBFS, lower the Output level.` : '';
     status.textContent = `Exported ${name} (${length}, ${sampleRate} Hz, 24-bit stereo).${clipped}`;
   } catch (err) {
-    console.error('WAV export failed:', err);
+    console.error('Audio export failed:', err);
     status.textContent = `Export failed: ${err.message}`;
   } finally {
     exporting = false;
-    button.disabled = false;
   }
-};
-$('file').onchange = async (e) => {
-  const file = e.target.files[0];
-  e.target.value = '';
-  if (!file) return;
-  try {
-    const data = JSON.parse(await file.text());
-    await openProject(data, data.view);
-    $('status').textContent = `Loaded ${file.name}`;
-  } catch (err) {
-    $('status').textContent = `Load failed: ${err.message}`;
-  }
-};
+}
 function emptyProject() {
   const values = Object.fromEntries(getModule('OUT').params.map((p) => [p.id, p.default]));
   return { format: 'modsynth', version: 1, patch: { modules: [{ id: 0, type: 'OUT', x: 560, y: 180, values }], cables: [] } };
 }
-$('new').onclick = async () => {
-  const ok = await confirmDialog('The current project is replaced. Download it with Save first if you want to keep it.', { title: 'Start a new empty project?', ok: 'New project' });
-  if (!ok) return;
-  await openProject(emptyProject(), null);
-  $('status').textContent = 'New project';
-};
 
 // ---- boot ----
+// Mouse clicks never leave the keyboard focus on a button: Space must keep playing / stopping
+// instead of pressing the last clicked button again. A text field or button that had the focus
+// lets go of it (a typed name is committed); the keyboard (Tab) can still focus buttons.
+window.addEventListener('mousedown', (e) => {
+  if (!e.target.closest?.('button')) return;
+  e.preventDefault();
+  const active = document.activeElement;
+  if (active?.matches?.('input, select, textarea, button, [contenteditable]:not([contenteditable="false"])')) active.blur();
+}, true);
 initWidgets(document, { numberStep: () => snapStep(engine.song.snap) });
+initStatusTips({ tipEl: $('tip'), statusEl: $('status') }); // after initWidgets: it extends some titles
 ['pointerdown', 'keydown'].forEach((ev) => window.addEventListener(ev, () => engine.resume()));
 initCpuMeter(engine);
 await engine.init();
@@ -1300,11 +1441,13 @@ undoHistory = createHistory({
     await engine.loadProject(project);
     path = patchAt(ids).map((level, i) => ({ ...level, cam: cameras[i] }));
     midiHistory = [];
+    const wasLocked = midiLocked;
+    midiLocked = false;
     if (targetPath) {
       const levels = patchAt(targetPath);
       if (levels.length === targetPath.length + 1) {
         const entry = levels.at(-1).patch.modules.get(targetId);
-        if (takesLiveMidi(entry?.def)) midiHistory.push(entry);
+        if (takesLiveMidi(entry?.def)) { midiHistory.push(entry); midiLocked = wasLocked; }
       }
     }
     seq.reload();
@@ -1319,6 +1462,7 @@ for (const { state, source } of saved.copies) {
   try {
     await undoHistory.suspend(() => persist.pause(() => engine.loadProject(state)));
     applyView(state.view);
+    projectFile.restore(state.doc); // file name and unsaved state of the restored project
     restored = source;
     break;
   } catch (err) {
@@ -1333,10 +1477,11 @@ if (!restored) {
   path = [{ patch: engine.root, name: 'Main' }];
   seq.applyView(null);
   render();
+  projectFile.reset();
 }
 undoHistory.reset();
 $('saved').textContent = restored ? `Restored from ${restored}` : saved.copies.length ? 'Autosave unreadable, started empty' : '';
-if (!saved.disk) $('saved').title = 'Browser localStorage only. Run "node server.mjs" to also save to disk.';
+if (!saved.disk) $('saved').title = 'Autosave: browser localStorage only. Run "node server.mjs" to also save to disk.';
 persist.start();
 window.addEventListener('pagehide', () => persist.flushNow());
 connectLiveReload(() => persist.flushNow());

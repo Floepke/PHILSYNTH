@@ -1,6 +1,6 @@
 // Right-click menu for the sequencer views (DOM overlay, closes on any outside press, Escape,
 // scrolling or window blur). Arrow keys + Enter / Space work too.
-//   showMenu({ x, y (client px), items: [{ label, shortcut?, disabled?, checked?, action() } | '-'] }) -> close()
+//   showMenu({ x, y (client px), items: [{ label, shortcut?, disabled?, checked?, action() } | '-'], className?, onClose? }) -> close()
 let current = null;
 
 const MAC = /Mac|iPhone|iPad/.test(globalThis.navigator?.platform ?? '');
@@ -11,10 +11,10 @@ export function closeMenu() {
   current?.();
 }
 
-export function showMenu({ x, y, items }) {
+export function showMenu({ x, y, items, className = '', onClose = null }) {
   closeMenu();
   const el = document.createElement('div');
-  el.className = 'ctx-menu';
+  el.className = className ? `ctx-menu ${className}` : 'ctx-menu';
   el.setAttribute('role', 'menu');
   el.tabIndex = -1;
   const buttons = [];
@@ -86,6 +86,7 @@ export function showMenu({ x, y, items }) {
     window.removeEventListener('blur', away);
     window.removeEventListener('resize', away);
     el.remove();
+    onClose?.();
   }
   current = close;
   return close;

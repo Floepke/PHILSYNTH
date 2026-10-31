@@ -2,25 +2,25 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>ModSynth</title>
+  <title>MODSYNTH</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header id="bar">
-    <div class="brand"><span class="logo"></span>ModSynth</div>
+    <div class="brand-slot"><button id="brand" class="brand" type="button" aria-haspopup="menu" aria-expanded="false" title="Main menu: New, Open, Save, Export Audio…"><span class="logo"></span>MODSYNTH</button></div>
     <nav id="crumbs"></nav>
     <span class="spacer"></span>
+    <span id="doc-name" class="doc-name" title="Project file"></span>
     <span id="saved" class="saved"></span>
     <button id="midi" title="Enable / re-scan MIDI input">MIDI</button>
-    <button id="new" title="Start an empty project">New</button>
-    <button id="save" title="Save the project as a .mds file">Save</button>
-    <button id="load" title="Open a project .mds file (older .json projects open too)">Load</button>
-    <button id="export-wav" title="Render the song (TimeLine, or the loop region when set) to a 24-bit stereo .wav file">EXPORT WAV</button>
     <input id="file" type="file" accept=".mds,.json" hidden>
   </header>
   <div id="workspace">
     <section id="seq" aria-label="Piano roll">
-      <div id="seq-bar">
+      <div id="roll" class="seq-view"></div>
+    </section>
+    <div id="seq-split" class="splitter horizontal" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Piano roll / patcher divider" aria-controls="seq patcher" title="Drag the exposed divider to resize the piano roll and controller panel; pushes the lower divider when they meet. Arrow keys resize; Home/End move to an edge.">
+      <div id="seq-bar" role="toolbar" aria-label="Sequencer controls">
         <div id="seq-bar-content">
           <button id="seq-play" class="seq-play" title="Play song (.) / toggle (Space)">▶</button>
           <span id="seq-pos" class="seq-pos" title="Play position: bar.beat.hundredths">1.1.00</span>
@@ -34,9 +34,7 @@
           <input id="seq-snap-div" class="seq-div-input" type="number" min="1" max="64" step="1" value="1" aria-label="Snap divider">
         </div>
       </div>
-      <div id="roll" class="seq-view"></div>
-    </section>
-    <div id="seq-split" class="splitter horizontal" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Piano roll / patcher divider" aria-controls="seq patcher" title="Drag up/down to resize the piano roll and left/right to resize the controller panel; pushes the lower divider when they meet. Arrow keys resize; Home/End move to an edge."></div>
+    </div>
     <section id="patcher" aria-label="Patcher">
       <aside id="panel"><div id="panel-content"></div></aside>
       <div id="panel-split" class="splitter" role="separator" aria-orientation="vertical" aria-label="Controller panel width" title="Drag left/right to resize the controller panel and up/down to move the upper horizontal divider; drag fully left to hide the panel"></div>
@@ -50,6 +48,7 @@
   </div>
   <footer id="statusbar">
     <span id="status"></span>
+    <span id="tip" role="status" hidden></span>
     <div id="cpu" title="DSP load: share of the audio thread's real-time budget used to render the patch">
       <span class="cpu-label">DSP</span>
       <canvas id="cpu-graph" width="60" height="14"></canvas>
@@ -78,6 +77,18 @@
       <menu>
         <button value="cancel" id="confirm-cancel">Cancel</button>
         <button value="ok" class="primary" id="confirm-ok" autofocus>OK</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="unsaved-dialog">
+    <form method="dialog">
+      <h3 id="unsaved-title">Save changes?</h3>
+      <p id="unsaved-text"></p>
+      <menu>
+        <button value="yes" class="primary" id="unsaved-yes" autofocus>Yes</button>
+        <button value="no" id="unsaved-no">No</button>
+        <button value="cancel" id="unsaved-cancel">Cancel</button>
       </menu>
     </form>
   </dialog>

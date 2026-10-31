@@ -131,7 +131,7 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
     ui.target.replaceChildren(...opts);
     ui.target.value = c?.target ?? '';
     const color = c ? ctx.color(c) : NO_COLOR;
-    seq.style.setProperty('--clip-color', color);
+    $('workspace').style.setProperty('--clip-color', color);
     // automation: which controller of the target
     ui.ctlField.hidden = !auto;
     ui.targetField.title = auto ? 'Module number (main patch) whose controller this automation clip drives' : 'Module number (main patch) that plays the notes of this clip';
@@ -236,7 +236,7 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
     sync();
     return true;
   }
-  seq.addEventListener('keydown', (e) => {
+  function onUndoKey(e) {
     if (!(e.ctrlKey || e.metaKey) || e.altKey || e.target.closest?.('input, select, textarea')) return;
     const k = e.key.toLowerCase();
     if (k !== 'z' && !(k === 'y' && !e.shiftKey)) return;
@@ -248,18 +248,22 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
       result.then((ok) => { $('status').textContent = ok ? label : 'Nothing to undo / redo.'; })
         .catch((err) => { $('status').textContent = `${label} failed: ${err.message}`; });
     } else $('status').textContent = result ? label : 'Nothing to undo / redo.';
-  });
+  }
+  seq.addEventListener('keydown', onUndoKey);
+  $('seq-bar').addEventListener('keydown', onUndoKey);
 
   // ---- transport ----
   ui.play.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus (Space) where it is
   ui.play.onclick = () => togglePlay();
-  function togglePlay() {
+  function togglePlay(fromPointer = false) {
     engine.resume();
     if (transport.playing) {
       // pausing parks the playhead at the start of the selected clip
       transport.stop({ to: getClip(song(), song().selected)?.start ?? null });
       return;
     }
+    const pointerTime = fromPointer ? roll.getPointerTime() : null;
+    if (pointerTime !== null) transport.seek(pointerTime);
     if (!transport.play() && !song().clips.length) {
       $('status').textContent = 'Nothing to play: double-click in the TimeLine to create a clip.';
     }
@@ -284,7 +288,7 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
     e.preventDefault();
     const panic = e.key === "'" && stopArmed && !transport.playing;
     stopArmed = e.key === "'";
-    if (e.key === ' ') togglePlay();
+    if (e.key === ' ') togglePlay(true);
     else if (panic) {
       engine.panic();
       $('status').textContent = 'Panic: all notes off, echo / reverb tails and other DSP state cleared.';
@@ -307,7 +311,7 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
     ui.play.textContent = transport.playing ? '■' : '▶';
     ui.play.title = transport.playing
       ? `${transport.clipId === null ? 'Stop' : 'Stop clip loop'} and go to the selected clip's start (Space)`
-      : 'Play song (.) / toggle (Space)';
+      : 'Play song (.) / toggle from the piano-roll pointer (Space)';
     if (!frame) loop();
   };
   function showPos() {
@@ -323,24 +327,16 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
   const controller = $('panel-split');
   const upper = $('seq-split');
   const lower = $('seq-hsplit');
-  // The piano roll toolbar (play / stop) never disappears: the upper divider stops right under it,
-  // where the piano roll with its keyboard is just gone (CSS keeps the row at least this high too).
+  // The toolbar lives on the upper divider, so both surrounding panes can collapse completely.
   const room = () => Math.max(0, (workspace.getBoundingClientRect?.().height ?? 0)
     - (upper.getBoundingClientRect?.().height ?? 0) - (lower.getBoundingClientRect?.().height ?? 0));
-  const barHeight = () => $('seq-bar').getBoundingClientRect?.().height ?? 0;
-  const minTop = () => {
-    const bar = barHeight();
-    const r = room();
-    return r > 0 ? Math.min(1, bar / r) : 0;
-  };
   function applyLayout() {
-    if (barHeight() > 0) workspace.style.setProperty('--seq-bar-h', `${barHeight()}px`);
     document.body.classList.toggle('panel-collapsed', layout.panelWidth === 0);
     document.body.style.setProperty('--panel-width', `${layout.panelWidth}px`);
     workspace.style.setProperty('--roll-fr', `${layout.top}fr`);
     workspace.style.setProperty('--patch-fr', `${layout.bottom - layout.top}fr`);
     workspace.style.setProperty('--arr-fr', `${1 - layout.bottom}fr`);
-    workspace.classList.toggle('roll-collapsed', layout.top <= minTop() + 1e-6);
+    workspace.classList.toggle('roll-collapsed', layout.top <= 1e-6);
     workspace.classList.toggle('patcher-collapsed', layout.top === layout.bottom);
     workspace.classList.toggle('arranger-collapsed', layout.bottom === 1);
     for (const [handle, value] of [[upper, layout.top], [lower, layout.bottom]]) {
@@ -351,13 +347,13 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
   }
   // S maximizes the patcher, then restores both surrounding panes to their saved positions.
   function toggleRoll() {
-    if (layout.top > minTop() + 1e-6 || layout.bottom < 1) {
+    if (layout.top > 1e-6 || layout.bottom < 1) {
       layout.restoreTop = layout.top;
       layout.restoreBottom = layout.bottom;
       layout.top = 0;
       layout.bottom = 1;
     } else {
-      const restorable = layout.restoreTop > minTop() + 1e-6 || layout.restoreBottom < 1;
+      const restorable = layout.restoreTop > 1e-6 || layout.restoreBottom < 1;
       layout.top = restorable ? layout.restoreTop : defaults.top;
       layout.bottom = restorable ? layout.restoreBottom : defaults.bottom;
     }
@@ -365,13 +361,13 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
     onChange();
   }
   function moveBoundary(boundary, value) {
-    layout[boundary] = clamp(value, minTop(), 1); // neither divider can cover the toolbar
+    layout[boundary] = clamp(value, 0, 1);
     if (boundary === 'top') layout.bottom = Math.max(layout.bottom, layout.top);
     else layout.top = Math.min(layout.top, layout.bottom);
     applyLayout();
   }
   function saveLayout(start) {
-    const min = minTop() + 1e-6;
+    const min = 1e-6;
     if (layout.top <= min && layout.bottom === 1 && (start.top > min || start.bottom < 1)) {
       layout.restoreTop = start.top;
       layout.restoreBottom = start.bottom;
@@ -380,7 +376,7 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
   }
   for (const [handle, boundary] of [[controller, 'top'], [upper, 'top'], [lower, 'bottom']]) {
     handle.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || e.target.closest?.('button, input, select, label, .spinbox')) return;
       e.preventDefault();
       const space = room();
       const panelHandle = controller.getBoundingClientRect();
@@ -399,7 +395,7 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
     });
     if (handle === controller) continue;
     handle.addEventListener('keydown', (e) => {
-      if (e.ctrlKey || e.metaKey || e.altKey || !['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) return;
+      if (e.target !== handle || e.ctrlKey || e.metaKey || e.altKey || !['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) return;
       e.preventDefault();
       const start = { ...layout };
       const step = e.shiftKey ? 0.1 : 0.02;

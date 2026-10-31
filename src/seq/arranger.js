@@ -3,7 +3,8 @@
 // scroll left to park clips before it (they are not played by the song, / still auditions them,
 // together with the clips around them).
 //   double-click empty space   insert a clip (one bar)
-//   double right-click empty   insert an automation clip (one bar, drives one controller)
+//   double right-click empty   insert an automation clip (one bar, drives one controller; the second
+//                              press closes the menu the first one opened)
 //   click a clip               select it (the piano roll shows it); when stopped the playhead jumps to its start
 //                              (the border of selected clips pulses white / grey at 50 BPM)
 //   drag on empty space        select clips with a rectangle (Ctrl/Cmd + drag adds to the selection)
@@ -17,7 +18,7 @@
 //   Alt + drag                 duplicate (standalone copies with the same name)
 //   Shift + drag               linked clone: shares the notes with the source (see song.js); clones
 //                              are hatched, a selected clone shows a dashed arrow to its source
-//   hold right button 250 ms   menu: cut / copy / paste / delete / duplicate / clone / detach / go to source /
+//   right-click                menu: cut / copy / paste / delete / duplicate / clone / detach / go to source /
 //                              consolidate (selected clips on one lane -> one clip) / split at the playhead
 //   Backspace / Delete         delete the selected clips
 //   Ctrl/Cmd + X / C / V       cut / copy / paste clips at the snapped pointer position
@@ -462,7 +463,7 @@ export function createArranger(host, ctx) {
     g.fillText(LABEL, 10, barY);
     g.fillStyle = '#6e6e76';
     g.font = `500 9.5px ${FONT}`;
-    g.fillText('Sig', 10, SIG_H / 2 + 0.5);
+    g.fillText('Time Sig.', 10, SIG_H / 2 + 0.5);
     const map = mapGeometry();
     g.fillStyle = '#111114';
     g.fillRect(x0, MAP_Y, w - x0, MAP_H);
@@ -681,12 +682,8 @@ export function createArranger(host, ctx) {
         }
         lastRight = { time: now, x, y };
       } else lastRight = null;
-      // holding the right button still opens the menu
-      dragging = true;
-      rightHold(cv, e, {
-        onHold: () => { lastRight = null; openMenu(x, y, e.clientX, e.clientY); },
-        onEnd: () => { dragging = false; },
-      });
+      // a normal right-click opens the menu (a quick second one closes it again, see above)
+      openMenu(x, y, e.clientX, e.clientY);
       return;
     }
     lastRight = null;

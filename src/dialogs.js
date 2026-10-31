@@ -21,6 +21,14 @@ export async function confirmDialog(text, { title = 'Are you sure?', ok = 'OK', 
   return (await run($('confirm-dialog'))) === 'ok';
 }
 
+// Classic Yes / No / Cancel before the project is replaced. Resolves 'yes', 'no' or 'cancel' (also Escape).
+export async function unsavedDialog(name, { action = 'closing it' } = {}) {
+  $('unsaved-title').textContent = `Save changes to "${name}"?`;
+  $('unsaved-text').textContent = `Your changes will be lost if you don't save them before ${action}.`;
+  const r = await run($('unsaved-dialog'));
+  return r === 'yes' || r === 'no' ? r : 'cancel';
+}
+
 // Ask for a time signature. Resolves with { num, den }, 'delete', or null (cancelled).
 export async function sigDialog({ num, den, where = '', title = 'Time signature', canDelete = false }) {
   const n = $('sig-num');

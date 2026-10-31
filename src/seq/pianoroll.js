@@ -22,6 +22,7 @@
 //   Ctrl/Cmd + D                duplicate the selection right after itself
 //   Ctrl/Cmd + A, Escape        select all / clear the selection
 //   Q                           quantize note starts to the grid (selection, else all notes)
+//   Space                       toggle song playback from the pointer's snapped time
 // The velocity strip on the left edits the velocity (curves) of the selected notes, see velocity.js.
 // Everything snaps to the snap grid (base note ÷ divider).
 import { isBlack, inPiano, clipSilent, snapStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, clean, meter, barLines, beatLines, barLength } from '../song.js';
@@ -759,6 +760,11 @@ export function createPianoRoll(host, ctx) {
   return {
     surface: s,
     redraw: s.redraw,
+    getPointerTime() {
+      const clip = ctx.clip();
+      if (!clip || !pointer || !inGrid(pointer.x, pointer.y)) return null;
+      return clean(clip.start + Math.max(0, snapFloor(timeAt(pointer.y), step())));
+    },
     // scroll so the clip start is visible (called when another clip gets selected)
     reveal() { view.sy = -TOP_MARGIN; s.redraw(); },
     getView: () => ({ ...view }),

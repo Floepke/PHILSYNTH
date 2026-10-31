@@ -1,4 +1,4 @@
-// ModSynth dev server (no dependencies):  node server.mjs   ->  http://localhost:8080
+// MODSYNTH dev server (no dependencies):  node server.mjs   ->  http://localhost:8080
 // Also used in-process by the Electron app (electron/main.mjs) through start().
 //  - serves the app with caching disabled (worklet edits are picked up on reload)
 //  - GET/PUT /api/autosave  stores the project in projects/autosave.json (previous copy kept as autosave.prev.json)
@@ -166,7 +166,7 @@ export const stop = () => new Promise((ok) => {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   start().then((port) => {
-    console.log(`ModSynth running at http://${HOST === '127.0.0.1' ? 'localhost' : HOST}:${port}`);
+    console.log(`MODSYNTH running at http://${HOST === '127.0.0.1' ? 'localhost' : HOST}:${port}`);
     console.log(`Autosave file: ${relative(process.cwd(), AUTOSAVE) || AUTOSAVE}`);
   });
 }
