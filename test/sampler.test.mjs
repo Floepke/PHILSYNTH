@@ -25,7 +25,8 @@ function run(k, blocks) {
 }
 
 // ---- controllers (numbered by order: append new ones at the end) ----
-assert.deepEqual(sampler.params.map((p) => p.id), ['polyphony', 'attack', 'decay', 'sustain', 'release', 'gain', 'transpose', 'finetune', 'interpolation']);
+assert.deepEqual(sampler.params.map((p) => p.id), ['polyphony', 'attack', 'decay', 'sustain', 'release', 'gain', 'transpose', 'finetune', 'interpolation', 'selStart', 'selLength', 'playMode']);
+assert.deepEqual(sampler.params.find((p) => p.id === 'playMode').options, ['Forward', 'Reverse', 'Ping Pong', 'Forward Loop', 'Reverse Loop']);
 assert.deepEqual(wavetable.params.map((p) => p.id), ['polyphony', 'attack', 'decay', 'sustain', 'release', 'gain', 'position', 'block', 'interpolation']);
 for (const def of [sampler, wavetable]) {
   const interp = def.params.find((p) => p.id === 'interpolation');
@@ -101,6 +102,114 @@ assert.ok(Math.abs(readWrapped(sine, 64, 10.37, 2) - exact) < Math.abs(readWrapp
   k.message({ type: 'noteOff', id: 5 });
   const rel = run(k, 10);
   assert.equal(rel.live, false, 'release ends the voice');
+}
+
+// ---- SAMPLER playback region + Playhead Mode ----
+{
+  const Proc = await loadKernel('sampler.dsp.js', SR);
+  const { region } = await import('../src/modules/sampler.dsp.js');
+  assert.deepEqual(region(1000, 25, 50), { a: 250, b: 750 });
+  assert.deepEqual(region(1000, 90, 50), { a: 900, b: 1000 }, 'clipped to the sample end');
+  assert.deepEqual(region(1000, 40, 0), { a: 400, b: 401 }, 'at least one sample wide');
+  const len = 1000;
+  const ramp = Float32Array.from({ length: len }, (_, i) => i / len); // value = position
+  const k = new Proc();
+  k.message({ type: 'sample', rate: SR, channels: [ramp] });
+  for (const [id, value] of [['attack', 0.001], ['sustain', 1], ['release', 0.001], ['gain', 1], ['interpolation', 1], ['selStart', 20], ['selLength', 30]]) {
+    k.message({ type: 'param', id, value });
+  }
+  const atk = Math.ceil(0.001 * SR); // samples of the attack ramp
+  const pos = (out, i) => out.L[i] / Math.min(1, (i + 1) / atk);
+
+  k.message({ type: 'noteOn', id: 1, pitch: 60, velocity: 1 });
+  const fwd = run(k, 10);
+  close(pos(fwd, 100), 0.3, 1e-6, 'Forward starts at Selection Start');
+  const lastF = fwd.L.findLastIndex((x) => x !== 0);
+  assert.equal(lastF, 299, 'and stops at the region end (one-shot)');
+  close(fwd.L[299], 0.499, 1e-6, 'last sample of the region');
+  assert.equal(fwd.live, false);
+
+  k.message({ type: 'param', id: 'playMode', value: 1 });
+  k.message({ type: 'noteOn', id: 2, pitch: 60, velocity: 1 });
+  const rev = run(k, 10);
+  close(pos(rev, 100), 0.399, 1e-6, 'Reverse starts at the region end, backwards');
+  assert.equal(rev.L.findLastIndex((x) => x !== 0), 299, 'and stops at Selection Start');
+  close(rev.L[299], 0.2, 1e-6);
+
+  k.message({ type: 'param', id: 'playMode', value: 2 });
+  k.message({ type: 'noteOn', id: 3, pitch: 60, velocity: 1 });
+  const pp = run(k, 20);
+  assert.equal(pp.live, true, 'Ping Pong keeps playing while the note is held');
+  const vals = pp.L.slice(atk);
+  close(Math.max(...vals), 0.499, 1e-6, 'turns at the region end');
+  close(Math.min(...vals), 0.2, 1e-6, 'and at the region start');
+  close(pos(pp, 299), 0.499, 1e-6, 'top');
+  close(pos(pp, 349), 0.449, 1e-6, 'coming back');
+  close(pos(pp, 598), 0.2, 1e-6, 'bottom');
+  close(pos(pp, 650), 0.252, 1e-6, 'forward again');
+
+  // modulating the region moves the window under a playing voice
+  k.message({ type: 'param', id: 'selStart', value: 70 });
+  k.message({ type: 'param', id: 'selLength', value: 10 });
+  const moved = run(k, 10).L;
+  assert.ok(moved.every((x) => x >= 0.7 - 1e-6 && x <= 0.799 + 1e-6), 'plays inside the new window');
+  k.message({ type: 'noteOff', id: 3 });
+  assert.equal(run(k, 10).live, false, 'release ends it');
+
+  // Forward Loop / Reverse Loop: repeat the region (20 %..50 % again)
+  k.message({ type: 'param', id: 'selStart', value: 20 });
+  k.message({ type: 'param', id: 'selLength', value: 30 });
+  k.message({ type: 'param', id: 'playMode', value: 3 });
+  k.message({ type: 'noteOn', id: 10, pitch: 60, velocity: 1 });
+  const fl = run(k, 10);
+  assert.equal(fl.live, true, 'Forward Loop keeps playing');
+  close(pos(fl, 299), 0.499, 1e-6, 'region end');
+  close(fl.L[300], 0.2, 1e-6, 'jumps back to the region start');
+  close(fl.L[650], 0.25, 1e-6, 'second time around');
+  k.message({ type: 'noteOff', id: 10 });
+  assert.equal(run(k, 10).live, false, 'release ends the loop');
+
+  k.message({ type: 'param', id: 'playMode', value: 4 });
+  k.message({ type: 'noteOn', id: 11, pitch: 60, velocity: 1 });
+  const rl = run(k, 10);
+  assert.equal(rl.live, true, 'Reverse Loop keeps playing');
+  close(pos(rl, 0), 0.499, 1e-6, 'starts at the region end');
+  close(rl.L[299], 0.2, 1e-6, 'backwards to the region start');
+  close(rl.L[300], 0.499, 1e-6, 'jumps back to the region end');
+  close(rl.L[350], 0.449, 1e-6, 'backwards again');
+  k.message({ type: 'noteOff', id: 11 });
+  run(k, 10);
+
+  k.message({ type: 'param', id: 'selLength', value: 0.15 });
+  for (const mode of [3, 4]) {
+    k.message({ type: 'param', id: 'playMode', value: mode });
+    k.message({ type: 'noteOn', id: 12 + mode, pitch: 127, velocity: 1 });
+    const t = run(k, 4).L.slice(atk);
+    assert.ok(t.every((x) => x >= 0.2 - 1e-6 && x <= 0.2015), `tiny loop window (mode ${mode})`);
+    k.message({ type: 'noteOff', id: 12 + mode });
+    run(k, 10);
+  }
+  k.message({ type: 'param', id: 'playMode', value: 2 });
+  k.message({ type: 'param', id: 'selStart', value: 70 });
+
+  // a large pitch step over a tiny window stays inside it
+  k.message({ type: 'param', id: 'selLength', value: 0.15 });
+  k.message({ type: 'noteOn', id: 4, pitch: 127, velocity: 1 });
+  const tiny = run(k, 4).L.slice(atk);
+  assert.ok(tiny.every((x) => x >= 0.7 - 1e-6 && x <= 0.7015), 'tiny Ping Pong window');
+}
+
+// ---- sample editor: cutting a region out ----
+{
+  const { cutRegion } = await import('../src/modules/sampleview.js');
+  const L = Float32Array.from({ length: 10 }, (_, i) => i);
+  const R = Float32Array.from({ length: 10 }, (_, i) => -i);
+  const cut = cutRegion({ rate: SR, length: 10, channels: [L, R] }, 2.4, 5);
+  assert.deepEqual([...cut.channels[0]], [0, 1, 5, 6, 7, 8, 9]);
+  assert.deepEqual([...cut.channels[1]], [-0, -1, -5, -6, -7, -8, -9]);
+  assert.equal(cut.rate, SR);
+  assert.equal(cutRegion({ rate: SR, length: 10, channels: [L] }, 0, 10), null, 'nothing left');
+  assert.equal(cutRegion({ rate: SR, length: 10, channels: [L] }, 7, 30).channels[0].length, 7, 'clipped at the end');
 }
 
 // ---- WAVETABLE kernel ----

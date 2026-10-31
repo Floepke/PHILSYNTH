@@ -165,6 +165,8 @@ body.panel-collapsed #panel { visibility: hidden; }
 .sample-view .sample-load { width: 100%; }
 .sample-view .sample-info { margin: 6px 0 0; font-size: 11px; color: var(--text-dim); overflow-wrap: anywhere; }
 .sample-view .sample-info.error { color: #e06666; }
+.sample-view .sample-edit { touch-action: none; }
+.sample-view .sample-edit:focus-visible, .sample-view .sample-edit:focus { outline: 1px solid var(--text-dim); outline-offset: -1px; }
 .sample-view.drop .wave-view { outline: 2px dashed currentColor; outline-offset: -2px; }
 .out-comment { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; font-size: 12px; color: var(--text-dim); }
 .out-comment textarea {
