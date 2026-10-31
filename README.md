@@ -33,6 +33,20 @@ Projects autosave under Electron's user-data directory, normally
 `~/.config/MODSYNTH/projects` (or `$XDG_CONFIG_HOME/MODSYNTH/projects`).
 The AppImage itself stays read-only. F11 toggles fullscreen, F12 opens developer
 tools, and Ctrl+Q quits.
+Window-manager Close, Alt+F4, and Ctrl/Cmd+Q first show the same "Exit to OS?"
+confirmation as the Exit menu item. Yes saves before quitting; No keeps the app open.
+The overflow toolbar reaches its scroll endpoints before either edge widget's
+centre, so its outer controls are fully visible when hovered.
+Dropdown option popups have rounded corners in Electron and browsers supporting
+customizable selects; older browsers retain their native dropdowns.
+All in-app dialogs (including module insertion, confirmations, time signatures,
+and Patch controller mapping), context menus, and supported dropdown popups share
+the wooden house style. Native operating-system open/save dialogs are unchanged.
+Dropdown choice text is vertically centered. Piano-roll grid lines use the stave
+color, with doubled thickness and 12px dashes separated by 12px gaps. The first
+barline uses the same thickness as ordinary barlines. Barlines leave half-semitone
+clearance beyond both edges of notes crossing or touching them; musical-time
+comparisons tolerate rounding errors up to 0.0000001 quarter notes.
 
 ## Development
 

@@ -496,10 +496,10 @@ function createBox(entry) {
     const start = group.map((m) => ({ m, x: m.x, y: m.y }));
     const sx = e.clientX;
     const sy = e.clientY;
-    // A single module dragged onto another one connects to it (or disconnects an existing cable)
-    // the moment they start to overlap; modules it overlaps at the start count after a separation.
+    // The grabbed module triggers cable toggles for the whole selection when it touches a target.
+    // Modules it overlaps at the start count only after a separation.
     const patch = current();
-    const others = () => group.length === 1 ? [...patch.modules.values()].filter((m) => m !== entry && m.el?.isConnected) : [];
+    const others = () => [...patch.modules.values()].filter((m) => !group.includes(m) && m.el?.isConnected);
     const overlaps = (m) => {
       const a = boxOf(entry);
       const b = boxOf(m);
@@ -519,7 +519,7 @@ function createBox(entry) {
         if (!overlaps(m)) touching.delete(m);
         else if (!touching.has(m)) {
           touching.add(m);
-          wired = toggleCable(patch, entry, m.el) || wired;
+          for (const source of group) wired = toggleCable(patch, source, m.el) || wired;
         }
       }
       drawCables();
@@ -1040,7 +1040,7 @@ function select(s) {
       panelHeader('No selection', ''),
       hint('<kbd>Double-click</kbd> the canvas to insert a module. <b>Save module…</b> in a module\'s right-click menu saves it (or the whole selection, with the cables between them and Patch contents) as a <b>.synth</b> file; <b>Load .synth…</b> in the insert dialog puts it back at the double-clicked spot.'),
       hint('<kbd>Shift</kbd> + drag from a module and move over other modules: each one you touch gets connected (or disconnected when already connected), so one module can feed many in one sweep.'),
-      hint('Drag a module so it overlaps another one: the dragged module gets connected to it (or disconnected when already connected). Pull it off and back on to toggle again.'),
+      hint('Drag a module so it overlaps another one: the dragged module gets connected to it (or disconnected when already connected). When dragging a selection, the module you grabbed triggers this for all selected modules, connecting each compatible source to the touched module in one undoable edit. Selected modules never trigger connections to each other. Pull the grabbed module off and back on to toggle again.'),
       hint('Drag on empty canvas to select several modules. <kbd>Ctrl</kbd> + click toggles a module, <kbd>Ctrl</kbd> + drag adds, <kbd>Ctrl</kbd> + <kbd>A</kbd> selects all.'),
       hint('<kbd>Alt</kbd> + drag a module to duplicate it (or the whole selection).'),
       hint('<kbd>Backspace</kbd> deletes the selection.'),
@@ -1068,7 +1068,7 @@ function select(s) {
       hint(`<b>Main menu:</b> click the logo / <b>MODSYNTH</b> (always in the top-right corner of the window) for <b>New</b> (<kbd>${shortcut('N')}</kbd>), <b>Open…</b> (<kbd>${shortcut('O')}</kbd>), <b>Save</b> (<kbd>${shortcut('S')}</kbd>), <b>Save As…</b> (<kbd>${shortcut('⇧S')}</kbd>) <b>Export Audio…</b> and <b>Enable / Re-scan MIDI</b>. Projects are <b>.mds</b> files (older .json projects open too; Save then asks for a new .mds file). The file name is shown in the status bar (bottom right) and the window title, with <b>•</b> while there are unsaved changes; New and Open ask whether to save them first (Yes / No / Cancel). Independently, every change is autosaved, so the app always starts with your latest project, its file name and unsaved state.`),
       hint(`<b>Export Audio…</b> (main menu or <kbd>${shortcut('E')}</kbd>): choose where to save, then the song renders offline (much faster than real time) from its start to the end of the last clip, or just the loop region when one is set, plus the sound tail (releases, echoes, reverb; at most 10 s). The file is a 24-bit stereo WAV at the audio device's sample rate. The status bar warns when the mix clips.`),
       hint('<b>Layout:</b> piano roll, patcher and TimeLine are stacked top to bottom. The main menu button stays in the top-right corner, on top of everything. Play/stop, clip and snap controls sit on the upper divider (it can be dragged up to the window edge, under the menu button) and remain visible even when the piano roll is hidden. The patch path (<b>Main</b> / …, click a level to go up) sits at the left of the lower divider. Drag the exposed divider grip or empty space up/down to resize (left/right resizes the controller panel); the widgets do not drag the divider. When the patcher closes, the dragged divider pushes the other one. Drag to an edge to hide a pane and back to reopen it. Positions are saved with the project. The piano keyboard stays at the bottom of the roll; selected notes are filled blue.'),
-      hint('The piano roll fits all <b>128 MIDI notes (0–127)</b> across its width and rescales with the window width. Horizontal zoom is automatic; <kbd>Alt</kbd> + scroll no longer changes key width. Each mouse-wheel step scrolls exactly one snap step (the selected snap); scroll upward to reveal a small margin above beat zero. <kbd>Ctrl/Cmd</kbd> + scroll still zooms time.'),
+      hint('The piano roll fits all <b>128 MIDI notes (0–127)</b> across its width and rescales with the window width. A thin wooden frame surrounds all four edges of the window. Horizontal zoom is automatic; <kbd>Alt</kbd> + scroll no longer changes key width. Each mouse-wheel step scrolls exactly one snap step (the selected snap); scroll upward to reveal the 128px blank margin above beat zero. <kbd>Ctrl/Cmd</kbd> + scroll still zooms time.'),
       hint('Drag the left controller-panel divider to resize the panel, or fully left to hide it. Its handle stays available to reopen it, and the width is saved with the project.'),
       hint('All three dividers resize the controller panel when dragged left/right. On the controller-panel divider, grab above the four-dot grip to move the upper horizontal divider up/down, or below it to move the lower one. The chosen divider stays attached for the whole drag. Each horizontal divider supports <kbd>Up</kbd>/<kbd>Down</kbd> (hold <kbd>Shift</kbd> for larger steps) and <kbd>Home</kbd>/<kbd>End</kbd> to reach the edges. Every divider shows a small four-dot grip.'),
       hint('<b>Piano roll colors:</b> charcoal paper keeps the stave dark rather than inverted. Notes use a lighter version of their module color; black-key bodies are slightly darker, including in blue selections, so dense chromatic chords retain the keyboard pattern.'),
@@ -1093,6 +1093,7 @@ function select(s) {
     panel.append(
       list,
       hint('Drag any selected module to move them together.'),
+      hint('When the module you grabbed touches an unselected module, every compatible selected source connects to it (or disconnects its existing cable). Pull the grabbed module away and back to toggle again. The move and all connections are one undoable edit.'),
       hint('<kbd>Alt</kbd> + drag duplicates the selection, including the cables between them.'),
       hint('<kbd>Backspace</kbd> deletes them (the Output module stays).'),
     );
@@ -1504,6 +1505,22 @@ if (!restored) {
 undoHistory.reset();
 if (restored || saved.copies.length) $('status').textContent = restored ? `Restored from ${restored}` : 'Autosave unreadable, started empty';
 persist.start();
+let nativeExitWaiting = false;
+window.modsynthExit?.onRequest(() => {
+  closeMenu();
+  if (nativeExitWaiting) return;
+  const dialog = document.querySelector('dialog[open]');
+  const request = () => exitToOS(persist, (message) => { $('status').textContent = message; });
+  if (!dialog || dialog.id === 'confirm-dialog' && $('confirm-title').textContent === 'Exit to OS?') {
+    request();
+  } else {
+    nativeExitWaiting = true;
+    dialog.addEventListener('close', () => {
+      nativeExitWaiting = false;
+      request();
+    }, { once: true });
+  }
+});
 // driven controller values that are still waiting for the throttled autosave are written too
 const flushAll = () => {
   if (driveSaveTimer) persist.schedule();

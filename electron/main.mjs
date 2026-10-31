@@ -5,6 +5,7 @@ import { app, BrowserWindow, Menu, session, shell, systemPreferences } from 'ele
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { registerProjectFiles } from './projectfiles.mjs';
+import { registerExit } from './exit.mjs';
 
 // MODSYNTH.app (npm run build:mac) is its own app next to the dev app (npm start): own name,
 // data folder (~/Library/Application Support/MODSYNTH), single-instance lock and port.
@@ -29,6 +30,7 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 let win = null;
 let server = null;
+let exit = null;
 
 // macOS keeps its own microphone permission per app (System Settings > Privacy > Microphone)
 async function micAccess() {
@@ -77,6 +79,7 @@ function createWindow(url) {
     win.setFullScreen(true); // some window managers (Wayland) ignore the constructor option
     win.show();
   });
+  exit = registerExit(app, win, (u) => typeof u === 'string' && u.startsWith(url));
   // links to other sites open in the normal browser
   win.webContents.setWindowOpenHandler(({ url: target }) => {
     if (!target.startsWith(url)) shell.openExternal(target);
@@ -145,6 +148,7 @@ if (!app.requestSingleInstanceLock()) {
   let quitting = false;
   app.on('window-all-closed', () => app.quit());
   app.on('before-quit', (e) => {
+    if (win && !exit?.isApproved()) return;
     if (quitting || !server) return;
     // let the last autosave PUT (sent on pagehide) reach the disk before the server goes away
     e.preventDefault();

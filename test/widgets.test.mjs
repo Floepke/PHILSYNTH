@@ -77,6 +77,13 @@ select.focus();
 fire(select, 'keydown', { key: 'ArrowDown' });
 fire(select, 'change');
 assert.equal(document.activeElement, select, 'Tab/keyboard navigation retains focus');
+const optionPress = new Event('mousedown', { cancelable: true });
+Object.assign(optionPress, { button: 0 });
+Object.defineProperty(optionPress, 'target', { value: { closest: () => select.options[0] } });
+const pickerCalls = select.pickerCalls;
+select.dispatchEvent(optionPress);
+assert.equal(optionPress.defaultPrevented, false, 'customizable picker option clicks retain default selection');
+assert.equal(select.pickerCalls, pickerCalls, 'clicking an option does not reopen the picker');
 
 // Wheel skips unavailable options, clamps at both ends and emits both standard value events.
 let inputs = 0;

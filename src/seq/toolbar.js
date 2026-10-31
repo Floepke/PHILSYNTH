@@ -25,7 +25,10 @@ export function createHoverToolbar(bar, content) {
     }
     const r = bar.getBoundingClientRect();
     const x = e.clientX - r.left;
-    position = clamp(x / r.width, 0, 1) * end();
+    const inset = Math.min(r.width / 4, Math.max(32,
+      (content.firstElementChild?.offsetWidth ?? 0) / 2 + 6,
+      (content.lastElementChild?.offsetWidth ?? 0) / 2 + 6));
+    position = clamp((x - inset) / (r.width - 2 * inset), 0, 1) * end();
     if (!frame) frame = requestAnimationFrame(tick);
   });
   for (const event of ['pointerleave', 'pointerdown', 'pointercancel', 'keydown']) bar.addEventListener(event, stop);

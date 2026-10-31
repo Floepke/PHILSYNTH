@@ -37,7 +37,7 @@ const GRID_LOW = 22; // A#0 (American notation)
 const GRID_HIGH = 106; // A#7
 
 const KEYBOARD = 24;
-const TOP_MARGIN = 32;
+const TOP_MARGIN = 128;
 const TILT = -Math.PI / 9;
 const HEAD_STRETCH = 1.25; // noteheads are stretched along the time (y) axis
 const GUTTER = 36; // bar / beat ruler (right of the velocity strip)
@@ -47,9 +47,10 @@ const BG = '#45464e';
 const PLAYHEAD = '#ff916e';
 const SELECT = '#65b4ff';
 const STAVE = '#111216';
-const BEAT = '#5d606a';
-const BAR_LINE = '#797d88';
-const BOUNDARY = '#a1a7b3';
+const BEAT = STAVE;
+const BAR_LINE = STAVE;
+const BOUNDARY = STAVE;
+const TIME_EPSILON = 1e-7;
 
 // ctx: { song(), clip(), color(clip), preview: { on(clip, pitch) -> handle, key(pitch) -> handle, off(handle) }, changed(), transport,
 //        menu?(opts) (context menu, default showMenu) }
@@ -180,29 +181,50 @@ export function createPianoRoll(host, ctx) {
       const t0 = Math.max(0, timeAt(0));
       const t1 = timeAt(bottom);
       const st = step();
-      g.fillStyle = 'rgba(0, 0, 0, 0.06)';
+      g.fillStyle = 'rgba(0, 0, 0, 0.10)';
       snapBands(st, view.ppq, t0, t1, (a, b) => {
         const ya = Math.round(yOf(a));
         g.fillRect(gridLeft, ya, gridRight - gridLeft, Math.round(yOf(b)) - ya);
       });
-      const line = (t, color, lw = 1) => {
+      const line = (t, color, lw = 1, cutNotes = false) => {
         const y = Math.round(yOf(t)) + 0.5;
         g.strokeStyle = color;
-        g.lineWidth = lw * 2;
-        g.beginPath(); g.moveTo(gridLeft, y); g.lineTo(gridRight, y); g.stroke();
+        g.lineWidth = lw * 4;
+        g.beginPath();
+        let left = gridLeft;
+        if (cutNotes) {
+          // Compare musical time, not rounded pixels; starts and ends can drift at triplet boundaries.
+          const gaps = clip.notes
+            .filter((n) => n.start <= t + TIME_EPSILON && n.start + n.length >= t - TIME_EPSILON)
+            .map((n) => [xOf(n.pitch) - overlap() - kw / 2, xOf(n.pitch) + kw + overlap() + kw / 2])
+            .sort((a, b) => a[0] - b[0]);
+          for (const [start, end] of gaps) {
+            if (end <= left || start >= gridRight) continue;
+            if (start > left) { g.moveTo(left, y); g.lineTo(Math.min(start, gridRight), y); }
+            left = Math.min(gridRight, Math.max(left, end));
+          }
+        }
+        if (left < gridRight) { g.moveTo(left, y); g.lineTo(gridRight, y); }
+        g.stroke();
       };
       const m = meter(ctx.song());
       const off = clip.start;
+      const bars = [...barLines(null, off + t0, off + t1, m)].map((b) => b.t - off);
       if (minBeat(m) * view.ppq >= 5) {
-        g.setLineDash([3, 3]);
+        g.setLineDash([12, 12]);
         g.lineDashOffset = 0; // dashes travel with their A#0 anchor
-        for (const t of beatLines(null, off + t0, off + t1, m)) line(t - off, BEAT);
+        for (const t of beatLines(null, off + t0, off + t1, m)) {
+          const local = t - off;
+          if (bars.some((b) => Math.abs(b - local) <= TIME_EPSILON)
+            || Math.abs(local) <= TIME_EPSILON || Math.abs(local - clip.length) <= TIME_EPSILON) continue;
+          line(local, BEAT);
+        }
         g.setLineDash([]);
         g.lineDashOffset = 0;
       }
-      for (const b of barLines(null, off + t0, off + t1, m)) line(b.t - off, BAR_LINE);
-      line(0, BOUNDARY, 2);
-      line(clip.length, BOUNDARY, 2);
+      for (const t of bars) line(t, BAR_LINE, 1, true);
+      line(0, BOUNDARY, 1, true);
+      line(clip.length, BOUNDARY, 2, true);
 
       // note bodies
       // Lift the module hue off the charcoal background without changing its identity.

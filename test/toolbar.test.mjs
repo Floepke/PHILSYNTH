@@ -32,7 +32,8 @@ class Bar extends EventTarget {
   contains(el) { return el?.bar === this; }
 }
 const bar = new Bar();
-createHoverToolbar(bar, {});
+const content = {};
+createHoverToolbar(bar, content);
 const fire = (target, type, props = {}) => {
   const e = new Event(type, { cancelable: true });
   Object.assign(e, { buttons: 0, pointerType: 'mouse', clientX: 250, ...props });
@@ -68,13 +69,18 @@ assert.equal(bar.scrollLeft, 0, 'left edge reveals the first controls');
 assert.equal(frames.size, 0);
 
 // The full pointer journey maps to the full scroll range, without edge-only zones.
-for (const [x, expected] of [[100, 0], [160, 120], [220, 240], [280, 360], [340, 480], [400, 600], [250, 300], [100, 0]]) {
+for (const [x, expected] of [[100, 0], [132, 0], [191, 150], [250, 300], [309, 450], [368, 600], [400, 600], [250, 300], [100, 0]]) {
   move(x);
   advance(16);
   assert.equal(bar.scrollLeft, expected);
   assert.equal(frames.size, 0, 'a stationary pointer never keeps scrolling');
 }
 // Pointer positions outside the row clamp to the endpoints.
+content.lastElementChild = { offsetWidth: 100 };
+move(350);
+advance(16);
+assert.equal(bar.scrollLeft, 600, 'wide last widget reaches full visibility at its centre');
+delete content.lastElementChild;
 move(450);
 advance(16);
 assert.equal(bar.scrollLeft, 600);
@@ -84,7 +90,7 @@ assert.equal(bar.scrollLeft, 0);
 
 // Rounded scroll positions remain tied to pointer position, not accumulated speed.
 bar.quantum = 1;
-move(250.25);
+move(250.3);
 advance(16);
 assert.equal(bar.scrollLeft, 301);
 advance(1000);
@@ -94,11 +100,11 @@ bar.quantum = 0;
 bar.scrollLeft = 0;
 
 // Rapid pointer moves are coalesced into the latest position for the next paint.
-move(160);
-move(340);
+move(191);
+move(309);
 assert.equal(frames.size, 1);
 advance(16);
-assert.equal(bar.scrollLeft, 480);
+assert.equal(bar.scrollLeft, 450);
 
 // Clicking, leaving, typing, cancelling, wheeling and losing the window stop motion immediately.
 for (const event of ['pointerdown', 'pointerleave', 'pointercancel', 'keydown', 'wheel']) {

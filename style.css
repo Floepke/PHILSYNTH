@@ -14,6 +14,11 @@
   --radius: 10px;
   --radius-sm: 6px;
   --seq-divider: 48px;
+  --window-frame: 6px;
+  --wood-ink: #f4e4c8;
+  --wood-border: #382313;
+  --wood-panel: linear-gradient(to bottom, rgba(255, 220, 170, 0.1), rgba(12, 6, 2, 0.45)), var(--wood-h);
+  --wood-shadow: inset 1px 1px 0 rgba(255, 220, 170, 0.3), inset -1px -1px 0 rgba(12, 6, 2, 0.8), 0 24px 64px rgba(0, 0, 0, 0.7);
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.55), 0 1px 0 rgba(255, 255, 255, 0.04) inset;
   --font: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
@@ -26,7 +31,13 @@ body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) 28px;
-  background: var(--bg);
+  padding: var(--window-frame);
+  background-color: var(--bg);
+  background-image: var(--wood-h), var(--wood-h), var(--wood-v), var(--wood-v);
+  background-size: 100% var(--window-frame), 100% var(--window-frame), var(--window-frame) 100%, var(--window-frame) 100%;
+  background-position: top, bottom, left, right;
+  background-repeat: no-repeat;
+  box-shadow: inset 1px 1px 0 rgba(255, 220, 170, 0.22), inset -1px -1px 0 rgba(12, 6, 2, 0.9);
   color: var(--text);
   font: 13px/1.4 var(--font);
   -webkit-font-smoothing: antialiased;
@@ -37,6 +48,33 @@ body {
 ::-webkit-scrollbar-thumb { background: var(--surface-4); border-radius: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
 * { scrollbar-color: var(--surface-4) transparent; scrollbar-width: thin; }
+
+@supports (appearance: base-select) {
+  select:not([multiple]):not([size]) { align-items: center; }
+  select:not([multiple]):not([size])::picker-icon { align-self: center; }
+  select:not([multiple]):not([size]),
+  select:not([multiple]):not([size])::picker(select) { appearance: base-select; }
+  select:not([multiple]):not([size])::picker(select) {
+    padding: 4px;
+    border: 2px solid var(--wood-border);
+    border-radius: 12px;
+    background-color: #6a4429;
+    background-image: var(--wood-panel);
+    color: var(--wood-ink);
+    box-shadow: var(--wood-shadow);
+    max-height: min(360px, 60vh);
+    overflow: auto;
+  }
+  select:not([multiple]):not([size]) option {
+    padding: 6px 10px;
+    border-radius: 8px;
+    min-height: 30px;
+  }
+  select:not([multiple]):not([size]) option:hover,
+  select:not([multiple]):not([size]) option:checked {
+    background: rgba(12, 6, 2, 0.4);
+  }
+}
 
 /* ---------- buttons ---------- */
 button {
@@ -87,8 +125,8 @@ kbd {
 /* ---------- main menu button: fixed in the top-right corner, above everything but menus and dialogs ---------- */
 .brand {
   position: fixed;
-  right: 8px;
-  top: 6px;
+  right: calc(var(--window-frame) + 6px);
+  top: calc(var(--window-frame) + 6px);
   z-index: 900;
   display: flex;
   align-items: center;
@@ -732,13 +770,15 @@ body.panel-collapsed #panel { visibility: hidden; }
 
 /* ---------- dialog ---------- */
 dialog {
+  --dialog-ink: var(--wood-ink);
   width: 320px;
   padding: 20px;
-  border: 1px solid var(--border-strong);
-  border-radius: 14px;
-  background: var(--surface-2);
-  color: var(--text);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7);
+  border: 2px solid var(--wood-border);
+  border-radius: 8px;
+  background-color: #6a4429;
+  background-image: var(--wood-panel);
+  color: var(--dialog-ink);
+  box-shadow: var(--wood-shadow);
 }
 dialog[open] { animation: pop 0.14s ease-out; }
 dialog::backdrop { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(3px); }
@@ -791,6 +831,33 @@ dialog menu { display: flex; gap: 8px; justify-content: flex-end; padding: 0; ma
 }
 .listbox-item[aria-selected='true'] .desc { color: var(--text); }
 dialog p { margin: 0; color: var(--text-dim, #a0a0a8); font-size: 13px; line-height: 1.45; }
+dialog p { color: var(--dialog-ink); }
+:root dialog :is(input, select, .listbox, .map-list) {
+  border-color: var(--wood-border);
+  background-color: #382313;
+  background-image: linear-gradient(rgba(12, 6, 2, 0.65), rgba(12, 6, 2, 0.65)), var(--wood-h);
+  color: var(--wood-ink);
+}
+dialog menu button,
+dialog menu button.primary,
+dialog menu button:hover,
+dialog menu button.primary:hover {
+  min-width: 56px;
+  border-color: #382313;
+  background-color: #6a4429;
+  background-image: linear-gradient(to bottom, rgba(255, 220, 170, 0.12), rgba(12, 6, 2, 0.4)), var(--wood-h);
+  color: var(--dialog-ink);
+  box-shadow: inset 1px 1px 0 rgba(255, 220, 170, 0.25), inset -1px -1px 0 rgba(12, 6, 2, 0.7);
+}
+dialog menu button.primary {
+  border-color: var(--dialog-ink);
+  font-weight: 600;
+}
+dialog menu button:hover { filter: brightness(1.15); }
+dialog button:focus-visible {
+  outline: 2px solid var(--dialog-ink);
+  outline-offset: 2px;
+}
 dialog .dialog-note { margin-top: 10px; font-size: 12px; }
 dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
 /* ---------- Patch module: mapped controllers ---------- */
@@ -814,6 +881,12 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
 .map-view { margin-top: 8px; }
 .map-view .map-open { width: 100%; margin-bottom: 8px; }
 #map-dialog { width: min(860px, 94vw); }
+#map-dialog .map-col h4 { color: var(--dialog-ink); }
+#map-dialog .map-list,
+#map-dialog .map-search {
+  border-color: #382313;
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.45);
+}
 #map-dialog .map-note { margin-bottom: 14px; font-size: 12px; }
 .map-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .map-col { display: flex; flex-direction: column; min-width: 0; }
@@ -943,12 +1016,13 @@ dialog .sig-ok { order: 1; }
   z-index: 1000;
   min-width: 180px;
   padding: 4px;
-  background: var(--surface-2);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow);
+  background-color: #6a4429;
+  background-image: var(--wood-panel);
+  border: 2px solid var(--wood-border);
+  border-radius: 8px;
+  box-shadow: var(--wood-shadow);
   font: 12px var(--font);
-  color: var(--text);
+  color: var(--wood-ink);
   user-select: none;
 }
 .ctx-item {
@@ -968,11 +1042,11 @@ dialog .sig-ok { order: 1; }
 }
 .ctx-item:hover:not(:disabled),
 .ctx-item:focus-visible {
-  background: var(--surface-4);
+  background: rgba(12, 6, 2, 0.4);
   outline: none;
 }
 .ctx-item:disabled {
-  color: var(--text-faint);
+  color: #b49c7e;
   cursor: default;
 }
 .ctx-check {

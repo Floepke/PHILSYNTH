@@ -28,7 +28,11 @@ export async function exitToOS(persist, notify) {
       notify('Exit cancelled: autosave failed. Use Save in the main menu (top-right logo) to keep your project before closing.');
       return;
     }
-    // Closes the Electron window. Browsers may refuse to close a manually opened tab.
+    if (window.modsynthExit) {
+      window.modsynthExit.confirm();
+      return;
+    }
+    // Browsers may refuse to close a manually opened tab.
     window.close();
     await new Promise((resolve) => setTimeout(resolve, 250));
     if (!window.closed) notify('Your browser did not close this tab. Close the tab or window manually to exit.');

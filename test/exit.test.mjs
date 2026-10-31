@@ -26,6 +26,17 @@ const key = (value, repeat = false) => {
 };
 
 {
+  let confirmed = 0;
+  window.modsynthExit = { confirm() { assert.equal(saves, 1, 'autosave finishes before native approval'); confirmed++; } };
+  const done = exitToOS(persist, notify);
+  dialog.close('ok');
+  await done;
+  assert.equal(confirmed, 1);
+  assert.equal(closes, 0, 'native approval replaces direct window.close');
+  delete window.modsynthExit;
+  saves = 0;
+}
+{
   const done = exitToOS(persist, notify);
   assert.equal(key('Escape', true).defaultPrevented, true);
   assert.equal(dialog.open, true, 'held Escape must not dismiss the newly opened prompt');

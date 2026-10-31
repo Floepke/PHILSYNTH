@@ -26,6 +26,7 @@ export function initWidgets(root, { numberStep = () => 1 } = {}) {
     let mouse = false;
     select.addEventListener('mousedown', (e) => {
       if (e.button !== 0 || select.disabled) return;
+      if (e.target.closest?.('option, optgroup')) return;
       releaseWidgetFocus();
       mouse = true;
       // showPicker opens the native, scrollable list without focusing the closed control.

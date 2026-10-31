@@ -1652,8 +1652,22 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   assert.equal(cv.drawing[ei - 2][1], nx(60));
   assert.ok(cv.drawing.some(([op, color, width]) => op === 'stroke' && color === '#111216' && width === 3), 'outline twice as thick');
   assert.ok(cv.drawing.some(([op, color]) => op === 'fill' && color === '#65b4ff'));
-  assert.ok(cv.drawing.some(([op, color, width]) => op === 'stroke' && color === '#5d606a' && width === 2));
-  assert.ok(cv.drawing.some(([op, color, width]) => op === 'stroke' && color === '#a1a7b3' && width === 4));
+  assert.ok(cv.drawing.some(([op, color, width]) => op === 'stroke' && color === '#111216' && width === 4));
+  assert.ok(cv.drawing.some(([op, color, width]) => op === 'stroke' && color === '#111216' && width === 8));
+  assert.ok(cv.drawing.some(([op, ...dash]) => op === 'setLineDash' && JSON.stringify(dash[0]) === '[12,12]'));
+  {
+    let startLine = false;
+    for (let i = 0; i < cv.drawing.length; i++) {
+      const [op, color, width] = cv.drawing[i];
+      if (op !== 'stroke' || color !== '#111216') continue;
+      const to = cv.drawing[i - 1];
+      const from = cv.drawing[i - 2];
+      if (from?.[0] !== 'moveTo' || to?.[0] !== 'lineTo' || from[1] < nx(22) || from[2] !== 0.5 || to[2] !== 0.5) continue;
+      assert.equal(width, 4, 'first barline matches normal barline thickness');
+      startLine = true;
+    }
+    assert.ok(startLine, 'first barline is drawn');
+  }
   click(cv, nx(70), 0);
   assert.equal(clip.notes.at(-1).start, 0);
   point(cv, 'pointermove', nx(72), 96);
@@ -1780,18 +1794,18 @@ for (const width of [240, 480, 1000, 1912, 3000]) {
   const kw = (width - 120) / 128;
   const left = 120 + 22.5 * kw;
   const right = 120 + 106.5 * kw;
-  const bands = cv.drawing.filter(([op, , , , , color]) => op === 'fillRect' && color === 'rgba(0, 0, 0, 0.06)');
+  const bands = cv.drawing.filter(([op, , , , , color]) => op === 'fillRect' && color === 'rgba(0, 0, 0, 0.10)');
   assert.ok(bands.length > 0);
   assert.ok(bands.every((b) => b[1] === left && b[3] === right - left));
   const lines = cv.drawing.flatMap(([op, color], i) => {
     const from = cv.drawing[i - 2];
     const to = cv.drawing[i - 1];
-    if (op !== 'stroke' || !['#5d606a', '#797d88', '#a1a7b3'].includes(color)
-      || from?.[0] !== 'moveTo' || to?.[0] !== 'lineTo' || to[1] === 120) return [];
+    if (op !== 'stroke' || color !== '#111216'
+      || from?.[0] !== 'moveTo' || to?.[0] !== 'lineTo' || from[2] !== to[2] || to[1] === 120) return [];
     return [[from, to]];
   });
   assert.ok(lines.length > 0);
-  assert.ok(lines.every(([from, to]) => from[1] === left && to[1] === right));
+  assert.ok(lines.every(([from, to]) => from[2] === to[2] && from[1] >= left && to[1] <= right));
   const bodies = cv.drawing.filter(([op]) => op === 'roundRect');
   assert.equal(bodies.length, 2, 'notes outside the grid bounds are still drawn');
   assert.ok(bodies[0][1] < left && bodies[1][1] > right);
@@ -1894,32 +1908,72 @@ for (const width of [300, 480, 900, 1912]) {
   }
 }
 
+// Barlines leave half a semitone on either side of crossed notes, including tolerant endpoints.
+for (const notes of [
+  [note(60, 3, 2)],
+  [note(60, 4 + 5e-8, 1)],
+  [note(60, 3, 1 - 5e-8)],
+  [note(60, 3, 2), note(61, 4, 1)],
+  [note(0, 3, 2), note(127, 3, 2)],
+  [note(60, 4 + 2e-7, 1)],
+]) {
+  const { roll, clip } = setup();
+  clip.notes.push(...notes);
+  const cv = roll.surface.cv;
+  cv.drawing.length = 0;
+  roll.redraw(); flush();
+  const y = 4 * 48 + 0.5;
+  const paths = [];
+  let path = [];
+  for (const op of cv.drawing) {
+    if (op[0] === 'beginPath') path = [];
+    else if (op[0] === 'moveTo' || op[0] === 'lineTo') path.push(op);
+    else if (op[0] === 'stroke' && op[1] === '#111216' && op[2] === 4
+      && path.length && path.every(p => p[2] === y)) paths.push(path);
+  }
+  assert.equal(paths.length, 1, 'no underlying beat line fills the barline gaps');
+  const bar = paths[0];
+  const segments = [];
+  for (let i = 0; i < bar.length; i += 2) segments.push([bar[i][1], bar[i + 1][1]]);
+  const gaps = notes.filter(n => n.start <= 4 + 1e-7 && n.start + n.length >= 4 - 1e-7)
+    .map(n => [nx(n.pitch) - 7.5 - 7, nx(n.pitch) + 7.5 + 7]);
+  for (const [left, right] of gaps) {
+    assert.ok(segments.every(([a, b]) => b <= left || a >= right), 'no barline segment enters note gap');
+  }
+  if (notes[0].pitch === 60 && gaps.length) {
+    assert.equal(segments[0][1], gaps[0][0], 'gap starts exactly half a semitone before the note edge');
+    assert.equal(segments.at(-1)[0], Math.max(...gaps.map(g => g[1])), 'merged gap ends half a semitone after the last note edge');
+  } else {
+    assert.equal(segments.length, 1, 'non-crossing or out-of-grid notes do not cut the barline');
+  }
+}
+
 // Top overscroll is a bounded, blank margin shared by notes, stave, ruler and velocity lane.
 {
   const { song, clip, roll, initialView } = setup();
   const cv = roll.surface.cv;
-  assert.equal(initialView.sy, -32, 'new rolls start with a little space above beat zero');
-  for (let i = 0; i < 10; i++) fire(cv, 'wheel', { clientX: nx(60), clientY: 100, deltaY: -10000, deltaX: 0, deltaMode: 0 });
-  assert.equal(roll.getView().sy, -32, 'upward scrolling stops at the margin');
+  assert.equal(initialView.sy, -128, 'new rolls start with four times the original 32px margin above beat zero');
+  for (let i = 0; i < 20; i++) fire(cv, 'wheel', { clientX: nx(60), clientY: 100, deltaY: -10000, deltaX: 0, deltaMode: 0 });
+  assert.equal(roll.getView().sy, -128, 'upward scrolling stops at the margin');
   click(cv, nx(60), 16);
   assert.equal(clip.notes.length, 0, 'blank margin is not note-entry space');
   cv.drawing.length = 0;
   point(cv, 'pointermove', nx(60), 16);
   assert.equal(cv.drawing.some(([op]) => op === 'ellipse'), false, 'no note preview in the margin');
-  assert.ok(cv.drawing.some(([op, x, y]) => op === 'moveTo' && x === nx(61) && y === 32), 'stave starts at beat zero, not at the canvas edge');
+  assert.ok(cv.drawing.some(([op, x, y]) => op === 'moveTo' && x === nx(61) && y === 128), 'stave starts at beat zero, not at the canvas edge');
   assert.equal(cv.drawing.some(([op, x, y]) => op === 'moveTo' && x === nx(61) && y === 0), false);
   clip.notes.push(note(60, 0, 1, 0.5));
   cv.drawing.length = 0;
   roll.redraw(); flush();
-  assert.ok(cv.drawing.some(([op, x, y]) => op === 'arc' && x === 42 && y === 32), 'velocity handle aligns with beat zero');
-  assert.ok(cv.drawing.some(([op, x, y]) => op === 'roundRect' && x === nx(60) - 7.5 && y === 32), 'note starts below the margin');
-  drag(cv, nx(59), 8, nx(61), 60, { shiftKey: true });
+  assert.ok(cv.drawing.some(([op, x, y]) => op === 'arc' && x === 42 && y === 128), 'velocity handle aligns with beat zero');
+  assert.ok(cv.drawing.some(([op, x, y]) => op === 'roundRect' && x === nx(60) - 7.5 && y === 128), 'note starts below the margin');
+  drag(cv, nx(59), 8, nx(61), 156, { shiftKey: true });
   key(cv, 'Delete');
   assert.equal(clip.notes.length, 0, 'selection can start in the margin to catch the first note');
   fire(cv, 'wheel', { clientX: nx(60), clientY: 100, deltaY: 16, deltaX: 0, deltaMode: 0 });
-  assert.equal(roll.getView().sy, -32 + snapStep(song.snap) * 48, 'margin scrolls away one snap step');
+  assert.equal(roll.getView().sy, -128 + snapStep(song.snap) * 48, 'margin scrolls away one snap step');
   roll.reveal(); flush();
-  assert.equal(roll.getView().sy, -32, 'revealing a clip restores the margin');
+  assert.equal(roll.getView().sy, -128, 'revealing a clip restores the margin');
   const saved = JSON.parse(JSON.stringify(roll.getView()));
   roll.setView({ sy: 80, ppq: 96 });
   roll.setView(saved); flush();
