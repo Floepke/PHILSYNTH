@@ -12,8 +12,14 @@
 // playhead leaves it or playback stops (the controller gets its own value back).
 // Clips on muted lanes (song.mutes) are silent, the auditioned clip too; while lanes are soloed
 // (song.solos) only those play. Muting / soloing while playing cuts silenced notes right away.
+// Layers: every Patch has its own song (see PatchRuntime.song). Playback runs from one level (the
+// scope: getScope(), taken when playback starts, so navigating while playing changes nothing):
+// getSong(scope) / getBpm(scope) are that level's song and Output BPM, getLayers(scope) returns its
+// song and those of the Patches inside it as { key, song, getTarget, setAuto } (its own first);
+// they play together on its clock. Its loop region applies to all; without one, playback loops at
+// the end of the last clip of any of these layers. The / audition loops a clip (playClip(id, song)).
 import { newNoteId } from './modmidi.js';
-import { automationAt, clipSilent, getClip, loopEnd, loopRegion, notesSounding, notesStarting, noteVelAt } from './song.js';
+import { automationAt, barCeil, clipSilent, getClip, loopEnd, loopRegion, notesSounding, notesStarting, noteVelAt, songEnd } from './song.js';
 
 const TICK_MS = 5;
 
@@ -33,11 +39,16 @@ function createTicker(fn) {
 
 export class Transport {
   // getTarget(moduleNumber) -> instance with noteOn/noteOff, or null
-  constructor({ getSong, getBpm, getTarget, setAuto = null, onState, now = () => performance.now(), ticker = createTicker }) {
-    Object.assign(this, { getSong, getBpm, getTarget, setAuto, onState, now });
-    this.autoActive = new Set(); // automation clip ids currently applied
+  constructor({ getSong, getBpm, getTarget, setAuto = null, getLayers = null, getScope = () => null, onState, now = () => performance.now(), ticker = createTicker }) {
+    Object.assign(this, { getTarget, setAuto, getScope, onState, now });
+    this.scope = null; // the level playing (see getScope)
+    this.song = () => getSong(this.scopeNow());
+    this.bpm = () => getBpm(this.scopeNow());
+    this.layerList = getLayers && (() => getLayers(this.scopeNow()));
+    this.autoActive = new Map(); // layer key + automation clip id -> { id, layer } currently applied
     this.playing = false;
     this.clipId = null;
+    this.clipSong = null; // the song of the looped clip (any layer)
     this.pos = 0;
     this.active = []; // { id, inst, end, note, start, vel (last sent) } sounding notes
     this.chase = true; // trigger notes the playhead lands inside (see chaseAt)
@@ -45,10 +56,36 @@ export class Transport {
     this.ticker = ticker(() => this.tick());
   }
 
-  // song bounds of song playback: the loop region, else [0, loopEnd)
+  // the level playing, else the one play would start from
+  scopeNow() {
+    return this.playing ? this.scope : this.getScope();
+  }
+
+  getSong() { return this.song(); }
+
+  getBpm() { return this.bpm(); }
+
+  layers() {
+    return this.layerList?.() ?? [{ key: '', song: this.getSong(), getTarget: this.getTarget, setAuto: this.setAuto }];
+  }
+
+  // whether `song` is heard now (it is one of the playing layers); stopped: true (parked playhead)
+  plays(song) {
+    return !this.playing || this.layers().some((l) => l.song === song);
+  }
+
+  // the looped clip (playClip), or null
+  loopClip() {
+    return this.clipId === null ? null : getClip(this.clipSong ?? this.getSong(), this.clipId);
+  }
+
+  // song bounds of song playback: the loop region, else [0, end of the last clip of any layer)
   songBounds(song = this.getSong()) {
     const r = loopRegion(song);
-    return r ? [r.start, r.end] : [0, loopEnd(song)];
+    if (r) return [r.start, r.end];
+    if (song !== this.getSong() || !this.layerList) return [0, loopEnd(song)];
+    const end = Math.max(0, ...this.layers().map((l) => songEnd(l.song)));
+    return [0, end > 0 ? barCeil(song, end) : 0];
   }
 
   play({ fromStart = false } = {}) {
@@ -57,20 +94,24 @@ export class Transport {
       if (this.playing) this.stop();
       return false;
     }
-    if (this.playing && this.clipId === null && !fromStart) return true;
+    const sameScope = JSON.stringify(this.scope) === JSON.stringify(this.getScope());
+    if (this.playing && this.clipId === null && !fromStart && sameScope) return true;
     this.clipId = null;
     return this.start(fromStart || this.pos < start || this.pos >= end ? start : this.pos);
   }
 
-  playClip(id) {
-    const clip = getClip(this.getSong(), id);
+  playClip(id, song = this.getSong()) {
+    const clip = getClip(song, id);
     if (!clip) return false;
     this.clipId = clip.id;
+    this.clipSong = song;
     return this.start(clip.start);
   }
 
   start(pos) {
     this.releaseAll();
+    this.releaseAuto();
+    this.scope = this.getScope();
     this.pos = this.from = pos;
     this.chasePending = true;
     this.playing = true;
@@ -87,6 +128,7 @@ export class Transport {
     this.releaseAuto();
     this.playing = false;
     this.clipId = null;
+    this.clipSong = null;
     if (to !== null) this.pos = this.from = Math.max(0, to);
     this.onState?.(this);
   }
@@ -95,7 +137,7 @@ export class Transport {
 
   seek(q) {
     if (this.clipId !== null) {
-      const clip = getClip(this.getSong(), this.clipId);
+      const clip = this.loopClip();
       if (!clip) { this.stop(); return; }
       if (q < clip.start || q >= clip.start + clip.length) q = clip.start;
     }
@@ -118,10 +160,9 @@ export class Transport {
 
   tick(nowMs = this.now()) {
     if (!this.playing) return;
-    const song = this.getSong();
-    const clip = getClip(song, this.clipId);
+    const clip = this.loopClip();
     if (this.clipId !== null && !clip) { this.stop(); return; }
-    const [start, end] = clip ? [clip.start, clip.start + clip.length] : this.songBounds(song);
+    const [start, end] = clip ? [clip.start, clip.start + clip.length] : this.songBounds();
     if (end <= start) { this.stop(); return; }
     const span = end - start;
     const dt = Math.min(0.25, Math.max(0, (nowMs - this.last) / 1000)); // a stalled tab must not jump far ahead
@@ -160,51 +201,58 @@ export class Transport {
   }
 
   automate(q) {
-    if (!this.setAuto) return;
-    const now = new Set();
-    for (const { clip, value } of automationAt(this.getSong(), q)) {
-      if (!this.audible(clip)) continue;
-      now.add(clip.id);
-      this.setAuto(clip.id, clip, value);
+    const now = new Map();
+    for (const layer of this.layers()) {
+      if (!layer.setAuto) continue;
+      for (const { clip, value } of automationAt(layer.song, q)) {
+        if (!this.audible(clip, layer.song)) continue;
+        now.set(`${layer.key}:${clip.id}`, { id: clip.id, layer });
+        layer.setAuto(clip.id, clip, value);
+      }
     }
-    for (const id of this.autoActive) if (!now.has(id)) this.setAuto(id, null, null);
+    for (const [k, a] of this.autoActive) if (!now.has(k)) a.layer.setAuto(a.id, null, null);
     this.autoActive = now;
   }
 
   releaseAuto() {
-    for (const id of this.autoActive) this.setAuto?.(id, null, null);
-    this.autoActive = new Set();
+    for (const a of this.autoActive.values()) a.layer.setAuto?.(a.id, null, null);
+    this.autoActive = new Map();
   }
 
   // note-ons for notes already sounding at q (they end at their normal end)
   chaseAt(q) {
-    for (const ev of notesSounding(this.getSong(), q)) {
-      if (!this.audible(ev.clip)) continue;
-      this.trigger(ev, q);
+    for (const layer of this.layers()) {
+      for (const ev of notesSounding(layer.song, q)) {
+        if (!this.audible(ev.clip, layer.song)) continue;
+        this.trigger(ev, q, layer);
+      }
     }
   }
 
   // at: song time the note starts sounding (later than ev.start when chased)
-  trigger(ev, at = ev.start) {
-    const inst = this.getTarget(ev.clip.target);
+  trigger(ev, at = ev.start, layer = this.layers()[0]) {
+    const inst = layer.getTarget(ev.clip.target);
     if (!inst) return;
     const id = newNoteId();
     const vel = noteVelAt(ev.note, at - ev.start);
     inst.noteOn(id, ev.note.pitch, vel);
-    this.active.push({ id, inst, end: ev.end, note: ev.note, start: ev.start, vel, clip: ev.clip });
+    this.active.push({ id, inst, end: ev.end, note: ev.note, start: ev.start, vel, clip: ev.clip, song: layer.song });
   }
 
   // note-offs due by `to`, then note-ons starting in [from, to)
   advance(from, to) {
-    const song = this.getSong();
+    const layers = this.layers();
+    const songs = new Set(layers.map((l) => l.song));
     this.active = this.active.filter((n) => {
-      if (n.end > to && this.audible(n.clip, song)) return true;
+      if (n.end > to && songs.has(n.song) && this.audible(n.clip, n.song)) return true;
       n.inst.noteOff(n.id);
       return false;
     });
-    for (const ev of notesStarting(this.getSong(), from, to)) {
-      if (!this.audible(ev.clip, song)) continue;
-      this.trigger(ev);
+    for (const layer of layers) {
+      for (const ev of notesStarting(layer.song, from, to)) {
+        if (!this.audible(ev.clip, layer.song)) continue;
+        this.trigger(ev, ev.start, layer);
+      }
     }
   }
 }

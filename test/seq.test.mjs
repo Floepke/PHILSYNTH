@@ -1831,6 +1831,42 @@ for (const width of [300, 480, 900, 1912]) {
   assert.equal(clip.notes.length, 126, 'audition never inserts notes');
 }
 
+// The bar ruler is a divider: dragging it widens the velocity strip and the note grid scales.
+{
+  const { clip, roll, ctx, changes } = setup();
+  const cv = roll.surface.cv;
+  let viewChanges = 0;
+  ctx.viewChanged = () => viewChanges++;
+  clip.notes.push(note(0, 1), note(127, 1));
+  const before = structuredClone(clip.notes);
+  const centers = () => {
+    cv.drawing.length = 0;
+    roll.redraw(); flush();
+    return cv.drawing.filter(([op]) => op === 'translate').map((op) => op[1]);
+  };
+  assert.equal(roll.getView().velW, 84, 'default width');
+  drag(cv, 100, 50, 200, 50);
+  assert.equal(roll.getView().velW, 184, 'dragged 100 px wider');
+  const kw = (ROLL_WIDTH - 220) / 128;
+  assert.deepEqual(centers(), [220 + kw / 2, 220 + 127.5 * kw], 'the grid scales into the rest');
+  assert.equal(viewChanges, 1, 'saved as a view change');
+  assert.equal(changes(), 0, 'no undo step');
+  assert.deepEqual(clip.notes, before, 'notes untouched');
+  drag(cv, 200, 50, 99999, 50);
+  assert.equal(roll.getView().velW, ROLL_WIDTH * 0.6, 'at most 60 % of the roll');
+  drag(cv, ROLL_WIDTH * 0.6 + 10, 50, -500, 50);
+  assert.equal(roll.getView().velW, 48, 'at least 48 px');
+  point(cv, 'pointerdown', 60, 50, { buttons: 1, detail: 2 });
+  point(cv, 'pointerup', 60, 50);
+  assert.equal(roll.getView().velW, 84, 'double-click resets');
+  roll.setView({ ...roll.getView(), velW: 150 });
+  assert.equal(roll.getView().velW, 150, 'restored from the project view');
+  roll.setView(undefined);
+  assert.equal(roll.getView().velW, 84, 'new project: default');
+  roll.setView({ sy: 0, ppq: 48 });
+  assert.equal(roll.getView().velW, 84, 'older projects: default');
+}
+
 // Resizing derives fresh geometry; neither old saved zoom nor Alt-scroll can crop the pitches.
 {
   const { clip, roll, rollHost } = setup();
@@ -1854,7 +1890,7 @@ for (const width of [300, 480, 900, 1912]) {
     roll.redraw(); flush();
     assert.deepEqual(cv.drawing.filter(([op]) => op === 'translate').map((op) => op[1]), centers);
     assert.deepEqual(clip.notes, before, 'resizing and scrolling do not alter the notes');
-    assert.deepEqual(Object.keys(roll.getView()).sort(), ['ppq', 'snapVelocity', 'sy'], 'horizontal geometry is not persisted');
+    assert.deepEqual(Object.keys(roll.getView()).sort(), ['ppq', 'snapVelocity', 'sy', 'velW'], 'horizontal geometry is not persisted (only the velocity strip width)');
   }
 }
 

@@ -24,6 +24,8 @@
 //   Q                           quantize note starts to the grid (selection, else all notes)
 //   Space                       toggle song playback from the pointer's snapped time
 // The velocity strip on the left edits the velocity (curves) of the selected notes, see velocity.js.
+// The bar ruler between them is a divider: drag it sideways to widen the strip (the note grid
+// scales to the rest), double-click it to reset. The width is saved with the project view.
 // Everything snaps to the snap grid (base note ÷ divider).
 import { isBlack, inPiano, clipSilent, snapStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, clean, meter, barLines, beatLines, barLength } from '../song.js';
 import { createSurface, capture, startPan, onWheel, clamp, snapBands, mutedMark, RIGHT_HOLD_MS, RIGHT_HOLD_SLOP } from './surface.js';
@@ -39,7 +41,8 @@ const TOP_MARGIN = 32;
 const TILT = -Math.PI / 9;
 const HEAD_STRETCH = 1.25; // noteheads are stretched along the time (y) axis
 const GUTTER = 36; // bar / beat ruler (right of the velocity strip)
-const LEFT = VEL_W + GUTTER; // left edge of the note grid
+const VEL_MIN = 48; // the ruler drags the velocity strip between these widths; the grid scales
+const VEL_MAX_SHARE = 0.6; // of the roll width
 const BG = '#45464e';
 const PLAYHEAD = '#ff916e';
 const SELECT = '#65b4ff';
@@ -51,7 +54,7 @@ const BOUNDARY = '#a1a7b3';
 // ctx: { song(), clip(), color(clip), preview: { on(clip, pitch) -> handle, key(pitch) -> handle, off(handle) }, changed(), transport,
 //        menu?(opts) (context menu, default showMenu) }
 export function createPianoRoll(host, ctx) {
-  const view = { sy: -TOP_MARGIN, ppq: 48, snapVelocity: true };
+  const view = { sy: -TOP_MARGIN, ppq: 48, snapVelocity: true, velW: VEL_W };
   let hover = null; // { pitch, t } where a click would insert a note
   let hoverPitch = null;
   let drag = null;
@@ -64,16 +67,19 @@ export function createPianoRoll(host, ctx) {
 
   const s = createSurface(host, paint);
   const { cv } = s;
-  const keyWidth = () => Math.max(0, s.w - LEFT) / (PITCH_MAX + 1);
+  const velW = () => clamp(view.velW, VEL_MIN, Math.max(VEL_MIN, s.w * VEL_MAX_SHARE));
+  const gridX = () => velW() + GUTTER; // left edge of the note grid
+  const inRuler = (x, y) => x >= velW() && x < gridX() && y >= 0 && y < s.h;
+  const keyWidth = () => Math.max(0, s.w - gridX()) / (PITCH_MAX + 1);
   const overlap = () => Math.min(0.5, keyWidth() * 0.05);
   const dragThreshold = () => Math.min(3, keyWidth() * 0.4);
-  const xOf = (p) => LEFT + p * keyWidth();
+  const xOf = (p) => gridX() + p * keyWidth();
   const yOf = (t) => t * view.ppq - view.sy;
-  const pitchAt = (x) => keyWidth() > 0 ? clamp(Math.floor((x - LEFT) / keyWidth()), 0, PITCH_MAX) : 0;
+  const pitchAt = (x) => keyWidth() > 0 ? clamp(Math.floor((x - gridX()) / keyWidth()), 0, PITCH_MAX) : 0;
   const timeAt = (y) => (y + view.sy) / view.ppq;
   const gridBottom = () => Math.max(0, s.h - KEYBOARD);
-  const inGrid = (x, y) => x >= LEFT && x < s.w && y >= 0 && y < gridBottom();
-  const inKeyboard = (x, y) => x >= LEFT && x < s.w && y >= gridBottom() && y < s.h;
+  const inGrid = (x, y) => x >= gridX() && x < s.w && y >= 0 && y < gridBottom();
+  const inKeyboard = (x, y) => x >= gridX() && x < s.w && y >= gridBottom() && y < s.h;
   // the keys play the live MIDI module (preview.key) even without a clip; else the clip's target
   const keysPlay = () => !!(ctx.preview.key || ctx.clip());
   const headSize = () => {
@@ -85,6 +91,7 @@ export function createPianoRoll(host, ctx) {
   const step = () => snapStep(ctx.song().snap);
   const vel = createVelocityStrip({
     cv,
+    width: velW,
     local: s.local,
     clip: () => ctx.clip(),
     selected: () => { syncSelection(); return selected; },
@@ -156,14 +163,14 @@ export function createPianoRoll(host, ctx) {
 
     g.save();
     g.beginPath();
-    g.rect(LEFT, 0, Math.max(0, w - LEFT), bottom);
+    g.rect(gridX(), 0, Math.max(0, w - gridX()), bottom);
     g.clip();
     if (clip) {
       // past the clip end: shaded, notes there do not play
       const yEnd = yOf(clip.length);
       if (yEnd < bottom) {
         g.fillStyle = 'rgba(0, 0, 0, 0.22)';
-        g.fillRect(LEFT, Math.max(0, yEnd), w, bottom);
+        g.fillRect(gridX(), Math.max(0, yEnd), w, bottom);
       }
       // grid: alternating light/dark snap-step bands, dashed beat lines and solid bar lines
       // of the time signature (taken from the TimeLine at the clip's position)
@@ -204,7 +211,7 @@ export function createPianoRoll(host, ctx) {
         const hh = n.length * view.ppq;
         if (y > bottom || y + hh < 0) continue;
         const x = xOf(n.pitch);
-        if (x > w || x + kw < LEFT) continue;
+        if (x > w || x + kw < gridX()) continue;
         g.globalAlpha = n.start >= 0 && n.start < clip.length ? 1 : 0.35;
         g.fillStyle = selected.has(n)
           ? (isBlack(n.pitch) ? blackSelected : SELECT)
@@ -249,21 +256,21 @@ export function createPianoRoll(host, ctx) {
         head(g, xOf(n.pitch) + kw / 2, y, isBlack(n.pitch), n.start >= 0 && n.start < clip.length ? 1 : 0.4);
       }
       if (hover && !drag) head(g, xOf(hover.pitch) + kw / 2, yOf(hover.t), isBlack(hover.pitch), 0.55);
-      if (clipSilent(ctx.song(), clip)) mutedMark(g, LEFT, 0, w - LEFT, bottom);
+      if (clipSilent(ctx.song(), clip)) mutedMark(g, gridX(), 0, w - gridX(), bottom);
       // play position
       const { playing, pos, clipId } = ctx.transport;
       const t = pos - clip.start;
-      if ((playing || pos > 0) && (clipId == null || clipId === clip.id) && t >= 0 && t <= clip.length) {
+      if ((playing || pos > 0) && ctx.transport.plays?.(ctx.song()) !== false && (clipId == null || (ctx.transport.loopClip ? ctx.transport.loopClip() === clip : clipId === clip.id)) && t >= 0 && t <= clip.length) {
         const y = Math.round(yOf(t)) + 0.5;
         g.strokeStyle = PLAYHEAD;
         g.lineWidth = 2;
-        g.beginPath(); g.moveTo(LEFT, y); g.lineTo(w, y); g.stroke();
+        g.beginPath(); g.moveTo(gridX(), y); g.lineTo(w, y); g.stroke();
       }
     } else {
       g.fillStyle = '#c3c7d0';
       g.font = '500 12px system-ui, sans-serif';
       g.textAlign = 'center';
-      g.fillText('No clip selected. Double-click in the TimeLine below to create one.', LEFT + (w - LEFT) / 2, 40);
+      g.fillText('No clip selected. Double-click in the TimeLine below to create one.', gridX() + (w - gridX()) / 2, 40);
     }
     if (drag?.kind === 'select' && drag.shown) {
       const x = Math.min(drag.x0, drag.x1);
@@ -283,7 +290,7 @@ export function createPianoRoll(host, ctx) {
     g.fillRect(0, bottom, w, KEYBOARD);
     g.save();
     g.beginPath();
-    g.rect(LEFT, bottom, Math.max(0, w - LEFT), KEYBOARD);
+    g.rect(gridX(), bottom, Math.max(0, w - gridX()), KEYBOARD);
     g.clip();
     g.font = '600 8px system-ui, sans-serif';
     g.textAlign = 'center';
@@ -306,11 +313,11 @@ export function createPianoRoll(host, ctx) {
 
     // bar / beat ruler, right of the velocity strip
     g.fillStyle = '#292b31';
-    g.fillRect(VEL_W, 0, GUTTER, bottom);
+    g.fillRect(velW(), 0, GUTTER, bottom);
     if (clip) {
       g.save();
       g.beginPath();
-      g.rect(VEL_W, 0, GUTTER, bottom);
+      g.rect(velW(), 0, GUTTER, bottom);
       g.clip();
       g.font = '600 10px ui-monospace, monospace';
       g.textAlign = 'right';
@@ -323,31 +330,31 @@ export function createPianoRoll(host, ctx) {
       g.lineWidth = 2;
       g.beginPath();
       if (minBeat(m) * view.ppq >= 5) {
-        for (const t of beatLines(null, t0, t1, m)) { const y = Math.round(yOf(t - off)) + 0.5; g.moveTo(LEFT - 6, y); g.lineTo(LEFT, y); }
+        for (const t of beatLines(null, t0, t1, m)) { const y = Math.round(yOf(t - off)) + 0.5; g.moveTo(gridX() - 6, y); g.lineTo(gridX(), y); }
       }
       g.stroke();
       let lastY = -Infinity;
       for (const b of barLines(null, t0, t1, m)) {
         const y = Math.round(yOf(b.t - off)) + 0.5;
         g.strokeStyle = BAR_LINE;
-        g.beginPath(); g.moveTo(VEL_W, y); g.lineTo(LEFT, y); g.stroke();
+        g.beginPath(); g.moveTo(velW(), y); g.lineTo(gridX(), y); g.stroke();
         const change = Math.abs(b.t - b.seg.at) < 1e-9;
         if (y - lastY < (change ? 24 : 13)) continue; // no overlapping labels when zoomed out
         lastY = y;
         g.fillStyle = '#c3c7d0';
         g.font = '600 10px ui-monospace, monospace';
-        g.fillText(String(b.bar + 1), LEFT - 4, y + 2);
+        g.fillText(String(b.bar + 1), gridX() - 4, y + 2);
         if (change) { // time signature starts here
           g.fillStyle = '#c4b5f2';
           g.font = '600 9px ui-monospace, monospace';
-          g.fillText(`${b.seg.num}/${b.seg.den}`, LEFT - 4, y + 13);
+          g.fillText(`${b.seg.num}/${b.seg.den}`, gridX() - 4, y + 13);
         }
       }
       g.restore();
     }
     g.strokeStyle = '#34363e';
     g.lineWidth = 2;
-    g.beginPath(); g.moveTo(LEFT, 0); g.lineTo(LEFT, h); g.moveTo(0, bottom); g.lineTo(w, bottom); g.stroke();
+    g.beginPath(); g.moveTo(gridX(), 0); g.lineTo(gridX(), h); g.moveTo(0, bottom); g.lineTo(w, bottom); g.stroke();
     vel.paint(g, h);
   }
 
@@ -377,7 +384,7 @@ export function createPianoRoll(host, ctx) {
   function updateHover(x, y) {
     const inside = ctx.clip() && inGrid(x, y) && timeAt(y) >= 0;
     const h = inside ? hit(x, y) : null;
-    hoverPitch = x >= LEFT ? pitchAt(x) : null;
+    hoverPitch = x >= gridX() ? pitchAt(x) : null;
     hover = inside && !h ? { pitch: pitchAt(x), t: Math.max(0, snapFloor(timeAt(y), step())) } : null;
     const keyboard = keysPlay() && inKeyboard(x, y);
     cv.style.cursor = keyboard ? 'pointer' : h?.part === 'head' ? 'move' : h ? 'ns-resize' : inside ? 'crosshair' : 'default';
@@ -387,6 +394,7 @@ export function createPianoRoll(host, ctx) {
         : inside ? `Click to add a note — ${menuTip}` : '';
     const v = ctx.clip() ? vel.hover(x, y) : null;
     if (v) { cv.style.cursor = v.cursor; cv.title = `${v.title} — right-click for the menu`; }
+    if (inRuler(x, y)) { cv.style.cursor = 'col-resize'; cv.title = 'Drag the bar ruler sideways to resize the velocity editor (the piano roll scales along) — double-click resets'; }
     s.redraw();
   }
 
@@ -419,7 +427,7 @@ export function createPianoRoll(host, ctx) {
       if (!state.shown && Math.hypot(pointer.x - x, pointer.y - y) < (onHold ? RIGHT_HOLD_SLOP : dragThreshold())) return;
       clearTimeout(timer);
       state.shown = true;
-      state.x1 = clamp(pointer.x, LEFT, s.w);
+      state.x1 = clamp(pointer.x, gridX(), s.w);
       state.y1 = clamp(pointer.y, 0, gridBottom());
       const left = Math.min(x, state.x1);
       const right = Math.max(x, state.x1);
@@ -470,6 +478,25 @@ export function createPianoRoll(host, ctx) {
     }
     const clip = ctx.clip();
     const { x, y } = s.local(e);
+    if (e.button === 0 && inRuler(x, y)) { // the bar ruler is a divider: velocity strip | note grid
+      e.preventDefault();
+      if (e.detail >= 2) {
+        view.velW = VEL_W;
+        s.redraw();
+        ctx.viewChanged?.();
+        return;
+      }
+      const w0 = velW();
+      drag = { kind: 'ruler' };
+      drag.stop = capture(cv, e, (ev) => {
+        view.velW = clamp(w0 + s.local(ev).x - x, VEL_MIN, Math.max(VEL_MIN, s.w * VEL_MAX_SHARE));
+        s.redraw();
+      }, () => {
+        drag = null;
+        ctx.viewChanged?.();
+      });
+      return;
+    }
     if (keysPlay() && e.button === 0 && inKeyboard(x, y)) {
       e.preventDefault();
       drag = { kind: 'keyboard', pitch: null, stop: null };
@@ -773,7 +800,8 @@ export function createPianoRoll(host, ctx) {
     getView: () => ({ ...view }),
     setView(v) {
       view.snapVelocity = typeof v?.snapVelocity === 'boolean' ? v.snapVelocity : true;
-      if (!v) return;
+      view.velW = Number.isFinite(v?.velW) ? Math.max(VEL_MIN, v.velW) : VEL_W;
+      if (!v) { s.redraw(); return; }
       for (const k of ['sy', 'ppq']) if (Number.isFinite(v[k])) view[k] = v[k];
       view.ppq = clamp(view.ppq, 6, 600);
       s.redraw();

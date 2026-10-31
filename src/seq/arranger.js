@@ -269,7 +269,8 @@ export function createArranger(host, ctx) {
     }
 
     // Playback loops over the whole song, the loop region or just the auditioned clip.
-    const looping = getClip(song, ctx.transport.clipId);
+    const tr = ctx.transport;
+    const looping = tr.loopClip ? (tr.clipSong === song ? tr.loopClip() : null) : getClip(song, tr.clipId); // looped clip of this layer
     const region = song.loop;
     if (region && !looping) {
       const xa = Math.round(xOf(region.start));
@@ -361,7 +362,7 @@ export function createArranger(host, ctx) {
 
     // playhead
     const { playing, pos } = ctx.transport;
-    if (playing || pos > 0) {
+    if ((playing || pos > 0) && ctx.transport.plays?.(song) !== false) { // not while another level plays
       const x = Math.round(xOf(pos)) + 0.5;
       g.strokeStyle = PLAYHEAD;
       g.lineWidth = 1.5;

@@ -183,7 +183,7 @@ export function createAutomationLane(host, ctx) {
       if (clipSilent(ctx.song(), clip)) mutedMark(g, GUTTER, 0, w - GUTTER, bot);
       const { playing, pos, clipId } = ctx.transport;
       const t = pos - clip.start;
-      if ((playing || pos > 0) && (clipId == null || clipId === clip.id) && t >= 0 && t <= clip.length) {
+      if ((playing || pos > 0) && ctx.transport.plays?.(ctx.song()) !== false && (clipId == null || (ctx.transport.loopClip ? ctx.transport.loopClip() === clip : clipId === clip.id)) && t >= 0 && t <= clip.length) {
         const y = Math.round(yOf(t)) + 0.5;
         g.strokeStyle = PLAYHEAD;
         g.lineWidth = 2;

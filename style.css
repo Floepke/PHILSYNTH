@@ -484,6 +484,7 @@ body.panel-collapsed #panel { visibility: hidden; }
   color: var(--text);
   font: 700 11px/9px var(--mono);
   letter-spacing: 0.08em;
+  white-space: nowrap;
   cursor: pointer;
   transition: none;
   animation: midi-target-blink 2s steps(1, end) infinite;

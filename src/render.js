@@ -6,7 +6,7 @@
 import { Graph } from './dsp/graph.js';
 import { DspHost } from './dsp/host.js';
 import { instantiateDsp, wasmKernels } from './dsp/wasm.js';
-import { PatchRuntime } from './patch.js';
+import { PatchRuntime, songLayers } from './patch.js';
 import { Transport } from './transport.js';
 import { normalizeSong } from './song.js';
 
@@ -57,6 +57,7 @@ export async function renderSong(project, { sampleRate = 48000, wasm = null, onP
         return e?.def.acceptsMidi ? e.inst : null;
       },
       setAuto: (id, clip, value) => root.automate(id, clip?.target ?? null, clip?.controller ?? 0, value),
+      getLayers: () => songLayers(root, song), // every Patch's own TimeLine plays along
       now: () => time * 1000,
       ticker: () => ({ start() {}, stop() {} }),
     });

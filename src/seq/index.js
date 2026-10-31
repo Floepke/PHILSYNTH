@@ -18,8 +18,10 @@ const NO_COLOR = '#8a8a92';
 
 // engine: Engine (song, root patch); transport: Transport; getTarget(moduleNumber) -> instance;
 // defaultTarget() -> module number for new clips; defaultAutoTarget() -> module number (or null)
-// for new automation clips; onChange() after every edit
-export function createSequencer({ engine, transport, getTarget, liveTarget = () => null, defaultTarget, defaultAutoTarget = () => null, onChange, undoHistory }) {
+// for new automation clips; onChange() after every edit.
+// getSong() / getPatch(): the layer shown (a Patch has its own TimeLine for its own modules);
+// default: the main song and patch. Call setLayer() after the shown layer changed.
+export function createSequencer({ engine, transport, getSong = null, getPatch = null, getTarget, liveTarget = () => null, defaultTarget, defaultAutoTarget = () => null, onChange, undoHistory }) {
   const $ = (id) => document.getElementById(id);
   const seq = $('seq');
   const ui = {
@@ -27,9 +29,10 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
     base: $('seq-snap-base'), div: $('seq-snap-div'),
     ctl: $('seq-ctl'), ctlField: $('seq-ctl-field'), targetField: $('seq-target-field'),
   };
-  const song = () => engine.song;
+  const song = () => getSong?.() ?? engine.song;
+  const patch = () => getPatch?.() ?? engine.root;
   const clip = () => getClip(song(), song().selected);
-  const entryOf = (id) => (id === null ? null : engine.root.modules.get(id) ?? null);
+  const entryOf = (id) => (id === null ? null : patch().modules.get(id) ?? null);
   // the module's name in the patcher: its custom name, else the default for its type
   const nameOf = (e) => e.name || (e.def.isOutput ? 'Output' : e.def.type === 'PATCH' ? 'Patch' : e.def.type);
 
@@ -70,6 +73,7 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
       onChange();
       sync();
     },
+    viewChanged: () => onChange(), // view-only change (velocity strip width): saved, no undo step
     live: () => { roll.redraw(); lane.redraw(); }, // arranger drag in progress: keep the piano roll in step
     // insert / edit / remove the time signature that starts at `at` (a bar line)
     async editSig(at) {
@@ -126,7 +130,7 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
     const c = clip();
     const auto = isAuto(c);
     const opts = [new Option('— none —', '')];
-    for (const e of engine.root.modules.values()) {
+    for (const e of patch().modules.values()) {
       if (auto ? paramsOf(e).length : e.def.acceptsMidi) opts.push(new Option(`#${e.id} ${nameOf(e)}`, e.id));
     }
     if (c?.target !== null && c?.target !== undefined && !entryOf(c.target)) opts.push(new Option(`#${c.target} (missing)`, c.target));
@@ -136,7 +140,8 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
     $('workspace').style.setProperty('--clip-color', color);
     // automation: which controller of the target
     ui.ctlField.hidden = !auto;
-    ui.targetField.title = auto ? 'Module number (main patch) whose controller this automation clip drives' : 'Module number (main patch) that plays the notes of this clip';
+    const where = patch() === engine.root ? 'main patch' : 'this Patch level';
+    ui.targetField.title = auto ? `Module number (${where}) whose controller this automation clip drives` : `Module number (${where}) that plays the notes of this clip`;
     if (auto) {
       const e = entryOf(c.target);
       const params = e ? paramsOf(e) : [];
@@ -308,7 +313,7 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
     } else if (e.key === "'") transport.stop();
     else if (e.key === '/') {
       engine.resume();
-      if (!transport.playClip(song().selected)) $('status').textContent = 'Select a clip in the TimeLine to loop it.';
+      if (!transport.playClip(song().selected, song())) $('status').textContent = 'Select a clip in the TimeLine to loop it.';
     } else playSong(e.key === ',');
   });
   let frame = 0;
@@ -329,7 +334,7 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
   };
   function showPos() {
     ui.pos.textContent = formatPos(transport.pos, song());
-    const looping = getClip(song(), transport.clipId);
+    const looping = transport.loopClip ? (transport.clipSong === song() ? transport.loopClip() : null) : getClip(song(), transport.clipId);
     ui.pos.title = looping ? `Looping ${looping.name} (/ to restart, . for the song)` : 'Play position: bar.beat.hundredths';
   }
 
@@ -419,13 +424,28 @@ export function createSequencer({ engine, transport, getTarget, liveTarget = () 
   }
   applyLayout();
 
-  engine.root.listeners.add(() => { refreshTargets(); roll.redraw(); lane.redraw(); arranger.redraw(); });
+  // module changes in the shown layer update the target lists and clip colours
+  const onModules = () => { refreshTargets(); roll.redraw(); lane.redraw(); arranger.redraw(); };
+  let watched = null;
+  function watchLayer() {
+    if (watched === patch()) return;
+    watched?.listeners.delete(onModules);
+    watched = patch();
+    watched.listeners.add(onModules);
+  }
+  watchLayer();
 
   return {
     // after a project was loaded
     reload() {
       transport.stop();
       transport.seek(0);
+      watchLayer();
+      sync();
+    },
+    // the shown layer changed (entered / left a Patch): show its TimeLine
+    setLayer() {
+      watchLayer();
       sync();
     },
     viewState: () => ({ ...layout, roll: roll.getView(), lane: lane.getView(), arranger: arranger.getView() }),

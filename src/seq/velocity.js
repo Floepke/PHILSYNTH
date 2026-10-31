@@ -18,24 +18,25 @@ import { curvePolyline, NEW_POINT_ROUND } from '../curve.js';
 import { doublePress } from '../doublepress.js';
 import { capture, clamp } from './surface.js';
 
-export const VEL_W = 84;
+export const VEL_W = 84; // default width; the piano roll's ruler drags it wider (o.width())
 const PAD = 7;
 const HIT = 7;
 const ROUND_STEP = 0.05;
 const SELECT = '#65b4ff';
 
 // o: { cv, local(e), clip(), selected() -> Set, setSelected(Set), yOf(t), timeAt(y), bottom(), ppq(), song(),
-//      color(clip), changed(), redraw(), menu(opts), snapVelocity(), toggleSnapVelocity() }
+//      color(clip), changed(), redraw(), menu(opts), snapVelocity(), toggleSnapVelocity(), width()? }
 export function createVelocityStrip(o) {
   let group = null; // { notes, points (absolute clip times), start, end, sig }
   let hover = null; // { kind: 'point', i } | { kind: 'note', note }
   let drag = null;
   const presses = doublePress(); // double-click = down-up-DOWN: the new point drags at once
 
-  const xv = (v) => PAD + v * (VEL_W - 2 * PAD);
-  const vx = (x) => clamp((x - PAD) / (VEL_W - 2 * PAD), 0, 1);
+  const W = () => o.width?.() ?? VEL_W;
+  const xv = (v) => PAD + v * (W() - 2 * PAD);
+  const vx = (x) => clamp((x - PAD) / (W() - 2 * PAD), 0, 1);
   const snapVelocity = (v) => o.snapVelocity() ? Math.round(v * 16) / 16 : v;
-  const contains = (x, y) => x >= 0 && x < VEL_W && y >= 0 && y < o.bottom();
+  const contains = (x, y) => x >= 0 && x < W() && y >= 0 && y < o.bottom();
   const step = () => snapStep(o.song().snap);
   const sigOf = (notes) => notes.map((n) => `${n.start},${n.length},${n.vel},${JSON.stringify(n.vels ?? [])}`).join(';');
 
@@ -93,10 +94,10 @@ export function createVelocityStrip(o) {
   function paint(g, h) {
     const bottom = o.bottom();
     g.fillStyle = '#34353c';
-    g.fillRect(0, 0, VEL_W, bottom);
+    g.fillRect(0, 0, W(), bottom);
     g.save();
     g.beginPath();
-    g.rect(0, 0, VEL_W, bottom);
+    g.rect(0, 0, W(), bottom);
     g.clip();
     const clip = o.clip();
     if (clip) {
@@ -175,17 +176,17 @@ export function createVelocityStrip(o) {
     g.restore();
     // label strip under the velocity area (the keyboard strip of the roll)
     g.fillStyle = '#292b31';
-    g.fillRect(0, bottom, VEL_W, h - bottom);
+    g.fillRect(0, bottom, W(), h - bottom);
     g.fillStyle = '#9a9ea8';
     g.font = '600 9px ui-monospace, monospace';
     g.textBaseline = 'middle';
     g.textAlign = 'center';
     const p = drag ? group?.points[drag.i] : hover?.kind === 'point' ? group?.points[hover.i] : null;
     const v = p ? p.v : hover?.kind === 'note' ? hover.note.vel : null;
-    g.fillText(v === null ? 'VELOCITY' : `VEL ${Math.round(v * 127)}`, VEL_W / 2, bottom + (h - bottom) / 2);
+    g.fillText(v === null ? 'VELOCITY' : `VEL ${Math.round(v * 127)}`, W() / 2, bottom + (h - bottom) / 2);
     g.strokeStyle = '#34363e';
     g.lineWidth = 2;
-    g.beginPath(); g.moveTo(VEL_W, 0); g.lineTo(VEL_W, h); g.stroke();
+    g.beginPath(); g.moveTo(W(), 0); g.lineTo(W(), h); g.stroke();
   }
 
   function dragPoint(e, i, x, y) {
@@ -200,7 +201,7 @@ export function createVelocityStrip(o) {
       if (!drag.moved && Math.hypot(q.x - x, q.y - y) < 2) return;
       drag.moved = true;
       presses.reset();
-      p.v = snapVelocity(clamp(v0 + ((q.x - x) * (ev.shiftKey ? 0.1 : 1)) / (VEL_W - 2 * PAD), 0, 1));
+      p.v = snapVelocity(clamp(v0 + ((q.x - x) * (ev.shiftKey ? 0.1 : 1)) / (W() - 2 * PAD), 0, 1));
       if (i > 0) {
         const lo = pts[i - 1].t;
         const hi = i < pts.length - 1 ? pts[i + 1].t : group.end;

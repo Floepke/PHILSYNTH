@@ -12,10 +12,10 @@ import { exitToOS } from './exit.js';
 import { createSequencer } from './seq/index.js';
 import { defaultCam, validCam, toWorld, zoomAt, fitBox, ZOOM_STEP } from './camera.js';
 import { initWidgets } from './widgets.js';
-import { snapStep } from './song.js';
+import { emptySong, getClip, snapStep } from './song.js';
 import { CableScope } from './cablescope.js';
 import { openMapDialog, patchControllersView } from './mapdialog.js';
-import { MAX_NAME, cableSignals } from './patch.js';
+import { MAX_NAME, cableSignals, runtimesAt, songLayers } from './patch.js';
 import { showMenu, closeMenu, shortcut } from './seq/menu.js';
 import { createHistory } from './history.js';
 import { renderSong, encodeWav } from './render.js';
@@ -47,24 +47,59 @@ const selectEntries = (entries) => select(entries.length > 1 ? { kind: 'group', 
 // previously used MIDI module that still exists.
 // Modules with liveMidi: false (VELOCITY2CTL) only get notes from clips and MIDI cables.
 const takesLiveMidi = (def) => !!def?.acceptsMidi && def.liveMidi !== false;
-let midiHistory = []; // most recent last
-// Clicking the MIDI badge locks MIDI onto its module: selecting other modules no longer moves it.
-let midiLocked = false;
+// Every patch level (layer: the main patch, a Patch's inside) has its own MIDI module: the one
+// followed there (view state) or the one locked there (LOCK badge, saved with that layer as
+// PatchRuntime.midiLock). Live MIDI plays the shown layer's module, else the nearest one above.
+const followed = new WeakMap(); // runtime -> modules selected there, most recent last
+const midiEntry = (rt, id) => {
+  const e = id === null || id === undefined ? null : rt.modules.get(id);
+  return e && !e.dead && takesLiveMidi(e.def) ? e : null;
+};
+const lockedEntry = (rt) => midiEntry(rt, rt.midiLock);
+function followedEntry(rt) {
+  const h = followed.get(rt) ?? [];
+  while (h.length && (h.at(-1).dead || rt.modules.get(h.at(-1).id) !== h.at(-1))) h.pop();
+  return h.at(-1) ?? null;
+}
+const layerMidi = (rt) => lockedEntry(rt) ?? followedEntry(rt);
 const midiTarget = () => {
-  while (midiHistory.length && midiHistory.at(-1).dead) { midiHistory.pop(); midiLocked = false; }
-  return midiHistory.at(-1) ?? null;
+  for (let i = path.length - 1; i >= 0; i--) {
+    const t = layerMidi(path[i].patch);
+    if (t) return t;
+  }
+  return null;
 };
 function setMidiTarget(entry) {
-  const prev = midiTarget();
-  if (prev === entry || midiLocked) return;
+  const rt = current();
+  if (lockedEntry(rt) || followedEntry(rt) === entry) return;
   // no allOff on the old module: song notes and held keys play on (their note-offs still reach
   // the module that got the note-on, see midi.js)
-  midiHistory = midiHistory.filter((e) => e !== entry && !e.dead);
-  midiHistory.push(entry);
+  followed.set(rt, [...(followed.get(rt) ?? []).filter((e) => e !== entry && !e.dead), entry]);
   persist.schedule();
+}
+// the TimeLine shown: the main song or the open Patch's own one
+const layerSong = (rt) => (rt === engine.root ? engine.song : rt.song);
+// per-layer view state: followed MIDI module and selected clip of every layer
+function layerView() {
+  return songLayers(engine.root, engine.song).flatMap(({ path: p, rt, song }) => {
+    const midi = followedEntry(rt)?.id ?? null;
+    const clip = rt === engine.root ? null : song.selected;
+    return midi === null && clip === null ? [] : [{ path: p, midi, clip }];
+  });
+}
+function applyLayerView(list) {
+  for (const v of Array.isArray(list) ? list : []) {
+    const levels = patchAt(v?.path);
+    if (levels.length !== (v.path?.length ?? 0) + 1) continue;
+    const rt = levels.at(-1).patch;
+    const e = midiEntry(rt, v.midi);
+    if (e) followed.set(rt, [e]);
+    if (rt !== engine.root && getClip(rt.song, v.clip)) rt.song.selected = v.clip;
+  }
 }
 let dropPos = { x: 0, y: 0 };
 const current = () => path[path.length - 1].patch;
+const shown = () => path.at(-1)?.patch ?? engine.root; // current(), also before a project is open
 
 // ---- camera (pan / zoom), one per patch level ----
 const cam = () => (path[path.length - 1].cam ??= defaultCam());
@@ -174,26 +209,12 @@ engine.onChange = () => {
   undoHistory?.record();
 };
 
-// Path (list of module numbers) from the root patch to the patch containing `entry`.
-function locate(entry, patch = engine.root, trail = []) {
-  for (const e of patch.modules.values()) {
-    if (e === entry) return trail;
-    if (e.inst.patch) {
-      const found = locate(entry, e.inst.patch, [...trail, e.id]);
-      if (found) return found;
-    }
-  }
-  return null;
-}
-
 function viewState() {
-  const midi = midiTarget();
-  const midiPath = midi && locate(midi);
   return {
     path: path.slice(1).map((l) => l.id),
     cams: path.map((l) => l.cam ?? defaultCam()),
     seq: seq?.viewState(),
-    midi: midiPath ? { path: midiPath, id: midi.id, locked: midiLocked } : null,
+    layers: layerView(),
   };
 }
 
@@ -214,16 +235,13 @@ function applyView(view) {
   path.forEach((l, i) => {
     if (view?.cams?.[i]) l.cam = validCam(view.cams[i]);
   });
-  seq?.applyView(view?.seq);
-  midiHistory = [];
-  midiLocked = false;
-  if (view?.midi) {
-    const levels = patchAt(view.midi.path);
-    if (levels.length === view.midi.path.length + 1) {
-      const e = levels.at(-1).patch.modules.get(view.midi.id);
-      if (takesLiveMidi(e?.def)) { midiHistory.push(e); midiLocked = !!view.midi.locked; }
-    }
+  applyLayerView(view?.layers);
+  if (view?.midi?.path) { // older saves: one MIDI module for the whole project, maybe locked
+    applyLayerView([{ path: view.midi.path, midi: view.midi.id }]);
+    const rt = patchAt(view.midi.path).at(-1).patch;
+    if (view.midi.locked && rt.midiLock === null && followedEntry(rt)?.id === view.midi.id) rt.midiLock = view.midi.id;
   }
+  seq?.applyView(view?.seq);
   render();
 }
 
@@ -334,6 +352,7 @@ function render() {
   if (fit && canvas.clientWidth > 0 && canvas.clientHeight > 0) fitAll();
   drawCables();
   renderCrumbs();
+  seq?.setLayer(); // the TimeLine of this level
   select(null);
   persist.schedule(); // remember which patch level is open
 }
@@ -436,16 +455,18 @@ function createBox(entry) {
     const badge = document.createElement('button');
     badge.type = 'button';
     badge.className = 'midi-badge';
-    badge.textContent = 'MIDI';
+    badge.textContent = 'LOCK';
     badge.addEventListener('pointerdown', (e) => e.stopPropagation()); // no drag / selection change
     badge.addEventListener('dblclick', (e) => e.stopPropagation()); // don't open a Patch
     badge.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (midiTarget() !== entry) return;
-      midiLocked = !midiLocked;
+      const rt = current();
+      if (layerMidi(rt) !== entry) return;
+      const lock = !lockedEntry(rt);
+      rt.midiLock = lock ? entry.id : null; // saved with this patch level (undoable)
+      rt.changed();
       showMidiTarget();
-      persist.schedule();
-      $('status').textContent = midiLocked ? `MIDI locked to ${entry.name || def.type} — click MIDI again to unlock.` : 'MIDI unlocked: it follows the selected module again.';
+      $('status').textContent = lock ? `MIDI locked to ${entry.name || def.type} on this patch level — click LOCK again to unlock.` : 'MIDI unlocked: on this patch level it follows the selected module again.';
     });
     el.append(badge);
   }
@@ -475,12 +496,31 @@ function createBox(entry) {
     const start = group.map((m) => ({ m, x: m.x, y: m.y }));
     const sx = e.clientX;
     const sy = e.clientY;
+    // A single module dragged onto another one connects to it (or disconnects an existing cable)
+    // the moment they start to overlap; modules it overlaps at the start count after a separation.
+    const patch = current();
+    const others = () => group.length === 1 ? [...patch.modules.values()].filter((m) => m !== entry && m.el?.isConnected) : [];
+    const overlaps = (m) => {
+      const a = boxOf(entry);
+      const b = boxOf(m);
+      return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    };
+    const touching = new Set(others().filter(overlaps));
+    let wired = false;
+    undoHistory?.begin(); // the move and its cable toggles are one undo step
     const move = (ev) => {
       for (const { m, x, y } of start) {
         m.x = Math.round(x + (ev.clientX - sx) / cam().z);
         m.y = Math.round(y + (ev.clientY - sy) / cam().z);
         m.el.style.left = `${m.x}px`;
         m.el.style.top = `${m.y}px`;
+      }
+      for (const m of others()) {
+        if (!overlaps(m)) touching.delete(m);
+        else if (!touching.has(m)) {
+          touching.add(m);
+          wired = toggleCable(patch, entry, m.el) || wired;
+        }
       }
       drawCables();
     };
@@ -490,6 +530,8 @@ function createBox(entry) {
       window.removeEventListener('pointercancel', up);
       persist.schedule();
       undoHistory?.record();
+      undoHistory?.end();
+      if (wired && sel?.entry === entry) select(sel); // refresh the panel: e.g. an LFO's Out Controller names follow its cables
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
@@ -599,6 +641,24 @@ function drawCables() {
   scope?.setCables(live);
 }
 
+// Connects `from` -> the module of element `el`, or disconnects that cable when it exists, and
+// flashes the target. Shared by Shift + drag sweeps and dragging a module onto another one.
+function toggleCable(patch, from, el) {
+  const toId = +el.dataset.id;
+  const existing = patch.cables.find((c) => c.from === from.id && c.to === toId);
+  const ok = existing ? (patch.disconnect(existing), true) : patch.connect(from.id, toId);
+  if (!ok) {
+    $('status').textContent = 'Cannot connect (duplicate, loop, or this module has no input of that kind).';
+    return false;
+  }
+  drawCables();
+  el.classList.remove('cable-hit', 'cable-cut');
+  void el.offsetWidth; // restart the flash animation
+  el.classList.add(existing ? 'cable-cut' : 'cable-hit');
+  el.addEventListener('animationend', () => el.classList.remove('cable-hit', 'cable-cut'), { once: true });
+  return true;
+}
+
 // Shift + drag from a module: every module the pointer moves onto gets connected (or, when that
 // cable exists already, disconnected) at once, so one source can be wired to many targets in one
 // sweep. Moving off a module and back onto it toggles it again; the source itself is ignored.
@@ -618,19 +678,7 @@ function startCable(e, entry) {
   undoHistory?.begin();
   let over = null; // module element under the pointer (already handled)
   const toggle = (el) => {
-    const toId = +el.dataset.id;
-    const existing = patch.cables.find((c) => c.from === entry.id && c.to === toId);
-    const ok = existing ? (patch.disconnect(existing), true) : patch.connect(entry.id, toId);
-    if (!ok) {
-      $('status').textContent = 'Cannot connect (duplicate, loop, or this module has no input of that kind).';
-      return;
-    }
-    drawCables(); // clears the svg: put the temporary cable back on top
-    svg.append(temp);
-    el.classList.remove('cable-hit', 'cable-cut');
-    void el.offsetWidth; // restart the flash animation
-    el.classList.add(existing ? 'cable-cut' : 'cable-hit');
-    el.addEventListener('animationend', () => el.classList.remove('cable-hit', 'cable-cut'), { once: true });
+    if (toggleCable(patch, entry, el)) svg.append(temp); // drawCables cleared the svg: temporary cable back on top
   };
   const move = (ev) => {
     const seg = visibleSegment(box, null, clientToWorld(ev.clientX, ev.clientY));
@@ -944,13 +992,14 @@ function hint(html) {
 }
 
 function showMidiTarget() {
-  const target = midiTarget();
+  const target = layerMidi(current());
+  const locked = !!target && lockedEntry(current()) === target;
   document.querySelectorAll('.module:not(.ghost)').forEach((el) => {
     const on = target?.el === el;
     el.classList.toggle('midi-target', on);
-    el.classList.toggle('midi-locked', on && midiLocked);
+    el.classList.toggle('midi-locked', on && locked);
     const badge = el.querySelector(':scope > .midi-badge');
-    if (badge) badge.title = midiLocked ? 'MIDI locked to this module — click to unlock' : 'MIDI follows the selection — click to lock it to this module';
+    if (badge) badge.title = locked ? 'MIDI locked to this module on this patch level (saved with it) — click to unlock' : 'MIDI follows the selection on this patch level — click to lock it to this module';
   });
 }
 
@@ -994,20 +1043,21 @@ function select(s) {
       panelHeader('No selection', ''),
       hint('<kbd>Double-click</kbd> the canvas to insert a module. <b>Save module…</b> in a module\'s right-click menu saves it (or the whole selection, with the cables between them and Patch contents) as a <b>.synth</b> file; <b>Load .synth…</b> in the insert dialog puts it back at the double-clicked spot.'),
       hint('<kbd>Shift</kbd> + drag from a module and move over other modules: each one you touch gets connected (or disconnected when already connected), so one module can feed many in one sweep.'),
+      hint('Drag a module so it overlaps another one: the dragged module gets connected to it (or disconnected when already connected). Pull it off and back on to toggle again.'),
       hint('Drag on empty canvas to select several modules. <kbd>Ctrl</kbd> + click toggles a module, <kbd>Ctrl</kbd> + drag adds, <kbd>Ctrl</kbd> + <kbd>A</kbd> selects all.'),
       hint('<kbd>Alt</kbd> + drag a module to duplicate it (or the whole selection).'),
       hint('<kbd>Backspace</kbd> deletes the selection.'),
       hint('<b>Context menus:</b> in the patcher, the TimeLine and the velocity lane a normal <kbd>right</kbd>-click opens the menu. In the piano roll hold the right mouse button still for <b>250 ms</b> (moving 5 px or more first cancels it); there a short right-click deletes a note. On the TimeLine ruler a right-click removes a time signature or the loop region.'),
       hint(`Right-click a module, cable or the canvas for <b>Cut / Copy / Paste / Delete</b> (or press the keyboard menu key; shortcuts <kbd>${shortcut('X')}</kbd> <kbd>${shortcut('C')}</kbd> <kbd>${shortcut('V')}</kbd>; paste lands at the mouse pointer). <b>Rename…</b> (or <kbd>F2</kbd>) gives a module its own name on its box; the controller panel keeps showing the module type.`),
-      hint('Select a module and press <kbd>F2</kbd> (or right-click → Rename…) to rename it. <kbd>Double-click</kbd> a Patch (or select it and press <kbd>Enter</kbd>, or right-click → Open patch) to enter it, <kbd>Esc</kbd> (or the mouse <b>back</b> button) to go up. At the main layer, <kbd>Esc</kbd> asks <b>Exit to OS?</b>; Yes autosaves and closes the app.'),
+      hint('Select a module and press <kbd>F2</kbd> (or right-click → Rename…) to rename it. <kbd>Double-click</kbd> a Patch (or select it and press <kbd>Enter</kbd>, or right-click → Open patch) to enter it, <kbd>Esc</kbd> (or the mouse <b>back</b> button) to go up. Inside a Patch the piano roll and TimeLine show that Patch\'s <b>own sequencer</b>: its clips send to modules of that level only. Play inside a Patch plays that level\'s TimeLine (with its own meter and loop region) at the BPM of its own <b>Output</b> module, plus the TimeLines of the Patches inside it; play on the main level plays everything at the main BPM. At the main layer, <kbd>Esc</kbd> asks <b>Exit to OS?</b>; Yes autosaves and closes the app.'),
       hint('Select a Patch and click <b>Controllers…</b> to map controllers of any module inside to controllers of the Patch module, so they can be set, modulated (LFO) and automated from outside.'),
       hint('OSC / ADSR: with <b>Sustain</b> at 0, <b>Decay</b> and <b>Release</b> are linked: moving one moves the other.'),
       hint('<kbd>Middle mouse</kbd> + drag pans the canvas, <kbd>scroll</kbd> zooms. Click the zoom % (bottom right) to fit all modules.'),
-      hint('Play the MIDI module marked red in the patcher (the last selected one, e.g. OSC; click its blinking <b>MIDI</b> badge to lock MIDI to it, click again to unlock) with a MIDI controller, the piano roll keyboard or the computer keyboard: <kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>T</kbd> <kbd>Y</kbd> <kbd>U</kbd> <kbd>I</kbd> <kbd>O</kbd> <kbd>P</kbd> are the white keys C4–E5, the number row above them (<kbd>2</kbd> <kbd>3</kbd> <kbd>5</kbd> <kbd>6</kbd> <kbd>7</kbd> <kbd>9</kbd> <kbd>0</kbd>) the black keys. In a focused piano roll <kbd>Q</kbd> quantizes instead.'),
+      hint('Play the MIDI module marked red in the patcher (the last selected one, e.g. OSC; click its blinking <b>LOCK</b> badge to lock MIDI to it, click again to unlock). Every patch level has its own MIDI module and lock, saved with that level; when the open level has none, MIDI plays the one of the level above with a MIDI controller, the piano roll keyboard or the computer keyboard: <kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>T</kbd> <kbd>Y</kbd> <kbd>U</kbd> <kbd>I</kbd> <kbd>O</kbd> <kbd>P</kbd> are the white keys C4–E5, the number row above them (<kbd>2</kbd> <kbd>3</kbd> <kbd>5</kbd> <kbd>6</kbd> <kbd>7</kbd> <kbd>9</kbd> <kbd>0</kbd>) the black keys. In a focused piano roll <kbd>Q</kbd> quantizes instead.'),
       hint('<b>Sequencer</b> (piano roll above the patcher, TimeLine below; <kbd>S</kbd> maximizes the patcher, <kbd>S</kbd> again restores both panes): <kbd>Double-click</kbd> the TimeLine to add a clip, drag its edges to resize, <kbd>Alt</kbd> + drag to copy. In the piano roll click / drag to write notes (new notes get the last used length), drag a note body for its length (the end jumps to the pointer, snapped to the grid), its circle for pitch and time. A short right-click deletes the note under the pointer; hold the right button for <b>250 ms</b> to open the menu instead (cut / copy / paste / delete / duplicate / quantize / octave). Releasing after the menu opens never deletes a note. <kbd>Space</kbd> plays. <kbd>Double-click</kbd> the TimeLine ruler to insert a time signature change (right-click it to remove). Selecting a clip while stopped moves the playhead to its start (during playback it keeps playing).'),
       hint('<b>Piano roll selection:</b> <kbd>Shift</kbd> + drag or <kbd>right</kbd> + drag draws a selection rectangle; clicking a note selects it, <kbd>Shift</kbd> + click toggles it. Dragging a selected note moves / resizes the whole selection. <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> duplicates the selection, <kbd>Q</kbd> quantizes note starts (selection, else all). <kbd>Ctrl/Cmd</kbd> + <kbd>A</kbd> selects all notes, <kbd>Esc</kbd> clears the selection, and <kbd>Backspace</kbd> / <kbd>Delete</kbd> deletes it. <kbd>Alt</kbd> + drag a note (body or circle) moves a clone.'),
       hint('<b>Arrow keys:</b> in the piano roll, <kbd>Left</kbd> / <kbd>Right</kbd> transpose selected notes by one semitone; <kbd>Up</kbd> / <kbd>Down</kbd> move them earlier/later by one snap step. With <kbd>Shift</kbd>: an octave / a bar. The selection moves together and stops at time zero or the MIDI pitch limits.'),
-      hint('<b>Velocity:</b> the strip left of the piano roll shows every note\'s velocity (stick) and how it changes while the note sounds. Drag a note\'s dot to set its velocity (<kbd>Shift</kbd>-click adds it to the selection). The selected notes share one curve: <kbd>Double-click</kbd> inside them to add a point, drag points (time snaps, <kbd>Shift</kbd> = fine), and use the mouse wheel on a point to round it. Right-click the lane for the menu: <b>Snap velocity values</b> (1/16 increments, enabled by default, no grid) and, on a point, <b>Delete point</b>. The snap setting is saved with the project and only affects new edits. One selected note edits its own curve.'),
+      hint('<b>Velocity:</b> the strip left of the piano roll shows every note\'s velocity (stick) and how it changes while the note sounds. Drag a note\'s dot to set its velocity (<kbd>Shift</kbd>-click adds it to the selection). The selected notes share one curve: <kbd>Double-click</kbd> inside them to add a point, drag points (time snaps, <kbd>Shift</kbd> = fine), and use the mouse wheel on a point to round it. Right-click the lane for the menu: <b>Snap velocity values</b> (1/16 increments, enabled by default, no grid) and, on a point, <b>Delete point</b>. The snap setting is saved with the project and only affects new edits. One selected note edits its own curve. Drag the bar ruler between the strip and the notes sideways to make the strip wider or narrower (the piano roll scales along; <kbd>Double-click</kbd> the ruler resets it).'),
       hint('<b>Automation:</b> <kbd>Double right-click</kbd> the TimeLine to add an automation clip, then pick the module (<i>Send to</i>) and its <i>Controller</i> in the toolbar. In the automation lane <kbd>Double-click</kbd> inserts a point (snapped to the grid), drag moves it (<kbd>Shift</kbd> = fine), the mouse wheel on a point rounds the corner and right click deletes it. While playing, the clip drives the controller like an LFO; outside the clip (or when stopped) the controller has its own value again.'),
       hint('<b>Sequencer clipboard:</b> click the piano roll or TimeLine to focus it, then use <kbd>Ctrl/Cmd</kbd> + <kbd>X</kbd> / <kbd>C</kbd> / <kbd>V</kbd> to cut / copy / paste selected notes or the selected clip. Each view has its own in-app clipboard. Paste at the mouse pointer, snapped to the grid; note pitches and relative timing are preserved.'),
       hint('<b>TimeLine selection &amp; clones:</b> drag on empty TimeLine space for a selection rectangle (<kbd>Ctrl/Cmd</kbd> adds), <kbd>Ctrl/Cmd</kbd> + click toggles a clip. Dragging moves the whole selection; <kbd>Alt</kbd> + drag copies it, <kbd>Shift</kbd> + drag makes <i>linked clones</i> that share their notes with the source (marked ⧉): editing one edits all. Clones are drawn with diagonal stripes and a dashed outline; a selected clone shows a dashed arrow to its source. Hold right-click on a clip for cut / copy / paste / delete / duplicate / clone / detach (turns a clone into a standalone clip) / go to source / <i>Consolidate</i> (two or more selected clips on one lane become one clip spanning them; module and name come from the first clip) / <i>Split at playhead</i> (cuts the selected clips under the playhead in two). <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> clones, <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd> duplicates.'),
@@ -1358,40 +1408,45 @@ window.addEventListener('mousedown', (e) => {
   const active = document.activeElement;
   if (active?.matches?.('input, select, textarea, button, [contenteditable]:not([contenteditable="false"])')) active.blur();
 }, true);
-initWidgets(document, { numberStep: () => snapStep(engine.song.snap) });
+initWidgets(document, { numberStep: () => snapStep(layerSong(shown()).snap) });
 initStatusTips({ tipEl: $('tip'), statusEl: $('status') }); // after initWidgets: it extends some titles
 ['pointerdown', 'keydown'].forEach((ev) => window.addEventListener(ev, () => engine.resume()));
 initCpuMeter(engine);
 await engine.init();
 scope = new CableScope(engine.dsp);
-// clips play the module with their number in the main patch
-const songTarget = (id) => {
-  const e = id === null || id === undefined ? null : engine.root.modules.get(id);
+// clips play the module with their number in their own patch level (shown: the open one)
+const targetIn = (rt) => (id) => {
+  const e = id === null || id === undefined ? null : rt.modules.get(id);
   return e?.def.acceptsMidi ? e.inst : null;
 };
+// Play runs from the level shown (scope = its path of Patch module numbers): its own TimeLine at
+// its Output's BPM, with the TimeLines of the Patches inside it on the same clock. Automation
+// drives a controller's real value (see PatchRuntime.drive).
+const scopeRt = (ids) => runtimesAt(engine.root, ids ?? [])[0] ?? null;
 transport = new Transport({
-  getSong: () => engine.song,
-  getBpm: () => engine.root.bpm,
-  getTarget: songTarget,
-  // automation clips drive a controller of a main-patch module (like an LFO, never saved)
-  setAuto: (id, clip, value) => engine.root.automate(id, clip?.target ?? null, clip?.controller ?? 0, value),
+  getScope: () => path.slice(1).map((l) => l.id),
+  getSong: (ids) => { const rt = scopeRt(ids); return rt ? layerSong(rt) : emptySong(); },
+  getBpm: (ids) => scopeRt(ids)?.bpm ?? engine.root.bpm,
+  getTarget: targetIn(engine.root),
+  getLayers: (ids) => songLayers(engine.root, engine.song, ids ?? []),
 });
 // live notes (computer keyboard, on-screen piano keys) go to the red MIDI module
-const liveMidiEntry = () => midiTarget() ?? [...engine.root.modules.values()].find((e) => takesLiveMidi(e.def)) ?? null;
+const firstLive = (rt) => [...rt.modules.values()].find((e) => takesLiveMidi(e.def)) ?? null;
+const liveMidiEntry = () => midiTarget() ?? firstLive(shown()) ?? firstLive(engine.root);
 seq = createSequencer({
   engine,
   transport,
-  getTarget: songTarget,
+  getSong: () => layerSong(shown()),
+  getPatch: () => shown(),
+  getTarget: (id) => targetIn(shown())(id),
   liveTarget: () => liveMidiEntry()?.inst ?? null,
-  // new clips play the current MIDI module when it is in the main patch, else the first one there
+  // new clips play this level's MIDI module, else its first module that takes MIDI
   defaultTarget() {
-    const t = midiTarget();
-    if (t && engine.root.modules.get(t.id) === t) return t.id;
-    return [...engine.root.modules.values()].find((e) => e.def.acceptsMidi)?.id ?? null;
+    return layerMidi(shown())?.id ?? [...shown().modules.values()].find((e) => e.def.acceptsMidi)?.id ?? null;
   },
-  // new automation clips drive the module selected in the main patch (else the clip's / first module)
+  // new automation clips drive the module selected on this level (else the clip's / first module)
   defaultAutoTarget() {
-    if (current() === engine.root && sel?.entry && engine.root.modules.get(sel.entry.id) === sel.entry) return sel.entry.id;
+    if (sel?.entry && shown().modules.get(sel.entry.id) === sel.entry) return sel.entry.id;
     return null;
   },
   undoHistory: {
@@ -1409,25 +1464,14 @@ undoHistory = createHistory({
     const ids = path.slice(1).map((level) => level.id);
     const cameras = path.map((level) => level.cam);
     const selected = engine.song.selected;
-    const target = midiTarget();
-    const targetPath = target ? locate(target) : null;
-    const targetId = target?.id;
+    const layers = layerView();
     if (project.song) {
       project.song.selected = project.song.clips?.some((clip) => clip.id === selected) ? selected : null;
     }
     transport.stop();
     await engine.loadProject(project);
     path = patchAt(ids).map((level, i) => ({ ...level, cam: cameras[i] }));
-    midiHistory = [];
-    const wasLocked = midiLocked;
-    midiLocked = false;
-    if (targetPath) {
-      const levels = patchAt(targetPath);
-      if (levels.length === targetPath.length + 1) {
-        const entry = levels.at(-1).patch.modules.get(targetId);
-        if (takesLiveMidi(entry?.def)) { midiHistory.push(entry); midiLocked = wasLocked; }
-      }
-    }
+    applyLayerView(layers);
     seq.reload();
     render();
     persist.schedule();

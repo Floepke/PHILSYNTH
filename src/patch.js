@@ -1,5 +1,6 @@
 import { getModule } from './modules/index.js';
 import { fromNorm, paramsOf } from './params.js';
+import { normalizeSong } from './song.js';
 
 // One patch = one "folder": modules, cables and a sink (where its Output module plays to).
 // Module ids are unique per patch; id 0 is always the Output module.
@@ -37,6 +38,29 @@ export class PatchRuntime {
     this.cables = []; // { from, to } module ids
     this.reserved = new Set(); // ids claimed by inserts still being created
     this.listeners = new Set(); // called whenever modules/cables change
+    this.midiLock = null; // module number live MIDI is locked onto in this layer (saved), or null
+    this._song = null;
+  }
+
+  // Every layer (a Patch's inside) has its own TimeLine: clips that play / automate modules of this
+  // runtime, with its own meter and loop region. Playing from inside a Patch plays that layer at
+  // its own Output BPM. The main patch's song is engine.song (saved at the project's top level).
+  get song() {
+    this._song ??= normalizeSong(null);
+    return this._song;
+  }
+
+  set song(data) {
+    this._song = normalizeSong(data);
+  }
+
+  // the layer's song as saved: only when it has something in it (selection is view state)
+  songJSON() {
+    const s = this._song;
+    const plainSig = s?.sigs.length === 1 && s.sigs[0].num === 4 && s.sigs[0].den === 4;
+    if (!s || !(s.clips.length || s.mutes.length || s.solos.length || s.loop || !plainSig)) return null;
+    const { selected, ...rest } = s;
+    return structuredClone(rest);
   }
 
   static async create(engine, sink, salt = 0) {
@@ -397,11 +421,15 @@ export class PatchRuntime {
         ...(e.inst.patch ? { patch: e.inst.patch.toJSON() } : {}),
       })),
       cables: this.cables.map((c) => ({ ...c })),
+      ...(this.midiLock !== null ? { midiLock: this.midiLock } : {}),
+      ...(this.songJSON() ? { song: this.songJSON() } : {}),
     };
   }
 
   async load(data) {
     [...this.modules.keys()].forEach((id) => this.removeModule(id));
+    this.midiLock = Number.isInteger(data.midiLock) ? data.midiLock : null;
+    this.song = data.song ?? null;
     for (const m of data.modules) {
       if (m.id === 0) {
         const out = this.modules.get(0);
@@ -416,4 +444,47 @@ export class PatchRuntime {
     }
     for (const c of data.cables ?? []) this.connect(c.from, c.to);
   }
+}
+
+// Runtimes of one patch level: `ids` = Patch module numbers from `root` down. The edited one first,
+// then the hidden copies of every instance (Instances > 1) at each level on the way.
+export function runtimesAt(root, ids = []) {
+  let rts = [root];
+  for (const id of ids) {
+    rts = rts.flatMap((r) => {
+      const m = r.modules.get(id);
+      return m?.inst.patch ? [m.inst.patch, ...(m.inst.clones ?? [])] : [];
+    });
+  }
+  return rts;
+}
+
+// TimeLines for the Transport: the song of the level at `path` (Patch module numbers from root;
+// [] = the main patch, whose song is mainSong) and every Patch's own song inside it, nested ones
+// too, as { key, path, rt, song, getTarget, setAuto }. Notes of a layer play its modules in the
+// edited instance; automation drives the controller in every instance, so they stay alike.
+export function songLayers(root, mainSong, path = []) {
+  const layers = [];
+  const walk = (rts, path, song) => {
+    const [rt] = rts;
+    layers.push({
+      key: path.join('/'),
+      path,
+      rt,
+      song,
+      getTarget: (id) => {
+        const e = id === null || id === undefined ? null : rt.modules.get(id);
+        return e?.def.acceptsMidi ? e.inst : null;
+      },
+      setAuto: (id, clip, value) => {
+        for (const r of rts) r.automate(id, clip?.target ?? null, clip?.controller ?? 0, value);
+      },
+    });
+    for (const e of rt.modules.values()) {
+      if (e.inst.patch) walk(rts.flatMap((r) => runtimesAt(r, [e.id])), [...path, e.id], e.inst.patch.song);
+    }
+  };
+  const rts = runtimesAt(root, path);
+  if (rts.length) walk(rts, path, path.length ? rts[0].song : mainSong);
+  return layers;
 }
