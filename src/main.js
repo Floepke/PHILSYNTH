@@ -871,12 +871,6 @@ function select(s) {
   if (entry.def.type === 'OSC') {
     explanations.append(hint('<b>Half sine:</b> one positive sine bow followed by zero. <b>Duty Cycle</b> sets the bow length: 100% fills the period, 25% fills its first quarter, and 0% is silent. <b>Noise</b> (white, pink, brown, blue, violet: dark to bright) ignores the note pitch; every note gets its own noise, shaped by the envelope and velocity.'));
   }
-  if (!takesLiveMidi(entry.def)) {
-    const what = entry.def.acceptsMidi ? 'Not played by the MIDI keyboard' : entry.def.modulator ? 'Modulator' : 'Audio only';
-    explanations.append(hint(target
-      ? `${what}. MIDI keeps playing <kbd>${target.def.type} #${target.id}</kbd>.`
-      : `${what}. Select an OSC or Patch to play it with MIDI.`));
-  }
   if (entry.def.type === 'DELAY') {
     explanations.append(hint('<b>Left Delay</b> delays left audio and each incoming MODMIDI message; <b>Right Delay</b> delays right audio only. No dry signal or feedback. Cables carry audio, MIDI, or both, according to the destination. Notes keep their pitch, velocity and start phase. Changing the delay affects new messages, not ones already queued; a release that overtakes its pending note cancels that note. MIDI delivery runs on the audio-clock reports (about every 5 ms).'));
   }

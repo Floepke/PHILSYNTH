@@ -470,19 +470,27 @@ body.panel-collapsed #panel { visibility: hidden; }
   box-shadow: var(--shadow), 0 0 0 3px rgba(255, 255, 255, 0.12);
 }
 .module.midi-target::after {
+  --midi-red: #b94b50;
   content: 'MIDI';
   position: absolute;
   top: -9px;
   left: 12px;
   padding: 1px 6px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--midi-red);
   border-radius: 4px;
-  background: var(--surface-1);
+  background: var(--midi-red);
   color: var(--text);
   font: 600 9px var(--mono);
   letter-spacing: 0.1em;
+  animation: midi-target-blink 2s steps(1, end) infinite;
 }
-
+@keyframes midi-target-blink {
+  0%, 100% { background: var(--midi-red); }
+  50% { background: var(--surface-1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .module.midi-target::after { animation: none; }
+}
 
 /* ---------- sequencer: piano roll + TimeLine (right part) ---------- */
 body.seq-open {
