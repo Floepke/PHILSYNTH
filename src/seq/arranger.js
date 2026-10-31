@@ -1,14 +1,18 @@
 // TimeLine arranger: time runs left -> right (quarter notes), clips sit on numbered lanes (one clip
 // high, the numbers are in the column under "TimeLine:"). Time zero is the bright vertical line;
-// scroll left to park clips before it (they are not played by the song, / still auditions them).
+// scroll left to park clips before it (they are not played by the song, / still auditions them,
+// together with the clips around them).
 //   double-click empty space   insert a clip (one bar)
 //   double right-click empty   insert an automation clip (one bar, drives one controller)
 //   click a clip               select it (the piano roll shows it); when stopped the playhead jumps to its start
+//                              (the border of selected clips pulses white / grey at 50 BPM)
 //   drag on empty space        select clips with a rectangle (Ctrl/Cmd + drag adds to the selection)
 //   Ctrl/Cmd + click a clip    add it to / remove it from the selection
 //   drag a clip                move it, or the whole selection (time snaps, vertical snaps to lanes)
 //   clips snap out of overlaps to the nearest free position; resizing stops at neighbours
 //   drag a clip's left/right edge  trim the start / set the length (snaps)
+//   click M / S left of a lane number  mute / solo the lane (toggle); drag over a column of buttons to set many
+//                              lanes alike. While any lane is soloed only soloed lanes play; mute wins over solo.
 //   (while dragging, holding the pointer near an edge of the time area auto-scrolls the view)
 //   Alt + drag                 duplicate (standalone copies with the same name)
 //   Shift + drag               linked clone: shares the notes with the source (see song.js); clones
@@ -31,9 +35,9 @@
 import {
   snapStep, snapFloor, snapRound, loopEnd, getClip, addClip, addAutoClip, isAuto, autoPolyline, duplicateClip, removeClip, trimClipStart, BAR, clean,
   meter, barLines, barRound, barLength, removeSig, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource, setLoop,
-  canConsolidate, consolidateClips, splitClip,
+  canConsolidate, consolidateClips, splitClip, laneMuted, laneSoloed, laneSilent, clipSilent, setLaneFlag,
 } from '../song.js';
-import { createSurface, capture, startPan, onWheel, clamp, snapBands, rightHold, edgeScroll } from './surface.js';
+import { createSurface, capture, startPan, onWheel, clamp, snapBands, rightHold, edgeScroll, MUTE_COLOR } from './surface.js';
 import { CLIP_H, findClipPosition, clipResizeBounds } from './clipplacement.js';
 import { showMenu, shortcut } from './menu.js';
 
@@ -46,6 +50,16 @@ const EDGE = 6;
 const PLAYHEAD = '#ff5a36';
 const LOOP = '74, 144, 226'; // loop region (rgb)
 const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+
+// lane buttons in the lane number column: mute (M) and solo (S)
+const LANE_BTN_W = 18;
+const LANE_BTN_H = 18;
+const LANE_BTNS = [
+  { key: 'mutes', label: 'M', x: 4, on: MUTE_COLOR, edge: '#f0c24a', is: laneMuted },
+  { key: 'solos', label: 'S', x: 24, on: '#3fa7e0', edge: '#7cc6ef', is: laneSoloed },
+];
+
+const BLINK_MS = 60000 / 50 / 2; // selection border pulses at 50 BPM: white half a beat, a darker grey the other half
 
 const DOUBLE_MS = 400; // double right-click detection
 const DOUBLE_PX = 6;
@@ -65,6 +79,18 @@ export function createArranger(host, ctx) {
   let sel = new Set(); // selected clip ids; song.selected (the clip in the piano roll) is one of them
   let rect = null; // selection rectangle in progress: { x0, y0, x1, y1, ids }
   const menu = (opts) => (ctx.menu ?? showMenu)(opts);
+  let blinkTimer = null;
+  let blinkDue = 0;
+  // the border of selected clips pulses white / grey; repaint at each switch while any is shown
+  function blinkOn() {
+    const now = performance.now();
+    if (!blinkTimer || now > blinkDue + 4 * BLINK_MS) { // (a lost timer is replaced)
+      blinkDue = (Math.floor(now / BLINK_MS) + 1) * BLINK_MS;
+      blinkTimer = setTimeout(() => { blinkTimer = null; s.redraw(); }, blinkDue - now + 1);
+      blinkTimer?.unref?.(); // never keeps a headless (node) process alive
+    }
+    return Math.floor(now / BLINK_MS) % 2 === 0;
+  }
 
   const s = createSurface(host, paint);
   const { cv } = s;
@@ -261,6 +287,7 @@ export function createArranger(host, ctx) {
     // clips
     syncSel();
     const shown = rect ? rect.ids : sel;
+    const lit = shown.size ? blinkOn() : true;
     g.save();
     g.beginPath();
     g.rect(x0, RULER, w - x0, h - RULER);
@@ -273,7 +300,7 @@ export function createArranger(host, ctx) {
       const color = ctx.color(clip);
       const selected = shown.has(clip.id);
       const primary = !rect && clip.id === song.selected;
-      g.globalAlpha = selected ? 0.95 : clip.id === hoverId ? 0.8 : 0.68;
+      g.globalAlpha = (selected ? 0.95 : clip.id === hoverId ? 0.8 : 0.68) * (clipSilent(song, clip) ? 0.4 : 1);
       g.fillStyle = color;
       roundRect(g, x + 0.5, y + 0.5, Math.max(2, cw - 1), CLIP_H - 1, 4);
       g.fill();
@@ -281,7 +308,7 @@ export function createArranger(host, ctx) {
       const linked = isLinked(song, clip);
       const clone = linked && isClone(song, clip);
       if (clone) hatch(g, x, y, cw, w);
-      g.strokeStyle = selected ? (primary ? '#f2f2f4' : 'rgba(242, 242, 244, 0.7)') : 'rgba(0, 0, 0, 0.6)';
+      g.strokeStyle = selected ? (primary ? (lit ? '#f2f2f4' : '#a9a9b0') : (lit ? 'rgba(242, 242, 244, 0.7)' : 'rgba(169, 169, 176, 0.7)')) : 'rgba(0, 0, 0, 0.6)';
       g.lineWidth = primary ? 2 : selected ? 1.5 : 1;
       roundRect(g, x + 0.5, y + 0.5, Math.max(2, cw - 1), CLIP_H - 1, 4);
       if (clone) g.setLineDash([5, 3]);
@@ -352,8 +379,25 @@ export function createArranger(host, ctx) {
     g.textAlign = 'right';
     for (let l = lane0; l <= lane1; l++) {
       const y = yOf(l * CLIP_H);
-      g.fillStyle = busy.has(l) ? '#e8e8ea' : '#5c5c63';
+      g.fillStyle = laneSilent(song, l) ? '#6e6e76' : busy.has(l) ? '#e8e8ea' : '#5c5c63';
       g.fillText(String(l + 1), x0 - 8, y + CLIP_H / 2);
+      // mute / solo toggles
+      const by = Math.round(y + (CLIP_H - LANE_BTN_H) / 2);
+      g.textAlign = 'center';
+      g.font = `700 10px ${FONT}`;
+      g.lineWidth = 1;
+      for (const b of LANE_BTNS) {
+        const on = b.is(song, l);
+        roundRect(g, b.x + 0.5, by + 0.5, LANE_BTN_W - 1, LANE_BTN_H - 1, 3);
+        g.fillStyle = on ? b.on : '#18181b';
+        g.fill();
+        g.strokeStyle = on ? b.edge : '#2c2c31';
+        g.stroke();
+        g.fillStyle = on ? '#121212' : '#6a6a72';
+        g.fillText(b.label, b.x + LANE_BTN_W / 2, by + LANE_BTN_H / 2 + 0.5);
+      }
+      g.font = `500 10px ui-monospace, monospace`;
+      g.textAlign = 'right';
     }
     g.textAlign = 'left';
     g.strokeStyle = '#17171a';
@@ -546,10 +590,44 @@ export function createArranger(host, ctx) {
     return null;
   }
 
+  // the lane button column (M or S) under local (x, y): { btn, lane }, or null
+  function laneBtnAt(x, y) {
+    if (y < RULER || x >= x0) return null;
+    const [m, so] = LANE_BTNS;
+    const btn = x < so.x - 1 ? m : x <= so.x + LANE_BTN_W + 1 ? so : null;
+    return btn && { btn, lane: laneAt(y) / CLIP_H };
+  }
+
+  // Click a lane's M / S to toggle it; dragging over more buttons of that column gives them the
+  // same state, so many lanes are muted / soloed in one gesture.
+  function laneBtnDrag(e, { btn, lane }) {
+    e.preventDefault();
+    const song = ctx.song();
+    const on = !btn.is(song, lane);
+    const set = (l) => setLaneFlag(song, btn.key, l, on);
+    let last = lane;
+    let changed = set(lane);
+    s.redraw();
+    ctx.live?.();
+    dragging = true;
+    capture(cv, e, (ev) => {
+      const p = s.local(ev);
+      const l = laneAt(clamp(p.y, RULER, s.h - 1)) / CLIP_H;
+      // fill the lanes skipped by a fast move
+      for (let i = Math.min(l, last); i <= Math.max(l, last); i++) changed = set(i) || changed;
+      last = l;
+      s.redraw();
+      ctx.live?.();
+    }, () => {
+      dragging = false;
+      if (changed) ctx.changed();
+    });
+  }
+
   function hoverAt(x, y) {
     const h = hit(x, y);
     const id = h?.clip.id ?? null;
-    cv.style.cursor = !h ? (y < RULER && x >= x0 ? (sigAt(x, y) ? 'pointer' : 'text') : 'default') : h.part === 'body' ? 'grab' : 'ew-resize';
+    cv.style.cursor = laneBtnAt(x, y) ? 'pointer' : !h ? (y < RULER && x >= x0 ? (sigAt(x, y) ? 'pointer' : 'text') : 'default') : h.part === 'body' ? 'grab' : 'ew-resize';
     if (id !== hoverId) { hoverId = id; s.redraw(); }
   }
 
@@ -613,6 +691,8 @@ export function createArranger(host, ctx) {
     }
     lastRight = null;
     if (e.button !== 0) return;
+    const btn = laneBtnAt(x, y);
+    if (btn) { laneBtnDrag(e, btn); return; }
     const st = step();
     if (y < SIG_H) { // signature row: set / scrub the play position (double-click inserts / edits a signature)
       if (x < x0) return;

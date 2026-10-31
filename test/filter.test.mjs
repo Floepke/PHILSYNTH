@@ -90,7 +90,18 @@ assert.ok(fI > 10, `Formant I selectivity ${fI.toFixed(1)}`);
 near(gainDb({ ...base, type: 0, slope: 3, mix: 0 }, 8000), 0, 0.2, 'mix 0 = dry');
 near(gainDb({ ...base, type: 0, level: 0.5 }, 100), -6.02, 0.3, 'level 0.5');
 
-// Stability: every type, max resonance/drive, fast LFO sweep over full range, loud noise -> finite & bounded
+// Stability: every type, max resonance/drive, fast LFO sweep over full range, loud noise -> finite & bounded.
+// Seeded noise (also for the LFO) keeps the result repeatable. The bound leaves room for real gain:
+// Peak at resonance 1 is Q 40 (+32 dB at the cutoff), so swept full-scale noise reaches ~70..115×;
+// an unstable filter grows without limit.
+const realRandom = Math.random;
+let seed = 0x9e3779b9;
+Math.random = () => {
+  seed = (seed + 0x6d2b79f5) | 0;
+  let r = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r;
+  return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+};
 for (let type = 0; type <= 12; type++) {
   for (const slope of [0, 3]) {
     const f = make({ type, slope, cutoff: 2000, resonance: 1, gain: 24, drive: 1, lfoDepth: 4, lfoRate: 20, lfoShape: 4, vowel: 2.5 });
@@ -104,9 +115,10 @@ for (let type = 0; type <= 12; type++) {
         peak = Math.max(peak, Math.abs(v));
       }
     }
-    assert.ok(peak < 100, `type ${type} slope ${slope} peak ${peak.toFixed(1)} too large`);
+    assert.ok(peak < 400, `type ${type} slope ${slope} peak ${peak.toFixed(1)} too large`);
   }
 }
+Math.random = realRandom;
 
 // mono input fills both outputs; no input -> the tail rings out, then silence (returns false)
 {

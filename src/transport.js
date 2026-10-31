@@ -1,6 +1,7 @@
 // Plays the song: the position runs in quarter notes at the main patch's BPM; clip notes are sent
 // as MODMIDI (see modmidi.js) to the module number each clip targets. Loops at loopEnd(song),
-// or at the exact bounds of a single clip when clipId is set. A loop region (song.loop, set on the
+// or at the exact bounds of a single clip when clipId is set (the / audition: every other clip
+// sounding in that time range plays along). A loop region (song.loop, set on the
 // TimeLine ruler) replaces the song bounds: playback jumps into it and loops there.
 // Note chasing: when playback starts or jumps (play, clip play, seek) into the middle of a note,
 // that note is triggered right away and plays for the rest of its length.
@@ -9,8 +10,10 @@
 // Automation clips: while playing, setAuto(clipId, clip, value 0..1) is called every tick for each
 // automation clip under the playhead; setAuto(clipId, null, null) releases a clip when the
 // playhead leaves it or playback stops (the controller gets its own value back).
+// Clips on muted lanes (song.mutes) are silent, the auditioned clip too; while lanes are soloed
+// (song.solos) only those play. Muting / soloing while playing cuts silenced notes right away.
 import { newNoteId } from './modmidi.js';
-import { automationAt, getClip, loopEnd, loopRegion, notesSounding, notesStarting, noteVelAt } from './song.js';
+import { automationAt, clipSilent, getClip, loopEnd, loopRegion, notesSounding, notesStarting, noteVelAt } from './song.js';
 
 const TICK_MS = 5;
 
@@ -103,6 +106,11 @@ export class Transport {
     this.onState?.(this);
   }
 
+  // whether a clip is heard: not on a muted lane, nor outside the soloed lanes
+  audible(clip, song = this.getSong()) {
+    return !clipSilent(song, clip);
+  }
+
   releaseAll() {
     for (const n of this.active) n.inst.noteOff(n.id);
     this.active = [];
@@ -155,7 +163,7 @@ export class Transport {
     if (!this.setAuto) return;
     const now = new Set();
     for (const { clip, value } of automationAt(this.getSong(), q)) {
-      if (this.clipId !== null && clip.id !== this.clipId) continue;
+      if (!this.audible(clip)) continue;
       now.add(clip.id);
       this.setAuto(clip.id, clip, value);
     }
@@ -171,7 +179,7 @@ export class Transport {
   // note-ons for notes already sounding at q (they end at their normal end)
   chaseAt(q) {
     for (const ev of notesSounding(this.getSong(), q)) {
-      if (this.clipId !== null && ev.clip.id !== this.clipId) continue;
+      if (!this.audible(ev.clip)) continue;
       this.trigger(ev, q);
     }
   }
@@ -183,18 +191,19 @@ export class Transport {
     const id = newNoteId();
     const vel = noteVelAt(ev.note, at - ev.start);
     inst.noteOn(id, ev.note.pitch, vel);
-    this.active.push({ id, inst, end: ev.end, note: ev.note, start: ev.start, vel });
+    this.active.push({ id, inst, end: ev.end, note: ev.note, start: ev.start, vel, clip: ev.clip });
   }
 
   // note-offs due by `to`, then note-ons starting in [from, to)
   advance(from, to) {
+    const song = this.getSong();
     this.active = this.active.filter((n) => {
-      if (n.end > to) return true;
+      if (n.end > to && this.audible(n.clip, song)) return true;
       n.inst.noteOff(n.id);
       return false;
     });
     for (const ev of notesStarting(this.getSong(), from, to)) {
-      if (this.clipId !== null && ev.clip.id !== this.clipId) continue;
+      if (!this.audible(ev.clip, song)) continue;
       this.trigger(ev);
     }
   }

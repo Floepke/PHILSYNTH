@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { emptySong, addClip, addAutoClip, removeClip, notesSounding, setLoop, normalizeSong } from '../src/song.js';
+import { emptySong, addClip, addAutoClip, removeClip, notesSounding, setLoop, normalizeSong, setLaneMute, setLaneSolo, LANE_H } from '../src/song.js';
 import { Transport } from '../src/transport.js';
 
 const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-8, `${actual} != ${expected}`);
@@ -9,7 +9,7 @@ function setup() {
   const song = emptySong();
   const selected = addClip(song, { start: 4.25, length: 0.5, target: 1 });
   selected.notes.push(note(60, 0, 1), note(64, 0.25, 0.1), note(67, 0.5), note(69, -0.25));
-  const other = addClip(song, { start: 4.25, length: 1, target: 2 });
+  const other = addClip(song, { start: 4.25, length: 1, target: 2, y: LANE_H });
   other.notes.push(note(80));
   const first = addClip(song, { start: 0, length: 1, target: 3 });
   first.notes.push(note(48));
@@ -31,7 +31,8 @@ function setup() {
   return { song, selected, other, transport, events, tick, run, starts: () => starts, stops: () => stops };
 }
 
-// Slash playback starts at the clip's absolute start and ignores every other clip.
+// Slash playback starts at the clip's absolute start, loops its range and plays the other clips
+// sounding in that range along with it.
 {
   const { selected, transport, events, run } = setup();
   transport.seek(10);
@@ -40,11 +41,11 @@ function setup() {
   assert.equal(transport.pos, 4.25);
   run(260);
   near(transport.pos, 4.27);
-  assert.deepEqual(events.filter((e) => e.type === 'on').map((e) => e.pitch), [60, 64, 60]);
-  assert.ok(events.every((e) => e.target === 1));
+  assert.deepEqual(events.filter((e) => e.type === 'on').map((e) => e.pitch), [60, 80, 64, 60, 80]);
+  assert.ok(events.every((e) => e.target === 1 || e.target === 2));
   const firstOn = events.find((e) => e.type === 'on');
   assert.ok(events.some((e) => e.type === 'off' && e.id === firstOn.id));
-  assert.equal(transport.active.length, 1);
+  assert.equal(transport.active.length, 2);
   near(transport.active[0].end, 4.75);
   transport.stop();
   assert.equal(transport.playing, false);
@@ -54,6 +55,74 @@ function setup() {
   assert.equal(transport.pos, 3, 'stop can park the playhead');
   transport.stop();
   assert.equal(transport.pos, 3, 'plain stop keeps the position');
+}
+
+// Muted lanes are silent in song and clip playback, the auditioned clip included; muting a lane
+// while playing cuts its notes.
+{
+  const { song, selected, other, transport, events, run } = setup();
+  setLaneMute(song, 1, true);
+  transport.playClip(selected.id);
+  run(260);
+  assert.ok(events.length && events.every((e) => e.target === 1), 'the muted lane stays silent');
+  transport.stop();
+  events.length = 0;
+  setLaneMute(song, 0, true); // the auditioned clip's own lane
+  transport.playClip(selected.id);
+  run(260);
+  assert.equal(transport.playing, true, 'the range still loops');
+  assert.deepEqual(events, [], 'a muted auditioned clip is silent');
+  transport.stop();
+  events.length = 0;
+  transport.seek(0);
+  transport.play();
+  run(2400);
+  assert.ok(events.every((e) => e.target === 3), 'song playback skips muted lanes');
+  transport.stop();
+  setLaneMute(song, 0, false);
+  setLaneMute(song, 1, false);
+  events.length = 0;
+  transport.seek(other.start);
+  transport.play();
+  run(20);
+  const on = events.find((e) => e.type === 'on' && e.target === 2);
+  assert.ok(on);
+  setLaneMute(song, 1, true);
+  run(5);
+  assert.ok(events.some((e) => e.type === 'off' && e.id === on.id), 'muting cuts sounding notes');
+  assert.ok(transport.active.every((n) => n.clip !== other));
+  transport.stop();
+}
+
+// Solo: while any lane is soloed only soloed lanes play (in song and clip playback); mute wins.
+{
+  const { song, selected, transport, events, run } = setup();
+  setLaneSolo(song, 1, true); // the other clip's lane
+  transport.playClip(selected.id);
+  run(260);
+  assert.ok(events.length && events.every((e) => e.target === 2), 'only the soloed lane sounds');
+  transport.stop();
+  events.length = 0;
+  setLaneSolo(song, 0, true);
+  transport.playClip(selected.id);
+  run(260);
+  assert.deepEqual([...new Set(events.map((e) => e.target))].sort(), [1, 2], 'two soloed lanes');
+  transport.stop();
+  events.length = 0;
+  setLaneMute(song, 1, true);
+  transport.playClip(selected.id);
+  run(260);
+  assert.ok(events.length && events.every((e) => e.target === 1), 'mute wins over solo');
+  transport.stop();
+  setLaneMute(song, 1, false);
+  setLaneSolo(song, 0, false);
+  setLaneSolo(song, 1, false);
+  events.length = 0;
+  transport.playClip(selected.id);
+  run(260);
+  assert.deepEqual([...new Set(events.map((e) => e.target))].sort(), [1, 2], 'no solo: everything plays');
+  transport.stop();
+  assert.deepEqual(normalizeSong({ solos: [2, 0, 2, -3, 'x'] }).solos, [0, 2]);
 }
 
 // Restarting the selected clip releases existing notes and retriggers the first note.
@@ -119,7 +188,7 @@ function setup() {
   song.selected = other.id;
   run(5);
   assert.equal(transport.clipId, selected.id);
-  assert.ok(events.every((e) => e.target === 1));
+  assert.ok(events.every((e) => e.target === 1 || e.target === 2));
   transport.playClip(song.selected);
   run(5);
   assert.equal(transport.clipId, other.id);
@@ -159,8 +228,8 @@ function setup() {
   transport.playClip(selected.id);
   tick(249);
   assert.ok(transport.pos >= selected.start && transport.pos < selected.start + selected.length);
-  assert.ok(events.filter((e) => e.type === 'on').length <= 5);
-  assert.ok(transport.active.length <= 1);
+  assert.ok(events.filter((e) => e.type === 'on' && e.target === 1).length <= 5);
+  assert.ok(transport.active.filter((n) => n.clip === selected).length <= 1);
   tick(5000);
   assert.ok(transport.pos >= selected.start && transport.pos < selected.start + selected.length);
   transport.stop();
@@ -243,16 +312,21 @@ function setup() {
   assert.deepEqual(ons(), [60, 64]);
   transport.stop();
 
-  // clip loop mode chases only notes of that clip, at the clip start after each wrap nothing extra
-  const other = addClip(song, { start: 2, length: 4, target: 1 });
+  // clip loop mode plays the other clips in its range too; each wrap retriggers their first notes once
+  const other = addClip(song, { start: 2, length: 4, target: 1, y: 34 });
   other.notes.push(note(90, 0, 4));
   events.length = 0;
   transport.playClip(clip.id);
   run(5);
-  assert.deepEqual(ons(), [60]);
+  assert.deepEqual(ons(), [60, 90]);
   run(2000); // wraps once (4 q at 120 BPM = 2 s)
-  assert.ok(!ons().includes(90));
+  assert.equal(ons().filter((p) => p === 90).length, 2);
   assert.equal(ons().filter((p) => p === 60).length, 2, 'loop restart retriggers the first note once');
+  // chasing in clip loop mode includes the other clips
+  events.length = 0;
+  transport.seek(3);
+  run(5);
+  assert.ok(ons().includes(90), 'a note of another clip is chased');
   transport.stop();
 
   // chasing can be switched off
@@ -304,16 +378,22 @@ function setup() {
   assert.ok(calls.length && calls.at(-1).clip === a);
   transport.stop();
   assert.deepEqual(calls.at(-1), { id: a.id, clip: null, v: null });
-  // clip loop mode only applies the looped clip
+  // clip loop mode applies the automation clips in its range too, unless their lane is muted
   calls.length = 0;
   transport.playClip(notes.id);
   run(1500);
-  assert.deepEqual(calls, [], 'looping a note clip ignores automation clips');
+  assert.ok(calls.some((c) => c.id === a.id && c.clip === a), 'looping a note clip plays the automation along');
   transport.stop();
+  calls.length = 0;
+  setLaneMute(song, a.y / LANE_H, true);
+  transport.playClip(notes.id);
+  run(1500);
+  assert.ok(calls.every((c) => c.id !== a.id), 'a muted automation lane is not applied');
   transport.playClip(a.id);
   run(100);
-  assert.ok(calls.length && calls.every((c) => c.id === a.id));
+  assert.ok(calls.every((c) => c.id !== a.id), 'a muted auditioned automation clip is not applied');
   transport.stop();
+  setLaneMute(song, a.y / LANE_H, false);
   void b;
 }
 

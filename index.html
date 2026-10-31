@@ -62,10 +62,12 @@
       <h3>Insert module</h3>
       <div id="module-list" class="listbox" role="listbox" tabindex="0" aria-label="Module type" autofocus></div>
       <menu>
+        <button type="button" id="load-synth" class="menu-left" title="Insert a module saved as a .synth file (right-click hold a module: Save module…)">Load .synth…</button>
         <button value="cancel">Cancel</button>
         <button value="ok" class="primary">OK</button>
       </menu>
     </form>
+    <input id="synth-file" type="file" accept=".synth" hidden>
   </dialog>
 
   <!-- in-app dialogs: native confirm() crashes Electron on some Linux desktops -->

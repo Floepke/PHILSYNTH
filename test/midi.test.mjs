@@ -24,7 +24,7 @@ Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {
   },
 } });
 
-const { initMidi } = await import('../src/midi.js');
+const { initMidi, initKeyboard } = await import('../src/midi.js');
 const calls = [];
 const ids = new Map(); // MODMIDI note id -> pitch
 let status = '';
@@ -39,9 +39,7 @@ const target = {
 };
 const midi = initMidi({ getTarget: () => target, onStatus: (s) => (status = s), onActivity: () => activity++ });
 
-// the computer keyboard does not play notes (its keys are app shortcuts, e.g. S = Sequencer)
-for (const t of ['keydown', 'keyup']) (winListeners[t] ?? []).forEach((fn) => fn({ key: 'a', repeat: false, target: { closest: () => null } }));
-assert.deepEqual(calls.splice(0), []);
+// initMidi itself does not listen to the computer keyboard (initKeyboard does)
 assert.ok(!winListeners.keydown && !winListeners.keyup, 'no keyboard listeners');
 
 // denied -> helpful status, retry possible
@@ -110,4 +108,49 @@ assert.deepEqual(vel, []);
 const { default: vel2ctl } = await import('../src/modules/velocity2ctl.js');
 assert.equal(vel2ctl.acceptsMidi, true, 'clips and MIDI cables still play it');
 assert.equal(vel2ctl.liveMidi, false);
+// computer keyboard: Q..P white keys from C4, the number row the black keys
+{
+  let kbTarget = target;
+  let resumed = 0;
+  let missing = 0;
+  initKeyboard({ getTarget: () => kbTarget, onActivity: () => resumed++, onNoTarget: () => missing++ });
+  const fire = (type, code, o = {}) => {
+    const e = { type, code, repeat: false, ctrlKey: false, metaKey: false, altKey: false, defaultPrevented: false,
+      target: { closest: () => null }, prevented: false, ...o };
+    e.preventDefault = () => { e.prevented = true; };
+    (winListeners[type] ?? []).forEach((fn) => fn(e));
+    return e;
+  };
+  calls.splice(0);
+  const codes = ['KeyQ', 'KeyW', 'KeyE', 'KeyR', 'KeyT', 'KeyY', 'KeyU', 'KeyI', 'KeyO', 'KeyP'];
+  for (const c of codes) { assert.ok(fire('keydown', c).prevented); fire('keyup', c); }
+  const white = [60, 62, 64, 65, 67, 69, 71, 72, 74, 76];
+  assert.deepEqual(calls.splice(0), white.flatMap((p) => [['on', p, 0.8], ['off', p]]));
+  assert.ok(resumed >= 10, 'audio resumed');
+  fire('keydown', 'Digit2'); fire('keyup', 'Digit2');
+  fire('keydown', 'Digit0'); fire('keyup', 'Digit0');
+  assert.deepEqual(calls.splice(0), [['on', 61, 0.8], ['off', 61], ['on', 75, 0.8], ['off', 75]]);
+  // held key repeats do not retrigger; chords work
+  fire('keydown', 'KeyQ'); fire('keydown', 'KeyQ', { repeat: true }); fire('keydown', 'KeyE');
+  fire('keyup', 'KeyE'); fire('keyup', 'KeyQ');
+  assert.deepEqual(calls.splice(0), [['on', 60, 0.8], ['on', 64, 0.8], ['off', 64], ['off', 60]]);
+  // ignored: typing in a field, modifiers, keys already handled, other keys
+  assert.ok(!fire('keydown', 'KeyQ', { target: { closest: () => ({}) } }).prevented);
+  fire('keydown', 'KeyQ', { ctrlKey: true });
+  fire('keydown', 'KeyQ', { metaKey: true });
+  fire('keydown', 'KeyQ', { defaultPrevented: true });
+  fire('keydown', 'KeyA'); fire('keydown', 'KeyS'); fire('keydown', 'Digit1');
+  assert.deepEqual(calls.splice(0), []);
+  // the off reaches the module that got the note; window blur releases held keys
+  fire('keydown', 'KeyW');
+  kbTarget = null;
+  fire('keydown', 'KeyT');
+  assert.equal(missing, 1, 'no target: reported');
+  fire('keyup', 'KeyW');
+  kbTarget = target;
+  fire('keydown', 'KeyR');
+  (winListeners.blur ?? []).forEach((fn) => fn({}));
+  fire('keyup', 'KeyR');
+  assert.deepEqual(calls.splice(0), [['on', 62, 0.8], ['off', 62], ['on', 65, 0.8], ['off', 65]]);
+}
 console.log('all midi tests passed');

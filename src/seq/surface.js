@@ -58,6 +58,27 @@ export function capture(cv, e, onMove, onUp) {
 // tick calls scroll(dx, dy) (px, faster the deeper the pointer is) and then onScroll() so the drag
 // is re-applied at the new view. stop() when the drag ends. area() -> { left, top, right, bottom };
 // vertical: false keeps dy at 0.
+// A big solid black M centred in the visible area (x, y, w, h): the clip shown
+// sits on a muted TimeLine lane, so it is silent. Drawn as one path, not a font glyph (glyphs
+// built from overlapping strokes can show inner seams).
+export const MUTE_COLOR = '#d9a521';
+// unit M outline (x 0..1, y 0..1 down): stems 0.2 wide, diagonals meeting in the middle
+const M_SHAPE = [[0, 1], [0, 0], [0.22, 0], [0.5, 0.5], [0.78, 0], [1, 0], [1, 1], [0.8, 1], [0.8, 0.284], [0.5, 0.82], [0.2, 0.284], [0.2, 1]];
+export function mutedMark(g, x, y, w, h) {
+  const mh = Math.min(h * 0.55, w * 0.6);
+  if (!(mh > 8)) return;
+  const mw = mh * 1.05;
+  const left = x + (w - mw) / 2;
+  const top = y + (h - mh) / 2;
+  g.save();
+  g.beginPath();
+  M_SHAPE.forEach(([px, py], i) => (i ? g.lineTo : g.moveTo).call(g, left + px * mw, top + py * mh));
+  g.closePath();
+  g.fillStyle = '#000';
+  g.fill();
+  g.restore();
+}
+
 export const EDGE_SCROLL_PX = 32;
 export const EDGE_SCROLL_MS = 16;
 const EDGE_SCROLL_MAX = 40; // px per tick

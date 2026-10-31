@@ -1,6 +1,6 @@
 import { Engine } from './engine.js';
 import { modules, getModule } from './modules/index.js';
-import { initMidi } from './midi.js';
+import { initMidi, initKeyboard } from './midi.js';
 import { createPersistence, connectLiveReload } from './persist.js';
 import { paramsOf, toNorm, wheelNotches } from './params.js';
 import { initCpuMeter } from './cpumeter.js';
@@ -20,6 +20,7 @@ import { showMenu, shortcut } from './seq/menu.js';
 import { rightHold } from './seq/surface.js';
 import { createHistory } from './history.js';
 import { renderSong, encodeWav } from './render.js';
+import { withSamples, importSamples } from './samples.js';
 
 const engine = new Engine();
 let transport = null; // song playback (created after the engine)
@@ -53,7 +54,8 @@ const midiTarget = () => {
 function setMidiTarget(entry) {
   const prev = midiTarget();
   if (prev === entry) return;
-  prev?.inst.allOff?.();
+  // no allOff on the old module: song notes and held keys play on (their note-offs still reach
+  // the module that got the note-on, see midi.js)
   midiHistory = midiHistory.filter((e) => e !== entry && !e.dead);
   midiHistory.push(entry);
   persist.schedule();
@@ -138,7 +140,7 @@ canvas.addEventListener('auxclick', (e) => { if (e.button === 1) e.preventDefaul
 
 // ---- persistence ----
 const persist = createPersistence({
-  getState: () => ({ ...engine.saveProject(), view: viewState() }),
+  getState: () => withSamples({ ...engine.saveProject(), view: viewState() }),
   onSaved: ({ local, disk, at }) => {
     const t = new Date(at).toLocaleTimeString();
     $('saved').textContent = disk ? `Saved to disk ${t}` : local ? `Saved in browser ${t}` : 'Not saved!';
@@ -281,6 +283,15 @@ canvas.addEventListener('dblclick', (e) => {
   dialog.showModal();
   moduleList.focus();
 });
+
+$('load-synth').onclick = () => $('synth-file').click();
+$('synth-file').onchange = (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  dialog.close('cancel');
+  insertSynthFile(file);
+};
 
 dialog.addEventListener('close', async () => {
   if (dialog.returnValue !== 'ok') return;
@@ -509,7 +520,7 @@ const boxOf = (entry) => ({ x: entry.x, y: entry.y, w: entry.el.offsetWidth, h: 
 function drawCables() {
   svg.replaceChildren();
   const patch = current();
-  const live = []; // audio and modulation cables that show their signal
+  const live = []; // audio cables that show their signal
   for (const cable of patch.cables) {
     const a = patch.modules.get(cable.from);
     const b = patch.modules.get(cable.to);
@@ -537,7 +548,8 @@ function drawCables() {
       select({ kind: 'cable', cable });
     });
     svg.append(g);
-    const h = signals.audio || a.def.modulator ? a.inst?.node?.h : undefined;
+    // control cables (Out Controller modules) stay a plain dashed line, no value wave
+    const h = signals.audio && !a.def.modulator ? a.inst?.node?.h : undefined;
     if (h !== undefined) live.push({ g, h, from, to });
   }
   scope?.setCables(live);
@@ -694,6 +706,64 @@ async function paste(at) {
   }
 }
 
+// ---- .synth files: modules saved to disk, inserted again from the insert dialog ----
+// JSON text: { format: 'modsynth-module', version, modules, cables } (PatchRuntime.copyMany data:
+// settings, name, nested patches and the cables between the saved modules).
+const SYNTH_FORMAT = 'modsynth-module';
+const fileSafe = (s) => s.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'module';
+async function saveModules() {
+  const mods = selectedEntries().filter((m) => !m.def.isOutput);
+  const data = current().copyMany(mods.map((m) => m.id));
+  if (!data) { $('status').textContent = 'Select a module to save (the Output module cannot be saved).'; return; }
+  const suggestedName = `${fileSafe(mods.length === 1 ? mods[0].name || mods[0].def.type : 'modules')}.synth`;
+  const blob = new Blob([JSON.stringify(withSamples({ format: SYNTH_FORMAT, version: 1, ...data }), null, 2)], { type: 'application/octet-stream' });
+  let name = suggestedName;
+  let saved = false;
+  if (typeof window.showSaveFilePicker === 'function') {
+    try {
+      const handle = await window.showSaveFilePicker({ suggestedName, types: [{ description: 'ModSynth module', accept: { 'application/octet-stream': ['.synth'] } }] });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      name = handle.name;
+      saved = true;
+    } catch (err) {
+      if (err?.name === 'AbortError') return; // dialog cancelled
+      console.warn('Saving through the file dialog failed, downloading instead:', err);
+    }
+  }
+  if (!saved) {
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: suggestedName });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  }
+  $('status').textContent = `Saved ${data.modules.length} module(s) to ${name}.`;
+}
+function parseSynthFile(text) {
+  const data = JSON.parse(text);
+  if (data?.format !== SYNTH_FORMAT || !Array.isArray(data.modules)) throw new Error('not a ModSynth .synth module file');
+  const known = data.modules.filter((m) => getModule(m.type) && !getModule(m.type).isOutput);
+  if (!known.length) throw new Error('no module types this version knows');
+  return data;
+}
+async function insertSynthFile(file) {
+  const patch = current();
+  try {
+    const data = parseSynthFile(await file.text());
+    importSamples(data.samples);
+    const options = { x: dropPos.x, y: dropPos.y };
+    const added = undoHistory
+      ? await undoHistory.group(() => patch.pasteMany(data, options))
+      : await patch.pasteMany(data, options);
+    if (patch !== current()) return;
+    render();
+    selectEntries(added);
+    $('status').textContent = `Loaded ${file.name}: ${added.length} module(s).`;
+  } catch (err) {
+    $('status').textContent = `Loading ${file.name} failed: ${err.message}`;
+  }
+}
+
 // Right-click menu (hold the right button 250 ms, or the keyboard menu key): on a module (it joins /
 // becomes the selection), a cable, or empty canvas.
 function openPatcherMenu(target, x, y) {
@@ -713,7 +783,8 @@ function openPatcherMenu(target, x, y) {
     { label: 'Delete', shortcut: '⌫', disabled: !(onModule ? copyable : sel?.kind === 'cable'), action: deleteSelection },
   ];
   if (onModule && entry.inst.patch) items.push('-', { label: 'Open patch', shortcut: '↵', disabled: mods.length > 1, action: () => openPatch(entry) });
-  if (onModule) items.push('-', { label: 'Rename…', shortcut: 'F2', disabled: mods.length > 1, action: () => startRename(entry) });
+  if (onModule) items.push('-', { label: mods.length > 1 ? 'Save modules…' : 'Save module…', disabled: !copyable, action: saveModules });
+  if (onModule) items.push({ label: 'Rename…', shortcut: 'F2', disabled: mods.length > 1, action: () => startRename(entry) });
   if (onModule && entry.name) items.push({ label: 'Reset name', action: () => { current().rename(entry.id, ''); showName(entry); drawCables(); } });
   showMenu({ x, y, items });
 }
@@ -872,7 +943,7 @@ function select(s) {
   if (!s) {
     panel.append(
       panelHeader('No selection', ''),
-      hint('<kbd>Double-click</kbd> the canvas to insert a module.'),
+      hint('<kbd>Double-click</kbd> the canvas to insert a module. <b>Save module…</b> in a module\'s right-click menu saves it (or the whole selection, with the cables between them and Patch contents) as a <b>.synth</b> file; <b>Load .synth…</b> in the insert dialog puts it back at the double-clicked spot.'),
       hint('<kbd>Shift</kbd> + drag from a module and move over other modules: each one you touch gets connected (or disconnected when already connected), so one module can feed many in one sweep.'),
       hint('Drag on empty canvas to select several modules. <kbd>Ctrl</kbd> + click toggles a module, <kbd>Ctrl</kbd> + drag adds, <kbd>Ctrl</kbd> + <kbd>A</kbd> selects all.'),
       hint('<kbd>Alt</kbd> + drag a module to duplicate it (or the whole selection).'),
@@ -883,7 +954,7 @@ function select(s) {
       hint('Select a Patch and click <b>Controllers…</b> to map controllers of any module inside to controllers of the Patch module, so they can be set, modulated (LFO) and automated from outside.'),
       hint('OSC / ADSR: with <b>Sustain</b> at 0, <b>Decay</b> and <b>Release</b> are linked: moving one moves the other.'),
       hint('<kbd>Middle mouse</kbd> + drag pans the canvas, <kbd>scroll</kbd> zooms. Click the zoom % (bottom right) to fit all modules.'),
-      hint('Play with a MIDI controller or keys <kbd>A</kbd>–<kbd>;</kbd>.'),
+      hint('Play the MIDI module marked red in the patcher (the last selected one, e.g. OSC) with a MIDI controller, the piano roll keyboard or the computer keyboard: <kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>T</kbd> <kbd>Y</kbd> <kbd>U</kbd> <kbd>I</kbd> <kbd>O</kbd> <kbd>P</kbd> are the white keys C4–E5, the number row above them (<kbd>2</kbd> <kbd>3</kbd> <kbd>5</kbd> <kbd>6</kbd> <kbd>7</kbd> <kbd>9</kbd> <kbd>0</kbd>) the black keys. In a focused piano roll <kbd>Q</kbd> quantizes instead.'),
       hint('<b>Sequencer</b> (piano roll above the patcher, TimeLine below; <kbd>S</kbd> maximizes the patcher, <kbd>S</kbd> again restores both panes): <kbd>Double-click</kbd> the TimeLine to add a clip, drag its edges to resize, <kbd>Alt</kbd> + drag to copy. In the piano roll click / drag to write notes (new notes get the last used length), drag a note body for its length (the end jumps to the pointer, snapped to the grid), its circle for pitch and time. A short right-click deletes the note under the pointer; hold the right button for <b>250 ms</b> to open the menu instead (cut / copy / paste / delete / duplicate / quantize / octave). Releasing after the menu opens never deletes a note. <kbd>Space</kbd> plays. <kbd>Double-click</kbd> the TimeLine ruler to insert a time signature change (right-click it to remove). Selecting a clip while stopped moves the playhead to its start (during playback it keeps playing).'),
       hint('<b>Piano roll selection:</b> <kbd>Shift</kbd> + drag or <kbd>right</kbd> + drag draws a selection rectangle; clicking a note selects it, <kbd>Shift</kbd> + click toggles it. Dragging a selected note moves / resizes the whole selection. <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> duplicates the selection, <kbd>Q</kbd> quantizes note starts (selection, else all). <kbd>Ctrl/Cmd</kbd> + <kbd>A</kbd> selects all notes, <kbd>Esc</kbd> clears the selection, and <kbd>Backspace</kbd> / <kbd>Delete</kbd> deletes it. <kbd>Alt</kbd> + drag a note (body or circle) moves a clone.'),
       hint('<b>Arrow keys:</b> in the piano roll, <kbd>Left</kbd> / <kbd>Right</kbd> transpose selected notes by one semitone; <kbd>Up</kbd> / <kbd>Down</kbd> move them earlier/later by one snap step. With <kbd>Shift</kbd>: an octave / a bar. The selection moves together and stops at time zero or the MIDI pitch limits.'),
@@ -893,14 +964,14 @@ function select(s) {
       hint('<b>TimeLine selection &amp; clones:</b> drag on empty TimeLine space for a selection rectangle (<kbd>Ctrl/Cmd</kbd> adds), <kbd>Ctrl/Cmd</kbd> + click toggles a clip. Dragging moves the whole selection; <kbd>Alt</kbd> + drag copies it, <kbd>Shift</kbd> + drag makes <i>linked clones</i> that share their notes with the source (marked ⧉): editing one edits all. Clones are drawn with diagonal stripes and a dashed outline; a selected clone shows a dashed arrow to its source. Hold right-click on a clip for cut / copy / paste / delete / duplicate / clone / detach (turns a clone into a standalone clip) / go to source / <i>Consolidate</i> (two or more selected clips on one lane become one clip spanning them; module and name come from the first clip) / <i>Split at playhead</i> (cuts the selected clips under the playhead in two). <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> clones, <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd> duplicates.'),
       hint('<b>Undo / redo:</b> <kbd>Ctrl/Cmd</kbd> + <kbd>Z</kbd> undoes edits in the patcher and sequencer, <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> (or <kbd>Ctrl</kbd> + <kbd>Y</kbd>) redoes.'),
       hint('<b>Loop region:</b> click the TimeLine ruler (the signature row too, where dragging scrubs) to set the play position, drag along it to select a loop region (snapped to the grid, shown in blue). Song playback then loops inside the region and starts at its beginning. Right-click the region in the ruler to remove it; playback goes back to looping the whole song.'),
-      hint('<b>TimeLine lanes:</b> clips sit on numbered lanes (the numbers left of the clips), one clip high; dragging up / down snaps to them. Scroll left past the bright zero line to park clips before the song start: they are not played (<kbd>/</kbd> still auditions them), which suits source clips whose clones make up the song. The mouse wheel scrolls sideways over time, <kbd>Shift</kbd> + wheel scrolls the lanes, middle-drag pans and <kbd>Ctrl/Cmd</kbd> + wheel zooms. Dragging a clip close to an edge auto-scrolls the TimeLine, so a clip can be moved anywhere in one drag.'),
+      hint('<b>TimeLine lanes:</b> clips sit on numbered lanes (the numbers left of the clips), one clip high; dragging up / down snaps to them. Scroll left past the bright zero line to park clips before the song start: they are not played (<kbd>/</kbd> still auditions them), which suits source clips whose clones make up the song. The mouse wheel scrolls sideways over time, <kbd>Shift</kbd> + wheel scrolls the lanes, middle-drag pans and <kbd>Ctrl/Cmd</kbd> + wheel zooms. Dragging a clip close to an edge auto-scrolls the TimeLine, so a clip can be moved anywhere in one drag. The <b>M</b> button left of a lane number mutes that lane, the <b>S</b> button solos it (lit when on): while any lane is soloed only the soloed lanes play, and mute wins over solo. Drag over a column of M or S buttons to switch many lanes in one go. A silenced clip is silent everywhere, also with <kbd>/</kbd>, and its piano roll / automation editor shows a big M.'),
       hint('<b>TimeLine placement:</b> moving, cloning, pasting or creating a clip snaps it to the nearest non-overlapping position. Clip edges take priority over the time grid; resizing stops at neighbouring clips. Use separate vertical rows for clips that play at the same time.'),
-      hint('<b>Playback:</b> <kbd>/</kbd> starts and loops only the selected clip from its start. <kbd>\'</kbd> stops playback; pressing <kbd>\'</kbd> again is a panic (all notes off, echo / reverb tails cut, all audio state reset). <kbd>.</kbd> plays/resumes the full song, and <kbd>,</kbd> restarts the song at zero. <kbd>Space</kbd> toggles play/stop; stopping with <kbd>Space</kbd> (or the ■ button) moves the playhead to the start of the selected clip, so the next <kbd>Space</kbd> plays from there. Shortcuts are inactive while typing in a field. Note chasing: starting or jumping into the middle of a note plays it for the rest of its length.'),
+      hint('<b>Playback:</b> <kbd>/</kbd> loops the time range of the selected clip from its start, with every other clip playing in that range (muted lanes stay silent, the selected clip too when its lane is muted). <kbd>\'</kbd> stops playback; pressing <kbd>\'</kbd> again is a panic (all notes off, echo / reverb tails cut, all audio state reset). <kbd>.</kbd> plays/resumes the full song, and <kbd>,</kbd> restarts the song at zero. <kbd>Space</kbd> toggles play/stop; stopping with <kbd>Space</kbd> (or the ■ button) moves the playhead to the start of the selected clip, so the next <kbd>Space</kbd> plays from there. Shortcuts are inactive while typing in a field. Note chasing: starting or jumping into the middle of a note plays it for the rest of its length.'),
       hint('<b>Controls:</b> scroll a dropdown to change its selection. Number fields have permanent up/down buttons and also support scrolling; <kbd>Double-click</kbd> a number (or use <kbd>Tab</kbd>) to type. Mouse adjustments leave keyboard focus in the editor so <kbd>Space</kbd> still plays.'),
       hint('<b>Toolbar:</b> controls stay on one row. When space is tight, move the pointer toward the left or right edge to reveal hidden controls; the closer to the edge, the faster it moves. Move to the middle to stop. Clicking, typing or using the wheel pauses motion; the wheel still changes control values. <kbd>Tab</kbd> also reveals focused controls.'),
       hint('<b>EXPORT WAV:</b> choose where to save, then the song renders offline (much faster than real time) from its start to the end of the last clip, or just the loop region when one is set, plus the sound tail (releases, echoes, reverb; at most 10 s). The file is 24-bit stereo at the audio device\'s sample rate. The status bar warns when the mix clips.'),
       hint('<b>Layout:</b> piano roll, patcher and TimeLine are stacked top to bottom. Drag either horizontal divider up/down; when the patcher closes, the dragged divider pushes the other one. Drag to an edge to hide a pane and back to reopen it; at the top the dividers stop under the play/stop toolbar, where the piano keyboard is just hidden. Positions are saved with the project. The piano keyboard stays at the bottom of the roll; selected notes are filled blue.'),
-      hint('The piano roll fits all <b>128 MIDI notes (0–127)</b> across its width and rescales with the window width. Horizontal zoom is automatic; <kbd>Alt</kbd> + scroll no longer changes key width. Scroll upward to reveal a small margin above beat zero. <kbd>Ctrl/Cmd</kbd> + scroll still zooms time.'),
+      hint('The piano roll fits all <b>128 MIDI notes (0–127)</b> across its width and rescales with the window width. Horizontal zoom is automatic; <kbd>Alt</kbd> + scroll no longer changes key width. Each mouse-wheel step scrolls exactly one snap step (the selected snap); scroll upward to reveal a small margin above beat zero. <kbd>Ctrl/Cmd</kbd> + scroll still zooms time.'),
       hint('Drag the left controller-panel divider to resize the panel, or fully left to hide it. Its handle stays available to reopen it, and the width is saved with the project.'),
       hint('All three dividers resize the controller panel when dragged left/right. Dragging the controller-panel divider up/down also moves the upper horizontal divider. Each horizontal divider supports <kbd>Up</kbd>/<kbd>Down</kbd> (hold <kbd>Shift</kbd> for larger steps) and <kbd>Home</kbd>/<kbd>End</kbd> to reach the edges. Every divider shows a small four-dot grip.'),
       hint('<b>Piano roll colors:</b> charcoal paper keeps the stave dark rather than inverted. Notes use a lighter version of their module color; black-key bodies are slightly darker, including in blue selections, so dense chromatic chords retain the keyboard pattern.'),
@@ -943,6 +1014,12 @@ function select(s) {
   }
   if (entry.def.type === 'OSC') {
     explanations.append(hint('<b>Half sine:</b> one positive sine bow followed by zero. <b>Duty Cycle</b> sets the bow length: 100% fills the period, 25% fills its first quarter, and 0% is silent. <b>Noise</b> (white, pink, brown, blue, violet: dark to bright) ignores the note pitch; every note gets its own noise, shaped by the envelope and velocity.'));
+  }
+  if (entry.def.type === 'SAMPLER') {
+    explanations.append(hint('<b>Load Sample</b> (or drop an audio file on the picture): WAV, AIFF, FLAC, MP3, OGG… up to 60 s, mono or stereo. The sample is spread over all notes: C4 (MIDI 60) plays it at its own pitch, every semitone up plays it faster. Use <b>Transpose</b> / <b>Finetune</b> to put the sample\'s pitch on C4. Each note plays the sample once from its start, shaped by the ADSR. <b>Interpolation</b>: Off = nearest sample (gritty), Linear, Spline = smooth cubic (best). The audio is saved inside the project and .synth files.'));
+  }
+  if (entry.def.type === 'WAVETABLE') {
+    explanations.append(hint('A wavetable is a row of single-cycle waveforms (frames). <b>Wave Select</b> scans through them and crossfades between neighbouring frames: route an LFO or ADSR to it for movement. <b>Block Size</b> is the number of samples per frame; <i>Auto</i> reads it from the file (Serum / Vital WAVs: 2048, Surge .wt / WAV, WaveEdit: 256) or guesses it. Set it by hand for raw WAV tables. <b>Load Wavetable</b> (or drop a .wav / .wt on the picture) replaces the built-in table (sine → triangle → saw → square). High notes play band-limited copies of each frame, so they do not alias.'));
   }
   if (entry.def.type === 'DELAY') {
     explanations.append(hint('<b>Left Delay</b> delays left audio and each incoming MODMIDI message; <b>Right Delay</b> delays right audio only. No dry signal or feedback. Cables carry audio, MIDI, or both, according to the destination. Notes keep their pitch, velocity and start phase. Changing the delay affects new messages, not ones already queued; a release that overtakes its pending note cancels that note. MIDI delivery runs on the audio-clock reports (about every 5 ms).'));
@@ -1063,7 +1140,7 @@ engine.onModulate = (entry, id, v) => {
 // ---- save / load ----
 // Project files are .mds (ModSynth project: JSON text inside). Older .json projects still load.
 $('save').onclick = () => {
-  const blob = new Blob([JSON.stringify({ ...engine.saveProject(), view: viewState() }, null, 2)], { type: 'application/octet-stream' });
+  const blob = new Blob([JSON.stringify(withSamples({ ...engine.saveProject(), view: viewState() }), null, 2)], { type: 'application/octet-stream' });
   const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'project.mds' });
   a.click();
   URL.revokeObjectURL(a.href);
@@ -1172,10 +1249,13 @@ transport = new Transport({
   // automation clips drive a controller of a main-patch module (like an LFO, never saved)
   setAuto: (id, clip, value) => engine.root.automate(id, clip?.target ?? null, clip?.controller ?? 0, value),
 });
+// live notes (computer keyboard, on-screen piano keys) go to the red MIDI module
+const liveMidiEntry = () => midiTarget() ?? [...engine.root.modules.values()].find((e) => takesLiveMidi(e.def)) ?? null;
 seq = createSequencer({
   engine,
   transport,
   getTarget: songTarget,
+  liveTarget: () => liveMidiEntry()?.inst ?? null,
   // new clips play the current MIDI module when it is in the main patch, else the first one there
   defaultTarget() {
     const t = midiTarget();
@@ -1259,3 +1339,9 @@ const midi = initMidi({
 });
 $('midi').onclick = () => midi.enable();
 midi.enable();
+// Q..P (and the number row) play the current MIDI module, else the first one in the main patch
+initKeyboard({
+  getTarget: liveMidiEntry,
+  onActivity: () => engine.resume(),
+  onNoTarget: () => ($('status').textContent = 'No module to play: add a module that takes MIDI (e.g. OSC) to hear the Q..P keys.'),
+});

@@ -5,7 +5,7 @@
 // piano range there are no lines, notes just float.
 // The keyboard sits below the stave. Noteheads are left-tilted ovals, white/black by key.
 // All 128 MIDI pitches fit the available width; only time can be scrolled / zoomed.
-//   click / drag the keyboard  audition pitches on the clip's target without editing notes
+//   click / drag the keyboard  play pitches on the live MIDI module (red MIDI in the patcher) without editing notes
 //   click / drag on empty space  insert a note (last used length), dragging sets its duration
 //   drag a note's coloured body  set the duration: the end jumps to the pointer, snapped to the grid
 //                                (all selected notes change by the same amount when it is selected)
@@ -24,8 +24,8 @@
 //   Q                           quantize note starts to the grid (selection, else all notes)
 // The velocity strip on the left edits the velocity (curves) of the selected notes, see velocity.js.
 // Everything snaps to the snap grid (base note ÷ divider).
-import { isBlack, inPiano, snapStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, clean, meter, barLines, beatLines, barLength } from '../song.js';
-import { createSurface, capture, startPan, onWheel, clamp, snapBands, RIGHT_HOLD_MS, RIGHT_HOLD_SLOP } from './surface.js';
+import { isBlack, inPiano, clipSilent, snapStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, clean, meter, barLines, beatLines, barLength } from '../song.js';
+import { createSurface, capture, startPan, onWheel, clamp, snapBands, mutedMark, RIGHT_HOLD_MS, RIGHT_HOLD_SLOP } from './surface.js';
 import { createVelocityStrip, VEL_W } from './velocity.js';
 import { showMenu, shortcut } from './menu.js';
 
@@ -47,7 +47,7 @@ const BEAT = '#5d606a';
 const BAR_LINE = '#797d88';
 const BOUNDARY = '#a1a7b3';
 
-// ctx: { song(), clip(), color(clip), preview: { on(clip, pitch) -> handle, off(handle) }, changed(), transport,
+// ctx: { song(), clip(), color(clip), preview: { on(clip, pitch) -> handle, key(pitch) -> handle, off(handle) }, changed(), transport,
 //        menu?(opts) (context menu, default showMenu) }
 export function createPianoRoll(host, ctx) {
   const view = { sy: -TOP_MARGIN, ppq: 48, snapVelocity: true };
@@ -73,6 +73,8 @@ export function createPianoRoll(host, ctx) {
   const gridBottom = () => Math.max(0, s.h - KEYBOARD);
   const inGrid = (x, y) => x >= LEFT && x < s.w && y >= 0 && y < gridBottom();
   const inKeyboard = (x, y) => x >= LEFT && x < s.w && y >= gridBottom() && y < s.h;
+  // the keys play the live MIDI module (preview.key) even without a clip; else the clip's target
+  const keysPlay = () => !!(ctx.preview.key || ctx.clip());
   const headSize = () => {
     const rx = (keyWidth() - overlap()) / (2 * Math.hypot(Math.cos(TILT), 0.72 * Math.sin(TILT)));
     const ry = rx * 0.72;
@@ -246,6 +248,7 @@ export function createPianoRoll(host, ctx) {
         head(g, xOf(n.pitch) + kw / 2, y, isBlack(n.pitch), n.start >= 0 && n.start < clip.length ? 1 : 0.4);
       }
       if (hover && !drag) head(g, xOf(hover.pitch) + kw / 2, yOf(hover.t), isBlack(hover.pitch), 0.55);
+      if (clipSilent(ctx.song(), clip)) mutedMark(g, LEFT, 0, w - LEFT, bottom);
       // play position
       const { playing, pos, clipId } = ctx.transport;
       const t = pos - clip.start;
@@ -375,7 +378,7 @@ export function createPianoRoll(host, ctx) {
     const h = inside ? hit(x, y) : null;
     hoverPitch = x >= LEFT ? pitchAt(x) : null;
     hover = inside && !h ? { pitch: pitchAt(x), t: Math.max(0, snapFloor(timeAt(y), step())) } : null;
-    const keyboard = ctx.clip() && inKeyboard(x, y);
+    const keyboard = keysPlay() && inKeyboard(x, y);
     cv.style.cursor = keyboard ? 'pointer' : h?.part === 'head' ? 'move' : h ? 'ns-resize' : inside ? 'crosshair' : 'default';
     cv.title = keyboard ? `${noteName(pitchAt(x))} - click to audition` : h ? `${noteName(h.note.pitch)}  start ${+h.note.start.toFixed(4)}  length ${+h.note.length.toFixed(4)} (quarters)` : '';
     const v = ctx.clip() ? vel.hover(x, y) : null;
@@ -463,7 +466,7 @@ export function createPianoRoll(host, ctx) {
     }
     const clip = ctx.clip();
     const { x, y } = s.local(e);
-    if (clip && e.button === 0 && inKeyboard(x, y)) {
+    if (keysPlay() && e.button === 0 && inKeyboard(x, y)) {
       e.preventDefault();
       drag = { kind: 'keyboard', pitch: null, stop: null };
       let pv = null;
@@ -473,7 +476,7 @@ export function createPianoRoll(host, ctx) {
         const pitch = inKeyboard(p.x, p.y) ? pitchAt(p.x) : null;
         if (pitch === drag.pitch) return;
         ctx.preview.off(pv);
-        pv = pitch === null ? null : ctx.preview.on(clip, pitch);
+        pv = pitch === null ? null : ctx.preview.key ? ctx.preview.key(pitch) : ctx.preview.on(clip, pitch);
         drag.pitch = hoverPitch = pitch;
         s.redraw();
       };
@@ -745,9 +748,10 @@ export function createPianoRoll(host, ctx) {
       view.sy = t * view.ppq - y;
       s.redraw();
     },
-    scroll(_dx, dy, e) {
+    scroll(_dx, dy, e) { // one snap step per wheel event, whatever the wheel / trackpad distance
       pointer = s.local(e);
-      view.sy += dy;
+      if (!dy) return;
+      view.sy += Math.sign(dy) * step() * view.ppq;
       s.redraw();
     },
   });

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { setMaxListeners } from 'node:events';
-import { emptySong, addClip, addAutoClip, isAuto, cloneClip } from '../src/song.js';
+import { emptySong, addClip, addAutoClip, isAuto, cloneClip, normalizeSong, setLaneMute, snapStep } from '../src/song.js';
 import { createAutomationLane } from '../src/seq/automation.js';
 import { createPianoRoll } from '../src/seq/pianoroll.js';
 import { createArranger } from '../src/seq/arranger.js';
@@ -25,7 +25,7 @@ class Canvas extends EventTarget {
   context = Object.fromEntries([
     'setTransform', 'fillRect', 'strokeRect', 'beginPath', 'arc', 'fill', 'stroke',
     'save', 'rect', 'clip', 'setLineDash', 'moveTo', 'lineTo', 'restore',
-    'fillText', 'arcTo', 'closePath', 'ellipse', 'roundRect', 'quadraticCurveTo', 'translate', 'scale',
+    'fillText', 'strokeText', 'arcTo', 'closePath', 'ellipse', 'roundRect', 'quadraticCurveTo', 'translate', 'scale',
   ].map((name) => [name, (...args) => this.drawing.push([name, ...args])]));
   constructor() {
     super();
@@ -166,6 +166,32 @@ for (const ending of ['pointerup', 'pointercancel', 'lostpointercapture', 'blur'
   assert.deepEqual(clip.notes, [note(65, 1)]);
   key(cv, 'Backspace');
   assert.equal(clip.notes.length, 0, 'selection survived audition');
+}
+// The on-screen keyboard plays the live MIDI module (preview.key), not the clip's target.
+{
+  const { roll, ctx } = setup();
+  const cv = roll.surface.cv;
+  const calls = [];
+  ctx.preview.on = () => { calls.push('clip target'); return {}; };
+  ctx.preview.key = (pitch) => { calls.push(['key', pitch]); return pitch; };
+  ctx.preview.off = (h) => { if (h !== null) calls.push(['off', h]); };
+  point(cv, 'pointerdown', nx(60), 390, { buttons: 1 });
+  point(cv, 'pointermove', nx(62), 390, { buttons: 1 });
+  point(cv, 'pointerup', nx(62), 390);
+  assert.deepEqual(calls, [['key', 60], ['off', 60], ['key', 62], ['off', 62]]);
+}
+// ...also with no clip selected (or an automation clip): the keys still play the live module.
+{
+  const { song, roll, ctx } = setup();
+  const cv = roll.surface.cv;
+  song.selected = null;
+  roll.redraw(); flush();
+  const calls = [];
+  ctx.preview.key = (pitch) => { calls.push(['key', pitch]); return pitch; };
+  ctx.preview.off = (h) => { if (h !== null) calls.push(['off', h]); };
+  point(cv, 'pointerdown', nx(64), 390, { buttons: 1 });
+  point(cv, 'pointerup', nx(64), 390);
+  assert.deepEqual(calls, [['key', 64], ['off', 64]]);
 }
 {
   const { clip, roll, previews, changes } = setup();
@@ -669,6 +695,167 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(arranger.getView().sy, 30, 'Shift + wheel scrolls the lanes');
   drag(cv, 200, 100, 180, 100, { button: 1 }); flush();
   assert.equal(arranger.getView().sx, 40, 'middle-drag still pans');
+}
+
+// The mouse wheel scrolls the piano roll by exactly one snap step per wheel event.
+{
+  const { song, roll } = setup();
+  const cv = roll.surface.cv;
+  const wheel = (deltaY, deltaMode = 0) => { fire(cv, 'wheel', { clientX: 200, clientY: 100, deltaX: 0, deltaY, deltaMode }); flush(); };
+  const st = snapStep(song.snap);
+  wheel(3);
+  assert.equal(roll.getView().sy, st * 48, 'a tiny wheel delta still moves one snap step');
+  wheel(400);
+  assert.equal(roll.getView().sy, 2 * st * 48, 'a large delta moves one snap step too');
+  wheel(-1, 1);
+  assert.equal(roll.getView().sy, st * 48, 'wheeling up moves one step back');
+  song.snap = { base: 4, div: 3 };
+  wheel(10);
+  assert.equal(roll.getView().sy, st * 48 + snapStep(song.snap) * 48, 'follows the selected snap');
+}
+
+// Lane mute buttons (M) left of the lane numbers: a click toggles one lane, dragging over more
+// buttons gives them the same state in one gesture; muted lanes are saved with the song.
+{
+  const { song, arranger, changes } = setup();
+  const cv = arranger.surface.cv;
+  arranger.setView({ sx: 0, sy: 0 }); flush();
+  const my = (lane) => ay(lane * 34);
+  click(cv, 15, my(1));
+  assert.deepEqual(song.mutes, [1]);
+  assert.equal(changes(), 1);
+  click(cv, 15, my(1));
+  assert.deepEqual(song.mutes, [], 'a second click unmutes');
+  point(cv, 'pointerdown', 15, my(0), { buttons: 1 });
+  point(cv, 'pointermove', 15, my(4), { buttons: 1 }); // a fast move fills the lanes in between
+  point(cv, 'pointerup', 15, my(4));
+  assert.deepEqual(song.mutes, [0, 1, 2, 3, 4]);
+  assert.equal(changes(), 3, 'one change per gesture');
+  point(cv, 'pointerdown', 15, my(2), { buttons: 1 }); // starting on a muted lane unmutes
+  point(cv, 'pointermove', 15, my(3), { buttons: 1 });
+  point(cv, 'pointermove', 15, my(6), { buttons: 1 });
+  point(cv, 'pointerup', 15, my(6));
+  assert.deepEqual(song.mutes, [0, 1]);
+  cv.drawing.length = 0;
+  arranger.redraw(); flush();
+  assert.ok(cv.drawing.some((op) => op[0] === 'fillText' && op[1] === 'M'), 'the buttons show an M');
+  assert.ok(cv.drawing.some((op) => op[0] === 'fill' && op[1] === '#d9a521'), 'a muted lane has a lit button');
+  assert.deepEqual(normalizeSong(JSON.parse(JSON.stringify(song))).mutes, [0, 1]);
+  assert.deepEqual(normalizeSong({ mutes: [3, -1, 1.5, 'x', 3, 0] }).mutes, [0, 3]);
+}
+
+// S buttons next to the M buttons solo lanes (toggle, drag over the column for many); silenced
+// clips are dimmed and their editor shows the big M.
+{
+  const { song, clip, roll, arranger, changes } = setup();
+  const cv = arranger.surface.cv;
+  arranger.setView({ sx: 0, sy: 0 }); flush();
+  const sy = (lane) => ay(lane * 34);
+  click(cv, 33, sy(2));
+  assert.deepEqual(song.solos, [2]);
+  assert.deepEqual(song.mutes, [], 'the S column does not touch mutes');
+  click(cv, 33, sy(2));
+  assert.deepEqual(song.solos, []);
+  point(cv, 'pointerdown', 33, sy(1), { buttons: 1 });
+  point(cv, 'pointermove', 33, sy(3), { buttons: 1 });
+  point(cv, 'pointerup', 33, sy(3));
+  assert.deepEqual(song.solos, [1, 2, 3]);
+  assert.equal(changes(), 3);
+  cv.drawing.length = 0;
+  arranger.redraw(); flush();
+  assert.ok(cv.drawing.some((op) => op[0] === 'fillText' && op[1] === 'S'), 'the buttons show an S');
+  assert.ok(cv.drawing.some((op) => op[0] === 'fill' && op[1] === '#3fa7e0'), 'a soloed lane has a lit button');
+  const rc = roll.surface.cv;
+  rc.drawing.length = 0;
+  roll.redraw(); flush();
+  assert.equal(clip.y, 0);
+  assert.ok(rc.drawing.some((op) => op[0] === 'fill' && op[1] === '#000'), 'a clip outside the solo shows the big M');
+  click(cv, 33, sy(0));
+  rc.drawing.length = 0;
+  roll.redraw(); flush();
+  assert.ok(!rc.drawing.some((op) => op[0] === 'fill' && op[1] === '#000'), 'soloed: no M');
+  assert.deepEqual(normalizeSong(JSON.parse(JSON.stringify(song))).solos, [0, 1, 2, 3]);
+}
+
+// A clip on a muted lane shows a big M across the piano roll / automation editor, centred in the
+// visible grid; muting from the TimeLine updates the roll while the gesture is still going.
+{
+  const { song, clip, roll, rollHost, arranger, ctx } = setup();
+  let live = 0;
+  ctx.live = () => { live++; roll.redraw(); };
+  const rc = roll.surface.cv;
+  // the big M: a black filled outline; returns [centre x, centre y] of each one drawn
+  const marks = (cv) => {
+    const out = [];
+    let pts = [];
+    for (const op of cv.drawing) {
+      if (op[0] === 'beginPath') pts = [];
+      else if (op[0] === 'moveTo' || op[0] === 'lineTo') pts.push(op.slice(1, 3));
+      else if (op[0] === 'fill' && op[1] === '#000' && pts.length === 12) {
+        const xs = pts.map((p) => p[0]);
+        const ys = pts.map((p) => p[1]);
+        out.push([(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2]);
+      }
+    }
+    return out;
+  };
+  const bigM = () => marks(rc);
+  rc.drawing.length = 0;
+  roll.redraw(); flush();
+  assert.equal(bigM().length, 0, 'unmuted: no M');
+  const cv = arranger.surface.cv;
+  arranger.setView({ sx: 0, sy: 0 }); flush();
+  rc.drawing.length = 0;
+  point(cv, 'pointerdown', 15, ay(clip.y), { buttons: 1 });
+  assert.ok(live > 0 && bigM().length === 1, 'the roll shows the M during the mute gesture');
+  point(cv, 'pointerup', 15, ay(clip.y));
+  rc.drawing.length = 0;
+  roll.redraw(); flush();
+  const [x, y] = bigM()[0];
+  const LEFT = 84 + 36; // velocity strip + ruler
+  assert.ok(Math.abs(x - (LEFT + (rollHost.clientWidth - LEFT) / 2)) < 1, 'centred horizontally');
+  assert.ok(Math.abs(y - (400 - 24) / 2) < 1, 'centred vertically');
+  roll.setView({ sy: 2000 }); rc.drawing.length = 0; roll.redraw(); flush();
+  assert.deepEqual(bigM()[0], [x, y], 'stays centred while scrolling');
+  song.mutes = [];
+  rc.drawing.length = 0;
+  roll.redraw(); flush();
+  assert.equal(bigM().length, 0);
+  const a = addAutoClip(song, { length: 8, target: 1, controller: 0, y: 68 });
+  const lane = createAutomationLane(host(), {
+    song: () => song, clip: () => a, color: () => '#e76f51', transport: { playing: false, pos: 0 },
+    changed() {}, autoParam: () => ({ p: {}, format: (v) => `${Math.round(v * 100)}` }),
+  });
+  flush();
+  const lc = lane.surface.cv;
+  setLaneMute(song, 2, true);
+  lc.drawing.length = 0;
+  lane.redraw(); flush();
+  assert.equal(marks(lc).length, 1, 'the automation editor shows it too');
+}
+
+// The border of the selected clip pulses at 50 BPM: 600 ms white, 600 ms a darker grey.
+{
+  const { arranger } = setup();
+  const cv = arranger.surface.cv;
+  const realNow = performance.now;
+  try {
+    const white = (ms) => {
+      performance.now = () => ms;
+      cv.drawing.length = 0;
+      arranger.redraw(); flush();
+      const strokes = cv.drawing.filter((op) => op[0] === 'stroke').map((op) => op[1]);
+      assert.ok(strokes.includes('#f2f2f4') !== strokes.includes('#a9a9b0'), 'white or grey, always a border');
+      return strokes.includes('#f2f2f4');
+    };
+    assert.equal(white(600000), true, 'on in the first half of a beat');
+    assert.equal(white(600599), true);
+    assert.equal(white(600600), false, 'grey in the second half');
+    assert.equal(white(601199), false);
+    assert.equal(white(601200), true, 'white again on the next beat');
+  } finally {
+    performance.now = realNow;
+  }
 }
 
 // Dragging a clip close to an edge of the time area auto-scrolls the TimeLine, carrying the clip.
@@ -1652,10 +1839,10 @@ for (const width of [300, 480, 900, 1912]) {
 
 // Top overscroll is a bounded, blank margin shared by notes, stave, ruler and velocity lane.
 {
-  const { clip, roll, initialView } = setup();
+  const { song, clip, roll, initialView } = setup();
   const cv = roll.surface.cv;
   assert.equal(initialView.sy, -32, 'new rolls start with a little space above beat zero');
-  fire(cv, 'wheel', { clientX: nx(60), clientY: 100, deltaY: -10000, deltaX: 0, deltaMode: 0 });
+  for (let i = 0; i < 10; i++) fire(cv, 'wheel', { clientX: nx(60), clientY: 100, deltaY: -10000, deltaX: 0, deltaMode: 0 });
   assert.equal(roll.getView().sy, -32, 'upward scrolling stops at the margin');
   click(cv, nx(60), 16);
   assert.equal(clip.notes.length, 0, 'blank margin is not note-entry space');
@@ -1673,7 +1860,7 @@ for (const width of [300, 480, 900, 1912]) {
   key(cv, 'Delete');
   assert.equal(clip.notes.length, 0, 'selection can start in the margin to catch the first note');
   fire(cv, 'wheel', { clientX: nx(60), clientY: 100, deltaY: 16, deltaX: 0, deltaMode: 0 });
-  assert.equal(roll.getView().sy, -16, 'margin scrolls away naturally');
+  assert.equal(roll.getView().sy, -32 + snapStep(song.snap) * 48, 'margin scrolls away one snap step');
   roll.reveal(); flush();
   assert.equal(roll.getView().sy, -32, 'revealing a clip restores the margin');
   const saved = JSON.parse(JSON.stringify(roll.getView()));

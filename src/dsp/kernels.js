@@ -17,6 +17,8 @@ import MultiCtlKernel from '../modules/multictl.dsp.js';
 import DelayKernel from '../modules/delay.dsp.js';
 import EchoKernel from '../modules/echo.dsp.js';
 import ModulatorKernel from '../modules/modulator.dsp.js';
+import SamplerKernel from '../modules/sampler.dsp.js';
+import WavetableKernel from '../modules/wavetable.dsp.js';
 
 export const KERNELS = {
   bus: BusKernel,
@@ -37,4 +39,6 @@ export const KERNELS = {
   delay: DelayKernel,
   echo: EchoKernel,
   modulator: ModulatorKernel,
+  sampler: SamplerKernel,
+  wavetable: WavetableKernel,
 };

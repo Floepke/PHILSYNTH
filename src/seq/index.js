@@ -19,7 +19,7 @@ const NO_COLOR = '#8a8a92';
 // engine: Engine (song, root patch); transport: Transport; getTarget(moduleNumber) -> instance;
 // defaultTarget() -> module number for new clips; defaultAutoTarget() -> module number (or null)
 // for new automation clips; onChange() after every edit
-export function createSequencer({ engine, transport, getTarget, defaultTarget, defaultAutoTarget = () => null, onChange, undoHistory }) {
+export function createSequencer({ engine, transport, getTarget, liveTarget = () => null, defaultTarget, defaultAutoTarget = () => null, onChange, undoHistory }) {
   const $ = (id) => document.getElementById(id);
   const seq = $('seq');
   const ui = {
@@ -92,6 +92,15 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
     preview: {
       on(c, pitch) {
         const inst = getTarget(c.target);
+        if (!inst) return null;
+        engine.resume();
+        const id = newNoteId();
+        inst.noteOn(id, pitch, DEFAULT_VEL);
+        return { inst, id };
+      },
+      // the on-screen keyboard plays the live MIDI module (red MIDI marker in the patcher)
+      key(pitch) {
+        const inst = liveTarget();
         if (!inst) return null;
         engine.resume();
         const id = newNoteId();

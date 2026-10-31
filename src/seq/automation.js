@@ -8,8 +8,8 @@
 //   right click on a point       delete it
 //   Backspace / Delete           delete the selected point
 //   wheel / middle drag          scroll, Ctrl + wheel zooms time
-import { snapStep, snapRound, BAR, meter, barLines, beatLines, autoPolyline, pointIndex } from '../song.js';
-import { createSurface, capture, startPan, onWheel, clamp, snapBands } from './surface.js';
+import { snapStep, snapRound, clipSilent, BAR, meter, barLines, beatLines, autoPolyline, pointIndex } from '../song.js';
+import { createSurface, capture, startPan, onWheel, clamp, snapBands, mutedMark } from './surface.js';
 import { NEW_POINT_ROUND } from '../curve.js';
 import { doublePress } from '../doublepress.js';
 
@@ -180,6 +180,7 @@ export function createAutomationLane(host, ctx) {
         g.textAlign = 'center';
         g.fillText('Double-click to insert automation points.', GUTTER + (w - GUTTER) / 2, Math.max(40, yOf(0) + 40));
       }
+      if (clipSilent(ctx.song(), clip)) mutedMark(g, GUTTER, 0, w - GUTTER, bot);
       const { playing, pos, clipId } = ctx.transport;
       const t = pos - clip.start;
       if ((playing || pos > 0) && (clipId == null || clipId === clip.id) && t >= 0 && t <= clip.length) {

@@ -1,6 +1,7 @@
 import { PatchRuntime } from './patch.js';
 import { DspHost } from './dsp/host.js';
 import { emptySong, normalizeSong } from './song.js';
+import { importSamples } from './samples.js';
 
 // The C++ DSP kernels (src/dsp/modsynth.wasm, built from cpp/ by `npm run build:wasm`), compiled in
 // the worklet. `?dsp=js` in the URL or localStorage['modsynth.dsp'] = 'js' forces the JS kernels.
@@ -82,6 +83,7 @@ export class Engine {
 
   async loadProject(data) {
     if (data?.format !== 'modsynth' || !Array.isArray(data.patch?.modules)) throw new Error('Not a modsynth project file');
+    importSamples(data.samples); // audio of SAMPLER / WAVETABLE modules (see src/samples.js)
     await this.root.load(data.patch);
     this.song = normalizeSong(data.song);
   }

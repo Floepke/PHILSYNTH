@@ -1,6 +1,8 @@
 // Song: the clips on the TimeLine and the notes inside them.
 // All times and lengths are float quarter notes; note times are relative to the clip start.
-//   song = { clips, sigs, selected (clip id | null), snap: { base, div }, nextId }
+//   song = { clips, sigs, selected (clip id | null), snap: { base, div }, nextId, loop, mutes, solos }
+//   mutes = muted TimeLine lanes [lane index (0 = top)], sorted: their clips are not played
+//   solos = soloed lanes, sorted: while any lane is soloed only soloed lanes play (mute still wins)
 //   sigs = time signature changes [{ at (quarters), num, den }], sorted, the first one at 0.
 //          Each change starts a new bar, so a change inside a bar cuts that bar short.
 //   clip = { id, name, start, length, y (lane * LANE_H, px), target (module number | null), notes }
@@ -51,7 +53,7 @@ export const clean = (v) => Math.round(v * 1e9) / 1e9; // keep 0.1 + 0.2 style f
 export const snapRound = (t, step) => clean(Math.round(t / step) * step);
 export const snapFloor = (t, step) => clean(Math.floor(t / step + 1e-9) * step);
 
-export const emptySong = () => ({ clips: [], sigs: [{ at: 0, num: 4, den: 4 }], selected: null, snap: { base: 16, div: 1 }, nextId: 1, loop: null });
+export const emptySong = () => ({ clips: [], sigs: [{ at: 0, num: 4, den: 4 }], selected: null, snap: { base: 16, div: 1 }, nextId: 1, loop: null, mutes: [], solos: [] });
 
 const num = (v, d) => (Number.isFinite(v) ? v : d);
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
@@ -199,8 +201,31 @@ export function normalizeSong(s) {
   song.nextId = Math.max(num(s.nextId, 1), ...song.clips.map((c) => c.id + 1), 1);
   song.selected = song.clips.some((c) => c.id === s.selected) ? s.selected : null;
   setLoop(song, s.loop?.start, s.loop?.end);
+  for (const key of ['mutes', 'solos']) {
+    if (Array.isArray(s[key])) for (const l of s[key]) if (Number.isInteger(l) && l >= 0) setLaneFlag(song, key, l, true);
+  }
   return song;
 }
+
+// ---- lane mute / solo ----
+export const laneOf = (clip) => Math.round(clip.y / LANE_H);
+const laneFlag = (song, key, lane) => song[key]?.includes(lane) ?? false;
+export const laneMuted = (song, lane) => laneFlag(song, 'mutes', lane);
+export const laneSoloed = (song, lane) => laneFlag(song, 'solos', lane);
+export const clipMuted = (song, clip) => laneMuted(song, laneOf(clip));
+// a lane is heard unless it is muted, or other lanes are soloed and it is not
+export const laneSilent = (song, lane) => laneMuted(song, lane) || (song.solos?.length > 0 && !laneSoloed(song, lane));
+export const clipSilent = (song, clip) => laneSilent(song, laneOf(clip));
+// key: 'mutes' | 'solos'; returns true when the lane changed
+export function setLaneFlag(song, key, lane, on) {
+  if (laneFlag(song, key, lane) === on) return false;
+  const list = (song[key] ?? []).filter((l) => l !== lane);
+  if (on) list.push(lane);
+  song[key] = list.sort((a, b) => a - b);
+  return true;
+}
+export const setLaneMute = (song, lane, on) => setLaneFlag(song, 'mutes', lane, on);
+export const setLaneSolo = (song, lane, on) => setLaneFlag(song, 'solos', lane, on);
 
 // The lane y (px) nearest to y.
 export const laneY = (y) => Math.max(0, Math.round(y / LANE_H)) * LANE_H;

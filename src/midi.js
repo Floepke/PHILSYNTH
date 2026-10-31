@@ -1,27 +1,30 @@
-// MIDI input (Web MIDI). The computer keyboard does not play notes; its keys are app shortcuts.
-// Incoming MIDI is translated to MODMIDI (see modmidi.js): every key press becomes a note with
-// its own id, sent to the current target. The note-off goes to the module that got the note-on,
-// even when another module was selected in between.
+// Live note input: MIDI devices (Web MIDI, initMidi) and the computer keyboard (initKeyboard).
+// Notes are translated to MODMIDI (see modmidi.js): every key press becomes a note with its own
+// id, sent to the current target. The note-off goes to the module that got the note-on, even
+// when another module was selected in between.
 import { newNoteId } from './modmidi.js';
 
 let access = null; // keep a strong reference, otherwise the browser may GC it and stop delivering messages
 
-export function initMidi({ getTarget, onStatus, onActivity }) {
-  const playing = new Map(); // MIDI key -> { id, inst }
+// key -> playing note bookkeeping shared by the MIDI device and the computer keyboard
+function notePlayer(getTarget) {
+  const playing = new Map(); // key -> { id, inst }
   const noteOff = (key) => {
     const n = playing.get(key);
     if (!n) return;
     playing.delete(key);
     n.inst.noteOff?.(n.id);
   };
-  const noteOn = (key, velocity) => {
+  const noteOn = (key, velocity, pitch = key) => {
     noteOff(key); // the same key again without a note-off: release the old note first
     const t = getTarget();
-    if (!t?.def.acceptsMidi || t.def.liveMidi === false) return;
+    if (!t?.def.acceptsMidi || t.def.liveMidi === false) return false;
     const id = newNoteId();
     playing.set(key, { id, inst: t.inst });
-    t.inst.noteOn?.(id, key, velocity);
+    t.inst.noteOn?.(id, pitch, velocity);
+    return true;
   };
+  const releaseAll = () => [...playing.keys()].forEach(noteOff);
   const allOff = () => {
     const insts = new Set([...playing.values()].map((n) => n.inst));
     playing.clear();
@@ -29,6 +32,40 @@ export function initMidi({ getTarget, onStatus, onActivity }) {
     if (t?.def.acceptsMidi) insts.add(t.inst);
     insts.forEach((i) => i.allOff?.());
   };
+  return { noteOn, noteOff, releaseAll, allOff, playing };
+}
+
+// Computer keyboard as a piano, by physical key position (e.code, so it works on any layout):
+// Q W E R T Y U I O P are the white keys C4..E5, the number row above them the black keys
+// (2 3 . 5 6 7 . 9 0). Ignored while typing in a field, with Ctrl / Cmd / Alt held, or when
+// an earlier handler already used the key (e.g. Q = quantize in the focused piano roll).
+export const KEYBOARD_BASE = 60;
+export const KEYBOARD_KEYS = {
+  KeyQ: 0, Digit2: 1, KeyW: 2, Digit3: 3, KeyE: 4, KeyR: 5, Digit5: 6, KeyT: 7, Digit6: 8, KeyY: 9,
+  Digit7: 10, KeyU: 11, KeyI: 12, Digit9: 13, KeyO: 14, Digit0: 15, KeyP: 16,
+};
+const KEYBOARD_VEL = 0.8;
+const TYPING = 'input, select, textarea, dialog, [contenteditable]:not([contenteditable="false"])';
+
+export function initKeyboard({ getTarget, onActivity, onNoTarget }) {
+  const player = notePlayer(getTarget);
+  window.addEventListener('keydown', (e) => {
+    const semi = KEYBOARD_KEYS[e.code];
+    if (semi === undefined || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+    if (e.target?.closest?.(TYPING)) return;
+    e.preventDefault();
+    if (e.repeat) return; // held key: one note, no retrigger
+    onActivity?.();
+    if (!player.noteOn(e.code, KEYBOARD_VEL, KEYBOARD_BASE + semi)) onNoTarget?.();
+  });
+  window.addEventListener('keyup', (e) => player.noteOff(e.code));
+  // a key released while the window is not focused never sends keyup
+  window.addEventListener('blur', () => player.releaseAll());
+  return { releaseAll: player.releaseAll, playing: player.playing };
+}
+
+export function initMidi({ getTarget, onStatus, onActivity }) {
+  const { noteOn, noteOff, allOff } = notePlayer(getTarget);
   const send = (fn, ...a) => {
     onActivity?.();
     ({ noteOn, noteOff, allOff })[fn](...a);
