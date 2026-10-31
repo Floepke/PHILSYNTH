@@ -7,6 +7,8 @@ export function createHistory({ capture, restore, limit = DEFAULT_LIMIT, delay =
   let timer = null;
   let suspended = 0;
   let restoring = false;
+  let groups = 0;
+  let pending = false;
 
   const snapshot = () => JSON.stringify(capture());
   const clearTimer = () => {
@@ -25,11 +27,17 @@ export function createHistory({ capture, restore, limit = DEFAULT_LIMIT, delay =
   return {
     reset() {
       clearTimer();
+      pending = false;
+      groups = 0;
       stack = [snapshot()];
       index = 0;
     },
     record() {
       if (suspended || restoring || index < 0) return;
+      if (groups) {
+        pending = true;
+        return;
+      }
       clearTimer();
       timer = setTimeout(() => {
         timer = null;
@@ -40,6 +48,26 @@ export function createHistory({ capture, restore, limit = DEFAULT_LIMIT, delay =
       if (timer === null) return;
       clearTimer();
       commit();
+    },
+    begin() {
+      if (groups === 0) this.flush();
+      groups++;
+    },
+    end() {
+      if (!groups) return;
+      groups--;
+      if (!groups && pending) {
+        pending = false;
+        commit();
+      }
+    },
+    async group(action) {
+      this.begin();
+      try {
+        return await action();
+      } finally {
+        this.end();
+      }
     },
     async travel(direction) {
       if (restoring) return false;
@@ -56,6 +84,7 @@ export function createHistory({ capture, restore, limit = DEFAULT_LIMIT, delay =
       }
     },
     async suspend(action) {
+      this.flush();
       clearTimer();
       suspended++;
       try {

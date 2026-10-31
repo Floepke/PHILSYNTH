@@ -162,7 +162,10 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
     arranger.redraw();
     onChange();
   });
-  ui.name.addEventListener('change', () => record());
+  ui.name.addEventListener('change', () => {
+    undoHistory?.record();
+    if (!undoHistory) record();
+  });
   ui.target.addEventListener('change', () => {
     const c = clip();
     if (!c) return;

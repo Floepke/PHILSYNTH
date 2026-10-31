@@ -8,7 +8,7 @@ import { toNorm, fromNorm, nudge, wheelAccumulator } from './params.js';
 
 const FINE_DRAG = 0.1; // Shift-drag speed relative to normal
 
-export function createController(p, { index, value, onInput, format }) {
+export function createController(p, { index, value, onInput, format, onBegin, onEnd }) {
   const el = document.createElement('div');
   el.className = 'ctl';
   el.setAttribute('role', 'slider');
@@ -66,6 +66,7 @@ export function createController(p, { index, value, onInput, format }) {
     el.setPointerCapture(e.pointerId);
     el.classList.add('active');
     drag = { x: e.clientX, norm: toNorm(p, v), id: e.pointerId };
+    onBegin?.();
     // a release anywhere (the capture may already be gone) or leaving the window ends the drag
     window.addEventListener('pointerup', end, true);
     window.addEventListener('blur', end);
@@ -87,6 +88,7 @@ export function createController(p, { index, value, onInput, format }) {
     drag = null;
     if (el.hasPointerCapture?.(id)) el.releasePointerCapture(id);
     el.classList.remove('active');
+    onEnd?.();
   }
   el.addEventListener('pointerup', end);
   el.addEventListener('pointercancel', end);

@@ -133,7 +133,7 @@ const labels = (menus) => menus.at(-1).items.filter((i) => i !== '-').map((i) =>
 const nx = (pitch) => 120 + pitch * 14 + 7;
 const ny = (start) => start * 48;
 const ax = (start) => 70 + start * 16;
-const ay = (y) => 38 + y + 17;
+const ay = (y) => 50 + y + 17;
 const assertNoOverlap = (song) => {
   for (let i = 0; i < song.clips.length; i++) {
     for (let j = i + 1; j < song.clips.length; j++) assert.equal(clipsOverlap(song.clips[i], song.clips[j]), false);
@@ -642,6 +642,17 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(changes(), c1 + 1);
 }
 
+// The overview map scrolls the TimeLine horizontally by click or drag.
+{
+  const { arranger } = setup();
+  const cv = arranger.surface.cv;
+  const mapY = 44;
+  click(cv, 450, mapY);
+  assert.ok(arranger.getView().sx > 0, 'clicking the map navigates toward later time');
+  drag(cv, 300, mapY, 100, mapY);
+  assert.ok(arranger.getView().sx < 0, 'dragging the map viewport navigates toward earlier time');
+}
+
 // Context menu: Consolidate the selected clips of one lane, Split at the playhead; the signature
 // row sets / scrubs the play position.
 {
@@ -893,7 +904,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   // double-click inserts on the lane under the pointer
   arranger.setView({ sx: 0, sy: 0, ppq: 16 });
   flush();
-  point(cv, 'dblclick', ax(8), 38 + 34 * 2 + 3);
+  point(cv, 'dblclick', ax(8), 50 + 34 * 2 + 3);
   assert.equal(song.clips.at(-1).y, 68);
 }
 

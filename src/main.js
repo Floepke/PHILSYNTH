@@ -18,10 +18,12 @@ import { openMapDialog, patchControllersView } from './mapdialog.js';
 import { MAX_NAME, cableSignals } from './patch.js';
 import { showMenu, shortcut } from './seq/menu.js';
 import { rightHold } from './seq/surface.js';
+import { createHistory } from './history.js';
 
 const engine = new Engine();
 let transport = null; // song playback (created after the engine)
 let seq = null; // piano roll + TimeLine UI
+let undoHistory = null;
 let scope = null; // live audio drawn on the cables (created after the engine)
 const $ = (id) => document.getElementById(id);
 const canvas = $('canvas');
@@ -143,7 +145,10 @@ const persist = createPersistence({
     $('saved').classList.toggle('error', !local && !disk);
   },
 });
-engine.onChange = () => persist.schedule();
+engine.onChange = () => {
+  persist.schedule();
+  undoHistory?.record();
+};
 
 // Path (list of module numbers) from the root patch to the patch containing `entry`.
 function locate(entry, patch = engine.root, trail = []) {
@@ -199,10 +204,13 @@ function applyView(view) {
 
 async function openProject(data, view) {
   transport.stop();
-  await persist.pause(() => engine.loadProject(data));
+  const load = () => persist.pause(() => engine.loadProject(data));
+  if (undoHistory) await undoHistory.suspend(load);
+  else await load();
   seq.reload();
   applyView(view);
   persist.schedule();
+  undoHistory?.reset();
 }
 
 // insert dialog list: one row per module type (colour, type, description)
@@ -425,6 +433,7 @@ function createBox(entry) {
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
       persist.schedule();
+      undoHistory?.record();
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
@@ -467,7 +476,9 @@ function startDuplicate(e, entries) {
     const done = () => ghosts.forEach(({ g }) => g.remove());
     if (ev.type === 'pointercancel' || Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) < 4) { done(); return; }
     try {
-      const copies = await patch.duplicateMany(entries.map((m) => m.id), dx, dy);
+      const copies = undoHistory
+        ? await undoHistory.group(() => patch.duplicateMany(entries.map((m) => m.id), dx, dy))
+        : await patch.duplicateMany(entries.map((m) => m.id), dx, dy);
       if (patch === current()) {
         render();
         selectEntries(copies);
@@ -547,6 +558,7 @@ function startCable(e, entry) {
   svg.append(temp);
   const box = boxOf(entry);
   const patch = current();
+  undoHistory?.begin();
   let over = null; // module element under the pointer (already handled)
   const toggle = (el) => {
     const toId = +el.dataset.id;
@@ -577,6 +589,7 @@ function startCable(e, entry) {
     window.removeEventListener('pointerup', up);
     window.removeEventListener('pointercancel', up);
     temp.remove();
+    undoHistory?.end();
     select(sel); // refresh the panel: e.g. an LFO's Out Controller names follow its cables
   };
   over = entry.el; // starting on the source: nothing to do until the pointer leaves it
@@ -667,7 +680,10 @@ async function paste(at) {
   const patch = current();
   const w = at ? clientToWorld(at.x, at.y) : null;
   try {
-    const added = await patch.pasteMany(clipboard, w ? { x: Math.round(w.x), y: Math.round(w.y) } : {});
+    const options = w ? { x: Math.round(w.x), y: Math.round(w.y) } : {};
+    const added = undoHistory
+      ? await undoHistory.group(() => patch.pasteMany(clipboard, options))
+      : await patch.pasteMany(clipboard, options);
     if (patch !== current()) return;
     render();
     selectEntries(added);
@@ -732,9 +748,26 @@ window.addEventListener('keydown', (e) => {
     }
     return;
   }
-  if (e.target.closest('input, select, textarea, dialog, #seq, #arranger')) return; // the sequencer handles its own keys
   const command = (e.ctrlKey || e.metaKey) && !e.altKey;
   const k = e.key.toLowerCase();
+  if (command && (k === 'z' || (k === 'y' && !e.shiftKey))
+    && !e.target.closest('input, select, textarea, dialog, [contenteditable]:not([contenteditable="false"])')) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!undoHistory) {
+      $('status').textContent = 'Nothing to undo / redo.';
+      return;
+    }
+    const direction = k === 'y' || e.shiftKey ? 1 : -1;
+    const label = direction > 0 ? 'Redo' : 'Undo';
+    undoHistory.travel(direction).then((ok) => {
+      $('status').textContent = ok ? label : 'Nothing to undo / redo.';
+    }).catch((err) => {
+      $('status').textContent = `${label} failed: ${err.message}`;
+    });
+    return;
+  }
+  if (e.target.closest('input, select, textarea, dialog, #seq')) return; // #seq handles its own keys; the TimeLine bubbles here
   if (command && k === 'a') {
     e.preventDefault();
     selectEntries([...current().modules.values()]);
@@ -844,7 +877,7 @@ function select(s) {
       hint('<b>Automation:</b> <kbd>Double right-click</kbd> the TimeLine to add an automation clip, then pick the module (<i>Send to</i>) and its <i>Controller</i> in the toolbar. In the automation lane <kbd>Double-click</kbd> inserts a point (snapped to the grid), drag moves it (<kbd>Shift</kbd> = fine), the mouse wheel on a point rounds the corner and right click deletes it. While playing, the clip drives the controller like an LFO; outside the clip (or when stopped) the controller has its own value again.'),
       hint('<b>Sequencer clipboard:</b> click the piano roll or TimeLine to focus it, then use <kbd>Ctrl/Cmd</kbd> + <kbd>X</kbd> / <kbd>C</kbd> / <kbd>V</kbd> to cut / copy / paste selected notes or the selected clip. Each view has its own in-app clipboard. Paste at the mouse pointer, snapped to the grid; note pitches and relative timing are preserved.'),
       hint('<b>TimeLine selection &amp; clones:</b> drag on empty TimeLine space for a selection rectangle (<kbd>Ctrl/Cmd</kbd> adds), <kbd>Ctrl/Cmd</kbd> + click toggles a clip. Dragging moves the whole selection; <kbd>Alt</kbd> + drag copies it, <kbd>Shift</kbd> + drag makes <i>linked clones</i> that share their notes with the source (marked ⧉): editing one edits all. Clones are drawn with diagonal stripes and a dashed outline; a selected clone shows a dashed arrow to its source. Hold right-click on a clip for cut / copy / paste / delete / duplicate / clone / detach (turns a clone into a standalone clip) / go to source / <i>Consolidate</i> (two or more selected clips on one lane become one clip spanning them; module and name come from the first clip) / <i>Split at playhead</i> (cuts the selected clips under the playhead in two). <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> duplicates, <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd> clones.'),
-      hint('<b>Sequencer undo:</b> <kbd>Ctrl/Cmd</kbd> + <kbd>Z</kbd> undoes TimeLine / piano roll / automation edits, <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> (or <kbd>Ctrl</kbd> + <kbd>Y</kbd>) redoes.'),
+      hint('<b>Undo / redo:</b> <kbd>Ctrl/Cmd</kbd> + <kbd>Z</kbd> undoes edits in the patcher and sequencer, <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> (or <kbd>Ctrl</kbd> + <kbd>Y</kbd>) redoes.'),
       hint('<b>Loop region:</b> click the TimeLine ruler (the signature row too, where dragging scrubs) to set the play position, drag along it to select a loop region (snapped to the grid, shown in blue). Song playback then loops inside the region and starts at its beginning. Right-click the region in the ruler to remove it; playback goes back to looping the whole song.'),
       hint('<b>TimeLine lanes:</b> clips sit on numbered lanes (the numbers left of the clips), one clip high; dragging up / down snaps to them. Scroll left past the bright zero line to park clips before the song start: they are not played (<kbd>/</kbd> still auditions them), which suits source clips whose clones make up the song.'),
       hint('<b>TimeLine placement:</b> moving, cloning, pasting or creating a clip snaps it to the nearest non-overlapping position. Clip edges take priority over the time grid; resizing stops at neighbouring clips. Use separate vertical rows for clips that play at the same time.'),
@@ -924,6 +957,8 @@ function select(s) {
   const editor = entry.def.editor?.(entry, {
     color: entry.def.color,
     setState: (st) => current().setState(entry.id, st),
+    beginEdit: () => undoHistory?.begin(),
+    endEdit: () => undoHistory?.end(),
   });
   if (editor) panel.append(editor.el);
 
@@ -945,6 +980,8 @@ function select(s) {
       index,
       value: entry.values[p.id],
       format,
+      onBegin: () => undoHistory?.begin(),
+      onEnd: () => undoHistory?.end(),
       onInput: (v) => {
         current().setParam(entry.id, p.id, v);
         refresh();
@@ -964,6 +1001,8 @@ function select(s) {
     color: entry.def.color,
     setParam: (id, v) => { current().setParam(entry.id, id, v); refresh(); }, // e.g. dragging an EQ band
     setState: (st) => current().setState(entry.id, st), // e.g. the Output's comments
+    beginEdit: () => undoHistory?.begin(),
+    endEdit: () => undoHistory?.end(),
     refresh: () => refresh(), // e.g. MULTICTL: the Value text names its routed controllers
     // Patch: "Controllers…" opens the mapping dialog; the panel shows the new controllers after it
     patchControllers: (e) => patchControllersView(e, {
@@ -1071,13 +1110,49 @@ seq = createSequencer({
     if (current() === engine.root && sel?.entry && engine.root.modules.get(sel.entry.id) === sel.entry) return sel.entry.id;
     return null;
   },
+  undoHistory: {
+    record: () => undoHistory?.record(),
+    travel: (direction) => undoHistory ? undoHistory.travel(direction) : false,
+  },
   onChange: () => persist.schedule(),
 });
+undoHistory = createHistory({
+  capture() {
+    const project = engine.saveProject();
+    return { ...project, song: { ...project.song, selected: null } };
+  },
+  async restore(project) {
+    const ids = path.slice(1).map((level) => level.id);
+    const cameras = path.map((level) => level.cam);
+    const selected = engine.song.selected;
+    const target = midiTarget();
+    const targetPath = target ? locate(target) : null;
+    const targetId = target?.id;
+    if (project.song) {
+      project.song.selected = project.song.clips?.some((clip) => clip.id === selected) ? selected : null;
+    }
+    transport.stop();
+    await engine.loadProject(project);
+    path = patchAt(ids).map((level, i) => ({ ...level, cam: cameras[i] }));
+    midiHistory = [];
+    if (targetPath) {
+      const levels = patchAt(targetPath);
+      if (levels.length === targetPath.length + 1) {
+        const entry = levels.at(-1).patch.modules.get(targetId);
+        if (takesLiveMidi(entry?.def)) midiHistory.push(entry);
+      }
+    }
+    seq.reload();
+    render();
+    persist.schedule();
+  },
+});
+undoHistory.reset();
 const saved = await persist.loadAll();
 let restored = null;
 for (const { state, source } of saved.copies) {
   try {
-    await persist.pause(() => engine.loadProject(state));
+    await undoHistory.suspend(() => persist.pause(() => engine.loadProject(state)));
     applyView(state.view);
     restored = source;
     break;
@@ -1087,11 +1162,14 @@ for (const { state, source } of saved.copies) {
   }
 }
 if (!restored) {
-  if (saved.copies.length) await persist.pause(() => engine.loadProject(emptyProject())); // clear a half-loaded patch
+  if (saved.copies.length) {
+    await undoHistory.suspend(() => persist.pause(() => engine.loadProject(emptyProject())));
+  }
   path = [{ patch: engine.root, name: 'Main' }];
   seq.applyView(null);
   render();
 }
+undoHistory.reset();
 $('saved').textContent = restored ? `Restored from ${restored}` : saved.copies.length ? 'Autosave unreadable, started empty' : '';
 if (!saved.disk) $('saved').title = 'Browser localStorage only. Run "node server.mjs" to also save to disk.';
 persist.start();

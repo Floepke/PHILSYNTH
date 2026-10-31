@@ -11,7 +11,7 @@ const PAD = 12;
 const HIT = 9; // px
 const ROUND_STEP = 0.05;
 
-export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onChange }) {
+export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onChange, beginEdit, endEdit }) {
   let pts = normalizeCurve(curve).points;
   let hover = -1;
   let drag = -1;
@@ -141,7 +141,11 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
     const [px, py] = local(e);
     const second = presses.press(e);
     drag = hitTest(px, py);
-    if (drag < 0 && second) drag = insert(px, py); // down-up-DOWN: add a point and drag it at once
+    const inserting = drag < 0 && second;
+    if (inserting) beginEdit?.();
+    if (inserting) drag = insert(px, py); // down-up-DOWN: add a point and drag it at once
+    if (drag >= 0 && !inserting) beginEdit?.();
+    if (inserting && drag < 0) endEdit?.();
     if (drag < 0) return;
     e.preventDefault();
     canvas.setPointerCapture(e.pointerId);
@@ -164,9 +168,15 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
     canvas.style.cursor = h >= 0 ? (h === 0 || h === pts.length - 1 ? 'ns-resize' : 'move') : 'crosshair';
     if (h !== hover || cursor) { hover = h; draw(); }
   });
-  const endDrag = () => { if (drag >= 0) { drag = -1; draw(); } };
+  const endDrag = () => {
+    if (drag < 0) return;
+    drag = -1;
+    draw();
+    endEdit?.();
+  };
   canvas.addEventListener('pointerup', endDrag);
   canvas.addEventListener('pointercancel', endDrag);
+  canvas.addEventListener('lostpointercapture', endDrag);
   canvas.addEventListener('pointerleave', () => { cursor = null; if (drag < 0) { hover = -1; draw(); } });
 
   // a new point at the pixel position: its index, or -1 when it does not fit there

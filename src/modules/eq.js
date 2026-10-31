@@ -12,7 +12,7 @@ const VIEW_DB = 15; // the display spans ±VIEW_DB
 const F_LO = 16;
 const F_HI = 22000;
 
-export function createEqView({ color = '#7a6aa8', values, setParam }) {
+export function createEqView({ color = '#7a6aa8', values, setParam, beginEdit, endEdit }) {
   const el = document.createElement('div');
   el.className = 'wave-view eq-view';
   const cv = document.createElement('canvas');
@@ -101,6 +101,7 @@ export function createEqView({ color = '#7a6aa8', values, setParam }) {
     if (ev.button !== 0 || !setParam) return;
     ev.preventDefault();
     try { cv.setPointerCapture(ev.pointerId); } catch { /* synthetic pointer */ }
+    beginEdit?.();
     last = pos(ev);
     drag = bandAt(ev);
     setBand(drag, last.y, last.h);
@@ -111,9 +112,16 @@ export function createEqView({ color = '#7a6aa8', values, setParam }) {
     paint(last, p);
     last = p;
   });
-  const end = () => { if (drag >= 0) { drag = -1; last = null; draw(); } };
+  const end = () => {
+    if (drag < 0) return;
+    drag = -1;
+    last = null;
+    draw();
+    endEdit?.();
+  };
   cv.addEventListener('pointerup', end);
   cv.addEventListener('pointercancel', end);
+  cv.addEventListener('lostpointercapture', end);
   cv.addEventListener('dblclick', (ev) => setParam?.(bandId(bandAt(ev)), 0));
   cv.title = 'Drag to draw the bands (sideways sweeps set every band you pass); double-click resets a band to 0 dB';
 
@@ -149,5 +157,8 @@ export default {
       destroy: () => node.destroy(),
     };
   },
-  view: (entry, api) => createEqView({ color: api.color, values: entry.values, setParam: api.setParam }),
+  view: (entry, api) => createEqView({
+    color: api.color, values: entry.values, setParam: api.setParam,
+    beginEdit: api.beginEdit, endEdit: api.endEdit,
+  }),
 };

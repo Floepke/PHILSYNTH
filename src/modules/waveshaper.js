@@ -29,7 +29,10 @@ export default {
   // panel editor (src/main.js): api.setState(curve) stores the curve; refresh() follows controllers
   editor(entry, api) {
     const labels = (v) => (v.range ? { x0: '−max', x1: 'in +max →', y1: 'out +max ↑' } : { x0: '0', x1: 'in max →', y1: 'out max ↑' });
-    const ed = createCurveEditor({ curve: entry.state, color: api.color, labels: labels(entry.values), onChange: (c) => api.setState(c) });
+    const ed = createCurveEditor({
+      curve: entry.state, color: api.color, labels: labels(entry.values),
+      onChange: (c) => api.setState(c), beginEdit: api.beginEdit, endEdit: api.endEdit,
+    });
     let range = entry.values.range;
     return {
       el: ed.el,

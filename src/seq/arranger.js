@@ -20,6 +20,7 @@
 //   Ctrl/Cmd + A, Escape       select all / clear the selection
 //   click the ruler            set the play position (the signature row too: click / drag scrubs)
 //   drag on the ruler          select a loop region (snapped); song playback loops inside it
+//   drag the overview map      scroll sideways over the time axis
 //   right-click the region     remove it (the ruler, a short click)
 //   double-click the ruler     insert a time signature change at the nearest bar line (or edit it)
 //   right-click a signature    remove that change (the first one can only be edited)
@@ -34,7 +35,9 @@ import { CLIP_H, findClipPosition, clipResizeBounds } from './clipplacement.js';
 import { showMenu, shortcut } from './menu.js';
 
 const SIG_H = 16; // time signature row on top of the ruler
-const RULER = 38; // signature row + bar numbers
+const MAP_Y = 38;
+const MAP_H = 12;
+const RULER = MAP_Y + MAP_H; // signature row, bar numbers and the timeline overview map
 const LABEL = 'TimeLine:';
 const EDGE = 6;
 const PLAYHEAD = '#ff5a36';
@@ -54,6 +57,7 @@ export function createArranger(host, ctx) {
   let pointer = null;
   let clipboard = null; // snapshots of the copied clips
   let dragging = false;
+  let mapDrag = null;
   let lastRight = null; // { time, x, y } of the last right-button press on empty space
   let sel = new Set(); // selected clip ids; song.selected (the clip in the piano roll) is one of them
   let rect = null; // selection rectangle in progress: { x0, y0, x1, y1, ids }
@@ -61,6 +65,7 @@ export function createArranger(host, ctx) {
 
   const s = createSurface(host, paint);
   const { cv } = s;
+  cv.title = 'Drag the overview map to scroll sideways through the timeline';
   const xOf = (t) => x0 + t * view.ppq - view.sx;
   const yOf = (y) => RULER + y - view.sy;
   const timeAt = (x) => (x - x0 + view.sx) / view.ppq;
@@ -138,12 +143,36 @@ export function createArranger(host, ctx) {
 
   function limitScroll() {
     const song = ctx.song();
-    const end = Math.max(loopEnd(song), BAR, song.sigs.at(-1).at, song.loop?.end ?? 0) + 4 * BAR;
-    // room before time zero to park clips: 4 bars before the earliest clip (or zero)
-    const first = Math.min(0, ...song.clips.map((c) => c.start)) - 4 * BAR;
+    const { first, end } = timeBounds();
     view.sx = clamp(view.sx, first * view.ppq, Math.max(0, end * view.ppq - (s.w - x0)));
     const bottom = song.clips.reduce((m, c) => Math.max(m, c.y + CLIP_H), 0);
     view.sy = clamp(view.sy, 0, Math.max(0, bottom + 2 * CLIP_H - (s.h - RULER)));
+  }
+
+  function timeBounds() {
+    const song = ctx.song();
+    return {
+      first: Math.min(0, ...song.clips.map((c) => c.start)) - 4 * BAR,
+      end: Math.max(loopEnd(song), BAR, song.sigs.at(-1).at, song.loop?.end ?? 0) + 4 * BAR,
+    };
+  }
+
+  function mapGeometry() {
+    const { first, end } = timeBounds();
+    const width = Math.max(0, s.w - x0);
+    const duration = Math.max(1, end - first);
+    const left = x0 + ((timeAt(x0) - first) / duration) * width;
+    const visible = Math.min(width, ((s.w - x0) / view.ppq / duration) * width);
+    return { first, end, width, duration, left, visible };
+  }
+
+  function scrollFromMap(x, offset) {
+    const { first, width, duration } = mapGeometry();
+    if (width <= 0) return;
+    const left = first + clamp((x - x0 - offset) / width, 0, 1) * duration;
+    view.sx = left * view.ppq;
+    limitScroll();
+    s.redraw();
   }
 
   function paint(g, w, h) {
@@ -386,6 +415,27 @@ export function createArranger(host, ctx) {
     g.fillStyle = '#6e6e76';
     g.font = `500 9.5px ${FONT}`;
     g.fillText('Sig', 10, SIG_H / 2 + 0.5);
+    const map = mapGeometry();
+    g.fillStyle = '#111114';
+    g.fillRect(x0, MAP_Y, w - x0, MAP_H);
+    const lanes = Math.max(1, ...song.clips.map((c) => Math.round(c.y / CLIP_H) + 1));
+    for (const clip of song.clips) {
+      const left = x0 + ((clip.start - map.first) / map.duration) * map.width;
+      const right = x0 + ((clip.start + clip.length - map.first) / map.duration) * map.width;
+      const laneY = MAP_Y + 2 + (Math.round(clip.y / CLIP_H) / lanes) * (MAP_H - 4);
+      g.fillStyle = ctx.color(clip);
+      g.fillRect(left, laneY, Math.max(1, right - left), Math.max(1, (MAP_H - 4) / lanes));
+    }
+    g.fillStyle = 'rgba(255, 255, 255, 0.12)';
+    g.fillRect(map.left, MAP_Y, map.visible, MAP_H);
+    g.strokeStyle = '#e8e8ea';
+    g.lineWidth = 1;
+    g.strokeRect(Math.round(map.left) + 0.5, MAP_Y + 0.5, Math.max(1, map.visible - 1), MAP_H - 1);
+    g.strokeStyle = '#26262a';
+    g.beginPath();
+    g.moveTo(x0, MAP_Y + MAP_H - 0.5);
+    g.lineTo(w, MAP_Y + MAP_H - 0.5);
+    g.stroke();
     g.strokeStyle = '#26262a';
     g.lineWidth = 2;
     g.beginPath(); g.moveTo(0, RULER - 0.5); g.lineTo(w, RULER - 0.5); g.stroke();
@@ -509,6 +559,19 @@ export function createArranger(host, ctx) {
     if (dragging) return;
     cv.focus();
     pointer = s.local(e);
+    if (e.button === 0 && pointer.y >= MAP_Y && pointer.y < RULER && pointer.x >= x0) {
+      e.preventDefault();
+      const map = mapGeometry();
+      const inside = pointer.x >= map.left && pointer.x <= map.left + map.visible;
+      mapDrag = { offset: inside ? pointer.x - map.left : map.visible / 2 };
+      dragging = true;
+      scrollFromMap(pointer.x, mapDrag.offset);
+      capture(cv, e, (ev) => scrollFromMap(s.local(ev).x, mapDrag.offset), () => {
+        mapDrag = null;
+        dragging = false;
+      });
+      return;
+    }
     if (e.button === 1) {
       dragging = true;
       startPan(s, e, (dx, dy) => { view.sx -= dx; view.sy -= dy; s.redraw(); }, () => { dragging = false; });
@@ -789,6 +852,7 @@ export function createArranger(host, ctx) {
 
   cv.addEventListener('dblclick', (e) => {
     const { x, y } = s.local(e);
+    if (y >= MAP_Y && y < RULER) return;
     if (x < x0) return;
     const song = ctx.song();
     if (y < RULER) { // time signature change at the nearest bar line (or the one double-clicked)
@@ -804,6 +868,10 @@ export function createArranger(host, ctx) {
     pointer = s.local(e);
     if (e.buttons) return;
     const { x, y } = s.local(e);
+    if (y >= MAP_Y && y < RULER && x >= x0) {
+      cv.style.cursor = 'ew-resize';
+      return;
+    }
     hoverAt(x, y);
   });
   cv.addEventListener('pointerleave', () => { pointer = null; if (hoverId !== null) { hoverId = null; s.redraw(); } });
