@@ -381,9 +381,12 @@ export function createPianoRoll(host, ctx) {
     hover = inside && !h ? { pitch: pitchAt(x), t: Math.max(0, snapFloor(timeAt(y), step())) } : null;
     const keyboard = keysPlay() && inKeyboard(x, y);
     cv.style.cursor = keyboard ? 'pointer' : h?.part === 'head' ? 'move' : h ? 'ns-resize' : inside ? 'crosshair' : 'default';
-    cv.title = keyboard ? `${noteName(pitchAt(x))} - click to audition` : h ? `${noteName(h.note.pitch)}  start ${+h.note.start.toFixed(4)}  length ${+h.note.length.toFixed(4)} (quarters)` : '';
+    const menuTip = 'hold the right mouse button 250 ms for the menu';
+    cv.title = keyboard ? `${noteName(pitchAt(x))} - click to audition`
+      : h ? `${noteName(h.note.pitch)}  start ${+h.note.start.toFixed(4)}  length ${+h.note.length.toFixed(4)} (quarters) — right-click deletes, ${menuTip}`
+        : inside ? `Click to add a note — ${menuTip}` : '';
     const v = ctx.clip() ? vel.hover(x, y) : null;
-    if (v) { cv.style.cursor = v.cursor; cv.title = v.title; }
+    if (v) { cv.style.cursor = v.cursor; cv.title = `${v.title} — right-click for the menu`; }
     s.redraw();
   }
 

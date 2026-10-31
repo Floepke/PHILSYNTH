@@ -371,7 +371,7 @@ function showName(entry, el = entry.el?.querySelector('.module-name')) {
   el.title = entry.name ? `${entry.name} (${entry.def.label})` : '';
 }
 
-// Patch modules: open (Enter, double right-click or the right-click menu); Esc goes up again
+// Patch modules: open (Enter, double-click or the right-click menu); Esc goes up again
 function openPatch(entry) {
   if (!entry?.inst.patch) return;
   path.push({ patch: entry.inst.patch, name: `Patch #${entry.id}`, id: entry.id });
@@ -380,7 +380,7 @@ function openPatch(entry) {
 
 // Rename in place: an input over the module's name. Enter / leaving it keeps the name, Escape
 // cancels; an empty name restores the default.
-// Double-click a module, F2 or the right-click menu start it.
+// F2 or the right-click menu start it.
 function startRename(entry) {
   const label = entry.el?.querySelector('.module-name');
   if (!label || entry.el.querySelector('.module-rename')) return;
@@ -440,7 +440,7 @@ function createBox(entry) {
     badge.className = 'midi-badge';
     badge.textContent = 'MIDI';
     badge.addEventListener('pointerdown', (e) => e.stopPropagation()); // no drag / selection change
-    badge.addEventListener('dblclick', (e) => e.stopPropagation()); // no rename
+    badge.addEventListener('dblclick', (e) => e.stopPropagation()); // don't open a Patch
     badge.addEventListener('click', (e) => {
       e.stopPropagation();
       if (midiTarget() !== entry) return;
@@ -499,8 +499,8 @@ function createBox(entry) {
   });
 
   el.addEventListener('dblclick', (e) => {
-    e.stopPropagation();
-    startRename(entry);
+    e.stopPropagation(); // no insert dialog
+    if (entry.inst.patch) openPatch(entry);
   });
   world.appendChild(el);
 }
@@ -834,25 +834,11 @@ function openPatcherMenu(target, x, y) {
   if (onModule && entry.name) items.push({ label: 'Reset name', action: () => { current().rename(entry.id, ''); showName(entry); drawCables(); } });
   showMenu({ x, y, items });
 }
-// Right-click a module, cable or the canvas: menu. Double right-click a PATCH module opens it (the
-// second press closes the menu the first one opened and reaches the canvas again).
-const DOUBLE_RIGHT_MS = 400;
-let lastRight = null; // { entry, time } of the last right press on a patch module
+// Right-click a module, cable or the canvas: menu.
 canvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 2 || e.target.closest('input, .module-rename')) return;
   e.preventDefault();
-  const target = e.target;
-  const box = target.closest('.module');
-  const entry = box ? current().modules.get(+box.dataset.id) : null;
-  if (entry?.inst.patch) {
-    if (lastRight?.entry === entry && e.timeStamp - lastRight.time < DOUBLE_RIGHT_MS) {
-      lastRight = null;
-      openPatch(entry);
-      return;
-    }
-    lastRight = { entry, time: e.timeStamp };
-  } else lastRight = null;
-  openPatcherMenu(target, e.clientX, e.clientY);
+  openPatcherMenu(e.target, e.clientX, e.clientY);
 });
 canvas.addEventListener('contextmenu', (e) => {
   if (e.target.closest('input, .module-rename')) return;
@@ -1016,7 +1002,7 @@ function select(s) {
       hint('<kbd>Backspace</kbd> deletes the selection.'),
       hint('<b>Context menus:</b> in the patcher, the TimeLine and the velocity lane a normal <kbd>right</kbd>-click opens the menu. In the piano roll hold the right mouse button still for <b>250 ms</b> (moving 5 px or more first cancels it); there a short right-click deletes a note. On the TimeLine ruler a right-click removes a time signature or the loop region.'),
       hint(`Right-click a module, cable or the canvas for <b>Cut / Copy / Paste / Delete</b> (or press the keyboard menu key; shortcuts <kbd>${shortcut('X')}</kbd> <kbd>${shortcut('C')}</kbd> <kbd>${shortcut('V')}</kbd>; paste lands at the mouse pointer). <b>Rename…</b> (or <kbd>F2</kbd>) gives a module its own name on its box; the controller panel keeps showing the module type.`),
-      hint('<kbd>Double-click</kbd> a module (or <kbd>F2</kbd>) to rename it. Select a Patch and press <kbd>Enter</kbd> (or <kbd>Double right-click</kbd> it, or right-click → Open patch) to enter it, <kbd>Esc</kbd> (or the mouse <b>back</b> button) to go up. At the main layer, <kbd>Esc</kbd> asks <b>Exit to OS?</b>; Yes autosaves and closes the app.'),
+      hint('Select a module and press <kbd>F2</kbd> (or right-click → Rename…) to rename it. <kbd>Double-click</kbd> a Patch (or select it and press <kbd>Enter</kbd>, or right-click → Open patch) to enter it, <kbd>Esc</kbd> (or the mouse <b>back</b> button) to go up. At the main layer, <kbd>Esc</kbd> asks <b>Exit to OS?</b>; Yes autosaves and closes the app.'),
       hint('Select a Patch and click <b>Controllers…</b> to map controllers of any module inside to controllers of the Patch module, so they can be set, modulated (LFO) and automated from outside.'),
       hint('OSC / ADSR: with <b>Sustain</b> at 0, <b>Decay</b> and <b>Release</b> are linked: moving one moves the other.'),
       hint('<kbd>Middle mouse</kbd> + drag pans the canvas, <kbd>scroll</kbd> zooms. Click the zoom % (bottom right) to fit all modules.'),
