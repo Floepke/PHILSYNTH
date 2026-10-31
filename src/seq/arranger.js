@@ -21,6 +21,8 @@
 //   click the ruler            set the play position (the signature row too: click / drag scrubs)
 //   drag on the ruler          select a loop region (snapped); song playback loops inside it
 //   drag the overview map      scroll sideways over the time axis
+//   wheel / Shift + wheel      scroll sideways over the time axis / scroll the lanes
+//   middle-drag, Ctrl/Cmd + wheel  pan / zoom the time axis
 //   right-click the region     remove it (the ruler, a short click)
 //   double-click the ruler     insert a time signature change at the nearest bar line (or edit it)
 //   right-click a signature    remove that change (the first one can only be edited)
@@ -65,7 +67,7 @@ export function createArranger(host, ctx) {
 
   const s = createSurface(host, paint);
   const { cv } = s;
-  cv.title = 'Drag the overview map to scroll sideways through the timeline';
+  cv.title = 'Wheel or drag the overview map to scroll sideways; Shift + wheel scrolls lanes';
   const xOf = (t) => x0 + t * view.ppq - view.sx;
   const yOf = (y) => RULER + y - view.sy;
   const timeAt = (x) => (x - x0 + view.sx) / view.ppq;
@@ -144,7 +146,8 @@ export function createArranger(host, ctx) {
   function limitScroll() {
     const song = ctx.song();
     const { first, end } = timeBounds();
-    view.sx = clamp(view.sx, first * view.ppq, Math.max(0, end * view.ppq - (s.w - x0)));
+    // the end may scroll to the middle of the view, so there is always room to scroll sideways
+    view.sx = clamp(view.sx, first * view.ppq, Math.max(first * view.ppq, end * view.ppq - (s.w - x0) / 2));
     const bottom = song.clips.reduce((m, c) => Math.max(m, c.y + CLIP_H), 0);
     view.sy = clamp(view.sy, 0, Math.max(0, bottom + 2 * CLIP_H - (s.h - RULER)));
   }
@@ -902,10 +905,11 @@ export function createArranger(host, ctx) {
       view.sx = t * view.ppq - (x - x0);
       s.redraw();
     },
+    // the wheel scrolls along the time axis; Shift + wheel scrolls the lanes
     scroll(dx, dy, e) {
       pointer = s.local(e);
-      view.sx += dx;
-      view.sy += dy;
+      if (e.shiftKey) view.sy += dx + dy;
+      else view.sx += dx + dy;
       s.redraw();
     },
   });

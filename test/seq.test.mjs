@@ -653,6 +653,24 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.ok(arranger.getView().sx < 0, 'dragging the map viewport navigates toward earlier time');
 }
 
+// The mouse wheel scrolls the TimeLine sideways over time; Shift + wheel scrolls the lanes.
+{
+  const { song, arranger } = setup();
+  const cv = arranger.surface.cv;
+  addClip(song, { start: 0, length: 4, y: 400 });
+  arranger.setView({ sx: 0, sy: 0 }); flush();
+  fire(cv, 'wheel', { clientX: 200, clientY: 100, deltaX: 0, deltaY: 40, deltaMode: 0 }); flush();
+  assert.equal(arranger.getView().sx, 40, 'a plain wheel scrolls toward later time');
+  assert.equal(arranger.getView().sy, 0, 'a plain wheel leaves the lanes alone');
+  fire(cv, 'wheel', { clientX: 200, clientY: 100, deltaX: 0, deltaY: -20, deltaMode: 0 }); flush();
+  assert.equal(arranger.getView().sx, 20, 'wheeling back scrolls toward earlier time');
+  fire(cv, 'wheel', { clientX: 200, clientY: 100, deltaX: 0, deltaY: 30, deltaMode: 0, shiftKey: true }); flush();
+  assert.equal(arranger.getView().sx, 20);
+  assert.equal(arranger.getView().sy, 30, 'Shift + wheel scrolls the lanes');
+  drag(cv, 200, 100, 180, 100, { button: 1 }); flush();
+  assert.equal(arranger.getView().sx, 40, 'middle-drag still pans');
+}
+
 // Context menu: Consolidate the selected clips of one lane, Split at the playhead; the signature
 // row sets / scrubs the play position.
 {
