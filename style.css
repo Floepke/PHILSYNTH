@@ -684,7 +684,11 @@ dialog select {
   font: 13px var(--font);
 }
 dialog menu { display: flex; gap: 8px; justify-content: flex-end; padding: 0; margin: 18px 0 0; }
-#insert-dialog { width: 380px; }
+/* as tall as the module list needs; it only scrolls when the window is shorter than that */
+#insert-dialog { width: min(560px, 94vw); max-height: calc(100vh - 32px); }
+#insert-dialog[open] { display: flex; flex-direction: column; }
+#insert-dialog form { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
+#insert-dialog .listbox { max-height: none; flex: 1 1 auto; min-height: 0; }
 .listbox {
   max-height: min(360px, 60vh);
   overflow-y: auto;
@@ -697,7 +701,7 @@ dialog menu { display: flex; gap: 8px; justify-content: flex-end; padding: 0; ma
 .listbox:focus-visible { border-color: var(--text-dim, #a0a0a8); }
 .listbox-item {
   display: grid;
-  grid-template-columns: 12px 92px 1fr;
+  grid-template-columns: 12px 116px 1fr;
   align-items: center;
   gap: 10px;
   padding: 7px 10px;

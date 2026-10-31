@@ -53,6 +53,50 @@ export function capture(cv, e, onMove, onUp) {
   return up;
 }
 
+// Auto-scroll while dragging near (or past) the edges of the scrollable area. update(p) with the
+// local pointer after every move; while p is within `edge` px of an edge (or beyond it), every
+// tick calls scroll(dx, dy) (px, faster the deeper the pointer is) and then onScroll() so the drag
+// is re-applied at the new view. stop() when the drag ends. area() -> { left, top, right, bottom };
+// vertical: false keeps dy at 0.
+export const EDGE_SCROLL_PX = 32;
+export const EDGE_SCROLL_MS = 16;
+const EDGE_SCROLL_MAX = 40; // px per tick
+export function edgeScroll({ area, scroll, onScroll, vertical = true, edge = EDGE_SCROLL_PX }) {
+  let p = null;
+  let timer = null;
+  const axis = (lo, hi, x) => {
+    const e = Math.min(edge, Math.max(0, (hi - lo) / 4));
+    const rate = (d) => Math.min(EDGE_SCROLL_MAX, Math.max(1, d * 0.6));
+    if (x < lo + e) return -rate(lo + e - x);
+    if (x > hi - e) return rate(x - (hi - e));
+    return 0;
+  };
+  const velocity = () => {
+    if (!p) return [0, 0];
+    const a = area();
+    return [axis(a.left, a.right, p.x), vertical ? axis(a.top, a.bottom, p.y) : 0];
+  };
+  const stop = () => {
+    clearInterval(timer);
+    timer = null;
+  };
+  const tick = () => {
+    const [dx, dy] = velocity();
+    if (!dx && !dy) { stop(); return; }
+    scroll(dx, dy);
+    onScroll();
+  };
+  return {
+    update(point) {
+      p = point;
+      const [dx, dy] = velocity();
+      if ((dx || dy) && !timer) timer = setInterval(tick, EDGE_SCROLL_MS);
+      else if (!dx && !dy) stop();
+    },
+    stop() { p = null; stop(); },
+  };
+}
+
 export const RIGHT_HOLD_MS = 250;
 export const RIGHT_HOLD_SLOP = 5; // px the pointer may move before a right-button hold is cancelled
 

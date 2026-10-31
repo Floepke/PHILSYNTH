@@ -9,6 +9,7 @@
 //   drag a clip                move it, or the whole selection (time snaps, vertical snaps to lanes)
 //   clips snap out of overlaps to the nearest free position; resizing stops at neighbours
 //   drag a clip's left/right edge  trim the start / set the length (snaps)
+//   (while dragging, holding the pointer near an edge of the time area auto-scrolls the view)
 //   Alt + drag                 duplicate (standalone copies with the same name)
 //   Shift + drag               linked clone: shares the notes with the source (see song.js); clones
 //                              are hatched, a selected clone shows a dashed arrow to its source
@@ -32,7 +33,7 @@ import {
   meter, barLines, barRound, barLength, removeSig, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource, setLoop,
   canConsolidate, consolidateClips, splitClip,
 } from '../song.js';
-import { createSurface, capture, startPan, onWheel, clamp, snapBands, rightHold } from './surface.js';
+import { createSurface, capture, startPan, onWheel, clamp, snapBands, rightHold, edgeScroll } from './surface.js';
 import { CLIP_H, findClipPosition, clipResizeBounds } from './clipplacement.js';
 import { showMenu, shortcut } from './menu.js';
 
@@ -681,7 +682,15 @@ export function createArranger(host, ctx) {
     let moved = false;
     dragging = true;
     cv.style.cursor = part === 'body' ? 'grabbing' : 'ew-resize';
-    capture(cv, e, (ev) => {
+    let last = null;
+    // dragging near an edge of the time area scrolls it, so a clip can travel anywhere in one drag
+    const auto = edgeScroll({
+      area: () => ({ left: x0, top: RULER, right: s.w, bottom: s.h }),
+      vertical: part === 'body',
+      scroll: (dx, dy) => { view.sx += dx; view.sy += dy; limitScroll(); },
+      onScroll: () => { if (last) apply(last); },
+    });
+    const apply = (ev) => {
       const p = s.local(ev);
       if (!moved && Math.hypot(p.x - x, p.y - y) < 3) return; // a click is not a move
       const dt = timeAt(p.x) - tStart;
@@ -700,7 +709,13 @@ export function createArranger(host, ctx) {
       moved = true;
       s.redraw();
       ctx.live?.();
+    };
+    capture(cv, e, (ev) => {
+      last = ev;
+      apply(ev);
+      if (moved) auto.update(s.local(ev));
     }, (ev) => {
+      auto.stop();
       dragging = false;
       if (copying && (!moved || ev.type === 'pointercancel')) { // Alt/Shift + click or cancel: no copy
         for (const c of members) removeClip(song, c.id);

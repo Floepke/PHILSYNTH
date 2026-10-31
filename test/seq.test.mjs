@@ -671,6 +671,43 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(arranger.getView().sx, 40, 'middle-drag still pans');
 }
 
+// Dragging a clip close to an edge of the time area auto-scrolls the TimeLine, carrying the clip.
+{
+  mock.timers.enable({ apis: ['setInterval'] });
+  try {
+    const { song, clip, arranger, changes } = setup();
+    const cv = arranger.surface.cv;
+    clip.length = 4;
+    addClip(song, { start: 0, length: 4, y: 400 });
+    arranger.setView({ sx: 0, sy: 0 }); flush();
+    point(cv, 'pointerdown', ax(1), ay(0), { buttons: 1 });
+    point(cv, 'pointermove', 478, ay(0), { buttons: 1 });
+    const before = clip.start;
+    mock.timers.tick(1000); flush();
+    const { sx } = arranger.getView();
+    assert.ok(sx > 100, `the view scrolled right (${sx})`);
+    assert.ok(clip.start > before + 4, `the clip travelled with the view (${clip.start})`);
+    point(cv, 'pointermove', 300, ay(0), { buttons: 1 }); // back inside: scrolling stops
+    mock.timers.tick(1000); flush();
+    assert.equal(arranger.getView().sx, sx);
+    point(cv, 'pointermove', 478, ay(0), { buttons: 1 });
+    point(cv, 'pointerup', 478, ay(0));
+    const after = arranger.getView().sx;
+    mock.timers.tick(1000); flush();
+    assert.equal(arranger.getView().sx, after, 'releasing stops the auto-scroll');
+    assert.ok(changes() > 0);
+    const cx = 70 + (clip.start + 1) * 16 - after; // grab the clip where it now is
+    assert.ok(cx > 70 && cx < 480);
+    point(cv, 'pointerdown', cx, ay(0), { buttons: 1 }); // and leftwards
+    point(cv, 'pointermove', 72, ay(0), { buttons: 1 });
+    mock.timers.tick(300); flush();
+    assert.ok(arranger.getView().sx < after, 'the view scrolls back left');
+    point(cv, 'pointerup', 72, ay(0));
+  } finally {
+    mock.timers.reset();
+  }
+}
+
 // Context menu: Consolidate the selected clips of one lane, Split at the playhead; the signature
 // row sets / scrubs the play position.
 {

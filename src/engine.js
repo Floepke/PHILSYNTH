@@ -33,6 +33,7 @@ export class Engine {
     this.ctx = new AudioContext({ latencyHint: 'interactive' });
     await this.ctx.audioWorklet.addModule(new URL('./engine.worklet.js', import.meta.url));
     const wasm = await loadWasm();
+    this.wasm = wasm; // kept for offline renders (src/render.js)
     this.node = new AudioWorkletNode(this.ctx, 'modsynth-engine', {
       numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { wasm },
     });

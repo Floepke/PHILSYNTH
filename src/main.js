@@ -19,6 +19,7 @@ import { MAX_NAME, cableSignals } from './patch.js';
 import { showMenu, shortcut } from './seq/menu.js';
 import { rightHold } from './seq/surface.js';
 import { createHistory } from './history.js';
+import { renderSong, encodeWav } from './render.js';
 
 const engine = new Engine();
 let transport = null; // song playback (created after the engine)
@@ -892,11 +893,12 @@ function select(s) {
       hint('<b>TimeLine selection &amp; clones:</b> drag on empty TimeLine space for a selection rectangle (<kbd>Ctrl/Cmd</kbd> adds), <kbd>Ctrl/Cmd</kbd> + click toggles a clip. Dragging moves the whole selection; <kbd>Alt</kbd> + drag copies it, <kbd>Shift</kbd> + drag makes <i>linked clones</i> that share their notes with the source (marked ⧉): editing one edits all. Clones are drawn with diagonal stripes and a dashed outline; a selected clone shows a dashed arrow to its source. Hold right-click on a clip for cut / copy / paste / delete / duplicate / clone / detach (turns a clone into a standalone clip) / go to source / <i>Consolidate</i> (two or more selected clips on one lane become one clip spanning them; module and name come from the first clip) / <i>Split at playhead</i> (cuts the selected clips under the playhead in two). <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> clones, <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd> duplicates.'),
       hint('<b>Undo / redo:</b> <kbd>Ctrl/Cmd</kbd> + <kbd>Z</kbd> undoes edits in the patcher and sequencer, <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> (or <kbd>Ctrl</kbd> + <kbd>Y</kbd>) redoes.'),
       hint('<b>Loop region:</b> click the TimeLine ruler (the signature row too, where dragging scrubs) to set the play position, drag along it to select a loop region (snapped to the grid, shown in blue). Song playback then loops inside the region and starts at its beginning. Right-click the region in the ruler to remove it; playback goes back to looping the whole song.'),
-      hint('<b>TimeLine lanes:</b> clips sit on numbered lanes (the numbers left of the clips), one clip high; dragging up / down snaps to them. Scroll left past the bright zero line to park clips before the song start: they are not played (<kbd>/</kbd> still auditions them), which suits source clips whose clones make up the song. The mouse wheel scrolls sideways over time, <kbd>Shift</kbd> + wheel scrolls the lanes, middle-drag pans and <kbd>Ctrl/Cmd</kbd> + wheel zooms.'),
+      hint('<b>TimeLine lanes:</b> clips sit on numbered lanes (the numbers left of the clips), one clip high; dragging up / down snaps to them. Scroll left past the bright zero line to park clips before the song start: they are not played (<kbd>/</kbd> still auditions them), which suits source clips whose clones make up the song. The mouse wheel scrolls sideways over time, <kbd>Shift</kbd> + wheel scrolls the lanes, middle-drag pans and <kbd>Ctrl/Cmd</kbd> + wheel zooms. Dragging a clip close to an edge auto-scrolls the TimeLine, so a clip can be moved anywhere in one drag.'),
       hint('<b>TimeLine placement:</b> moving, cloning, pasting or creating a clip snaps it to the nearest non-overlapping position. Clip edges take priority over the time grid; resizing stops at neighbouring clips. Use separate vertical rows for clips that play at the same time.'),
       hint('<b>Playback:</b> <kbd>/</kbd> starts and loops only the selected clip from its start. <kbd>\'</kbd> stops playback; pressing <kbd>\'</kbd> again is a panic (all notes off, echo / reverb tails cut, all audio state reset). <kbd>.</kbd> plays/resumes the full song, and <kbd>,</kbd> restarts the song at zero. <kbd>Space</kbd> toggles play/stop; stopping with <kbd>Space</kbd> (or the ■ button) moves the playhead to the start of the selected clip, so the next <kbd>Space</kbd> plays from there. Shortcuts are inactive while typing in a field. Note chasing: starting or jumping into the middle of a note plays it for the rest of its length.'),
       hint('<b>Controls:</b> scroll a dropdown to change its selection. Number fields have permanent up/down buttons and also support scrolling; <kbd>Double-click</kbd> a number (or use <kbd>Tab</kbd>) to type. Mouse adjustments leave keyboard focus in the editor so <kbd>Space</kbd> still plays.'),
       hint('<b>Toolbar:</b> controls stay on one row. When space is tight, move the pointer toward the left or right edge to reveal hidden controls; the closer to the edge, the faster it moves. Move to the middle to stop. Clicking, typing or using the wheel pauses motion; the wheel still changes control values. <kbd>Tab</kbd> also reveals focused controls.'),
+      hint('<b>EXPORT WAV:</b> choose where to save, then the song renders offline (much faster than real time) from its start to the end of the last clip, or just the loop region when one is set, plus the sound tail (releases, echoes, reverb; at most 10 s). The file is 24-bit stereo at the audio device\'s sample rate. The status bar warns when the mix clips.'),
       hint('<b>Layout:</b> piano roll, patcher and TimeLine are stacked top to bottom. Drag either horizontal divider up/down; when the patcher closes, the dragged divider pushes the other one. Drag to an edge to hide a pane and back to reopen it; at the top the dividers stop under the play/stop toolbar, where the piano keyboard is just hidden. Positions are saved with the project. The piano keyboard stays at the bottom of the roll; selected notes are filled blue.'),
       hint('The piano roll fits all <b>128 MIDI notes (0–127)</b> across its width and rescales with the window width. Horizontal zoom is automatic; <kbd>Alt</kbd> + scroll no longer changes key width. Scroll upward to reveal a small margin above beat zero. <kbd>Ctrl/Cmd</kbd> + scroll still zooms time.'),
       hint('Drag the left controller-panel divider to resize the panel, or fully left to hide it. Its handle stays available to reopen it, and the width is saved with the project.'),
@@ -1067,6 +1069,68 @@ $('save').onclick = () => {
   URL.revokeObjectURL(a.href);
 };
 $('load').onclick = () => $('file').click();
+
+// ---- EXPORT WAV ----
+// The save dialog comes first (it needs the click's user activation), then the song renders
+// offline (src/render.js) and is written there. Without the File System Access API the file is
+// downloaded instead (the desktop app shows a save dialog for it, see electron/main.mjs).
+let exporting = false;
+$('export-wav').onclick = async () => {
+  if (exporting) return;
+  const button = $('export-wav');
+  const suggestedName = 'modsynth-song.wav';
+  let handle = null;
+  if (typeof window.showSaveFilePicker === 'function') {
+    try {
+      handle = await window.showSaveFilePicker({ suggestedName, types: [{ description: 'WAV audio', accept: { 'audio/wav': ['.wav'] } }] });
+    } catch (err) {
+      if (err?.name === 'AbortError') return; // dialog cancelled
+      console.warn('Save dialog unavailable, downloading instead:', err);
+    }
+  }
+  exporting = true;
+  button.disabled = true;
+  const status = $('status');
+  try {
+    const project = JSON.parse(JSON.stringify(engine.saveProject()));
+    const sampleRate = engine.ctx?.sampleRate || 48000;
+    const wasm = engine.dspInfo?.dsp === 'wasm' ? engine.wasm : null;
+    status.textContent = 'Rendering WAV… 0%';
+    const out = await renderSong(project, {
+      sampleRate,
+      wasm,
+      onProgress: (f) => { status.textContent = `Rendering WAV… ${Math.round(f * 100)}%`; },
+    });
+    const blob = new Blob([encodeWav(out.left, out.right, sampleRate)], { type: 'audio/wav' });
+    const name = handle?.name ?? suggestedName;
+    const download = () => {
+      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name });
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    };
+    if (handle) {
+      try {
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+      } catch (err) {
+        // write access refused (e.g. by the platform): save it as a download instead
+        console.warn('Writing the chosen file failed, downloading instead:', err);
+        download();
+      }
+    } else download();
+    const secs = Math.round(out.seconds);
+    const length = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+    const clipped = out.peak > 1 ? ` Clipped: peak +${(20 * Math.log10(out.peak)).toFixed(1)} dBFS, lower the Output level.` : '';
+    status.textContent = `Exported ${name} (${length}, ${sampleRate} Hz, 24-bit stereo).${clipped}`;
+  } catch (err) {
+    console.error('WAV export failed:', err);
+    status.textContent = `Export failed: ${err.message}`;
+  } finally {
+    exporting = false;
+    button.disabled = false;
+  }
+};
 $('file').onchange = async (e) => {
   const file = e.target.files[0];
   e.target.value = '';

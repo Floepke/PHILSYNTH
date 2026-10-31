@@ -8,7 +8,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // A fixed port keeps the same origin, so the browser-storage autosave survives restarts.
 const PORT = Number(process.env.MODSYNTH_PORT) || 8767;
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const TRUSTED = new Set(['midi', 'midiSysex', 'media', 'clipboard-sanitized-write', 'fullscreen']);
+// fileSystem: writing the file chosen in the EXPORT WAV save dialog (File System Access API)
+const TRUSTED = new Set(['midi', 'midiSysex', 'media', 'clipboard-sanitized-write', 'fullscreen', 'fileSystem']);
 
 // audio may start without a click first (the AudioContext resumes on load)
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -62,6 +63,10 @@ function createWindow(url) {
   });
   // Save downloads the project: the save dialog offers the .mds project format
   win.webContents.session.on('will-download', (_e, item) => {
+    if (item.getFilename().endsWith('.wav')) {
+      item.setSaveDialogOptions({ title: 'Export WAV', filters: [{ name: 'WAV audio', extensions: ['wav'] }] });
+      return;
+    }
     if (!item.getFilename().endsWith('.mds')) return;
     item.setSaveDialogOptions({ title: 'Save ModSynth project', filters: [{ name: 'ModSynth project', extensions: ['mds'] }] });
   });
