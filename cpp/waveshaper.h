@@ -19,6 +19,7 @@ struct Waveshaper : Kernel {
   double s[T_N] = {1, 1, 0, 1};  // smoothed
   double k, dcR;
   struct Ch { double prev = 0, x1 = 0, y1 = 0; } ch[2];
+  void panic() override { for (auto& c : ch) c.prev = c.x1 = c.y1 = 0; }
 
   explicit Waveshaper(double sampleRate) : Kernel(sampleRate) {
     for (int i = 0; i < TABLE; i++) table[i] = (float)(-1 + (2.0 * i) / (TABLE - 1));

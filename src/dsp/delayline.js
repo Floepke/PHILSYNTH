@@ -16,6 +16,11 @@ export class DelayLine {
     return b[i] + (b[(i + 1) % this.length] - b[i]) * f;
   }
 
+  clear() {
+    for (const b of this.buffers) b.fill(0);
+    this.pos = 0;
+  }
+
   advance() {
     if (++this.pos === this.length) this.pos = 0;
   }

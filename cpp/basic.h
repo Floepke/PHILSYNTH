@@ -98,6 +98,7 @@ struct DcBlock : Kernel {
   double r, x1[2] = {0, 0}, y1[2] = {0, 0};
 
   explicit DcBlock(double sampleRate) : Kernel(sampleRate) { r = exp(-2 * PI * CUTOFF_HZ / sr); }
+  void panic() override { x1[0] = x1[1] = y1[0] = y1[1] = 0; }
 
   int process(const float* inL, const float* inR, float* outL, float* outR, int n) override {
     if (!inL) return 0;

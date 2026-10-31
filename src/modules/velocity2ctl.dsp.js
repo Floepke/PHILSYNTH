@@ -26,6 +26,8 @@ export default class Velocity2CtlKernel extends Kernel {
     else if (this.noteOffAction === 2) this.value = 1;
   }
 
+  panic() { if (this.lastId !== null) this.release(); }
+
   message(m) {
     switch (m.type) {
       case 'noteOn': this.lastId = m.id; this.value = clamp01(m.velocity); break;

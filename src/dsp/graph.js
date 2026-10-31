@@ -74,6 +74,7 @@ export class Graph {
       case 'routes': this.setRoutes(a, b); break;
       case 'clock': this.clock = !!a; break;
       case 'scope': this.setScope(a); break;
+      case 'panic': this.panic(); break;
     }
   }
 
@@ -165,6 +166,18 @@ export class Graph {
     if (node.modulator && m.id in node.depth) node.depth[m.id] = m.value;
     // a controller set by hand while modulated: re-apply the modulation on the next block
     for (const mod of this.mods) for (const r of mod.routes) if (r.node === node && r.id === m.id) r.last = NaN;
+  }
+
+  // MIDI/audio panic: every kernel drops its sounding state and the last block outputs are cleared
+  // (a feedback cable would otherwise feed them back in)
+  panic() {
+    for (const n of this.nodes.values()) {
+      n.k.panic?.();
+      for (const bufs of [n.outs, n.sums]) if (bufs) for (const [l, r] of bufs) { l.fill(0); r.fill(0); }
+      n.silent = true;
+      if (n.rec) this.x.ms_node_set_silent(n.rec, 1);
+    }
+    this.scopePk.fill(0);
   }
 
   setRoutes(h, list) {

@@ -12,7 +12,7 @@
 import { Kernel } from './kernel.js';
 import { curveTable, defaultCurve } from '../curve.js';
 
-export const WASM_VERSION = 5;
+export const WASM_VERSION = 6;
 
 // kind = Kind in cpp/engine.cpp; params in the order of the kernel's enum
 export const SPECS = {
@@ -118,6 +118,8 @@ function kernelClass(name, spec, x, heap, sr) {
     }
 
     get carrier() { return x.ms_carrier(this.ptr); }
+
+    panic() { x.ms_panic(this.ptr); }
 
     message(m) {
       switch (m.type) {

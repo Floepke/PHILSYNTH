@@ -7,7 +7,8 @@
 // All 128 MIDI pitches fit the available width; only time can be scrolled / zoomed.
 //   click / drag the keyboard  audition pitches on the clip's target without editing notes
 //   click / drag on empty space  insert a note (last used length), dragging sets its duration
-//   drag a note's coloured body  change the duration (of all selected notes when it is selected)
+//   drag a note's coloured body  set the duration: the end jumps to the pointer, snapped to the grid
+//                                (all selected notes change by the same amount when it is selected)
 //   drag a note's circle         change pitch (sideways) and start time (moves the whole selection)
 //   Shift + drag / right drag    select notes with a rectangle
 //   Shift + click a note         add it to / remove it from the selection
@@ -24,7 +25,7 @@
 // The velocity strip on the left edits the velocity (curves) of the selected notes, see velocity.js.
 // Everything snaps to the snap grid (base note ÷ divider).
 import { isBlack, inPiano, snapStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, clean, meter, barLines, beatLines, barLength } from '../song.js';
-import { createSurface, capture, startPan, onWheel, clamp, snapBands } from './surface.js';
+import { createSurface, capture, startPan, onWheel, clamp, snapBands, RIGHT_HOLD_MS, RIGHT_HOLD_SLOP } from './surface.js';
 import { createVelocityStrip, VEL_W } from './velocity.js';
 import { showMenu, shortcut } from './menu.js';
 
@@ -34,7 +35,6 @@ const GRID_HIGH = 106; // A#7
 
 const KEYBOARD = 24;
 const TOP_MARGIN = 32;
-const RIGHT_HOLD_MS = 500;
 const TILT = -Math.PI / 9;
 const GUTTER = 36; // bar / beat ruler (right of the velocity strip)
 const LEFT = VEL_W + GUTTER; // left edge of the note grid
@@ -404,7 +404,7 @@ export function createPianoRoll(host, ctx) {
     const update = (ev) => {
       if (held) return;
       pointer = s.local(ev);
-      if (!state.shown && Math.hypot(pointer.x - x, pointer.y - y) < dragThreshold()) return;
+      if (!state.shown && Math.hypot(pointer.x - x, pointer.y - y) < (onHold ? RIGHT_HOLD_SLOP : dragThreshold())) return;
       clearTimeout(timer);
       state.shown = true;
       state.x1 = clamp(pointer.x, LEFT, s.w);
@@ -525,7 +525,7 @@ export function createPianoRoll(host, ctx) {
     let moved = false;
     let pv = null;
     if (h?.part === 'body' && !dup) {
-      drag = { kind: 'length', t0: timeAt(y) }; // relative: no jump on click
+      drag = { kind: 'length' };
     } else if (h) {
       drag = { kind: 'move', t0: timeAt(y), p0: pitchAt(x) };
       pv = ctx.preview.on(clip, h.note.pitch);
@@ -555,8 +555,8 @@ export function createPianoRoll(host, ctx) {
       if (drag.kind === 'new') {
         group[0].length = Math.max(st, clean(snapRound(timeAt(p.y), st) - group[0].start));
       } else if (drag.kind === 'length') {
-        const end = a.start + a.length;
-        const dl = snapRound(end + timeAt(p.y) - drag.t0, st) - end;
+        // the end jumps to the snapped pointer position; the rest of the selection changes by the same amount
+        const dl = Math.max(st, snapRound(timeAt(p.y), st) - a.start) - a.length;
         group.forEach((n, i) => { n.length = Math.max(st, clean(origs[i].length + dl)); });
       } else {
         const dp = clamp(pitchAt(p.x) - drag.p0, -Math.min(...origs.map((o) => o.pitch)), PITCH_MAX - Math.max(...origs.map((o) => o.pitch)));

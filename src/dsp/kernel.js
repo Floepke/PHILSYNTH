@@ -7,6 +7,8 @@
 //   process(inputs, outputs) one render quantum, Web Audio shapes: inputs[0] = [L, R] or [] when
 //                            nothing is connected, outputs[0] = [L, R]. Return false when the
 //                            output is silent (the graph then skips it as a source).
+//   panic()                  MIDI/audio panic: drop all sounding state (voices, delay lines,
+//                            reverb tails, filter memory) at once; controller values stay
 //   value                    modulators (static modulator = true): 0..1, or null for "no value";
 //                            the graph maps it onto the controllers their cables point to.
 // Static flags: modulator (no audio, runs first every block), audio = false (never rendered),
@@ -25,6 +27,8 @@ export class Kernel {
   process() {
     return false;
   }
+
+  panic() {}
 }
 
 // Signal bus: output = sum of the inputs. Used for patch inputs/outputs and the master output.

@@ -45,6 +45,8 @@ export default class OscKernel extends Kernel {
     else if (m.type === 'allOff') this.voices.forEach((v) => (v.stage = 0));
   }
 
+  panic() { for (const v of this.voices) { v.stage = 0; v.level = 0; } }
+
   voiceOf(id) {
     for (let i = 0; i < this.poly; i++) if (this.voices[i].stage && this.voices[i].id === id) return this.voices[i];
     return null;

@@ -15,6 +15,7 @@ struct Modulator : Kernel {
     for (int ch = 0; ch < 2; ch++) buffers[ch] = (float*)calloc(size, sizeof(float));
   }
   ~Modulator() override { for (int ch = 0; ch < 2; ch++) free(buffers[ch]); }
+  void panic() override { for (int ch = 0; ch < 2; ch++) memset(buffers[ch], 0, size * sizeof(float)); }
 
   int carrier() const override { return carrierIndex; }
   void param(int id, double value) override {

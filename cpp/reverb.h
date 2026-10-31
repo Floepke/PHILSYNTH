@@ -179,6 +179,13 @@ struct Reverb : Kernel {
     for (auto& f : filt) f = 0;
   }
 
+  // silent at once, asleep until the next input (which snaps the smoothers again)
+  void panic() override {
+    clear();
+    sleeping = true;
+    quiet = 0;
+  }
+
   int process(const float* iL, const float* iR, float* oL, float* oR, int n) override {
     if (iL && !iR) iR = iL;
     double inPeak = 0;

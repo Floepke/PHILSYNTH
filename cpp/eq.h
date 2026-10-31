@@ -17,6 +17,10 @@ struct Eq : Kernel {
   float zero[4096] = {};
 
   explicit Eq(double sampleRate) : Kernel(sampleRate) {}
+  void panic() override {
+    for (auto& v : z) v = 0;
+    live = false;
+  }
 
   void param(int id, double v) override {
     if (id == Q) { if (v != q) { q = v; dirty = true; } }

@@ -82,6 +82,8 @@ export default class FilterKernel extends Kernel {
     for (const buf of this.comb) buf.fill(0);
   }
 
+  panic() { this.reset(); }
+
   // One SVF tick; results in this.v1 (band) and this.v2 (low).
   tick(st, v0, a1, a2, a3) {
     tickSvf(st, v0, a1, a2, a3);

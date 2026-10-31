@@ -1,6 +1,7 @@
 // Plays the song: the position runs in quarter notes at the main patch's BPM; clip notes are sent
 // as MODMIDI (see modmidi.js) to the module number each clip targets. Loops at loopEnd(song),
-// or at the exact bounds of a single clip when clipId is set.
+// or at the exact bounds of a single clip when clipId is set. A loop region (song.loop, set on the
+// TimeLine ruler) replaces the song bounds: playback jumps into it and loops there.
 // Note chasing: when playback starts or jumps (play, clip play, seek) into the middle of a note,
 // that note is triggered right away and plays for the rest of its length.
 // Velocity curves (note.vels, see song.js): every tick each sounding note's velocity is
@@ -9,7 +10,7 @@
 // automation clip under the playhead; setAuto(clipId, null, null) releases a clip when the
 // playhead leaves it or playback stops (the controller gets its own value back).
 import { newNoteId } from './modmidi.js';
-import { automationAt, getClip, loopEnd, notesSounding, notesStarting, noteVelAt } from './song.js';
+import { automationAt, getClip, loopEnd, loopRegion, notesSounding, notesStarting, noteVelAt } from './song.js';
 
 const TICK_MS = 5;
 
@@ -41,15 +42,21 @@ export class Transport {
     this.ticker = ticker(() => this.tick());
   }
 
+  // song bounds of song playback: the loop region, else [0, loopEnd)
+  songBounds(song = this.getSong()) {
+    const r = loopRegion(song);
+    return r ? [r.start, r.end] : [0, loopEnd(song)];
+  }
+
   play({ fromStart = false } = {}) {
-    const end = loopEnd(this.getSong());
-    if (end <= 0) {
+    const [start, end] = this.songBounds();
+    if (end <= start) {
       if (this.playing) this.stop();
       return false;
     }
     if (this.playing && this.clipId === null && !fromStart) return true;
     this.clipId = null;
-    return this.start(fromStart || this.pos >= end ? 0 : this.pos);
+    return this.start(fromStart || this.pos < start || this.pos >= end ? start : this.pos);
   }
 
   playClip(id) {
@@ -106,8 +113,7 @@ export class Transport {
     const song = this.getSong();
     const clip = getClip(song, this.clipId);
     if (this.clipId !== null && !clip) { this.stop(); return; }
-    const start = clip?.start ?? 0;
-    const end = clip ? clip.start + clip.length : loopEnd(song);
+    const [start, end] = clip ? [clip.start, clip.start + clip.length] : this.songBounds(song);
     if (end <= start) { this.stop(); return; }
     const span = end - start;
     const dt = Math.min(0.25, Math.max(0, (nowMs - this.last) / 1000)); // a stalled tab must not jump far ahead

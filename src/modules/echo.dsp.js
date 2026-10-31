@@ -58,6 +58,11 @@ export default class EchoKernel extends Kernel {
     return Math.abs(x) < 1e-20 ? 0 : x;
   }
 
+  panic() {
+    this.line.clear();
+    for (const ch of this.svf) for (const st of ch) st.ic1 = st.ic2 = st.band = st.low = 0;
+  }
+
   process(inputs, outputs) {
     const input = inputs[0];
     const out = outputs[0];

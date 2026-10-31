@@ -57,6 +57,7 @@ struct Filter : Kernel {
     p[id] = value;
   }
 
+  void panic() override { reset(); }
   void reset() {
     for (auto& ch : svf) for (auto& st : ch) st.ic1 = st.ic2 = 0;
     for (auto& ch : formant) for (auto& st : ch) st.ic1 = st.ic2 = 0;

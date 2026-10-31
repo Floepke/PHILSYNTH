@@ -115,6 +115,9 @@ export class DspHost {
     };
   }
 
+  // MIDI/audio panic on the audio thread (see Graph.panic).
+  panic() { this.post(['panic']); }
+
   // Cable display: the graph reports the output of these nodes (see Graph.scope) to onScope.
   scope(handles) { this.post(['scope', handles]); }
 

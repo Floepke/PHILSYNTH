@@ -201,6 +201,13 @@ export default class ReverbKernel extends Kernel {
     this.filt.fill(0);
   }
 
+  // silent at once, asleep until the next input (which snaps the smoothers again)
+  panic() {
+    this.clear();
+    this.sleeping = true;
+    this.quiet = 0;
+  }
+
   process(inputs, outputs) {
     const out = outputs[0];
     const oL = out[0];

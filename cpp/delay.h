@@ -36,6 +36,10 @@ struct DelayLine {
     return (double)b[i] + ((double)b[(i + 1) % length] - b[i]) * f;
   }
   void advance() { if (++pos == length) pos = 0; }
+  void clear() {
+    for (auto b : buffers) memset(b, 0, length * sizeof(float));
+    pos = 0;
+  }
 };
 
 struct Delay : Kernel {
@@ -58,6 +62,7 @@ struct Delay : Kernel {
     p[id] = id == UNIT ? clampd(toInt32(value), 0, 3) : value;
     updateDelay();
   }
+  void panic() override { line.clear(); }
   int process(const float* inL, const float* inR, float* outL, float* outR, int n) override {
     const float* in[2] = {inL, inR ? inR : inL};
     float* out[2] = {outL, outR};
@@ -102,6 +107,10 @@ struct Echo : Kernel {
     p[id] = value;
     if (id == DELAY || id == UNIT) updateDelay();
     if (!started && id == CUTOFF) logF = cutoffLog();
+  }
+  void panic() override {
+    line.clear();
+    for (auto& ch : svf) for (auto& st : ch) st.ic1 = st.ic2 = st.band = st.low = 0;
   }
   double filtered(int ch, double x, int stages, bool high) {
     for (int s = 0; s < stages; s++) {

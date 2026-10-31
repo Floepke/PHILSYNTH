@@ -33,6 +33,8 @@ export default class WaveshaperKernel extends Kernel {
     else if (id === 'level') this.t.level = v;
   }
 
+  panic() { for (const c of this.ch) c.prev = c.x1 = c.y1 = 0; }
+
   message(m) {
     if (m.type === 'param') this.param(m.id, m.value);
     else if (m.type === 'curve') { this.curve = m.curve; this.table = curveTable(m.curve, this.symmetric); }

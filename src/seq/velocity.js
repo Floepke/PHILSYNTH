@@ -11,12 +11,13 @@
 //   Shift + drag                       fine velocity
 //   double-click inside the selection  insert a curve point (hold the second press to drag it)
 //   mouse wheel on a point             round the corner
-//   right click                        toggle velocity snapping (1/16 increments, no grid);
+//   right click on a curve point       delete it (not the first point)
+//   hold right button 500 ms           menu: toggle velocity snapping (1/16 increments, no grid);
 //                                       on a curve point, the menu also offers Delete point
 import { snapStep, snapRound, clean, notePoints, noteVelAt, groupVelCurve, applyVelCurve } from '../song.js';
 import { curvePolyline, NEW_POINT_ROUND } from '../curve.js';
 import { doublePress } from '../doublepress.js';
-import { capture, clamp } from './surface.js';
+import { capture, clamp, rightHold } from './surface.js';
 
 export const VEL_W = 84;
 const PAD = 7;
@@ -244,24 +245,26 @@ export function createVelocityStrip(o) {
         presses.reset();
         const i = pointAt(x, y);
         const target = group;
-        const items = [{
-          label: 'Snap velocity values',
-          checked: o.snapVelocity(),
-          action: o.toggleSnapVelocity,
-        }];
-        if (i >= 0) items.push('-', {
-          label: 'Delete point',
-          disabled: i === 0,
-          action() {
-            if (sync() !== target) return;
-            group.points.splice(i, 1);
-            apply();
-            hover = null;
-            o.changed();
-            o.redraw();
+        const deletePoint = () => {
+          if (sync() !== target || i <= 0 || i >= group.points.length) return;
+          group.points.splice(i, 1);
+          apply();
+          hover = null;
+          o.changed();
+          o.redraw();
+        };
+        rightHold(o.cv, e, {
+          onShort: deletePoint,
+          onHold() {
+            const items = [{
+              label: 'Snap velocity values',
+              checked: o.snapVelocity(),
+              action: o.toggleSnapVelocity,
+            }];
+            if (i >= 0) items.push('-', { label: 'Delete point', disabled: i === 0, action: deletePoint });
+            o.menu({ x: e.clientX, y: e.clientY, items });
           },
         });
-        o.menu({ x: e.clientX, y: e.clientY, items });
         return true;
       }
       if (e.button !== 0) return true;

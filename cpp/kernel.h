@@ -33,6 +33,8 @@ struct Kernel {
   virtual void note(int, double, double, double, double) {}
   // Shared memory the JS side fills (e.g. the WAVESHAPER curve table); nullptr if unknown.
   virtual float* data(int, int) { return nullptr; }
+  // MIDI/audio panic: drop all sounding state at once, keep the controller values.
+  virtual void panic() {}
   // inL == nullptr: nothing connected. outR may equal outL (mono). Returns 0 for a silent output.
   virtual int process(const float* inL, const float* inR, float* outL, float* outR, int n) = 0;
   // Carrier-aware kernels get the selected input and the sum of all other inputs separately.

@@ -51,7 +51,7 @@ export const clean = (v) => Math.round(v * 1e9) / 1e9; // keep 0.1 + 0.2 style f
 export const snapRound = (t, step) => clean(Math.round(t / step) * step);
 export const snapFloor = (t, step) => clean(Math.floor(t / step + 1e-9) * step);
 
-export const emptySong = () => ({ clips: [], sigs: [{ at: 0, num: 4, den: 4 }], selected: null, snap: { base: 16, div: 1 }, nextId: 1 });
+export const emptySong = () => ({ clips: [], sigs: [{ at: 0, num: 4, den: 4 }], selected: null, snap: { base: 16, div: 1 }, nextId: 1, loop: null });
 
 const num = (v, d) => (Number.isFinite(v) ? v : d);
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
@@ -198,6 +198,7 @@ export function normalizeSong(s) {
   }
   song.nextId = Math.max(num(s.nextId, 1), ...song.clips.map((c) => c.id + 1), 1);
   song.selected = song.clips.some((c) => c.id === s.selected) ? s.selected : null;
+  setLoop(song, s.loop?.start, s.loop?.end);
   return song;
 }
 
@@ -394,6 +395,16 @@ export const loopEnd = (song) => {
   const end = songEnd(song);
   return end > 0 ? barCeil(song, end) : 0;
 };
+
+// Loop region (quarters, from the TimeLine ruler): song playback loops in [start, end) instead of
+// [0, loopEnd). null = no region. Never before time zero.
+export const loopRegion = (song) => song.loop ?? null;
+export function setLoop(song, start, end) {
+  const a = Math.max(0, num(Math.min(start, end), 0));
+  const b = num(Math.max(start, end), 0);
+  song.loop = b - a > 1e-9 ? { start: clean(a), end: clean(b) } : null;
+  return song.loop;
+}
 
 // Notes that start in [from, to) in song time. A note plays when it starts inside its clip;
 // it is cut at the clip end.

@@ -3,7 +3,7 @@
 // scroll left to park clips before it (they are not played by the song, / still auditions them).
 //   double-click empty space   insert a clip (one bar)
 //   double right-click empty   insert an automation clip (one bar, drives one controller)
-//   click a clip               select it (the piano roll shows it)
+//   click a clip               select it (the piano roll shows it); when stopped the playhead jumps to its start
 //   drag on empty space        select clips with a rectangle (Ctrl/Cmd + drag adds to the selection)
 //   Ctrl/Cmd + click a clip    add it to / remove it from the selection
 //   drag a clip                move it, or the whole selection (time snaps, vertical snaps to lanes)
@@ -12,20 +12,22 @@
 //   Alt + drag                 duplicate (standalone copies with the same name)
 //   Shift + drag               linked clone: shares the notes with the source (see song.js); clones
 //                              are hatched, a selected clone shows a dashed arrow to its source
-//   right-click                menu: cut / copy / paste / delete / duplicate / clone / detach / go to source
+//   hold right button 500 ms   menu: cut / copy / paste / delete / duplicate / clone / detach / go to source
 //   Backspace / Delete         delete the selected clips
 //   Ctrl/Cmd + X / C / V       cut / copy / paste clips at the snapped pointer position
 //   Ctrl/Cmd + D / Shift + D   duplicate / clone the selection right after itself
 //   Ctrl/Cmd + A, Escape       select all / clear the selection
-//   click / drag the ruler     set the play position
+//   click the ruler            set the play position
+//   drag on the ruler          select a loop region (snapped); song playback loops inside it
+//   right-click the region     remove it (the ruler, a short click)
 //   double-click the ruler     insert a time signature change at the nearest bar line (or edit it)
 //   right-click a signature    remove that change (the first one can only be edited)
 // Trimming the start of a linked clone trims all its clones (they share the notes).
 import {
   snapStep, snapFloor, snapRound, loopEnd, getClip, addClip, addAutoClip, isAuto, autoPolyline, duplicateClip, removeClip, trimClipStart, BAR, clean,
-  meter, barLines, barRound, barLength, removeSig, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource,
+  meter, barLines, barRound, barLength, removeSig, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource, setLoop,
 } from '../song.js';
-import { createSurface, capture, startPan, onWheel, clamp, snapBands } from './surface.js';
+import { createSurface, capture, startPan, onWheel, clamp, snapBands, rightHold } from './surface.js';
 import { CLIP_H, findClipPosition, clipResizeBounds } from './clipplacement.js';
 import { showMenu, shortcut } from './menu.js';
 
@@ -34,6 +36,7 @@ const RULER = 38; // signature row + bar numbers
 const LABEL = 'TimeLine:';
 const EDGE = 6;
 const PLAYHEAD = '#ff5a36';
+const LOOP = '74, 144, 226'; // loop region (rgb)
 const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
 const DOUBLE_MS = 400; // double right-click detection
@@ -50,7 +53,6 @@ export function createArranger(host, ctx) {
   let clipboard = null; // snapshots of the copied clips
   let dragging = false;
   let lastRight = null; // { time, x, y } of the last right-button press on empty space
-  let rightPress = null; // { x, y, cx, cy } right-button press that opens the menu on release
   let sel = new Set(); // selected clip ids; song.selected (the clip in the piano roll) is one of them
   let rect = null; // selection rectangle in progress: { x0, y0, x1, y1, ids }
   const menu = (opts) => (ctx.menu ?? showMenu)(opts);
@@ -107,7 +109,12 @@ export function createArranger(host, ctx) {
     sel = new Set(clips.map((c) => c.id));
     const p = primary ?? clips.find((c) => c.id === song.selected) ?? [...clips].sort((a, b) => a.start - b.start || a.y - b.y)[0] ?? null;
     if ((p?.id ?? null) !== song.selected) ctx.select(p?.id ?? null, { scroll: false });
+    park(p);
     s.redraw();
+  }
+  // selecting a clip while stopped moves the playhead to its start (playback is not disturbed)
+  function park(clip) {
+    if (clip && !ctx.transport.playing) ctx.transport.seek(clip.start);
   }
 
   // keep a clip in view
@@ -129,7 +136,7 @@ export function createArranger(host, ctx) {
 
   function limitScroll() {
     const song = ctx.song();
-    const end = Math.max(loopEnd(song), BAR, song.sigs.at(-1).at) + 4 * BAR;
+    const end = Math.max(loopEnd(song), BAR, song.sigs.at(-1).at, song.loop?.end ?? 0) + 4 * BAR;
     // room before time zero to park clips: 4 bars before the earliest clip (or zero)
     const first = Math.min(0, ...song.clips.map((c) => c.start)) - 4 * BAR;
     view.sx = clamp(view.sx, first * view.ppq, Math.max(0, end * view.ppq - (s.w - x0)));
@@ -199,13 +206,19 @@ export function createArranger(host, ctx) {
       }
     }
 
-    // Playback loops over the whole song or just the auditioned clip.
+    // Playback loops over the whole song, the loop region or just the auditioned clip.
     const looping = getClip(song, ctx.transport.clipId);
-    const bounds = looping ? [looping.start, looping.start + looping.length] : [loopEnd(song)];
-    for (const t of bounds) if (t !== 0) {
+    const region = song.loop;
+    if (region && !looping) {
+      const xa = Math.round(xOf(region.start));
+      g.fillStyle = `rgba(${LOOP}, 0.06)`;
+      g.fillRect(xa, RULER, Math.round(xOf(region.end)) - xa, h - RULER);
+    }
+    const bounds = looping ? [looping.start, looping.start + looping.length] : region ? [region.start, region.end] : [loopEnd(song)];
+    for (const t of bounds) if (t !== 0 || (region && !looping)) {
       const x = Math.round(xOf(t)) + 0.5;
       g.setLineDash([4, 4]);
-      g.strokeStyle = '#4a4a52';
+      g.strokeStyle = region && !looping ? `rgba(${LOOP}, 0.7)` : '#4a4a52';
       g.beginPath(); g.moveTo(x, RULER); g.lineTo(x, h); g.stroke();
       g.setLineDash([]);
     }
@@ -325,6 +338,15 @@ export function createArranger(host, ctx) {
     g.font = `500 10px ui-monospace, monospace`;
     g.textBaseline = 'middle';
     const barY = SIG_H + (RULER - SIG_H) / 2;
+    if (region) { // loop region: a band in the bar number row
+      const xa = Math.round(xOf(region.start));
+      const xb = Math.round(xOf(region.end));
+      g.fillStyle = `rgba(${LOOP}, ${looping ? 0.15 : 0.35})`;
+      g.fillRect(xa, SIG_H, xb - xa, RULER - SIG_H);
+      g.fillStyle = `rgba(${LOOP}, ${looping ? 0.4 : 0.95})`;
+      g.fillRect(xa, SIG_H, 2, RULER - SIG_H);
+      g.fillRect(xb - 2, SIG_H, 2, RULER - SIG_H);
+    }
     g.lineWidth = 2;
     let labelEnd = -Infinity;
     for (const b of bars) {
@@ -449,6 +471,7 @@ export function createArranger(host, ctx) {
     const clip = auto ? addAutoClip(song, { ...opts, target: ctx.defaultAutoTarget() }) : addClip(song, { ...opts, target: ctx.defaultTarget() });
     place(clip);
     ctx.select(clip.id);
+    park(clip);
     ctx.changed();
   }
 
@@ -474,6 +497,12 @@ export function createArranger(host, ctx) {
     if (id !== hoverId) { hoverId = id; s.redraw(); }
   }
 
+  // the loop region under local x (ruler), or null
+  function loopAt(x) {
+    const r = ctx.song().loop;
+    return r && x >= xOf(r.start) && x <= xOf(r.end) ? r : null;
+  }
+
   cv.addEventListener('pointerdown', (e) => {
     if (dragging) return;
     cv.focus();
@@ -486,10 +515,15 @@ export function createArranger(host, ctx) {
     const { x, y } = s.local(e);
     const song = ctx.song();
     if (e.button === 2) {
-      rightPress = null;
-      const box = sigAt(x, y); // right-click a time signature: remove it
-      if (box && removeSig(song, box.at)) { ctx.changed(); s.redraw(); }
-      if (y < RULER || x < x0) { lastRight = null; return; }
+      e.preventDefault();
+      const box = sigAt(x, y);
+      if (y < RULER || x < x0) {
+        lastRight = null;
+        // right-click a time signature: remove it; right-click the loop region: remove that
+        if (box) rightHold(cv, e, { onShort: () => { if (removeSig(ctx.song(), box.at)) { ctx.changed(); s.redraw(); } } });
+        else if (x >= x0 && loopAt(x)) rightHold(cv, e, { onShort: () => { ctx.song().loop = null; ctx.changed(); s.redraw(); } });
+        return;
+      }
       // double right-click on empty space: insert an automation clip
       if (!hit(x, y)) {
         const now = e.timeStamp;
@@ -500,21 +534,42 @@ export function createArranger(host, ctx) {
         }
         lastRight = { time: now, x, y };
       } else lastRight = null;
-      // a right click (no drag) opens the menu when released
-      rightPress = { x, y };
-      cv.setPointerCapture?.(e.pointerId);
+      // holding the right button still opens the menu
+      dragging = true;
+      rightHold(cv, e, {
+        onHold: () => { lastRight = null; openMenu(x, y, e.clientX, e.clientY); },
+        onEnd: () => { dragging = false; },
+      });
       return;
     }
     lastRight = null;
     if (e.button !== 0) return;
     const st = step();
     if (y < SIG_H) return; // signature row: double-click to insert / edit
-    if (y < RULER) { // ruler: set / scrub the play position
+    if (y < RULER) { // ruler: a click sets the play position, a drag selects the loop region
       if (x < x0) return;
-      const seek = (ev) => { ctx.transport.seek(Math.max(0, snapRound(timeAt(s.local(ev).x), st))); s.redraw(); };
-      seek(e);
+      const at = (ev) => Math.max(0, snapRound(timeAt(s.local(ev).x), st));
+      const a = at(e);
+      ctx.transport.seek(a);
+      s.redraw();
+      const before = song.loop;
+      let region = false;
       dragging = true;
-      capture(cv, e, seek, () => { dragging = false; });
+      capture(cv, e, (ev) => {
+        if (!region && Math.abs(s.local(ev).x - x) < 3) return;
+        region = true;
+        if (!setLoop(song, a, at(ev))) song.loop = before; // zero width: keep the old region for now
+        s.redraw();
+      }, (ev) => {
+        dragging = false;
+        if (!region) return;
+        if (ev.type === 'pointercancel') song.loop = before;
+        else if (song.loop !== before) {
+          if (!ctx.transport.playing) ctx.transport.seek(song.loop.start);
+          ctx.changed();
+        }
+        s.redraw();
+      });
       return;
     }
     if (x < x0) return;
@@ -575,22 +630,12 @@ export function createArranger(host, ctx) {
       if (copying && (!moved || ev.type === 'pointercancel')) { // Alt/Shift + click or cancel: no copy
         for (const c of members) removeClip(song, c.id);
         setSelection(group, source);
-      } else if (moved) ctx.changed();
+      } else if (moved) { park(clip); ctx.changed(); }
       else if (inSelection && part === 'body') setSelection([source], source); // click inside a selection: just this clip
       const p = s.local(ev);
       hoverAt(p.x, p.y);
     });
   });
-
-  cv.addEventListener('pointerup', (e) => {
-    if (e.button !== 2 || !rightPress) return;
-    const press = rightPress;
-    rightPress = null;
-    const { x, y } = s.local(e);
-    if (Math.hypot(x - press.x, y - press.y) > DOUBLE_PX) return;
-    openMenu(press.x, press.y, e.clientX, e.clientY);
-  });
-  cv.addEventListener('pointercancel', () => { rightPress = null; });
 
   // Drag on empty space: rectangle selection (additive keeps the current selection). A plain click
   // on empty space clears the selection.

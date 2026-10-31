@@ -54,6 +54,13 @@ export default class AdsrKernel extends Kernel {
     }
   }
 
+  // unlike allOff: a hard reset to 0 (the modulated controller may jump)
+  panic() {
+    this.held.clear();
+    this.stage = IDLE;
+    this.level = this.value = 0;
+  }
+
   gate(on, peak = 1) {
     if (on) { this.peak = peak; this.stage = ATTACK; }
     else if (this.stage !== IDLE) { this.stage = RELEASE; this.relFrom = this.level; }

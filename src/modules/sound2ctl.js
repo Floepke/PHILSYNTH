@@ -4,7 +4,7 @@ import { modulatorParams, outParams } from './modtarget.js';
 
 export default {
   type: 'SOUND2CTL',
-  color: '#e58cab',
+  color: '#aaa',
   label: 'SOUND2CTL (sound → controller)',
   acceptsMidi: false,
   hasInput: true,

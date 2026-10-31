@@ -53,6 +53,47 @@ export function capture(cv, e, onMove, onUp) {
   return up;
 }
 
+export const RIGHT_HOLD_MS = 500;
+export const RIGHT_HOLD_SLOP = 5; // px the pointer may move before a right-button hold is cancelled
+
+// Right button press: holding it still for RIGHT_HOLD_MS calls onHold() (the release then does
+// nothing); an earlier release calls onShort(ev). Moving `slop` px or more, the wheel, Escape,
+// blur or a lost capture cancel both. onEnd(ev) always runs last. Returns a cancel function.
+export function rightHold(el, e, { onShort, onHold, onEnd, slop = RIGHT_HOLD_SLOP }) {
+  let held = false;
+  let moved = false;
+  let timer = null;
+  const hold = () => {
+    if (held || moved) return;
+    held = true;
+    clearTimeout(timer);
+    onHold?.();
+  };
+  const key = (ev) => { if (ev.key === 'Escape') stop(ev); };
+  const stop = capture(el, e, (ev) => {
+    if (!moved && Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) >= slop) {
+      moved = true;
+      clearTimeout(timer);
+    }
+  }, (ev) => {
+    clearTimeout(timer);
+    el.removeEventListener('wheel', stop, true);
+    window.removeEventListener('blur', stop);
+    window.removeEventListener('keydown', key, true);
+    if (ev.type === 'pointerup' && !held && !moved) {
+      // A busy event loop can deliver the release before the overdue timer callback.
+      if (ev.timeStamp - e.timeStamp >= RIGHT_HOLD_MS) hold();
+      else onShort?.(ev);
+    }
+    onEnd?.(ev);
+  });
+  el.addEventListener('wheel', stop, true);
+  window.addEventListener('blur', stop);
+  window.addEventListener('keydown', key, true);
+  timer = setTimeout(hold, RIGHT_HOLD_MS);
+  return stop;
+}
+
 // Middle mouse drag: pan(dx, dy) gets the movement since the last call.
 export function startPan(s, e, pan, onUp) {
   e.preventDefault();

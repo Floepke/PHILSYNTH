@@ -48,6 +48,8 @@ export default class ModulatorKernel extends Kernel {
       + before - 2.5 * a + 2 * b - 0.5 * after) * f + 0.5 * (b - before)) * f + a;
   }
 
+  panic() { for (const b of this.buffers) b.fill(0); }
+
   process(inputs, outputs) {
     const carrier = inputs[0];
     const mod = inputs[1];

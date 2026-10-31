@@ -39,6 +39,33 @@ assert.deepEqual(WebAssembly.Module.imports(new WebAssembly.Module(bytes)), [], 
   src.destroy(); ctl.destroy(); target.destroy();
 }
 
+// PANIC through the host: echo tail with feedback into a reverb, in the JS graph and the native graph
+for (const opts of [{}, { kernels: WASM, heap }]) {
+  const { dsp, graph, render } = dspTestHost(opts);
+  const src = dsp.create('osc');
+  const echo = dsp.create('echo');
+  const verb = dsp.create('reverb');
+  src.connect(echo);
+  echo.connect(verb);
+  verb.connect(dsp.destination);
+  echo.send({ type: 'param', id: 'feedback', value: 0.95 });
+  echo.send({ type: 'param', id: 'delay', value: 50 });
+  src.send({ type: 'noteOn', id: 1, pitch: 60, velocity: 1 });
+  render(20);
+  src.send({ type: 'allOff' });
+  const peak = () => { const { L, R } = render(); return Math.max(...L.map(Math.abs), ...R.map(Math.abs)); };
+  let before = 0;
+  for (let i = 0; i < 40; i++) before = Math.max(before, peak());
+  assert.ok(before > 1e-3, `tail still sounding before the panic (${before})`);
+  dsp.panic();
+  for (let i = 0; i < 20; i++) assert.equal(peak(), 0, `${opts.kernels ? 'native' : 'JS'} graph silent after the panic`);
+  src.send({ type: 'noteOn', id: 2, pitch: 60, velocity: 1 });
+  let after = 0;
+  for (let i = 0; i < 20; i++) after = Math.max(after, peak());
+  assert.ok(after > 1e-3, 'plays again after the panic');
+  src.destroy(); echo.destroy(); verb.destroy();
+}
+
 // ---- the controller lists match the module definitions ----
 for (const [kind, spec] of Object.entries(SPECS)) {
   if (kind === 'bus') continue; // no module of its own
@@ -66,7 +93,9 @@ function compare(kind, { opts = {}, script = [], input = null, blocks = 200, tol
   let at = -1;
   const outW = inHeap ? [[heap.f32(heap.alloc(N * 4), N), heap.f32(heap.alloc(N * 4), N)]] : [stereo()];
   for (let b = 0; b < blocks; b++) {
-    for (const [when, m] of script) if (when === b) { js.message(m); wa.message(m); }
+    for (const [when, m] of script) if (when === b) {
+      if (m === 'panic') { js.panic(); wa.panic(); } else { js.message(m); wa.message(m); }
+    }
     let ins = [[]];
     if (input) {
       const [L, R] = stereo();
@@ -275,6 +304,42 @@ compare('eq', {
   }
   assert.ok(peak > 0.01 && peak < 10, `random LFO output is sane (${peak})`);
   f.destroy();
+}
+
+// PANIC: every audio kernel drops its sounding state at once (both twins alike): echo / reverb tails,
+// delay lines, voices and filter memory are gone, the next input starts from scratch
+{
+  const burst = (b, i, ch) => (b < 15 || b >= 40) ? 0.5 * Math.sin((b * N + i) * (ch ? 0.13 : 0.1)) : 0;
+  const cases = {
+    delay: [[0, param('left', 20)], [0, param('right', 25)]],
+    echo: [[0, param('delay', 30)], [0, param('feedback', 0.95)], [0, param('filter', 3)]],
+    reverb: [[0, param('size', 0.9)]],
+    filter: [[0, param('resonance', 0.9)]],
+    eq: [],
+    dcblock: [],
+    waveshaper: [],
+    modulator: [[0, param('type', 1)]],
+    osc: [[0, param('release', 2)], [0, noteOn(1, 60)], [10, { type: 'noteOff', id: 1 }]],
+  };
+  for (const [kind, script] of Object.entries(cases)) {
+    const input = kind === 'osc' ? null : burst;
+    compare(kind, { blocks: 60, input, script: [...script, [20, 'panic']] });
+    const k = new KERNELS[kind]();
+    for (let b = 0; b < 40; b++) {
+      if (b === 20) k.panic();
+      const out = [stereo()];
+      let ins = [[]];
+      if (input) {
+        const [L, R] = stereo();
+        for (let i = 0; i < N; i++) { L[i] = input(b, i, 0); R[i] = input(b, i, 1); }
+        ins = [[L, R]];
+      }
+      for (const [w, m] of script) if (w === b) k.message(m);
+      const sounding = k.process(ins, out) !== false && out[0].some((ch) => ch.some((v) => Math.abs(v) > 1e-9));
+      if (b === 18 && ['delay', 'echo', 'reverb', 'osc'].includes(kind)) assert.ok(sounding, `${kind}: still sounding before the panic`);
+      if (b >= 20) assert.ok(!sounding, `${kind}: silent after the panic (block ${b})`);
+    }
+  }
 }
 
 // ---- in the graph: buffers in the heap, same audio as the JS graph ----

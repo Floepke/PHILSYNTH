@@ -265,6 +265,7 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
       $('status').textContent = 'Nothing to play: double-click in the TimeLine to create a clip.';
     }
   }
+  let stopArmed = false; // the last transport shortcut was ' (stop): pressing it again is a panic
   window.addEventListener('keydown', (e) => {
     if ((e.key === 's' || e.key === 'S') && !e.repeat && !e.defaultPrevented && !e.ctrlKey && !e.metaKey && !e.altKey
       && !e.target.closest?.('input, select, textarea, dialog, [contenteditable]:not([contenteditable="false"])')) {
@@ -276,8 +277,13 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
     if (e.target.closest?.('input, select, textarea, dialog, [contenteditable]:not([contenteditable="false"])')) return;
     if (e.key === ' ' && e.target.closest?.('button')) return;
     e.preventDefault();
+    const panic = e.key === "'" && stopArmed && !transport.playing;
+    stopArmed = e.key === "'";
     if (e.key === ' ') togglePlay();
-    else if (e.key === "'") transport.stop();
+    else if (panic) {
+      engine.panic();
+      $('status').textContent = 'Panic: all notes off, echo / reverb tails and other DSP state cleared.';
+    } else if (e.key === "'") transport.stop();
     else if (e.key === '/') {
       engine.resume();
       if (!transport.playClip(song().selected)) $('status').textContent = 'Select a clip in the TimeLine to loop it.';

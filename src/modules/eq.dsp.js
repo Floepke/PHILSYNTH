@@ -83,6 +83,8 @@ export default class EqKernel extends Kernel {
     this.dirty = false;
   }
 
+  panic() { this.z.fill(0); this.live = false; }
+
   process(inputs, outputs) {
     const inp = inputs[0];
     const o = outputs[0];

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { emptySong, addClip, addAutoClip, removeClip, notesSounding } from '../src/song.js';
+import { emptySong, addClip, addAutoClip, removeClip, notesSounding, setLoop, normalizeSong } from '../src/song.js';
 import { Transport } from '../src/transport.js';
 
 const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-8, `${actual} != ${expected}`);
@@ -359,6 +359,43 @@ function setup() {
   run(5);
   assert.ok(Math.abs(ev[0].vel - 0.75) < 0.01, `chased at ${ev[0].vel}`);
   transport.stop();
+}
+
+// Loop region: song playback starts in it and loops there; removing it loops the whole song again.
+{
+  const { song, transport, events, run } = setup();
+  setLoop(song, 4, 5); // contains the clips at 4.25
+  transport.seek(1);
+  assert.equal(transport.play(), true);
+  assert.equal(transport.pos, 4, 'starting outside the region jumps to its start');
+  run(400); // 0.8 quarters at 120 BPM
+  near(transport.pos, 4.8);
+  run(200);
+  near(transport.pos, 4.2, 'wrapped at the region end');
+  assert.ok(!events.some((e) => e.type === 'on' && e.target === 3), 'the clip outside the region never plays');
+  transport.stop();
+  transport.seek(4.5);
+  transport.play();
+  assert.equal(transport.pos, 4.5, 'inside the region: plays from the playhead');
+  transport.stop();
+  transport.play({ fromStart: true });
+  assert.equal(transport.pos, 4, ', restarts at the region start');
+  song.loop = null;
+  run(1000); // 2 quarters: now past the region end
+  near(transport.pos, 6);
+  transport.stop();
+  setLoop(song, 20, 24); // after the song: still plays (silence), loops there
+  assert.equal(transport.play({ fromStart: true }), true);
+  assert.equal(transport.pos, 20);
+  run(2500);
+  near(transport.pos, 21);
+  transport.stop();
+  // saved with the song; broken values are dropped, a reversed region is ordered, never before zero
+  assert.deepEqual(normalizeSong(JSON.parse(JSON.stringify(song))).loop, { start: 20, end: 24 });
+  assert.equal(normalizeSong({ loop: { start: 3, end: 3 } }).loop, null);
+  assert.equal(normalizeSong({ loop: 'x' }).loop, null);
+  assert.equal(normalizeSong({}).loop, null);
+  assert.deepEqual(normalizeSong({ loop: { start: 8, end: -2 } }).loop, { start: 0, end: 8 });
 }
 
 console.log('transport mode tests passed');

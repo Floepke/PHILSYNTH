@@ -33,6 +33,8 @@ export default class DelayKernel extends Kernel {
     else super.message(m);
   }
 
+  panic() { this.line.clear(); }
+
   process(inputs, outputs) {
     const input = inputs[0];
     const out = outputs[0];

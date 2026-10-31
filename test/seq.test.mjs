@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
+import { setMaxListeners } from 'node:events';
 import { emptySong, addClip, addAutoClip, isAuto, cloneClip } from '../src/song.js';
 import { createAutomationLane } from '../src/seq/automation.js';
 import { createPianoRoll } from '../src/seq/pianoroll.js';
 import { createArranger } from '../src/seq/arranger.js';
 import { clipsOverlap } from '../src/seq/clipplacement.js';
 import { createSequencer } from '../src/seq/index.js';
+import { rightHold } from '../src/seq/surface.js';
 import { Transport } from '../src/transport.js';
 
 const frames = [];
@@ -40,6 +42,7 @@ class Canvas extends EventTarget {
 
 globalThis.document = { createElement: () => new Canvas(), activeElement: null, addEventListener() {} };
 globalThis.window = Object.assign(new EventTarget(), { devicePixelRatio: 1 });
+setMaxListeners(0, window); // Node never uncounts removed capture listeners
 const flush = () => {
   while (resizes.length) resizes.shift()();
   while (frames.length) frames.shift()();
@@ -236,8 +239,8 @@ for (const reverse of [false, true]) {
   const cv = roll.surface.cv;
   drag(cv, nx(60), ny(1), nx(60), ny(2));
   assert.deepEqual(clip.notes, [note(60, 1)]);
-  drag(cv, nx(60), ny(1.5), nx(60), ny(2));
-  assert.equal(clip.notes[0].length, 1.5);
+  drag(cv, nx(60), ny(1.5), nx(60), ny(2.5));
+  assert.equal(clip.notes[0].length, 1.5, 'the end jumps to the snapped pointer');
   drag(cv, nx(60), ny(1) + 5, nx(62), ny(2) + 5);
   assert.deepEqual(clip.notes, [note(62, 2, 1.5)]);
   assert.equal(previews(), 0);
@@ -394,7 +397,7 @@ for (const cancel of ['pointercancel', 'lostpointercapture', 'blur', 'windowBlur
   drag(cv, nx(60), ny(1) + 5, nx(61), ny(3) + 5);
   assert.deepEqual(clip.notes.map((n) => [n.pitch, n.start]), [[61, 3], [63, 4], [70, 1]]);
   // body drag changes every selected note's length by the same amount
-  drag(cv, nx(61), ny(3.5), nx(61), ny(4));
+  drag(cv, nx(61), ny(3.5), nx(61), ny(4.5));
   assert.deepEqual(clip.notes.map((n) => n.length), [1.5, 1.5, 1]);
   // Shift + click toggles a note in the selection
   click(cv, nx(70), ny(1) + 5, { shiftKey: true });
@@ -575,6 +578,70 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(ctx.transport.pos, 5.25);
 }
 
+// Selecting a clip while stopped parks the playhead at its start; while playing it is left alone.
+{
+  const { song, clip, arranger, ctx, menus } = setup();
+  const cv = arranger.surface.cv;
+  clip.length = 4;
+  const other = addClip(song, { start: 8, length: 4, y: 34, target: 7 });
+  ctx.transport.pos = 3;
+  click(cv, ax(9), ay(34));
+  assert.equal(song.selected, other.id);
+  assert.equal(ctx.transport.pos, 8, 'click on a clip parks the playhead at its start');
+  click(cv, ax(1), ay(0));
+  assert.equal(ctx.transport.pos, 0);
+  ctx.transport.pos = 5;
+  click(cv, ax(1), ay(0));
+  assert.equal(ctx.transport.pos, 0, 'also when the clip was already selected');
+  click(cv, ax(9), ay(34), { ctrlKey: true });
+  assert.equal(ctx.transport.pos, 8, 'Ctrl/Cmd + click adds the clip and parks there');
+  drag(cv, ax(9), ay(34), ax(11), ay(34));
+  assert.equal(other.start, 10);
+  assert.equal(ctx.transport.pos, 10, 'moving a clip parks the playhead at its new start');
+  assert.equal(clip.start, 2, 'the selection moved together');
+  click(cv, ax(20), ay(200)); // empty: clears the selection, the playhead stays
+  assert.equal(song.selected, null);
+  assert.equal(ctx.transport.pos, 10);
+  holdRightClick(cv, ax(3), ay(0));
+  assert.equal(ctx.transport.pos, 2, 'the menu selects the clip too');
+  assert.ok(menus.length);
+  ctx.transport.pos = 3;
+  ctx.transport.playing = true;
+  click(cv, ax(11), ay(34));
+  assert.equal(song.selected, other.id);
+  assert.equal(ctx.transport.pos, 3, 'while playing the selection does not move the playhead');
+  ctx.transport.playing = false;
+}
+
+// The ruler: a click sets the play position, a drag selects the loop region, right-click removes it.
+{
+  const { song, arranger, ctx, changes } = setup();
+  const cv = arranger.surface.cv;
+  const RY = 27; // bar number row
+  click(cv, ax(5.37), RY);
+  assert.equal(ctx.transport.pos, 5.25);
+  assert.equal(song.loop, null, 'a click is no region');
+  const c0 = changes();
+  drag(cv, ax(4.1), RY, ax(8.05), RY);
+  assert.deepEqual(song.loop, { start: 4, end: 8 });
+  assert.equal(ctx.transport.pos, 4, 'stopped: the playhead goes to the region start');
+  assert.equal(changes(), c0 + 1, 'one undo step');
+  drag(cv, ax(12), RY, ax(10), RY); // right to left
+  assert.deepEqual(song.loop, { start: 10, end: 12 });
+  drag(cv, ax(12), RY, ax(12.05), RY); // zero width after snapping: keeps the region
+  assert.deepEqual(song.loop, { start: 10, end: 12 });
+  drag(cv, ax(2), RY, ax(6), RY, {}, 'pointercancel');
+  assert.deepEqual(song.loop, { start: 10, end: 12 }, 'cancel restores the region');
+  point(cv, 'pointerdown', ax(5), RY, { button: 2, buttons: 2 });
+  point(cv, 'pointerup', ax(5), RY, { button: 2 });
+  assert.ok(song.loop, 'right-click beside the region keeps it');
+  const c1 = changes();
+  point(cv, 'pointerdown', ax(11), RY, { button: 2, buttons: 2 });
+  point(cv, 'pointerup', ax(11), RY, { button: 2 });
+  assert.equal(song.loop, null, 'right-click on the region removes it');
+  assert.equal(changes(), c1 + 1);
+}
+
 // Clipboard placement follows the current triplet grid and scrolled arranger coordinates.
 {
   const { song, clip, roll, arranger, ctx } = setup();
@@ -742,7 +809,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.ok(clip.link && clone.link === clip.link);
   clip.notes.push(note(62, 2));
   assert.equal(clone.notes.length, 2);
-  click(cv, ax(clone.start + 1), ay(0), { button: 2 });
+  holdRightClick(cv, ax(clone.start + 1), ay(0));
   assert.ok(labels(menus).includes('Detach clone'), labels(menus).join());
   pick(menus, 'Detach clone');
   assert.notEqual(clone.notes, clip.notes);
@@ -750,14 +817,14 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(clone.link, undefined);
   assert.equal(clip.link, undefined, 'a group of one is no link');
   // menu Clone on the original creates a new linked clone
-  click(cv, ax(1), ay(0), { button: 2 });
+  holdRightClick(cv, ax(1), ay(0));
   pick(menus, 'Clone (linked)');
   assert.equal(song.clips.length, 3);
   const again = song.clips.at(-1);
   assert.equal(again.notes, clip.notes);
   assertNoOverlap(song);
   // empty-space menu: Paste disabled until something was copied
-  click(cv, ax(40), ay(80), { button: 2 });
+  holdRightClick(cv, ax(40), ay(80));
   assert.equal(menus.at(-1).items.find((i) => i.label === 'Paste').disabled, true);
 }
 
@@ -801,10 +868,10 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   click(cv, ax(1), ay(68));
   redraw();
   assert.ok(!cv.drawing.some(([op]) => op === 'quadraticCurveTo'), 'no arrow when the source is selected');
-  click(cv, ax(clone.start + 1), ay(68), { button: 2 });
+  holdRightClick(cv, ax(clone.start + 1), ay(68));
   pick(menus, 'Go to source');
   assert.equal(song.selected, clip.id);
-  click(cv, ax(1), ay(68), { button: 2 });
+  holdRightClick(cv, ax(1), ay(68));
   assert.equal(menus.at(-1).items.find((i) => i.label === 'Go to source').disabled, true);
 }
 
@@ -846,8 +913,8 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(b.vels[0].r, 1, 'already at maximum rounding');
   point(cv, 'wheel', vx(1), ny(3), { deltaY: 100 });
   assert.equal(b.vels[0].r, 0.95);
-  point(cv, 'pointerdown', vx(1), ny(3), { button: 2 });
-  point(cv, 'pointerup', vx(1), ny(3), { button: 2 });
+  holdRightClick(cv, vx(1), ny(3));
+  assert.ok(b.vels, 'releasing after the menu opened does not delete');
   assert.ok(b.vels);
   pick(menus, 'Delete point');
   assert.equal('vels' in b, false);
@@ -869,7 +936,7 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   assert.equal(initialSnap, true, 'new piano rolls enable snapping by default');
   clip.notes.push(note(60, 1, 3, 0.53));
   const before = structuredClone(clip.notes);
-  point(cv, 'pointerdown', 35, ny(5), { button: 2 });
+  holdRightClick(cv, 35, ny(5));
   assert.deepEqual(labels(menus), ['Snap velocity values'], 'blank lane offers the toggle');
   assert.equal(menus.at(-1).items[0].checked, true);
   pick(menus, 'Snap velocity values');
@@ -878,7 +945,7 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   assert.equal(changes(), 1, 'toggle schedules persistence');
   drag(cv, vx(0.53), ny(1), vx(0.9), ny(1));
   assert.ok(Math.abs(clip.notes[0].vel - 0.9) < 1e-9, 'disabled toggle restores free editing');
-  point(cv, 'pointerdown', 35, ny(5), { button: 2 });
+  holdRightClick(cv, 35, ny(5));
   assert.equal(menus.at(-1).items[0].checked, false);
   pick(menus, 'Snap velocity values');
   assert.ok(Math.abs(clip.notes[0].vel - 0.9) < 1e-9, 'enabling leaves old values untouched too');
@@ -900,7 +967,7 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   roll.setView(off);
   assert.equal(roll.getView().snapVelocity, false, 'saved false survives restoring');
   song.selected = null;
-  point(cv, 'pointerdown', 35, ny(5), { button: 2 });
+  holdRightClick(cv, 35, ny(5));
   assert.equal(menus.at(-1).items[0].checked, false, 'setting is available without a selected clip');
   cv.drawing.length = 0;
   roll.redraw(); flush();
@@ -930,10 +997,10 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
     assert.equal(n.vels.length, 1);
     assert.equal(n.vels[0].v, 0.3125, 'replacing a point at the same time also snaps');
   }
-  point(cv, 'pointerdown', vx(0.5), ny(1), { button: 2 });
+  holdRightClick(cv, vx(0.5), ny(1));
   const firstMenu = menus.at(-1).items;
   assert.equal(firstMenu.find((i) => i.label === 'Delete point').disabled, true, 'cannot delete the start point');
-  point(cv, 'pointerdown', vx(0.3125), ny(2.5), { button: 2 });
+  holdRightClick(cv, vx(0.3125), ny(2.5));
   assert.ok(clip.notes[0].vels, 'opening menu does not delete');
   pick(menus, 'Delete point');
   assert.ok(clip.notes.every((n) => !n.vels), 'deletion still works for shared curves');
@@ -944,9 +1011,9 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   const { song, arranger, ctx } = setup();
   ctx.defaultAutoTarget = () => 3;
   const cv = arranger.surface.cv;
-  point(cv, 'pointerdown', ax(20), ay(100), { button: 2 });
+  click(cv, ax(20), ay(100), { button: 2 });
   assert.equal(song.clips.length, 1, 'a single right-click inserts nothing');
-  point(cv, 'pointerdown', ax(20), ay(100), { button: 2 });
+  click(cv, ax(20), ay(100), { button: 2 });
   assert.equal(song.clips.length, 2);
   const a = ctx.clip();
   assert.ok(isAuto(a));
@@ -954,11 +1021,135 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   assert.equal(a.controller, 0);
   assert.equal(a.start, 20);
   // far apart presses are no double click; right-clicking a clip does not insert
-  point(cv, 'pointerdown', ax(40), ay(100), { button: 2 });
-  point(cv, 'pointerdown', ax(60), ay(100), { button: 2 });
-  point(cv, 'pointerdown', ax(1), ay(0), { button: 2 });
-  point(cv, 'pointerdown', ax(1), ay(0), { button: 2 });
+  click(cv, ax(40), ay(100), { button: 2 });
+  click(cv, ax(60), ay(100), { button: 2 });
+  click(cv, ax(1), ay(0), { button: 2 });
+  click(cv, ax(1), ay(0), { button: 2 });
   assert.equal(song.clips.length, 2);
+}
+
+// Duration drags put the note end at the snapped pointer: a long note becomes short with a small drag.
+{
+  const { clip, roll } = setup();
+  const cv = roll.surface.cv;
+  clip.notes.push(note(60, 1, 32), note(64, 1, 8));
+  drag(cv, nx(60), ny(2.6), nx(60), ny(2.6) + 5);
+  assert.equal(clip.notes[0].length, 1.75, 'end snaps to the 16th grid under the pointer');
+  drag(cv, nx(60), ny(1.5), nx(60), ny(0.2));
+  assert.equal(clip.notes[0].length, 0.25, 'never shorter than one snap step');
+  key(cv, 'a', { ctrlKey: true });
+  drag(cv, nx(64), ny(5), nx(64), ny(4));
+  assert.deepEqual(clip.notes.map((n) => n.length), [0.25, 3], 'selection keeps the anchor\'s delta (minimum one step)');
+}
+
+// Right-button hold threshold: under 5 px still opens the menu, 5 px cancels.
+{
+  const cv = new Canvas();
+  let holds = 0;
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    for (const [dx, want] of [[3, 1], [4.9, 1], [5, 0]]) {
+      holds = 0;
+      rightHold(cv, point(cv, 'pointerdown', 10, 10, { button: 2 }), { onHold: () => holds++ });
+      point(cv, 'pointermove', 10 + dx, 10, { button: 2 });
+      mock.timers.tick(500);
+      point(cv, 'pointerup', 10 + dx, 10, { button: 2 });
+      assert.equal(holds, want, `move ${dx} px`);
+    }
+  } finally {
+    mock.timers.reset();
+  }
+  const { clip, roll, menus } = setup();
+  const rc = roll.surface.cv;
+  clip.notes.push(note(60, 1));
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    point(rc, 'pointerdown', nx(60), ny(1) + 5, { button: 2, buttons: 2 });
+    point(rc, 'pointermove', nx(60) + 4, ny(1) + 5, { button: 2, buttons: 2 });
+    mock.timers.tick(500);
+    point(rc, 'pointerup', nx(60) + 4, ny(1) + 5, { button: 2 });
+    assert.equal(menus.length, 1, 'piano roll: 4 px still holds');
+    point(rc, 'pointerdown', nx(60), ny(1) + 5, { button: 2, buttons: 2 });
+    point(rc, 'pointermove', nx(60) + 5, ny(1) + 5, { button: 2, buttons: 2 });
+    mock.timers.tick(500);
+    point(rc, 'pointerup', nx(60) + 5, ny(1) + 5, { button: 2 });
+    assert.equal(menus.length, 1, 'piano roll: 5 px becomes a selection drag');
+    assert.equal(clip.notes.length, 1);
+  } finally {
+    mock.timers.reset();
+  }
+}
+
+// Hold the right button 500 ms for the TimeLine menu; shorter presses and right-drags open nothing.
+{
+  const { song, arranger, menus, clip } = setup();
+  const cv = arranger.surface.cv;
+  clip.length = 4;
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    point(cv, 'pointerdown', ax(1), ay(0), { button: 2, buttons: 2 });
+    mock.timers.tick(499);
+    point(cv, 'pointerup', ax(1), ay(0), { button: 2 });
+    assert.equal(menus.length, 0, 'short right-click opens no menu');
+    point(cv, 'pointerdown', ax(1), ay(0), { button: 2, buttons: 2 });
+    mock.timers.tick(499);
+    assert.equal(menus.length, 0);
+    mock.timers.tick(1);
+    assert.equal(menus.length, 1, 'menu opens at 500 ms while the button is still down');
+    assert.ok(labels(menus).includes('Cut'));
+    point(cv, 'pointerup', ax(1), ay(0), { button: 2 });
+    assert.equal(menus.length, 1, 'release adds nothing');
+    point(cv, 'pointerdown', ax(40), ay(100), { button: 2, buttons: 2 });
+    point(cv, 'pointermove', ax(42), ay(100), { button: 2, buttons: 2 });
+    mock.timers.tick(600);
+    point(cv, 'pointerup', ax(42), ay(100), { button: 2 });
+    assert.equal(menus.length, 1, 'moving cancels the hold');
+    assert.equal(song.clips.length, 1);
+    // a time signature change: a short right-click removes it, a hold does not
+    song.sigs = [{ at: 0, num: 4, den: 4 }, { at: 16, num: 3, den: 4 }];
+    arranger.redraw(); flush();
+    point(cv, 'pointerdown', ax(16) + 6, 8, { button: 2, buttons: 2 });
+    mock.timers.tick(500);
+    point(cv, 'pointerup', ax(16) + 6, 8, { button: 2 });
+    assert.equal(song.sigs.length, 2, 'holding keeps the signature');
+    click(cv, ax(16) + 6, 8, { button: 2 });
+    assert.equal(song.sigs.length, 1, 'short right-click removes the signature');
+  } finally {
+    mock.timers.reset();
+  }
+}
+
+// rightHold: overdue release, Escape, wheel and blur cancel; the velocity lane deletes a point on a short right-click.
+{
+  const cv = new Canvas();
+  const log = [];
+  const opts = { onShort: () => log.push('short'), onHold: () => log.push('hold'), onEnd: () => log.push('end') };
+  mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    rightHold(cv, point(cv, 'pointerdown', 0, 0, { button: 2, timeStamp: 1000 }), opts);
+    point(cv, 'pointerup', 0, 0, { button: 2, timeStamp: 1500 });
+    assert.deepEqual(log.splice(0), ['hold', 'end'], 'a late timer still opens the menu');
+    for (const cancel of ['Escape', 'wheel', 'blur']) {
+      rightHold(cv, point(cv, 'pointerdown', 0, 0, { button: 2 }), opts);
+      if (cancel === 'Escape') key(window, 'Escape');
+      else if (cancel === 'wheel') point(cv, 'wheel', 0, 0, { deltaY: 10 });
+      else fire(window, 'blur');
+      mock.timers.tick(600);
+      point(cv, 'pointerup', 0, 0, { button: 2 });
+      assert.deepEqual(log.splice(0), ['end'], `${cancel} cancels`);
+    }
+  } finally {
+    mock.timers.reset();
+  }
+  const { clip, roll, menus } = setup();
+  const rc = roll.surface.cv;
+  clip.notes.push(note(60, 1, 3, 0.5));
+  click(rc, 7 + 0.5 * 70, ny(1));
+  dbl(rc, 7 + 0.9 * 70, ny(2));
+  assert.equal(clip.notes[0].vels.length, 1);
+  click(rc, 7 + 0.9 * 70, ny(2), { button: 2 });
+  assert.equal(menus.length, 0);
+  assert.equal('vels' in clip.notes[0], false, 'short right-click deletes the point');
 }
 
 // Automation lane: insert, drag (snapped, between neighbours), round, delete.
@@ -1404,6 +1595,7 @@ for (const width of [300, 480, 900, 1912]) {
   document.body = new Element();
   globalThis.Option = class { constructor(label, value) { this.label = label; this.value = value; } };
   globalThis.window = Object.assign(new EventTarget(), { devicePixelRatio: 1 });
+  setMaxListeners(0, window);
   const song = emptySong();
   const clip = addClip(song, { start: 4.25, length: 0.5 });
   song.selected = clip.id;
@@ -1412,7 +1604,8 @@ for (const width of [300, 480, 900, 1912]) {
     ticker: () => ({ start() {}, stop() {} }),
   });
   let viewChanges = 0;
-  const engine = { song, resume() {}, root: { modules: new Map(), listeners: new Set() } };
+  let panics = 0;
+  const engine = { song, resume() {}, panic() { panics++; }, root: { modules: new Map(), listeners: new Set() } };
   const seq = createSequencer({
     engine,
     transport, getTarget: () => null, defaultTarget: () => null, onChange() { viewChanges++; },
@@ -1470,6 +1663,20 @@ for (const width of [300, 480, 900, 1912]) {
   press("'");
   assert.equal(transport.playing, false);
   assert.equal(transport.clipId, null);
+  assert.equal(panics, 0, 'a single stop is no panic');
+  press("'");
+  assert.equal(panics, 1, "a second ' in a row is a panic");
+  assert.match(elements.get('status').textContent, /Panic/);
+  press("'");
+  assert.equal(panics, 2, 'more presses keep panicking');
+  press('.');
+  press("'");
+  assert.equal(panics, 2, 'playing in between: stop again, no panic');
+  assert.equal(transport.playing, false);
+  for (const props of [{ repeat: true }, { ctrlKey: true }]) press("'", props);
+  assert.equal(panics, 2, 'ignored key presses do not count');
+  press('/');
+  press("'");
   press(' ');
   assert.equal(transport.playing, true);
   transport.seek(1.5);

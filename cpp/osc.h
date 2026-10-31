@@ -116,6 +116,8 @@ struct Osc : Kernel {
     } else if (type == ALL_OFF) for (auto& v : voices) v.stage = 0;
   }
 
+  void panic() override { for (auto& v : voices) { v.stage = 0; v.level = 0; } }
+
   Voice* voiceOf(double id) {
     for (int i = 0; i < poly; i++) if (voices[i].stage && voices[i].id == id) return &voices[i];
     return nullptr;

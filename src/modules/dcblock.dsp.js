@@ -15,6 +15,8 @@ export default class DcBlockKernel extends Kernel {
     this.y1 = [0, 0];
   }
 
+  panic() { this.x1 = [0, 0]; this.y1 = [0, 0]; }
+
   process(inputs, outputs) {
     const i = inputs[0];
     const o = outputs[0];
