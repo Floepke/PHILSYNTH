@@ -878,10 +878,29 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(song.clips.length, 3);
   const again = song.clips.at(-1);
   assert.equal(again.notes, clip.notes);
+  const duplicateItem = menus.at(-1).items.find((i) => i.label === 'Duplicate');
+  const cloneItem = menus.at(-1).items.find((i) => i.label === 'Clone (linked)');
+  assert.equal(duplicateItem.shortcut, undefined, 'Duplicate has no keyboard shortcut in the menu');
+  assert.ok(cloneItem.shortcut, 'the linked clone menu item shows Ctrl/Cmd+D');
   assertNoOverlap(song);
   // empty-space menu: Paste disabled until something was copied
   holdRightClick(cv, ax(40), ay(80));
   assert.equal(menus.at(-1).items.find((i) => i.label === 'Paste').disabled, true);
+}
+
+// Ctrl/Cmd+D makes a linked clone; Ctrl/Cmd+Shift+D makes an independent duplicate.
+{
+  const { song, clip, arranger } = setup();
+  const cv = arranger.surface.cv;
+  clip.length = 4;
+  clip.notes.push(note(60, 1));
+  click(cv, ax(1), ay(0));
+  key(cv, 'd', { ctrlKey: true });
+  assert.equal(song.clips.length, 2);
+  assert.equal(song.clips.at(-1).notes, clip.notes);
+  key(cv, 'd', { ctrlKey: true, shiftKey: true });
+  assert.equal(song.clips.length, 3);
+  assert.notEqual(song.clips.at(-1).notes, clip.notes);
 }
 
 // Clips can be dragged before time zero and the view scrolls there; lanes are numbered in the gutter.

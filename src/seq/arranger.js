@@ -16,7 +16,7 @@
 //                              consolidate (selected clips on one lane -> one clip) / split at the playhead
 //   Backspace / Delete         delete the selected clips
 //   Ctrl/Cmd + X / C / V       cut / copy / paste clips at the snapped pointer position
-//   Ctrl/Cmd + D / Shift + D   duplicate / clone the selection right after itself
+//   Ctrl/Cmd + D / Shift + D   linked clone / duplicate the selection right after itself
 //   Ctrl/Cmd + A, Escape       select all / clear the selection
 //   click the ruler            set the play position (the signature row too: click / drag scrubs)
 //   drag on the ruler          select a loop region (snapped); song playback loops inside it
@@ -824,8 +824,8 @@ export function createArranger(host, ctx) {
         { label: 'Paste', shortcut: shortcut('V'), disabled: !clipboard, action: () => paste(p) },
         { label: 'Delete', shortcut: '⌫', action: remove },
         '-',
-        { label: 'Duplicate', shortcut: shortcut('D'), action: () => repeat(false) },
-        { label: 'Clone (linked)', shortcut: shortcut('⇧D'), action: () => repeat(true) },
+        { label: 'Duplicate', action: () => repeat(false) },
+        { label: 'Clone (linked)', shortcut: shortcut('D'), action: () => repeat(true) },
         { label: 'Detach clone', disabled: !clips.some((c) => isLinked(ctx.song(), c)), action: detach },
         { label: 'Go to source', disabled: !(h && isClone(ctx.song(), h.clip)), action: () => goToSource(h.clip) },
         '-',
@@ -887,7 +887,7 @@ export function createArranger(host, ctx) {
     if (key === 'escape') setSelection([]);
     else if (key === 'a') selectAll();
     else if (key === 'v') paste(pointer);
-    else if (key === 'd') repeat(e.shiftKey);
+    else if (key === 'd') repeat(!e.shiftKey);
     else if (key === 'c') copy();
     else if (key === 'x') { if (copy()) remove(); }
     else remove();
