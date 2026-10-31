@@ -50,20 +50,9 @@ export class Engine {
       this.dspInfo = info;
       if (info.error) console.warn('C++ DSP unavailable, using the JavaScript kernels:', info.error);
     };
+    // `onCpu({load})` about once per second of audio, load 0..1 (src/dsp/loadmeter.js)
+    this.dsp.onCpu = (cpu) => this.onCpu?.(cpu);
     this.root = await PatchRuntime.create(this, this.dsp.destination);
-    await this.startCpuProbe();
-  }
-
-  // Calls `onCpu({load, q})` about once per second while audio runs (load is 0..1 or null).
-  async startCpuProbe() {
-    try {
-      await this.ctx.audioWorklet.addModule(new URL('./cpu.worklet.js', import.meta.url));
-      const probe = new AudioWorkletNode(this.ctx, 'cpu-probe', { numberOfInputs: 0, outputChannelCount: [1] });
-      probe.connect(this.ctx.destination); // outputs silence; connected so it is always rendered
-      probe.port.onmessage = (e) => this.onCpu?.(e.data);
-    } catch (err) {
-      console.warn('CPU meter unavailable:', err);
-    }
   }
 
   // MIDI/audio panic: every module releases its notes and drops pending (delayed) MIDI, then all

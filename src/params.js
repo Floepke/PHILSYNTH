@@ -32,9 +32,15 @@ export function nudge(p, v, notches, fine = false) {
   return next;
 }
 
+// Wheel deltas as finite numbers. Firefox on macOS can deliver non-finite deltas (some
+// trackpad / smooth-scrolling mouse events); a NaN would poison zoom and scroll positions.
+const finite = (v) => (Number.isFinite(v) ? v : 0);
+export const wheelDelta = (e) => ({ dx: finite(e.deltaX), dy: finite(e.deltaY), mode: e.deltaMode });
+
 // Wheel event -> notches (positive = scroll up). Mouse wheels give one big delta per click
 // (Chrome ±100/120 px, Firefox 3 lines or ~50 px); trackpads give many small pixel deltas.
 export function wheelNotches(deltaY, deltaMode) {
+  deltaY = finite(deltaY);
   const n = -(deltaMode === 1 ? deltaY / 3 : deltaMode === 2 ? deltaY : deltaY / 100);
   return Math.abs(n) >= 0.4 ? Math.sign(n) * Math.max(1, Math.round(Math.abs(n))) : n;
 }

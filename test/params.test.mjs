@@ -1,6 +1,6 @@
 // Run: node test/params.test.mjs   (controller value math: wheel nudging)
 import assert from 'node:assert/strict';
-import { nudge, wheelNotches, toNorm, wheelAccumulator } from '../src/params.js';
+import { nudge, wheelNotches, toNorm, wheelAccumulator, wheelDelta } from '../src/params.js';
 
 const lin = { min: 0, max: 1, step: 0.01 };
 const amp = { min: 0, max: 4, step: 0.01 };
@@ -80,4 +80,14 @@ assert.ok(Math.abs(wheelNotches(-10, 0) - 0.1) < 1e-9, 'trackpad: small fraction
   assert.equal(nudgeBy(bpm, 120, 1, true), 121, 'Shift: still 1 BPM');
   assert.equal(nudgeBy(bpm, 1000, 1), 1000, 'clamped to the range');
 }
+// Firefox can deliver non-finite wheel deltas; they must not poison views or values (NaN%).
+assert.ok(wheelNotches(NaN, 0) === 0 && wheelNotches(undefined, 1) === 0);
+assert.deepEqual(wheelDelta({ deltaX: NaN, deltaY: undefined, deltaMode: 1 }), { dx: 0, dy: 0, mode: 1 });
+assert.equal(wheelDelta({ deltaX: 3, deltaY: -40, deltaMode: 0 }).dy, -40);
+
 console.log('all params tests passed');
+
+// Sequencer views clamp scroll positions; NaN must land on the lower bound, not stick.
+const { clamp } = await import('../src/seq/surface.js');
+assert.equal(clamp(NaN, 0, 10), 0);
+assert.equal(clamp(12, 0, 10), 10);

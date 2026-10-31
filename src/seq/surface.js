@@ -1,6 +1,6 @@
 // Shared plumbing for the sequencer views: a HiDPI canvas that fills its host element and
 // redraws on resize, plus middle-mouse panning and wheel handling.
-import { wheelNotches } from '../params.js';
+import { wheelNotches, wheelDelta } from '../params.js';
 
 export function createSurface(host, paint) {
   const cv = document.createElement('canvas');
@@ -178,15 +178,17 @@ export function onWheel(cv, { zoom, scroll }) {
   cv.addEventListener('wheel', (e) => {
     e.preventDefault();
     if (e.ctrlKey || e.metaKey) { zoom(wheelNotches(e.deltaY, e.deltaMode), e); return; }
-    const k = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
-    let dx = e.deltaX * k;
-    let dy = e.deltaY * k;
+    const d = wheelDelta(e);
+    const k = d.mode === 1 ? 16 : d.mode === 2 ? 400 : 1;
+    let dx = d.dx * k;
+    let dy = d.dy * k;
     if (e.shiftKey && !dx) { dx = dy; dy = 0; }
     scroll(dx, dy, e);
   }, { passive: false });
 }
 
-export const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+// NaN clamps to lo, so a bad value can never stick in a view position
+export const clamp = (v, lo, hi) => (Number.isNaN(v) ? lo : Math.min(hi, Math.max(lo, v)));
 
 // Alternating light/dark bands one snap step wide, from t0 to t1, instead of a line per step.
 // When a step is too thin to see, bands of 2, 4, 8… steps are used so the stripes stay readable.

@@ -4,7 +4,7 @@
 //   double-click      reset to the default
 // Bipolar ranges (min < 0 < max) fill from the zero point. Option lists show a tick per entry.
 // The element never takes keyboard focus, so keyboard shortcuts keep working.
-import { toNorm, fromNorm, nudge, wheelAccumulator } from './params.js';
+import { toNorm, fromNorm, nudge, wheelAccumulator, wheelDelta } from './params.js';
 
 const FINE_DRAG = 0.1; // Shift-drag speed relative to normal
 
@@ -99,7 +99,8 @@ export function createController(p, { index, value, onInput, format, onBegin, on
     if (e.ctrlKey) return; // keep Ctrl + wheel for zoom
     e.preventDefault();
     // Shift + wheel is horizontal scrolling on some systems: use whichever axis moved
-    const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+    const { dx, dy } = wheelDelta(e);
+    const delta = Math.abs(dy) >= Math.abs(dx) ? dy : dx;
     const n = take(e, delta);
     if (!n) return;
     set(nudge(p, v, n, e.shiftKey));

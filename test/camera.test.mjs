@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { defaultCam, validCam, toWorld, toScreen, zoomAt, fitBox, ZOOM_MIN, ZOOM_MAX } from '../src/camera.js';
+import { clampZoom, defaultCam, validCam, toWorld, toScreen, zoomAt, fitBox, ZOOM_MIN, ZOOM_MAX } from '../src/camera.js';
 
 const near = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 
@@ -33,3 +33,7 @@ const big = fitBox({ l: 0, t: 0, r: 4000, b: 1000 }, 800, 600, { margin: 0 });
 near(big.z, 0.2);
 
 console.log('camera tests passed');
+
+// Non-finite zoom (bad wheel delta) falls back to 100 % instead of NaN.
+assert.equal(clampZoom(NaN), 1);
+assert.equal(clampZoom(Infinity), 1);

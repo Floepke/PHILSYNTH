@@ -6,6 +6,7 @@
 // them, or if they fail to load, the JS kernels run. The choice is posted back as { info }.
 import { Graph } from './dsp/graph.js';
 import { instantiateDsp, wasmKernels } from './dsp/wasm.js';
+import { LoadMeter } from './dsp/loadmeter.js';
 
 const REPORT_BLOCKS = 2; // ~5 ms at 48 kHz
 
@@ -25,6 +26,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.graph ??= new Graph();
     this.port.postMessage({ info });
     this.blocks = 0;
+    this.load = new LoadMeter((128 / sampleRate) * 1000);
     this.port.onmessage = (e) => {
       try {
         this.graph.handle(e.data);
@@ -38,7 +40,10 @@ class EngineProcessor extends AudioWorkletProcessor {
     const out = outputs[0];
     this.graph.ext = inputs; // microphones (src/mics.js), read by the INPUT kernels
     try {
+      const t0 = Date.now();
       this.graph.render(out[0], out[1] ?? out[0]);
+      const cpu = this.load.add(t0, Date.now());
+      if (cpu) this.port.postMessage({ cpu });
       this.failed = false;
     } catch (err) {
       // keep the worklet alive (a dead process() would silence everything for good)

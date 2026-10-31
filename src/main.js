@@ -116,7 +116,8 @@ function applyCam() {
   $('zoom').textContent = `${Math.round(z * 100)}%`;
 }
 function setCam(c) {
-  path[path.length - 1].cam = c;
+  if (![c.x, c.y, c.z].every(Number.isFinite)) return; // a bad wheel event must not break the view
+  path[path.length - 1].cam = validCam(c);
   applyCam();
   persist.schedule();
 }

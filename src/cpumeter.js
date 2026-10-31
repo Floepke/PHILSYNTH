@@ -1,4 +1,4 @@
-// Small DSP-load monitor in the status bar (fed by engine.onCpu, see cpu.worklet.js).
+// Small DSP-load monitor in the status bar (fed by engine.onCpu, see src/dsp/loadmeter.js).
 
 const HISTORY = 60; // one reading per second
 
@@ -31,10 +31,10 @@ export function initCpuMeter(engine, el = document.getElementById('cpu')) {
     el.title = `DSP load: ${reason}`;
   }
 
-  engine.onCpu = ({ load, q }) => {
+  engine.onCpu = ({ load }) => {
     clearTimeout(stale);
     stale = setTimeout(() => idle('audio is suspended (click or press a key to start it)'), 2500);
-    if (load == null) return idle('not measurable with this audio driver (one quantum per callback)');
+    if (!Number.isFinite(load)) return idle('not measurable');
     smooth = smooth == null ? load : smooth * 0.5 + load * 0.5;
     history.push(load);
     if (history.length > HISTORY) history.shift();
@@ -47,7 +47,7 @@ export function initCpuMeter(engine, el = document.getElementById('cpu')) {
     const latency = ((ctx.baseLatency || 0) * 1000).toFixed(1);
     el.title =
       `DSP load ${pct}% of the audio thread's real-time budget (peak ${peak}% in the last ${history.length}s).\n` +
-      `Above ~90% you will hear crackles. ${ctx.sampleRate} Hz, ${Math.round(q)} blocks per callback, ${latency} ms buffer.\n` +
+      `Above ~90% you will hear crackles. ${ctx.sampleRate} Hz, ${latency} ms buffer.\n` +
       `DSP: ${engine.dspInfo?.dsp === 'wasm' ? 'C++ (WebAssembly)' : 'JavaScript'}`;
     draw();
   };

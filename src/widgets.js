@@ -1,5 +1,5 @@
 // Mouse-operated controls leave focus in the editor. Tab/double-click still allow typing.
-import { wheelAccumulator } from './params.js';
+import { wheelAccumulator, wheelDelta } from './params.js';
 import { clean } from './song.js';
 
 export function initWidgets(root, { numberStep = () => 1 } = {}) {
@@ -17,7 +17,8 @@ export function initWidgets(root, { numberStep = () => 1 } = {}) {
       if (el.disabled || el.readOnly || e.ctrlKey || e.metaKey) return;
       e.preventDefault();
       releaseWidgetFocus();
-      const steps = take(e, e.deltaY || e.deltaX);
+      const { dx, dy } = wheelDelta(e);
+      const steps = take(e, dy || dx);
       if (steps) change(steps);
     }, { passive: false });
   };
