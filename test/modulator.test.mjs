@@ -136,7 +136,7 @@ for (const interpolation of [0, 1, 2]) {
 }
 
 // All render paths select the carrier BEFORE summing, retaining silent source positions.
-for (const options of [{}, { ...native, native: false }, native]) {
+for (const options of [{}, { ...native, native: false }, { ...native, kernels: { ...native.kernels, modulator: ModulatorKernel } }, native]) {
   const h = dspTestHost(options);
   const sources = [h.dsp.create('osc'), h.dsp.create('osc'), h.dsp.create('osc')];
   const effect = h.dsp.create('modulator');
@@ -148,6 +148,22 @@ for (const options of [{}, { ...native, native: false }, native]) {
     s.connect(effect);
   }
   effect.connect(h.dsp.destination);
+  const control = h.dsp.create('multictl');
+  control.routes([{ to: effect.h, id: 'carrier', min: 0, max: 2, step: 1 }]);
+  effect.param('type', 4);
+  for (const carrier of [0, 1, 2]) {
+    control.param('value', carrier * 50);
+    const { L } = h.render();
+    assert.equal(h.kernel(effect).carrier, carrier, 'carrier is selectable by audio-thread controller modulation');
+    assert.ok(h.graph.nodes.get(sources[0].h).outs[0][0].some((v) => v !== 0), 'sources actually render during controller modulation');
+    for (let i = 0; i < N; i++) {
+      const signals = sources.map((s) => h.graph.nodes.get(s.h).outs[0][0][i]);
+      let mod = 0;
+      for (let s = 0; s < 3; s++) if (s !== carrier) mod = Math.fround(mod + signals[s]);
+      near(L[i], signals[carrier] - mod);
+    }
+  }
+  control.destroy();
   for (const type of [0, 3, 4, 5, 6, 7, 8, 9, 10]) for (let carrier = 0; carrier < 3; carrier++) {
     effect.param('type', type);
     effect.param('carrier', carrier);
@@ -173,6 +189,32 @@ for (const options of [{}, { ...native, native: false }, native]) {
   effect.destroy();
   assert.equal(sources[2].out.size, 0, 'destroy removes outgoing bookkeeping on surviving sources');
   sources[0].destroy(); sources[2].destroy();
+}
+
+// Stateful PM is identical through the native graph program, including carrier changes.
+for (const type of [1, 2]) for (const interpolation of [0, 1, 2]) {
+  const graphs = [{}, native].map((options) => {
+    const h = dspTestHost(options);
+    const a = h.dsp.create('osc'), b = h.dsp.create('osc'), m = h.dsp.create('modulator');
+    a.connect(m); b.connect(m); m.connect(h.dsp.destination);
+    m.param('type', type); m.param('interpolation', interpolation);
+    a.param('attack', 0); b.param('attack', 0);
+    a.send({ type: 'noteOn', id: 1, pitch: 52, velocity: 1 });
+    b.send({ type: 'noteOn', id: 2, pitch: 29, velocity: 1 });
+    return { ...h, a, b, m };
+  });
+  for (let block = 0; block < 200; block++) {
+    if (block === 30) for (const h of graphs) h.m.param('carrier', 1);
+    if (block === 60) for (const h of graphs) h.a.send({ type: 'allOff' });
+    if (block === 100) for (const h of graphs) h.b.send({ type: 'allOff' });
+    const js = graphs[0].render(), wa = graphs[1].render();
+    for (let i = 0; i < N; i++) {
+      near(js.L[i], wa.L[i], 'PM graph left parity');
+      near(js.R[i], wa.R[i], 'PM graph right parity');
+    }
+  }
+  assert.ok(graphs[1].graph.prog);
+  for (const h of graphs) { h.a.destroy(); h.b.destroy(); h.m.destroy(); }
 }
 
 // A non-audio node has no native record, but must not shift subsequent carrier indices.

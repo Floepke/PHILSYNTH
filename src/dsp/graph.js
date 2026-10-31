@@ -12,6 +12,7 @@
 //   2. the nodes that reach the master bus are rendered in dependency order. A single live input
 //      is passed through without copying, several are summed; silent sources are skipped and
 //      passive nodes (buses, gains) with only silent inputs are not rendered at all.
+//      Carrier-aware kernels receive their chosen source separately from the sum of the rest.
 //   SOUND2CTL and its audio sources also render when routed; its sampled voltage is applied
 //   after step 2 for the next quantum (control feedback is therefore one block delayed).
 // Changed modulated values are collected and sent to the main thread by report() (for display).

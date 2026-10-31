@@ -85,6 +85,7 @@ EXPORT(ms_process_modulated) int ms_process_modulated(Kernel* k, const float* in
 // sources first, the master bus last. Same rules as Graph.render(): one live source is read in
 // place, several are summed into the node's sum buffer, a passive node without live sources is
 // skipped and stays silent.
+// Carrier-aware nodes select one source by index and only sum the other sources.
 struct GNode {
   Kernel* k;
   float* out;  // [L | R], n samples each

@@ -4,6 +4,7 @@
 //
 // DspNode mimics the bit of AudioNode the patch code uses: connect(node) / disconnect(node?)
 // (`out` mirrors the connections), plus:
+//   inputs               incoming sources in connection order (for carrier selectors)
 //   send(message)        message for the node's kernel (port.postMessage, as before the engine)
 //   param(id, value)     = send({ type: 'param', id, value })
 //   routes(list)         modulators: the controllers they drive (see Graph.setRoutes)
