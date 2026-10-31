@@ -1377,8 +1377,10 @@ for (const width of [300, 480, 900, 1912]) {
     constructor(kind = 'div') {
       super();
       this.kind = kind;
-      this.style.setProperty = () => {};
-      this.classList.toggle = () => {};
+      this.style.setProperty = (name, value) => { this.style[name] = value; };
+      this.classes = new Set();
+      this.classList.toggle = (name, value) => value ? this.classes.add(name) : this.classes.delete(name);
+      this.attributes = new Map();
       this.clientWidth = 480;
       this.clientHeight = 400;
       this.scrollWidth = 480;
@@ -1386,6 +1388,7 @@ for (const width of [300, 480, 900, 1912]) {
     }
     append() {}
     add() {}
+    setAttribute(name, value) { this.attributes.set(name, value); }
     replaceChildren() {}
     contains(el) { return el === this; }
     blur() { document.activeElement = null; }
@@ -1394,7 +1397,7 @@ for (const width of [300, 480, 900, 1912]) {
   const elements = new Map();
   const inputIds = ['seq-name', 'seq-start', 'seq-length', 'seq-snap-div'];
   for (const id of ['seq', 'seq-bar', 'seq-bar-content', 'seq-play', 'seq-pos', 'seq-target', 'seq-snap-base', 'seq-ctl', 'seq-ctl-field', 'seq-target-field', ...inputIds,
-    'roll', 'arranger', 'seq-split', 'seq-hsplit', 'panel', 'panel-split', 'status']) {
+    'workspace', 'patcher', 'roll', 'arranger', 'seq-split', 'seq-hsplit', 'panel', 'panel-split', 'status']) {
     elements.set(id, new Element(inputIds.includes(id) ? 'input' : id === 'seq-play' ? 'button' : 'div'));
   }
   document.getElementById = (id) => elements.get(id);
@@ -1539,109 +1542,173 @@ for (const width of [300, 480, 900, 1912]) {
     flush();
   }
 
-  // Collapsed pane states survive restore; both splitter axes cover their full available extent.
-  seq.applyView({ width: 0, split: 0 });
-  assert.equal(seq.viewState().width, 0);
-  assert.equal(seq.viewState().split, 0);
-  assert.ok(press('s').defaultPrevented);
-  assert.equal(seq.viewState().width, 0.5, 'S opens a collapsed sequencer at the default width');
-  // S hides the piano roll by moving the vertical divider fully right, S again restores its position
-  seq.applyView({ width: 0.37 });
+  // S maximizes the middle patcher and restores both horizontal boundaries.
+  seq.applyView({ top: 0.37, bottom: 0.81 });
   press('S');
-  assert.equal(seq.viewState().width, 0);
-  assert.equal(seq.viewState().split, 0, 'the roll / TimeLine split is untouched');
+  assert.equal(seq.viewState().top, 0);
+  assert.equal(seq.viewState().bottom, 1);
   press('s');
-  assert.equal(seq.viewState().width, 0.37);
+  assert.equal(seq.viewState().top, 0.37);
+  assert.equal(seq.viewState().bottom, 0.81);
   for (const props of [{ repeat: true }, { ctrlKey: true }, { metaKey: true }, { altKey: true }]) {
     assert.equal(press('s', props).defaultPrevented, false);
-    assert.equal(seq.viewState().width, 0.37);
+    assert.equal(seq.viewState().top, 0.37);
   }
   assert.equal(press('s', {}, new Element('input')).defaultPrevented, false);
   press('s');
   const hidden = JSON.parse(JSON.stringify(seq.viewState()));
-  seq.applyView({ width: 0.8 });
+  seq.applyView({ top: 0.8, bottom: 0.9 });
   seq.applyView(hidden);
   press('s');
-  assert.equal(seq.viewState().width, 0.37, 'the restore position survives saving/restoring');
-  seq.applyView({ open: false, width: 0.42 }); // projects saved with the old Sequencer button hidden
-  assert.equal(seq.viewState().width, 0);
+  assert.equal(seq.viewState().top, 0.37, 'both restore positions survive saving/restoring');
+  assert.equal(seq.viewState().bottom, 0.81);
+
+  // Older side-by-side layouts migrate to the same relative pane areas.
+  seq.applyView({ width: 0.5, split: 0.6 });
+  assert.equal(seq.viewState().top, 0.3);
+  assert.equal(seq.viewState().bottom, 0.8);
+  assert.equal('width' in seq.viewState(), false);
+  assert.equal('split' in seq.viewState(), false);
+  seq.applyView({ open: false, width: 0.4, split: 0.5 });
+  assert.equal(seq.viewState().top, 0);
+  assert.equal(seq.viewState().bottom, 1);
   press('s');
-  assert.equal(seq.viewState().width, 0.42);
-  seq.applyView({ width: 1, split: 1 });
-  assert.equal(seq.viewState().width, 1);
-  assert.equal(seq.viewState().split, 1);
+  assert.equal(seq.viewState().top, 0.2);
+  assert.equal(seq.viewState().bottom, 0.8);
+  seq.applyView({ width: 0, restoreWidth: 0.8, split: 0.5 });
+  press('s');
+  assert.equal(seq.viewState().top, 0.4);
+  assert.equal(seq.viewState().bottom, 0.6);
+  seq.applyView(null);
+  assert.equal(seq.viewState().top, 0.4, 'new projects reset the layout');
+  assert.equal(seq.viewState().bottom, 0.75);
+
   window.innerWidth = 1000;
+  const workspace = elements.get('workspace');
+  workspace.getBoundingClientRect = () => ({ top: 100, height: 548 });
+  elements.get('patcher').getBoundingClientRect = () => ({ left: 0, width: window.innerWidth });
+  const upper = elements.get('seq-split');
+  const lower = elements.get('seq-hsplit');
   const controller = elements.get('panel-split');
   controller.getBoundingClientRect = () => {
-    const state = seq.viewState();
-    const left = Math.min(state.panelWidth, window.innerWidth - 48);
+    const left = Math.min(seq.viewState().panelWidth, window.innerWidth - 24);
     return { left, right: left + 24, width: 24 };
   };
-  const vertical = elements.get('seq-split');
-  vertical.getBoundingClientRect = () => ({ left: 640, width: 24 });
-  elements.get('roll').getBoundingClientRect = () => ({ top: 100 });
-  elements.get('arranger').getBoundingClientRect = () => ({ bottom: 600 });
-  const horizontal = elements.get('seq-hsplit');
-  horizontal.getBoundingClientRect = () => ({ top: 338, height: 24 });
-  drag(vertical, 652, 200, 1000, 200);
-  assert.equal(seq.viewState().width, 0);
+  upper.getBoundingClientRect = () => ({ top: 100 + seq.viewState().top * 500, height: 24 });
+  lower.getBoundingClientRect = () => ({ top: 124 + seq.viewState().bottom * 500, height: 24 });
+  const positions = () => [seq.viewState().top, seq.viewState().bottom];
+  const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} ~= ${expected}`);
+  const changesBeforeStackDrag = viewChanges;
+  drag(upper, 300, 310, 900, 310);
+  assert.deepEqual(positions(), [0.4, 0.75], 'sideways motion cannot move either horizontal boundary');
+  assert.equal(seq.viewState().panelWidth, 880, 'upper divider also controls the controller width');
+  drag(upper, 300, 310, 300, 360);
+  near(seq.viewState().top, 0.5);
+  assert.equal(seq.viewState().bottom, 0.75);
+  assert.equal(viewChanges, changesBeforeStackDrag + 2, 'save once per drag');
+
+  // Once the patcher is collapsed, either divider pushes the other, without crossing.
+  drag(upper, 300, 360, 300, 560);
+  near(seq.viewState().top, 0.9);
+  near(seq.viewState().bottom, 0.9);
+  assert.ok(workspace.classes.has('patcher-collapsed'));
+  drag(upper, 300, 560, 300, 900);
+  assert.deepEqual(positions(), [1, 1], 'upper divider can push the lower one to the bottom edge');
+  assert.ok(workspace.classes.has('arranger-collapsed'));
+  drag(upper, 300, 610, 300, 510);
+  near(seq.viewState().top, 0.8);
+  assert.equal(seq.viewState().bottom, 1, 'pulling back reopens only the patcher');
+  seq.applyView({ top: 0.4, bottom: 0.75 });
+  drag(lower, 300, 510, 900, 260);
+  assert.deepEqual(positions(), [0.25, 0.25], 'lower divider pushes the upper one upward');
+  drag(lower, 300, 260, 300, -500);
+  assert.deepEqual(positions(), [0, 0], 'lower divider can push the upper one to the top edge');
+  assert.ok(workspace.classes.has('roll-collapsed'));
+  drag(lower, 300, 136, 300, 336);
+  assert.deepEqual(positions(), [0, 0.4], 'collapsed patcher can be reopened');
+
+  // Reversing a drag after a collision leaves the pushed divider in its new position.
+  seq.applyView({ top: 0.4, bottom: 0.75 });
+  point(lower, 'pointerdown', 300, 510);
+  point(lower, 'pointermove', 300, 260);
+  point(lower, 'pointermove', 300, 410);
+  point(lower, 'pointerup', 300, 410);
+  near(seq.viewState().top, 0.25);
+  near(seq.viewState().bottom, 0.55);
+
+  // Collapsing both sequencer panes by dragging keeps the last visible layout for S.
+  seq.applyView({ top: 0.4, bottom: 0.75 });
+  drag(upper, 300, 310, 300, -1000);
+  drag(lower, 300, 510, 300, 1000);
+  assert.deepEqual(positions(), [0, 1]);
   press('s');
-  assert.equal(seq.viewState().width, 1, 'S reopens a dragged-shut sequencer where the drag started');
-  seq.applyView({ width: 0 });
-  drag(vertical, 652, 200, 304, 200);
-  assert.equal(seq.viewState().width, 1);
-  drag(horizontal, 700, 350, 700, 100);
-  assert.equal(seq.viewState().split, 0);
-  drag(horizontal, 700, 350, 700, 600);
-  assert.equal(seq.viewState().split, 1);
+  assert.deepEqual(positions(), [0, 0.75]);
+  for (const [top, bottom] of [[0, 0], [0, 1], [1, 1], [0.3, 0.3], [0.2, 0.9]]) {
+    seq.applyView({ top, bottom });
+    const saved = JSON.parse(JSON.stringify(seq.viewState()));
+    seq.applyView({ top: 0.4, bottom: 0.75 });
+    seq.applyView(saved);
+    assert.deepEqual(positions(), [top, bottom], 'all collapsed and open states survive saving/restoring');
+  }
+  // Fractional positions survive viewport changes; a new drag uses the current height.
+  workspace.getBoundingClientRect = () => ({ top: 100, height: 1048 });
+  drag(upper, 300, 310, 300, 410);
+  near(seq.viewState().top, 0.3);
+  assert.equal(seq.viewState().bottom, 0.9);
+  workspace.getBoundingClientRect = () => ({ top: 100, height: 48 });
+  const beforeZero = positions();
+  drag(lower, 300, 510, 300, 200);
+  assert.deepEqual(positions(), beforeZero, 'zero available height never creates invalid fractions');
+  workspace.getBoundingClientRect = () => ({ top: 100, height: 548 });
 
-  // Grabbing the vertical divider anywhere preserves both split positions until movement.
-  seq.applyView({ width: 0.5, split: 0.5 });
-  drag(vertical, 652, 175, 652, 175);
-  assert.equal(seq.viewState().width, 0.5);
-  assert.equal(seq.viewState().split, 0.5);
-  drag(vertical, 652, 175, 584.8, 222.6);
-  assert.ok(Math.abs(seq.viewState().width - 0.6) < 1e-9);
-  assert.ok(Math.abs(seq.viewState().split - 0.6) < 1e-9);
-  drag(vertical, 652, 175, 652, -500);
-  assert.equal(seq.viewState().split, 0);
-  assert.ok(Math.abs(seq.viewState().width - 0.6) < 1e-9, 'a purely vertical drag keeps the width');
-  drag(vertical, 652, 175, 652, 1000);
-  assert.equal(seq.viewState().split, 1);
-  assert.ok(Math.abs(seq.viewState().width - 0.6) < 1e-9);
-  // The horizontal divider moves the sequencer width too, keeping the split until it moves vertically.
-  seq.applyView({ width: 0.5, split: 0.5 });
-  drag(horizontal, 700, 350, 632.8, 350);
-  assert.ok(Math.abs(seq.viewState().width - 0.6) < 1e-9);
-  assert.equal(seq.viewState().split, 0.5);
-  drag(horizontal, 700, 350, 1400, 397.6);
-  assert.equal(seq.viewState().width, 0);
-  assert.ok(Math.abs(seq.viewState().split - 0.6) < 1e-9);
-  seq.applyView({ width: 0.5, split: 1 });
-  const saved = seq.viewState();
-  seq.applyView({ width: 0.2, split: 0.3 });
-  seq.applyView(saved);
-  assert.equal(seq.viewState().width, 0.5);
-  assert.equal(seq.viewState().split, 1);
+  seq.applyView({ top: 0.4, bottom: 0.75 });
+  key(lower, 'ArrowUp', { shiftKey: true });
+  near(seq.viewState().bottom, 0.65);
+  key(lower, 'Home');
+  assert.deepEqual(positions(), [0, 0], 'keyboard resizing also pushes the other divider');
+  assert.equal(upper.attributes.get('aria-valuenow'), '0');
+  key(upper, 'End');
+  assert.deepEqual(positions(), [1, 1]);
+  assert.equal(lower.attributes.get('aria-valuenow'), '100');
+  seq.applyView({ top: 0.4, bottom: 0.75 });
+  key(upper, 'ArrowDown');
+  near(seq.viewState().top, 0.42);
+  const beforeCancel = viewChanges;
+  drag(upper, 300, 310, 300, 360, {}, 'pointercancel');
+  near(seq.viewState().top, 0.52);
+  point(upper, 'pointermove', 300, 500);
+  near(seq.viewState().top, 0.52);
+  assert.equal(viewChanges, beforeCancel + 1);
+  for (const bad of [NaN, Infinity, 'invalid']) {
+    seq.applyView({ top: bad, bottom: bad, restoreTop: bad, restoreBottom: bad });
+    near(seq.viewState().top, 0.52);
+    assert.equal(seq.viewState().bottom, 0.75);
+  }
+  seq.applyView({ top: 5, bottom: -1 });
+  assert.deepEqual(positions(), [1, 1], 'loaded boundaries remain ordered and clamped');
 
-  // The controller divider is independent, keeps its grab offset, and saves once per drag.
+  // Either horizontal divider controls panel width while moving its own vertical boundary.
+  seq.applyView({ top: 0.4, bottom: 0.75, panelWidth: 280 });
+  drag(lower, 300, 510, 420, 560);
+  assert.equal(seq.viewState().panelWidth, 400);
+  near(seq.viewState().bottom, 0.85);
+  assert.equal(seq.viewState().top, 0.4);
+  drag(upper, 300, 310, 200, 360);
+  assert.equal(seq.viewState().panelWidth, 300);
+  near(seq.viewState().top, 0.5);
+  near(seq.viewState().bottom, 0.85);
+
+  // The controller divider also moves the upper boundary, keeping both grab offsets.
+  seq.applyView({ top: 0.4, bottom: 0.75, panelWidth: 280 });
   assert.equal(seq.viewState().panelWidth, 280, 'legacy layouts keep the original panel width');
   const changesBefore = viewChanges;
   drag(controller, 292, 200, 292, 250);
   assert.equal(seq.viewState().panelWidth, 280, 'vertical motion does not change panel width');
+  assert.deepEqual(positions(), [0.5, 0.75], 'controller divider moves the upper boundary vertically');
   drag(controller, 292, 200, 412, 200);
   assert.equal(seq.viewState().panelWidth, 400);
-  assert.equal(seq.viewState().width, 0.5);
-  assert.equal(seq.viewState().split, 1);
+  assert.deepEqual(positions(), [0.5, 0.75]);
   assert.equal(viewChanges, changesBefore + 2);
-  const originalVerticalRect = vertical.getBoundingClientRect;
-  vertical.getBoundingClientRect = () => ({ left: 700, width: 24 });
-  drag(vertical, 712, 200, 712, 200);
-  assert.equal(seq.viewState().width, 0.5, 'sequencer divider does not jump after controller resizing');
-  drag(vertical, 712, 200, 656.8, 200);
-  assert.ok(Math.abs(seq.viewState().width - 0.6) < 1e-9, 'sequencer resizing uses the new available width');
-  seq.applyView({ width: 0.5 });
-  vertical.getBoundingClientRect = originalVerticalRect;
   drag(controller, 412, 200, 0, 200);
   assert.equal(seq.viewState().panelWidth, 0);
   const collapsed = JSON.parse(JSON.stringify(seq.viewState()));
@@ -1652,12 +1719,12 @@ for (const width of [300, 480, 900, 1912]) {
   seq.applyView({ panelWidth: 280 });
   const expanded = JSON.parse(JSON.stringify(seq.viewState()));
   drag(controller, 292, 200, 1000, 200);
-  assert.equal(seq.viewState().panelWidth, 952, 'both divider handles remain on screen');
-  drag(vertical, 988, 200, 988, 200);
-  assert.equal(seq.viewState().width, 0.5, 'no division by zero when the panel fills all available space');
-  seq.applyView({ width: 0, panelWidth: 280 });
+  assert.equal(seq.viewState().panelWidth, 976, 'controller handle remains on screen');
+  drag(upper, 988, 310, 988, 310);
+  assert.deepEqual(positions(), [0.5, 0.75], 'grabbing a horizontal divider does not jump after controller resizing');
+  seq.applyView({ top: 0, bottom: 1, panelWidth: 280 });
   drag(controller, 292, 200, 1000, 200);
-  assert.equal(seq.viewState().panelWidth, 952, 'resizes with the sequencer hidden too');
+  assert.equal(seq.viewState().panelWidth, 976, 'resizes with the sequencer hidden too');
   seq.applyView(expanded);
   assert.equal(seq.viewState().panelWidth, 280, 'expanded width survives saving/restoring');
   for (const panelWidth of [NaN, Infinity, 'invalid']) {
@@ -1671,6 +1738,15 @@ for (const width of [300, 480, 900, 1912]) {
   assert.equal(seq.viewState().panelWidth, 338);
   point(controller, 'pointermove', 600, 200);
   assert.equal(seq.viewState().panelWidth, 338, 'cancelled drag releases the handle');
+  seq.applyView({ top: 0.4, bottom: 0.75, panelWidth: 280 });
+  drag(controller, 292, 200, 392, 450);
+  assert.equal(seq.viewState().panelWidth, 380);
+  assert.deepEqual(positions(), [0.9, 0.9], 'controller divider can push both horizontal dividers');
+  seq.applyView({ top: 0.4, bottom: 0.75, panelWidth: 2000 });
+  drag(lower, 300, 510, 300, 560);
+  assert.equal(seq.viewState().panelWidth, 2000, 'vertical motion preserves a saved width clamped by the viewport');
+  drag(lower, 300, 560, 200, 560);
+  assert.equal(seq.viewState().panelWidth, 876, 'horizontal drag starts from the rendered, clamped controller width');
 }
 
 console.log('sequencer interaction tests passed');

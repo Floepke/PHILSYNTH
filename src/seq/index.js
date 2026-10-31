@@ -1,5 +1,5 @@
-// The sequencer: right part of the window, split into the piano roll (top) and the TimeLine
-// arranger (bottom), with a toolbar for transport, the selected clip and the snap grid.
+// The sequencer surrounds the patcher: piano roll above, TimeLine arranger below,
+// with a toolbar for transport, the selected clip and the snap grid above the roll.
 // An automation clip shows the automation lane editor in place of the piano roll.
 import { newNoteId } from '../modmidi.js';
 import { getClip, isAuto, SNAP_BASES, SNAP_NAMES, snapStep, formatPos, DEFAULT_VEL, meter, segAt, setSig, removeSig, linkedClips, normalizeSong } from '../song.js';
@@ -305,72 +305,86 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
     ui.pos.title = looping ? `Looping ${looping.name} (/ to restart, . for the song)` : 'Play position: bar.beat.hundredths';
   }
 
-  // ---- layout: controller panel, sequencer width and the roll / arranger split ----
-  // restoreWidth: where S brings the vertical divider back to after it hid the sequencer
-  const layout = { width: 0.5, split: 0.62, panelWidth: 280, restoreWidth: 0.5 };
+  // Boundaries are fractions of the workspace height excluding the two divider handles.
+  const defaults = { top: 0.4, bottom: 0.75, panelWidth: 280, restoreTop: 0.4, restoreBottom: 0.75 };
+  const layout = { ...defaults };
+  const workspace = $('workspace');
+  const controller = $('panel-split');
+  const upper = $('seq-split');
+  const lower = $('seq-hsplit');
   function applyLayout() {
-    document.body.classList.add('seq-open');
     document.body.classList.toggle('panel-collapsed', layout.panelWidth === 0);
     document.body.style.setProperty('--panel-width', `${layout.panelWidth}px`);
-    document.body.style.setProperty('--seq-f', layout.width);
-    seq.style.setProperty('--roll-fr', `${layout.split}fr`);
-    seq.style.setProperty('--arr-fr', `${1 - layout.split}fr`);
-    seq.classList.toggle('seq-collapsed', layout.width === 0);
-    seq.classList.toggle('roll-collapsed', layout.split === 0);
-    seq.classList.toggle('arranger-collapsed', layout.split === 1);
+    workspace.style.setProperty('--roll-fr', `${layout.top}fr`);
+    workspace.style.setProperty('--patch-fr', `${layout.bottom - layout.top}fr`);
+    workspace.style.setProperty('--arr-fr', `${1 - layout.bottom}fr`);
+    workspace.classList.toggle('roll-collapsed', layout.top === 0);
+    workspace.classList.toggle('patcher-collapsed', layout.top === layout.bottom);
+    workspace.classList.toggle('arranger-collapsed', layout.bottom === 1);
+    for (const [handle, value] of [[upper, layout.top], [lower, layout.bottom]]) {
+      handle.setAttribute('aria-valuemin', '0');
+      handle.setAttribute('aria-valuemax', '100');
+      handle.setAttribute('aria-valuenow', String(Math.round(value * 100)));
+    }
   }
-  // S: slide the vertical divider fully right (hides piano roll + TimeLine), S again: back to where it was
+  // S maximizes the patcher, then restores both surrounding panes to their saved positions.
   function toggleRoll() {
-    if (layout.width > 0) {
-      layout.restoreWidth = layout.width;
-      layout.width = 0;
+    if (layout.top > 0 || layout.bottom < 1) {
+      layout.restoreTop = layout.top;
+      layout.restoreBottom = layout.bottom;
+      layout.top = 0;
+      layout.bottom = 1;
     } else {
-      layout.width = layout.restoreWidth > 0 ? layout.restoreWidth : 0.5;
+      const restorable = layout.restoreTop > 0 || layout.restoreBottom < 1;
+      layout.top = restorable ? layout.restoreTop : defaults.top;
+      layout.bottom = restorable ? layout.restoreBottom : defaults.bottom;
     }
     applyLayout();
     onChange();
   }
-  $('panel-split').addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    const divider = e.currentTarget.getBoundingClientRect();
-    const offset = e.clientX - divider.left;
-    const seqDivider = $('seq-split').getBoundingClientRect().width;
-    const available = Math.max(0, window.innerWidth - divider.width - seqDivider);
-    capture(e.currentTarget, e, (ev) => {
-      layout.panelWidth = clamp(ev.clientX - offset, 0, available);
-      applyLayout();
-    }, () => onChange());
-  });
-  // Both sequencer dividers move both splits: x → sequencer width, y → roll / TimeLine split.
-  // Each axis follows the pointer relative to where it was grabbed, and only once it moves on that axis.
-  function dragSeqSplits(e) {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    const panelRight = $('panel-split').getBoundingClientRect().right;
-    const vertical = $('seq-split').getBoundingClientRect();
-    const available = Math.max(0, window.innerWidth - panelRight - vertical.width);
-    const top = $('roll').getBoundingClientRect().top;
-    const bottom = $('arranger').getBoundingClientRect().bottom;
-    const horizontal = $('seq-hsplit').getBoundingClientRect();
-    const verticalRoom = Math.max(1, bottom - top - horizontal.height);
-    const x0 = e.clientX;
-    const y0 = e.clientY;
-    const widthStart = layout.width;
-    const splitStart = layout.split;
-    capture(e.currentTarget, e, (ev) => {
-      const dx = ev.clientX - x0;
-      const dy = ev.clientY - y0;
-      layout.width = dx && available > 0 ? clamp((window.innerWidth - (vertical.left + dx) - vertical.width) / available, 0, 1) : widthStart;
-      layout.split = dy ? clamp((horizontal.top + dy - top) / verticalRoom, 0, 1) : splitStart;
-      applyLayout();
-    }, () => {
-      if (layout.width === 0 && widthStart > 0) layout.restoreWidth = widthStart; // dragged shut: S reopens it there
-      onChange();
+  function moveBoundary(boundary, value) {
+    layout[boundary] = clamp(value, 0, 1);
+    if (boundary === 'top') layout.bottom = Math.max(layout.bottom, layout.top);
+    else layout.top = Math.min(layout.top, layout.bottom);
+    applyLayout();
+  }
+  function saveLayout(start) {
+    if (layout.top === 0 && layout.bottom === 1 && (start.top > 0 || start.bottom < 1)) {
+      layout.restoreTop = start.top;
+      layout.restoreBottom = start.bottom;
+    }
+    onChange();
+  }
+  for (const [handle, boundary] of [[controller, 'top'], [upper, 'top'], [lower, 'bottom']]) {
+    handle.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const room = Math.max(0, workspace.getBoundingClientRect().height - upper.getBoundingClientRect().height - lower.getBoundingClientRect().height);
+      const panelHandle = controller.getBoundingClientRect();
+      const patcher = $('patcher').getBoundingClientRect();
+      const available = Math.max(0, patcher.width - panelHandle.width);
+      const panelStart = panelHandle.left - patcher.left;
+      const start = { ...layout };
+      const x0 = e.clientX;
+      const y0 = e.clientY;
+      capture(handle, e, (ev) => {
+        const dx = ev.clientX - x0;
+        layout.panelWidth = dx ? clamp(panelStart + dx, 0, available) : start.panelWidth;
+        if (room > 0) moveBoundary(boundary, start[boundary] + (ev.clientY - y0) / room);
+        else applyLayout();
+      }, () => saveLayout(start));
+    });
+    if (handle === controller) continue;
+    handle.addEventListener('keydown', (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || !['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) return;
+      e.preventDefault();
+      const start = { ...layout };
+      const step = e.shiftKey ? 0.1 : 0.02;
+      const value = e.key === 'Home' ? 0 : e.key === 'End' ? 1 : layout[boundary] + (e.key === 'ArrowUp' ? -step : step);
+      moveBoundary(boundary, value);
+      saveLayout(start);
     });
   }
-  $('seq-split').addEventListener('pointerdown', dragSeqSplits);
-  $('seq-hsplit').addEventListener('pointerdown', dragSeqSplits);
   applyLayout();
 
   engine.root.listeners.add(() => { refreshTargets(); roll.redraw(); lane.redraw(); arranger.redraw(); });
@@ -386,17 +400,27 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
     applyView(v) {
       roll.setView(v?.roll);
       if (v) {
-        if (Number.isFinite(v.width)) layout.width = clamp(v.width, 0, 1);
-        if (Number.isFinite(v.restoreWidth) && v.restoreWidth > 0) layout.restoreWidth = clamp(v.restoreWidth, 0, 1);
-        if (v.open === false && layout.width > 0) { // older projects: Sequencer button had hidden it
-          layout.restoreWidth = layout.width;
-          layout.width = 0;
+        if (!Number.isFinite(v.top) && !Number.isFinite(v.bottom)
+          && (Number.isFinite(v.width) || Number.isFinite(v.split) || v.open === false)) {
+          // Migrate the old side-by-side layout, preserving each pane's share of the workspace.
+          const width = Number.isFinite(v.width) ? clamp(v.width, 0, 1) : 0.5;
+          const split = Number.isFinite(v.split) ? clamp(v.split, 0, 1) : 0.62;
+          const restore = Number.isFinite(v.restoreWidth) && v.restoreWidth > 0 ? clamp(v.restoreWidth, 0, 1) : width || 0.5;
+          layout.top = v.open === false ? 0 : width * split;
+          layout.bottom = v.open === false ? 1 : 1 - width * (1 - split);
+          layout.restoreTop = restore * split;
+          layout.restoreBottom = 1 - restore * (1 - split);
         }
-        if (Number.isFinite(v.split)) layout.split = clamp(v.split, 0, 1);
+        if (Number.isFinite(v.top)) layout.top = clamp(v.top, 0, 1);
+        if (Number.isFinite(v.bottom)) layout.bottom = clamp(v.bottom, 0, 1);
+        layout.bottom = Math.max(layout.top, layout.bottom);
+        if (Number.isFinite(v.restoreTop)) layout.restoreTop = clamp(v.restoreTop, 0, 1);
+        if (Number.isFinite(v.restoreBottom)) layout.restoreBottom = clamp(v.restoreBottom, 0, 1);
+        layout.restoreBottom = Math.max(layout.restoreTop, layout.restoreBottom);
         if (Number.isFinite(v.panelWidth)) layout.panelWidth = Math.max(0, v.panelWidth);
         lane.setView(v.lane);
         arranger.setView(v.arranger);
-      }
+      } else Object.assign(layout, defaults);
       applyLayout();
       sync();
     },

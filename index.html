@@ -17,34 +17,38 @@
     <button id="load" title="Open a project .mds file (older .json projects open too)">Load</button>
     <input id="file" type="file" accept=".mds,.json" hidden>
   </header>
-  <aside id="panel"><div id="panel-content"></div></aside>
-  <div id="panel-split" class="splitter" role="separator" aria-orientation="vertical" aria-label="Controller panel width" title="Drag to resize the controller panel; drag fully left to hide it"></div>
-  <main id="canvas">
-    <div id="world"><svg id="cables"></svg></div>
-    <button id="zoom" title="Zoom level — click to fit all modules in view">100%</button>
-  </main>
-  <div id="seq-split" class="splitter" title="Drag left/right to resize the sequencer and up/down to adjust the piano roll / TimeLine split; drag to an edge to hide a pane"></div>
-  <section id="seq">
-    <div id="seq-bar">
-      <div id="seq-bar-content">
-        <button id="seq-play" class="seq-play" title="Play song (.) / toggle (Space)">▶</button>
-        <span id="seq-pos" class="seq-pos" title="Play position: bar.beat.hundredths">1.1.00</span>
-        <span class="seq-sep"></span>
-        <label class="seq-field seq-clip" title="Name of the selected clip"><span>Clip</span><input id="seq-name" type="text" spellcheck="false"></label>
-        <label class="seq-field" id="seq-target-field" title="Module number (main patch) that plays the notes of this clip"><span>Send to</span><select id="seq-target"></select></label>
-        <label class="seq-field" id="seq-ctl-field" title="Controller of the target module that this automation clip drives" hidden><span>Controller</span><select id="seq-ctl"></select></label>
-        <label class="seq-field" title="Clip start on the TimeLine, in quarter notes (negative: parked before the song start, not played)"><span>Start</span><input id="seq-start" type="number" step="any"></label>
-        <label class="seq-field" title="Clip length in quarter notes"><span>Length</span><input id="seq-length" type="number" step="any" min="0.001"></label>
-        <span class="seq-sep"></span>
-        <label class="seq-field" title="Snap grid: base note value…"><span>Snap</span><select id="seq-snap-base"></select></label>
-        <span class="seq-div" title="…divided by">÷</span>
-        <input id="seq-snap-div" class="seq-div-input" type="number" min="1" max="64" step="1" value="1" aria-label="Snap divider">
+  <div id="workspace">
+    <section id="seq" aria-label="Piano roll">
+      <div id="seq-bar">
+        <div id="seq-bar-content">
+          <button id="seq-play" class="seq-play" title="Play song (.) / toggle (Space)">▶</button>
+          <span id="seq-pos" class="seq-pos" title="Play position: bar.beat.hundredths">1.1.00</span>
+          <span class="seq-sep"></span>
+          <label class="seq-field seq-clip" title="Name of the selected clip"><span>Clip</span><input id="seq-name" type="text" spellcheck="false"></label>
+          <label class="seq-field" id="seq-target-field" title="Module number (main patch) that plays the notes of this clip"><span>Send to</span><select id="seq-target"></select></label>
+          <label class="seq-field" id="seq-ctl-field" title="Controller of the target module that this automation clip drives" hidden><span>Controller</span><select id="seq-ctl"></select></label>
+          <label class="seq-field" title="Clip start on the TimeLine, in quarter notes (negative: parked before the song start, not played)"><span>Start</span><input id="seq-start" type="number" step="any"></label>
+          <label class="seq-field" title="Clip length in quarter notes"><span>Length</span><input id="seq-length" type="number" step="any" min="0.001"></label>
+          <span class="seq-sep"></span>
+          <label class="seq-field" title="Snap grid: base note value…"><span>Snap</span><select id="seq-snap-base"></select></label>
+          <span class="seq-div" title="…divided by">÷</span>
+          <input id="seq-snap-div" class="seq-div-input" type="number" min="1" max="64" step="1" value="1" aria-label="Snap divider">
+        </div>
       </div>
-    </div>
-    <div id="roll" class="seq-view"></div>
-    <div id="seq-hsplit" class="splitter horizontal" title="Drag up/down to adjust the piano roll / TimeLine split and left/right to resize the sequencer; drag to an edge to hide a pane"></div>
-    <div id="arranger" class="seq-view"></div>
-  </section>
+      <div id="roll" class="seq-view"></div>
+    </section>
+    <div id="seq-split" class="splitter horizontal" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Piano roll / patcher divider" aria-controls="seq patcher" title="Drag up/down to resize the piano roll and left/right to resize the controller panel; pushes the lower divider when they meet. Arrow keys resize; Home/End move to an edge."></div>
+    <section id="patcher" aria-label="Patcher">
+      <aside id="panel"><div id="panel-content"></div></aside>
+      <div id="panel-split" class="splitter" role="separator" aria-orientation="vertical" aria-label="Controller panel width" title="Drag left/right to resize the controller panel and up/down to move the upper horizontal divider; drag fully left to hide the panel"></div>
+      <main id="canvas">
+        <div id="world"><svg id="cables"></svg></div>
+        <button id="zoom" title="Zoom level — click to fit all modules in view">100%</button>
+      </main>
+    </section>
+    <div id="seq-hsplit" class="splitter horizontal" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Patcher / TimeLine divider" aria-controls="patcher arranger" title="Drag up/down to resize the TimeLine and left/right to resize the controller panel; pushes the upper divider when they meet. Arrow keys resize; Home/End move to an edge."></div>
+    <div id="arranger" class="seq-view" role="region" aria-label="TimeLine"></div>
+  </div>
   <footer id="statusbar">
     <span id="status"></span>
     <div id="cpu" title="DSP load: share of the audio thread's real-time budget used to render the patch">

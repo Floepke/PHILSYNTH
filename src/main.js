@@ -181,7 +181,9 @@ function patchAt(ids) {
 
 function applyView(view) {
   path = patchAt(view?.path);
-  path.forEach((l, i) => (l.cam = validCam(view?.cams?.[i])));
+  path.forEach((l, i) => {
+    if (view?.cams?.[i]) l.cam = validCam(view.cams[i]);
+  });
   seq?.applyView(view?.seq);
   midiHistory = [];
   if (view?.midi) {
@@ -282,9 +284,11 @@ dialog.addEventListener('close', async () => {
 
 // ---- rendering the current patch ----
 function render() {
+  const fit = !path[path.length - 1].cam;
   world.querySelectorAll('.module').forEach((el) => el.remove());
   applyCam();
   for (const entry of current().modules.values()) createBox(entry);
+  if (fit && canvas.clientWidth > 0 && canvas.clientHeight > 0) fitAll();
   drawCables();
   renderCrumbs();
   select(null);
@@ -703,13 +707,13 @@ window.addEventListener('keydown', (e) => {
     if (path.length > 1) {
       path.pop();
       render();
-    } else if (!e.defaultPrevented && !e.target.closest('input, select, textarea, dialog, #seq')) {
+    } else if (!e.defaultPrevented && !e.target.closest('input, select, textarea, dialog, #seq, #arranger')) {
       e.preventDefault();
       exitToOS(persist, (message) => { $('status').textContent = message; });
     }
     return;
   }
-  if (e.target.closest('input, select, textarea, dialog, #seq')) return; // the sequencer handles its own keys
+  if (e.target.closest('input, select, textarea, dialog, #seq, #arranger')) return; // the sequencer handles its own keys
   const command = (e.ctrlKey || e.metaKey) && !e.altKey;
   const k = e.key.toLowerCase();
   if (command && k === 'a') {
@@ -813,7 +817,7 @@ function select(s) {
       hint('OSC / ADSR: with <b>Sustain</b> at 0, <b>Decay</b> and <b>Release</b> are linked: moving one moves the other.'),
       hint('<kbd>Middle mouse</kbd> + drag pans the canvas, <kbd>scroll</kbd> zooms. Click the zoom % (bottom right) to fit all modules.'),
       hint('Play with a MIDI controller or keys <kbd>A</kbd>–<kbd>;</kbd>.'),
-      hint('<b>Sequencer</b> (right; <kbd>S</kbd> slides its divider away to hide it, <kbd>S</kbd> again brings it back): <kbd>Double-click</kbd> the TimeLine to add a clip, drag its edges to resize, <kbd>Alt</kbd> + drag to copy. In the piano roll click / drag to write notes (new notes get the last used length), drag a note body for its length, its circle for pitch and time. A short right-click deletes the note under the pointer; hold the right button for <b>500 ms</b> to open the menu instead (cut / copy / paste / delete / duplicate / quantize / octave). Releasing after the menu opens never deletes a note. <kbd>Space</kbd> plays. <kbd>Double-click</kbd> the TimeLine ruler to insert a time signature change (right-click it to remove).'),
+      hint('<b>Sequencer</b> (piano roll above the patcher, TimeLine below; <kbd>S</kbd> maximizes the patcher, <kbd>S</kbd> again restores both panes): <kbd>Double-click</kbd> the TimeLine to add a clip, drag its edges to resize, <kbd>Alt</kbd> + drag to copy. In the piano roll click / drag to write notes (new notes get the last used length), drag a note body for its length, its circle for pitch and time. A short right-click deletes the note under the pointer; hold the right button for <b>500 ms</b> to open the menu instead (cut / copy / paste / delete / duplicate / quantize / octave). Releasing after the menu opens never deletes a note. <kbd>Space</kbd> plays. <kbd>Double-click</kbd> the TimeLine ruler to insert a time signature change (right-click it to remove).'),
       hint('<b>Piano roll selection:</b> <kbd>Shift</kbd> + drag or <kbd>right</kbd> + drag draws a selection rectangle; clicking a note selects it, <kbd>Shift</kbd> + click toggles it. Dragging a selected note moves / resizes the whole selection. <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> duplicates the selection, <kbd>Q</kbd> quantizes note starts (selection, else all). <kbd>Ctrl/Cmd</kbd> + <kbd>A</kbd> selects all notes, <kbd>Esc</kbd> clears the selection, and <kbd>Backspace</kbd> / <kbd>Delete</kbd> deletes it. <kbd>Alt</kbd> + drag a note (body or circle) moves a clone.'),
       hint('<b>Arrow keys:</b> in the piano roll, <kbd>Left</kbd> / <kbd>Right</kbd> transpose selected notes by one semitone; <kbd>Up</kbd> / <kbd>Down</kbd> move them earlier/later by one snap step. With <kbd>Shift</kbd>: an octave / a bar. The selection moves together and stops at time zero or the MIDI pitch limits.'),
       hint('<b>Velocity:</b> the strip left of the piano roll shows every note\'s velocity (stick) and how it changes while the note sounds. Drag a note\'s dot to set its velocity (<kbd>Shift</kbd>-click adds it to the selection). The selected notes share one curve: <kbd>Double-click</kbd> inside them to add a point, drag points (time snaps, <kbd>Shift</kbd> = fine), and use the mouse wheel on a point to round it. Right-click the lane to toggle <b>Snap velocity values</b> (1/16 increments, enabled by default, no grid), or right-click a point and choose <b>Delete point</b>. The snap setting is saved with the project and only affects new edits. One selected note edits its own curve.'),
@@ -826,10 +830,10 @@ function select(s) {
       hint('<b>Playback:</b> <kbd>/</kbd> starts and loops only the selected clip from its start. <kbd>\'</kbd> stops playback, <kbd>.</kbd> plays/resumes the full song, and <kbd>,</kbd> restarts the song at zero. <kbd>Space</kbd> toggles play/stop; stopping with <kbd>Space</kbd> (or the ■ button) moves the playhead to the start of the selected clip, so the next <kbd>Space</kbd> plays from there. Shortcuts are inactive while typing in a field. Note chasing: starting or jumping into the middle of a note plays it for the rest of its length.'),
       hint('<b>Controls:</b> scroll a dropdown to change its selection. Number fields have permanent up/down buttons and also support scrolling; <kbd>Double-click</kbd> a number (or use <kbd>Tab</kbd>) to type. Mouse adjustments leave keyboard focus in the editor so <kbd>Space</kbd> still plays.'),
       hint('<b>Toolbar:</b> controls stay on one row. When space is tight, move the pointer toward the left or right edge to reveal hidden controls; the closer to the edge, the faster it moves. Move to the middle to stop. Clicking, typing or using the wheel pauses motion; the wheel still changes control values. <kbd>Tab</kbd> also reveals focused controls.'),
-      hint('<b>Layout:</b> drag the wide dividers all the way to an edge to hide the patcher, piano roll or TimeLine. Drag the divider back to reopen a pane. The piano keyboard stays at the bottom of the roll; selected notes are filled blue.'),
-      hint('The piano roll fits all <b>128 MIDI notes (0–127)</b> across its width and rescales when you move the divider. Horizontal zoom is automatic; <kbd>Alt</kbd> + scroll no longer changes key width. Scroll upward to reveal a small margin above beat zero. <kbd>Ctrl/Cmd</kbd> + scroll still zooms time.'),
+      hint('<b>Layout:</b> piano roll, patcher and TimeLine are stacked top to bottom. Drag either horizontal divider up/down; when the patcher closes, the dragged divider pushes the other one. Drag to an edge to hide a pane and back to reopen it. Positions are saved with the project. The piano keyboard stays at the bottom of the roll; selected notes are filled blue.'),
+      hint('The piano roll fits all <b>128 MIDI notes (0–127)</b> across its width and rescales with the window width. Horizontal zoom is automatic; <kbd>Alt</kbd> + scroll no longer changes key width. Scroll upward to reveal a small margin above beat zero. <kbd>Ctrl/Cmd</kbd> + scroll still zooms time.'),
       hint('Drag the left controller-panel divider to resize the panel, or fully left to hide it. Its handle stays available to reopen it, and the width is saved with the project.'),
-      hint('Both sequencer dividers move both splits together: drag left/right for the sequencer width and up/down for the piano roll / TimeLine split. Every divider shows a small four-dot grip.'),
+      hint('All three dividers resize the controller panel when dragged left/right. Dragging the controller-panel divider up/down also moves the upper horizontal divider. Each horizontal divider supports <kbd>Up</kbd>/<kbd>Down</kbd> (hold <kbd>Shift</kbd> for larger steps) and <kbd>Home</kbd>/<kbd>End</kbd> to reach the edges. Every divider shows a small four-dot grip.'),
       hint('<b>Piano roll colors:</b> charcoal paper keeps the stave dark rather than inverted. Notes use a lighter version of their module color; black-key bodies are slightly darker, including in blue selections, so dense chromatic chords retain the keyboard pattern.'),
       hint('The piano-roll snap bands and horizontal grid/bar lines run from the center of <b>A#0</b> to the center of <b>A#7</b> (American notation). Notes outside this range can still be edited and played.'),
     );

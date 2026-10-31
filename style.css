@@ -23,10 +23,8 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; }
 body {
-  --panel-room: max(0px, 100vw - var(--seq-divider));
-  --panel-size: clamp(0px, var(--panel-width, 280px), var(--panel-room));
   display: grid;
-  grid-template-columns: var(--panel-size) var(--seq-divider) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: 48px minmax(0, 1fr) 28px;
   background: var(--bg);
   color: var(--text);
@@ -492,17 +490,29 @@ body.panel-collapsed #panel { visibility: hidden; }
   .module.midi-target::after { animation: none; }
 }
 
-/* ---------- sequencer: piano roll + TimeLine (right part) ---------- */
-body.seq-open {
-  --panel-room: max(0px, 100vw - 2 * var(--seq-divider));
-  grid-template-columns: var(--panel-size) var(--seq-divider) minmax(0, 1fr) var(--seq-divider) calc(max(0px, 100vw - var(--panel-size) - 2 * var(--seq-divider)) * var(--seq-f, 0.5));
+/* ---------- workspace: piano roll, patcher, TimeLine ---------- */
+#workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, var(--roll-fr, 0.4fr)) var(--seq-divider) minmax(0, var(--patch-fr, 0.35fr)) var(--seq-divider) minmax(0, var(--arr-fr, 0.25fr));
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface-1);
 }
-#seq, #seq-split { display: none; }
-body.seq-open #seq { display: grid; }
-body.seq-open #seq-split { display: block; }
+#patcher {
+  --panel-room: max(0px, 100% - var(--seq-divider));
+  --panel-size: clamp(0px, var(--panel-width, 280px), var(--panel-room));
+  display: grid;
+  grid-template-columns: var(--panel-size) var(--seq-divider) minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
 #seq {
   --clip-color: #8a8a92;
-  grid-template-rows: auto minmax(0, var(--roll-fr, 0.62fr)) var(--seq-divider) minmax(0, var(--arr-fr, 0.38fr));
+  display: grid;
+  grid-template-rows: minmax(0, auto) minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -561,14 +571,15 @@ body.seq-open #seq-split { display: block; }
 #seq-target { box-shadow: inset 3px 0 0 var(--clip-color); }
 .seq-div { color: var(--text); font-size: 16px; line-height: 1; }
 #seq-bar .seq-div-input { width: 48px; }
-#seq.seq-collapsed > * { visibility: hidden; }
-#seq.roll-collapsed #roll, #seq.arranger-collapsed #arranger { visibility: hidden; }
+#workspace.roll-collapsed #seq,
+#workspace.patcher-collapsed #patcher,
+#workspace.arranger-collapsed #arranger { visibility: hidden; }
 .seq-view { position: relative; min-height: 0; overflow: hidden; }
 .seq-view canvas { position: absolute; inset: 0; display: block; outline: none; touch-action: none; }
 .seq-view canvas.panning { cursor: grabbing !important; }
-.splitter { position: relative; background: var(--border); cursor: col-resize; transition: background 0.12s; touch-action: none; user-select: none; }
-#seq-split, #seq-hsplit { cursor: move; }
+.splitter { position: relative; background: var(--border); cursor: move; transition: background 0.12s; touch-action: none; user-select: none; }
 .splitter:hover { background: var(--border-strong); }
+.splitter:focus-visible { outline: 1px solid var(--text-dim); outline-offset: -2px; }
 /* grip: four tiny squares in the middle of every divider */
 .splitter::after {
   content: '';
