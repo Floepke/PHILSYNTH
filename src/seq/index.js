@@ -26,7 +26,7 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
   const seq = $('seq');
   const ui = {
     play: $('seq-play'), pos: $('seq-pos'), name: $('seq-name'), target: $('seq-target'),
-    base: $('seq-snap-base'), div: $('seq-snap-div'),
+    base: $('seq-snap-base'), div: $('seq-snap-div'), free: $('seq-free-time'),
     ctl: $('seq-ctl'), ctlField: $('seq-ctl-field'), targetField: $('seq-target-field'),
   };
   const song = () => getSong?.() ?? engine.song;
@@ -164,6 +164,8 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
     ui.base.value = song().snap.base;
     ui.div.value = song().snap.div;
     ui.div.title = `Grid step: ${fmt(snapStep(song().snap))} quarter notes`;
+    ui.free.checked = song().snap.free === true;
+    ui.free.disabled = isAuto(c);
     refreshTargets();
     showPos();
     roll.redraw();
@@ -210,6 +212,11 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
     ctx.changed();
   });
   ui.base.addEventListener('change', () => { song().snap.base = +ui.base.value; ctx.changed(); });
+  ui.free.addEventListener('change', () => {
+    if (ui.free.checked) song().snap.free = true;
+    else delete song().snap.free;
+    ctx.changed();
+  });
   ui.div.addEventListener('input', () => {
     const v = Math.round(+ui.div.value);
     if (!Number.isFinite(v) || v < 1) return;

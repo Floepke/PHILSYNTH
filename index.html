@@ -2,12 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>MODSYNTH</title>
+  <title>PHILSYNTH</title>
+  <link rel="icon" type="image/svg+xml" href="src/icon.svg">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <input id="file" type="file" accept=".mds,.json" hidden>
-  <button id="brand" class="brand" type="button" aria-haspopup="menu" aria-expanded="false" title="Main menu: New, Open, Save, Export Audio, MIDI…"><span class="logo"></span>MODSYNTH</button>
+  <button id="brand" class="brand" type="button" aria-haspopup="menu" aria-expanded="false" title="Main menu: New, Open, Save, Export Audio, MIDI…"><span class="logo"></span>PHILSYNTH</button>
   <div id="workspace">
     <section id="seq" aria-label="Piano roll">
       <div id="roll" class="seq-view"></div>
@@ -22,9 +23,10 @@
           <label class="seq-field" id="seq-target-field" title="Module number (main patch) that plays the notes of this clip"><span>Send to</span><select id="seq-target"></select></label>
           <label class="seq-field" id="seq-ctl-field" title="Controller of the target module that this automation clip drives" hidden><span>Controller</span><select id="seq-ctl"></select></label>
           <span class="seq-sep"></span>
-          <label class="seq-field" title="Snap grid: base note value…"><span>Snap</span><select id="seq-snap-base"></select></label>
+          <label class="seq-field" title="Time grid: visual guide; snaps piano-roll editing when Free timing is off"><span>Grid</span><select id="seq-snap-base"></select></label>
           <span class="seq-div" title="…divided by">÷</span>
-          <input id="seq-snap-div" class="seq-div-input" type="number" min="1" max="64" step="1" value="1" aria-label="Snap divider">
+          <input id="seq-snap-div" class="seq-div-input" type="number" min="1" max="64" step="1" value="1" aria-label="Grid divider">
+          <label class="seq-field" title="Draw, move, resize and paste notes and edit velocity-curve times without snapping. The dark/light grid remains visible; timeline and automation keep snapping."><input id="seq-free-time" type="checkbox"><span>Free timing</span></label>
         </div>
       </div>
     </div>

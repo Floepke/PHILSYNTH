@@ -140,6 +140,60 @@ const assertNoOverlap = (song) => {
   }
 };
 
+// Free timing decouples piano-roll edits from the visual grid without changing other views.
+{
+  const { song, clip, roll, arranger } = setup();
+  const cv = roll.surface.cv;
+  const bands = () => cv.drawing.filter(c => c[0] === 'fillRect' && c.at(-1) === 'rgba(0, 0, 0, 0.10)');
+  cv.drawing.length = 0;
+  roll.redraw(); flush();
+  const before = bands();
+  assert.ok(before.length > 0, 'test observes the painted dark bands');
+  song.snap.free = true;
+  cv.drawing.length = 0;
+  roll.redraw(); flush();
+  assert.deepEqual(bands(), before, 'Free timing preserves the visual grid bands');
+  drag(cv, nx(60), ny(1.37), nx(60), ny(1.49));
+  assert.ok(Math.abs(clip.notes[0].start - 1.37) < 1e-6);
+  assert.ok(Math.abs(clip.notes[0].length - 0.12) < 1e-6, 'free duration can be shorter than the grid step');
+  point(cv, 'pointermove', nx(72), ny(3.17));
+  assert.ok(Math.abs(roll.getPointerTime() - 3.17) < 1e-6);
+  key(cv, 'c', { ctrlKey: true });
+  key(cv, 'v', { ctrlKey: true });
+  assert.ok(Math.abs(clip.notes[1].start - 3.17) < 1e-6, 'paste uses free time');
+  key(cv, 'd', { ctrlKey: true });
+  assert.ok(Math.abs(clip.notes[2].start - 3.29) < 1e-6, 'duplicate uses actual selection length');
+  drag(cv, nx(60), ny(1.37) + 5, nx(62), ny(1.37) + 5 + 7);
+  assert.equal(clip.notes[0].pitch, 62);
+  assert.ok(Math.abs(clip.notes[0].start - (1.37 + 7 / 48)) < 1e-6, 'head movement is unsnapped');
+  key(cv, 'q');
+  assert.equal(clip.notes[0].start, 1.5, 'explicit Quantize still uses the grid');
+  assert.equal(normalizeSong(song).snap.free, true, 'Free timing survives project normalization');
+  assert.equal(normalizeSong({ snap: { free: 'true' } }).snap.free, undefined, 'old or invalid settings remain snapped');
+  delete song.snap.free;
+  drag(cv, nx(70), ny(5.37), nx(70), ny(5.69));
+  assert.equal(clip.notes.at(-1).start, 5.25, 'switching back restores grid snapping');
+  assert.equal(clip.notes.at(-1).length, 0.5);
+  song.snap.free = true;
+  point(arranger.surface.cv, 'dblclick', ax(7.37), ay(102));
+  assert.equal(song.clips.at(-1).start, 7.25, 'timeline remains snapped in Free timing');
+}
+
+{
+  const { song, clip, roll } = setup();
+  const cv = roll.surface.cv;
+  song.snap.free = true;
+  clip.notes.push(note(60, 1, 2));
+  drag(cv, nx(60), ny(2), nx(60), ny(2.73));
+  assert.ok(Math.abs(clip.notes[0].length - 1.73) < 1e-6, 'body resize follows unsnapped pointer time');
+  key(cv, 'a', { ctrlKey: true });
+  const vx = v => 7 + v * 70;
+  dbl(cv, vx(0.5), ny(2.17));
+  assert.ok(Math.abs(clip.notes[0].vels[0].t - 1.17) < 1e-6, 'velocity point insertion is unsnapped');
+  drag(cv, vx(0.5), ny(2.17), vx(0.6), ny(2.39));
+  assert.ok(Math.abs(clip.notes[0].vels[0].t - 1.39) < 1e-6, 'velocity point movement is unsnapped');
+}
+
 // Playback uses the same floor-snapped time as note insertion, in absolute song quarters.
 {
   const { song, clip, roll } = setup();
@@ -274,7 +328,8 @@ for (const reverse of [false, true]) {
   const cv = roll.surface.cv;
   clip.notes.push(note(60, 1), note(64, 1));
   drag(cv, nx(60), ny(1) + 5, nx(65), ny(2), { shiftKey: true });
-  key(cv, 'Escape');
+  assert.equal(key(cv, 'Escape').defaultPrevented, true, 'Escape clears the note selection first');
+  assert.equal(key(cv, 'Escape').defaultPrevented, false, 'next Escape reaches the global exit shortcut');
   key(cv, 'Delete');
   assert.equal(clip.notes.length, 2);
   key(cv, 'a', { ctrlKey: true });
@@ -284,6 +339,24 @@ for (const reverse of [false, true]) {
   click(cv, nx(60), ny(1) + 5);
   key(cv, 'Delete');
   assert.deepEqual(clip.notes.map((n) => n.pitch), [64]);
+}
+
+// A focused timeline releases Escape to the exit shortcut once its selection is empty.
+{
+  const { song, clip, arranger, roll } = setup();
+  const cv = arranger.surface.cv;
+  cv.focus();
+  assert.equal(song.selected, clip.id);
+  assert.equal(key(cv, 'Escape').defaultPrevented, true, 'first Escape clears the selected timeline clip');
+  assert.equal(song.selected, null);
+  assert.equal(document.activeElement, cv, 'timeline remains focused');
+  for (let i = 0; i < 3; i++) {
+    assert.equal(key(cv, 'Escape').defaultPrevented, false, 'an empty timeline selection never traps Escape');
+  }
+  assert.equal(key(roll.surface.cv, 'Escape').defaultPrevented, false, 'empty piano roll also lets Escape reach exit');
+  song.selected = clip.id;
+  assert.equal(key(cv, 'Escape').defaultPrevented, true, 'reselecting a clip restores selection dismissal');
+  assert.equal(key(cv, 'Escape').defaultPrevented, false);
 }
 
 // Ordinary insertion, duration edits and head moves still work; short right click deletes.
@@ -2021,7 +2094,7 @@ for (const notes of [
     closest(selector) { return this.kind !== 'div' && selector.includes(this.kind) ? this : null; }
   }
   const elements = new Map();
-  const inputIds = ['seq-name', 'seq-snap-div'];
+  const inputIds = ['seq-name', 'seq-snap-div', 'seq-free-time'];
   for (const id of ['seq', 'seq-bar', 'seq-bar-content', 'seq-play', 'seq-pos', 'seq-target', 'seq-snap-base', 'seq-ctl', 'seq-ctl-field', 'seq-target-field', ...inputIds,
     'workspace', 'patcher', 'roll', 'arranger', 'seq-split', 'seq-hsplit', 'panel', 'panel-split', 'status']) {
     elements.set(id, new Element(inputIds.includes(id) ? 'input' : id === 'seq-play' ? 'button' : 'div'));
@@ -2047,6 +2120,8 @@ for (const notes of [
   });
   seq.reload();
   flush();
+  const free = elements.get('seq-free-time');
+  assert.equal(free.checked, false, 'Free timing defaults off');
   assert.equal(seq.viewState().roll.snapVelocity, true);
   seq.applyView({ roll: { snapVelocity: false } });
   const snapView = JSON.parse(JSON.stringify(seq.viewState()));
@@ -2490,6 +2565,13 @@ for (const notes of [
   assert.equal(seq.viewState().panelWidth, 2000, 'vertical motion preserves a saved width clamped by the viewport');
   drag(lower, 300, 560, 200, 560);
   assert.equal(seq.viewState().panelWidth, 876, 'horizontal drag starts from the rendered, clamped controller width');
+  free.checked = true;
+  free.dispatchEvent(new Event('change'));
+  assert.equal(engine.song.snap.free, true);
+  assert.equal(free.checked, true);
+  free.checked = false;
+  free.dispatchEvent(new Event('change'));
+  assert.equal(engine.song.snap.free, undefined);
 }
 
 // while playing (song or / clip loop) the piano roll keeps the playhead centred; the TimeLine stays put

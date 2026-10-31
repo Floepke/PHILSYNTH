@@ -618,6 +618,13 @@ body.panel-collapsed #panel { visibility: hidden; }
   font: 12px var(--font);
 }
 #seq-bar input:disabled, #seq-bar select:disabled { opacity: 0.4; }
+#seq-bar input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--beam-ink);
+}
 #seq-bar input[type='number'] { width: 62px; font-family: var(--mono); }
 #seq-bar .spinbox input { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
 #seq-bar .spin-buttons button { min-height: calc(var(--control-height) / 2); }

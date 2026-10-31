@@ -1,4 +1,4 @@
-// MODSYNTH desktop app:  npm start   (or: npx electron .)
+// PHILSYNTH desktop app:  npm start   (or: npx electron .)
 // Runs the dev server in-process (static files, disk autosave, live reload) and opens the app
 // in a Chromium window where Web MIDI is allowed without a prompt.
 import { app, BrowserWindow, Menu, session, shell, systemPreferences } from 'electron';
@@ -7,14 +7,14 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { registerProjectFiles } from './projectfiles.mjs';
 import { registerExit } from './exit.mjs';
 
-// MODSYNTH.app (npm run build:mac) is its own app next to the dev app (npm start): own name,
-// data folder (~/Library/Application Support/MODSYNTH), single-instance lock and port.
+// PHILSYNTH.app (npm run build:mac) is its own app next to the dev app (npm start): own name,
+// data folder (~/Library/Application Support/PHILSYNTH), single-instance lock and port.
 // The dev app gets its own folder: macOS file names ignore case, so 'modsynth' (the package name)
-// would be the app's 'MODSYNTH' folder and the shared single-instance lock would stop npm start
-// while MODSYNTH.app runs.
+// would be the app's 'PHILSYNTH' folder and the shared single-instance lock would stop npm start
+// while PHILSYNTH.app runs.
 if (app.isPackaged) {
-  app.setName('MODSYNTH');
-  app.setPath('userData', join(app.getPath('appData'), 'MODSYNTH'));
+  app.setName('PHILSYNTH');
+  app.setPath('userData', join(app.getPath('appData'), 'PHILSYNTH'));
 } else {
   app.setPath('userData', join(app.getPath('appData'), 'modsynth-dev'));
 }
@@ -44,7 +44,7 @@ async function micAccess() {
 async function startServer() {
   process.env.HOST = '127.0.0.1';
   if (app.isPackaged) {
-    // MODSYNTH.app: autosaves go to ~/Library/Application Support/MODSYNTH/projects, no live reload
+    // PHILSYNTH.app: autosaves go to ~/Library/Application Support/PHILSYNTH/projects, no live reload
     process.env.MODSYNTH_PROJECTS ??= join(app.getPath('userData'), 'projects');
     process.env.MODSYNTH_NO_WATCH ??= '1';
   }
@@ -65,7 +65,8 @@ function createWindow(url) {
     minWidth: 800,
     minHeight: 500,
     backgroundColor: '#050505',
-    title: 'MODSYNTH',
+    title: 'PHILSYNTH',
+    icon: join(ROOT, 'src', 'icon.png'),
     show: false,
     fullscreen: true, // F11 toggles
     webPreferences: {
@@ -107,7 +108,7 @@ function createWindow(url) {
       return;
     }
     if (!item.getFilename().endsWith('.mds')) return;
-    item.setSaveDialogOptions({ title: 'Save MODSYNTH project', filters: [{ name: 'MODSYNTH project', extensions: ['mds'] }] });
+    item.setSaveDialogOptions({ title: 'Save PHILSYNTH project', filters: [{ name: 'PHILSYNTH project', extensions: ['mds'] }] });
   });
   win.on('closed', () => (win = null));
   // Windows sends the mouse back button as an app command: the page uses it to go up a patch
@@ -117,7 +118,7 @@ function createWindow(url) {
 }
 
 if (!app.requestSingleInstanceLock()) {
-  console.log('MODSYNTH is already running: focusing that window.');
+  console.log('PHILSYNTH is already running: focusing that window.');
   app.quit();
 } else {
   app.on('second-instance', () => {
@@ -142,7 +143,7 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.setPermissionCheckHandler((_wc, permission, origin) => TRUSTED.has(permission) && local(`${origin}/`));
     registerProjectFiles(local);
     createWindow(url);
-    console.log(`MODSYNTH app running (${url})`);
+    console.log(`PHILSYNTH app running (${url})`);
   });
 
   let quitting = false;

@@ -37,7 +37,7 @@ export async function exitToOS(persist, notify) {
     await new Promise((resolve) => setTimeout(resolve, 250));
     if (!window.closed) notify('Your browser did not close this tab. Close the tab or window manually to exit.');
   } catch (err) {
-    console.error('Could not exit MODSYNTH:', err);
+    console.error('Could not exit PHILSYNTH:', err);
     notify(`Exit failed: ${err.message}`);
   } finally {
     pending = false;

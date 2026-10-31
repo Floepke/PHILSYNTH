@@ -13,7 +13,7 @@
 //   mouse wheel on a point             round the corner
 //   right-click                        menu: toggle velocity snapping (1/16 increments, no grid);
 //                                       on a curve point, the menu also offers Delete point (not the first)
-import { snapStep, snapRound, clean, notePoints, noteVelAt, groupVelCurve, applyVelCurve } from '../song.js';
+import { pianoTimeStep, snapRound, clean, notePoints, noteVelAt, groupVelCurve, applyVelCurve } from '../song.js';
 import { curvePolyline, NEW_POINT_ROUND } from '../curve.js';
 import { doublePress } from '../doublepress.js';
 import { capture, clamp } from './surface.js';
@@ -37,7 +37,7 @@ export function createVelocityStrip(o) {
   const vx = (x) => clamp((x - PAD) / (W() - 2 * PAD), 0, 1);
   const snapVelocity = (v) => o.snapVelocity() ? Math.round(v * 16) / 16 : v;
   const contains = (x, y) => x >= 0 && x < W() && y >= 0 && y < o.bottom();
-  const step = () => snapStep(o.song().snap);
+  const step = () => pianoTimeStep(o.song().snap);
   const sigOf = (notes) => notes.map((n) => `${n.start},${n.length},${n.vel},${JSON.stringify(n.vels ?? [])}`).join(';');
 
   // The shared curve follows the selection; it is rebuilt when the selection or the selected

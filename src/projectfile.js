@@ -106,8 +106,8 @@ export function electronBackend(files) {
   };
 }
 
-const TYPES = [{ description: 'MODSYNTH project', accept: { 'application/x-modsynth': ['.mds'] } }];
-const OPEN_TYPES = [{ description: 'MODSYNTH project', accept: { 'application/x-modsynth': ['.mds', '.json'] } }];
+const TYPES = [{ description: 'PHILSYNTH project', accept: { 'application/x-modsynth': ['.mds'] } }];
+const OPEN_TYPES = [{ description: 'PHILSYNTH project', accept: { 'application/x-modsynth': ['.mds', '.json'] } }];
 
 // Small IndexedDB store for file handles (they cannot go into JSON / localStorage).
 function handleStore(dbName = 'modsynth-files') {

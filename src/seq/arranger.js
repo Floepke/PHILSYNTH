@@ -977,6 +977,7 @@ export function createArranger(host, ctx) {
     const command = (e.ctrlKey || e.metaKey) && !e.altKey;
     const deleting = key === 'backspace' || key === 'delete';
     if (!deleting && key !== 'escape' && !(command && ['x', 'c', 'v', 'a', 'd'].includes(key))) return;
+    if (key === 'escape' && !dragging && selectedClips().length === 0) return;
     e.preventDefault();
     e.stopPropagation();
     if (dragging) return;

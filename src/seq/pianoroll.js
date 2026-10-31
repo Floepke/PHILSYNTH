@@ -26,8 +26,8 @@
 // The velocity strip on the left edits the velocity (curves) of the selected notes, see velocity.js.
 // The bar ruler between them is a divider: drag it sideways to widen the strip (the note grid
 // scales to the rest), double-click it to reset. The width is saved with the project view.
-// Everything snaps to the snap grid (base note ÷ divider).
-import { isBlack, inPiano, clipSilent, snapStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, clean, meter, barLines, beatLines, barLength } from '../song.js';
+// Free timing bypasses time snapping; the visual grid (base note ÷ divider) stays visible.
+import { isBlack, inPiano, clipSilent, snapStep, pianoTimeStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, clean, meter, barLines, beatLines, barLength } from '../song.js';
 import { createSurface, capture, startPan, onWheel, clamp, snapBands, mutedMark, RIGHT_HOLD_MS, RIGHT_HOLD_SLOP } from './surface.js';
 import { createVelocityStrip, VEL_W } from './velocity.js';
 import { showMenu, shortcut } from './menu.js';
@@ -89,7 +89,8 @@ export function createPianoRoll(host, ctx) {
     return { rx, ry, height: Math.hypot(rx * Math.sin(TILT), ry * Math.cos(TILT)) * HEAD_STRETCH + 0.75 };
   };
   const headY = (y) => y + headSize().height;
-  const step = () => snapStep(ctx.song().snap);
+  const gridStep = () => snapStep(ctx.song().snap);
+  const step = () => pianoTimeStep(ctx.song().snap);
   const vel = createVelocityStrip({
     cv,
     width: velW,
@@ -180,7 +181,7 @@ export function createPianoRoll(host, ctx) {
       // of the time signature (taken from the TimeLine at the clip's position)
       const t0 = Math.max(0, timeAt(0));
       const t1 = timeAt(bottom);
-      const st = step();
+      const st = gridStep();
       g.fillStyle = 'rgba(0, 0, 0, 0.10)';
       snapBands(st, view.ppq, t0, t1, (a, b) => {
         const ya = Math.round(yOf(a));
@@ -578,6 +579,7 @@ export function createPianoRoll(host, ctx) {
     }
     if (timeAt(y) < 0) return;
     const st = step();
+    const minLength = st || 1 / view.ppq;
     const h = hit(x, y);
     const dup = !!h && e.altKey;
     // dragging a selected note edits the whole selection
@@ -594,7 +596,7 @@ export function createPianoRoll(host, ctx) {
       drag = { kind: 'move', t0: timeAt(y), p0: pitchAt(x) };
       pv = ctx.preview.on(clip, h.note.pitch);
     } else {
-      const note = { pitch: pitchAt(x), start: Math.max(0, snapFloor(timeAt(y), st)), length: lastLength ?? st, vel: DEFAULT_VEL };
+      const note = { pitch: pitchAt(x), start: Math.max(0, snapFloor(timeAt(y), st)), length: lastLength ?? gridStep(), vel: DEFAULT_VEL };
       clip.notes.push(note);
       group = [note];
       drag = { kind: 'new' };
@@ -617,11 +619,11 @@ export function createPianoRoll(host, ctx) {
       }
       const a = origs[anchor];
       if (drag.kind === 'new') {
-        group[0].length = Math.max(st, clean(snapRound(timeAt(p.y), st) - group[0].start));
+        group[0].length = Math.max(minLength, clean(snapRound(timeAt(p.y), st) - group[0].start));
       } else if (drag.kind === 'length') {
         // the end jumps to the snapped pointer position; the rest of the selection changes by the same amount
-        const dl = Math.max(st, snapRound(timeAt(p.y), st) - a.start) - a.length;
-        group.forEach((n, i) => { n.length = Math.max(st, clean(origs[i].length + dl)); });
+        const dl = Math.max(minLength, snapRound(timeAt(p.y), st) - a.start) - a.length;
+        group.forEach((n, i) => { n.length = Math.max(minLength, clean(origs[i].length + dl)); });
       } else {
         const dp = clamp(pitchAt(p.x) - drag.p0, -Math.min(...origs.map((o) => o.pitch)), PITCH_MAX - Math.max(...origs.map((o) => o.pitch)));
         const dt = Math.max(snapRound(a.start + timeAt(p.y) - drag.t0, st) - a.start, -Math.min(...origs.map((o) => o.start)));
@@ -680,7 +682,8 @@ export function createPianoRoll(host, ctx) {
     const notes = selectedNotes();
     if (!clip || !notes.length) return;
     const st = step();
-    const span = Math.ceil((Math.max(...notes.map((n) => n.start + n.length)) - Math.min(...notes.map((n) => n.start))) / st - 1e-9) * st;
+    const length = Math.max(...notes.map((n) => n.start + n.length)) - Math.min(...notes.map((n) => n.start));
+    const span = st ? Math.ceil(length / st - 1e-9) * st : length;
     const copies = notes.map((n) => ({ ...n, start: clean(n.start + span) }));
     clip.notes.push(...copies);
     selected = new Set(copies);
@@ -691,7 +694,7 @@ export function createPianoRoll(host, ctx) {
     const clip = ctx.clip();
     if (!clip) return;
     const notes = selected.size ? selectedNotes() : clip.notes;
-    const st = step();
+    const st = gridStep();
     let changed = false;
     for (const n of notes) {
       const t = Math.max(0, snapRound(n.start, st));
@@ -761,6 +764,10 @@ export function createPianoRoll(host, ctx) {
     const arrow = plain && ['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(key);
     const quant = plain && !e.shiftKey && key === 'q';
     if (!deleting && !arrow && !quant && !(command && ['a', 'x', 'c', 'v', 'd'].includes(key)) && key !== 'escape') return;
+    if (key === 'escape' && !drag) {
+      syncSelection();
+      if (selected.size === 0) return;
+    }
     e.preventDefault();
     e.stopPropagation();
     if (drag) {
@@ -775,7 +782,7 @@ export function createPianoRoll(host, ctx) {
     else if (arrow) {
       // Shift: by an octave / a bar
       const oct = e.shiftKey ? 12 : 1;
-      const dt = e.shiftKey ? barLength(ctx.song(), clip.start) : step();
+      const dt = e.shiftKey ? barLength(ctx.song(), clip.start) : gridStep();
       if (key === 'arrowleft') shift(-oct, 0);
       else if (key === 'arrowright') shift(oct, 0);
       else shift(0, key === 'arrowup' ? -dt : dt);
@@ -807,7 +814,7 @@ export function createPianoRoll(host, ctx) {
     scroll(_dx, dy, e) { // one snap step per wheel event, whatever the wheel / trackpad distance
       pointer = s.local(e);
       if (!dy) return;
-      view.sy += Math.sign(dy) * step() * view.ppq;
+      view.sy += Math.sign(dy) * gridStep() * view.ppq;
       s.redraw();
     },
   });

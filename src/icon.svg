@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="wood" x2="1" y2="1">
+      <stop stop-color="#e6b77a"/>
+      <stop offset=".45" stop-color="#a96937"/>
+      <stop offset="1" stop-color="#64391e"/>
+    </linearGradient>
+    <linearGradient id="panel" x2="0" y2="1">
+      <stop stop-color="#303b40"/>
+      <stop offset="1" stop-color="#10191e"/>
+    </linearGradient>
+    <linearGradient id="key" x2="0" y2="1">
+      <stop stop-color="#fff5de"/>
+      <stop offset="1" stop-color="#cabc9d"/>
+    </linearGradient>
+    <linearGradient id="knob" x2="0" y2="1">
+      <stop stop-color="#526168"/>
+      <stop offset="1" stop-color="#172127"/>
+    </linearGradient>
+    <clipPath id="frame">
+      <rect x="64" y="64" width="896" height="896" rx="170"/>
+    </clipPath>
+  </defs>
+  <rect x="64" y="78" width="896" height="896" rx="170" fill="#090f13" opacity=".35"/>
+  <rect x="64" y="64" width="896" height="896" rx="170" fill="url(#wood)" stroke="#54331e" stroke-width="10"/>
+  <g clip-path="url(#frame)" fill="none" stroke="#4c2814" stroke-width="7" opacity=".2">
+    <path d="M34 117C266 70 636 169 990 99M35 140C319 88 626 202 986 127M37 166C287 112 685 221 987 161"/>
+    <path d="M37 875C306 830 627 923 990 859M37 906C338 847 694 972 990 886M35 938C307 879 687 1002 990 920"/>
+    <path d="M98 160C61 365 123 641 85 856M122 165C84 391 146 627 112 866M898 160C861 373 924 654 888 856M928 166C890 396 953 632 918 859"/>
+  </g>
+  <rect x="130" y="130" width="764" height="764" rx="111" fill="url(#panel)" stroke="#f2c68c" stroke-opacity=".6" stroke-width="8"/>
+  <rect x="168" y="170" width="688" height="298" rx="64" fill="#0c171b" stroke="#41504e" stroke-width="6"/>
+  <path d="M198 319H826M336 197V440M512 197V440M688 197V440" fill="none" stroke="#203a3c" stroke-width="5"/>
+  <path d="M207 320H262C287 320 288 235 328 235S368 403 408 403S448 235 488 235S528 403 568 403S608 235 648 235S688 320 716 320H816"
+        fill="none" stroke="#91e4c6" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M320 565C416 474 600 650 704 554" fill="none" stroke="#090f13" stroke-width="37" stroke-linecap="round"/>
+  <path d="M320 559C416 468 600 644 704 548" fill="none" stroke="#e5a356" stroke-width="23" stroke-linecap="round"/>
+  <g stroke="#0b1317" stroke-width="9">
+    <circle cx="282" cy="568" r="60" fill="url(#knob)"/>
+    <circle cx="742" cy="568" r="60" fill="url(#knob)"/>
+  </g>
+  <g fill="none" stroke="#f6d3a0" stroke-width="12" stroke-linecap="round">
+    <path d="M282 531V551M767 538L753 553"/>
+  </g>
+  <rect x="186" y="681" width="652" height="158" rx="25" fill="#080f13"/>
+  <g fill="url(#key)" stroke="#182127" stroke-width="8">
+    <rect x="194" y="687" width="128" height="144" rx="14"/>
+    <rect x="322" y="687" width="128" height="144" rx="14"/>
+    <rect x="450" y="687" width="128" height="144" rx="14"/>
+    <rect x="578" y="687" width="128" height="144" rx="14"/>
+    <rect x="706" y="687" width="124" height="144" rx="14"/>
+  </g>
+  <g fill="#111c22" stroke="#425057" stroke-width="4">
+    <rect x="290" y="682" width="64" height="86" rx="9"/>
+    <rect x="418" y="682" width="64" height="86" rx="9"/>
+    <rect x="674" y="682" width="64" height="86" rx="9"/>
+  </g>
+</svg>

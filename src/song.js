@@ -1,6 +1,7 @@
 // Song: the clips on the TimeLine and the notes inside them.
 // All times and lengths are float quarter notes; note times are relative to the clip start.
-//   song = { clips, sigs, selected (clip id | null), snap: { base, div }, nextId, loop, mutes, solos }
+//   song = { clips, sigs, selected (clip id | null), snap: { base, div, free? }, nextId, loop, mutes, solos }
+//   snap.free disables piano-roll time snapping only; base/div still define the visual grid.
 //   mutes = muted TimeLine lanes [lane index (0 = top)], sorted: their clips are not played
 //   solos = soloed lanes, sorted: while any lane is soloed only soloed lanes play (mute still wins)
 //   sigs = time signature changes [{ at (quarters), num, den }], sorted, the first one at 0.
@@ -50,8 +51,9 @@ export const noteName = (pitch) => {
 // Whole ÷ 3 = 4/3, Half ÷ 5 = 2/5).
 export const snapStep = ({ base = 16, div = 1 } = {}) => 4 / base / div;
 export const clean = (v) => Math.round(v * 1e9) / 1e9; // keep 0.1 + 0.2 style float noise out of the project
-export const snapRound = (t, step) => clean(Math.round(t / step) * step);
-export const snapFloor = (t, step) => clean(Math.floor(t / step + 1e-9) * step);
+export const snapRound = (t, step) => clean(step === 0 ? t : Math.round(t / step) * step);
+export const snapFloor = (t, step) => clean(step === 0 ? t : Math.floor(t / step + 1e-9) * step);
+export const pianoTimeStep = (snap) => snap?.free === true ? 0 : snapStep(snap);
 
 export const emptySong = () => ({ clips: [], sigs: [{ at: 0, num: 4, den: 4 }], selected: null, snap: { base: 16, div: 1 }, nextId: 1, loop: null, mutes: [], solos: [] });
 
@@ -151,6 +153,7 @@ export function normalizeSong(s) {
   song.sigs = normalizeSigs(s.sigs);
   if (SNAP_BASES.includes(s.snap?.base)) song.snap.base = s.snap.base;
   song.snap.div = Math.min(64, Math.max(1, Math.round(num(s.snap?.div, 1))));
+  if (s.snap?.free === true) song.snap.free = true;
   const ids = new Set();
   for (const c of Array.isArray(s.clips) ? s.clips : []) {
     let id = Math.round(num(c?.id, 0));

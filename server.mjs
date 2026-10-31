@@ -1,9 +1,9 @@
-// MODSYNTH dev server (no dependencies):  node server.mjs   ->  http://localhost:8080
+// PHILSYNTH dev server (no dependencies):  node server.mjs   ->  http://localhost:8080
 // Also used in-process by the Electron app (electron/main.mjs) through start().
 //  - serves the app with caching disabled (worklet edits are picked up on reload)
 //  - GET/PUT /api/autosave  stores the project in projects/autosave.json (previous copy kept as autosave.prev.json)
 //  - /api/live              server-sent events: reloads the page when code changes, hot-swaps CSS
-// MODSYNTH_PROJECTS moves the projects folder (the packaged MODSYNTH.app keeps it in its
+// MODSYNTH_PROJECTS moves the projects folder (the packaged PHILSYNTH.app keeps it in its
 // Application Support folder, the bundle itself is read-only); MODSYNTH_NO_WATCH=1 turns live reload off.
 import http from 'node:http';
 import { watch } from 'node:fs';
@@ -166,7 +166,7 @@ export const stop = () => new Promise((ok) => {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   start().then((port) => {
-    console.log(`MODSYNTH running at http://${HOST === '127.0.0.1' ? 'localhost' : HOST}:${port}`);
+    console.log(`PHILSYNTH running at http://${HOST === '127.0.0.1' ? 'localhost' : HOST}:${port}`);
     console.log(`Autosave file: ${relative(process.cwd(), AUTOSAVE) || AUTOSAVE}`);
   });
 }

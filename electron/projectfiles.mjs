@@ -4,8 +4,8 @@ import { app, dialog, ipcMain, BrowserWindow } from 'electron';
 import { readFile, writeFile, rename, rm, stat } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 
-const FILTERS = [{ name: 'MODSYNTH project', extensions: ['mds'] }];
-const OPEN_FILTERS = [{ name: 'MODSYNTH project', extensions: ['mds', 'json'] }, { name: 'All files', extensions: ['*'] }];
+const FILTERS = [{ name: 'PHILSYNTH project', extensions: ['mds'] }];
+const OPEN_FILTERS = [{ name: 'PHILSYNTH project', extensions: ['mds', 'json'] }, { name: 'All files', extensions: ['*'] }];
 const MAX_PATHS = 100;
 const MAX_BYTES = 512 * 1024 * 1024;
 
@@ -63,7 +63,7 @@ export function registerProjectFiles(isLocal) {
   ipcMain.handle('project:open', async (e) => {
     const win = check(e);
     const r = await dialog.showOpenDialog(win, {
-      title: 'Open MODSYNTH project',
+      title: 'Open PHILSYNTH project',
       defaultPath: lastDir ?? app.getPath('documents'),
       filters: OPEN_FILTERS,
       properties: ['openFile'],
@@ -80,7 +80,7 @@ export function registerProjectFiles(isLocal) {
     textOf(text);
     const file = basename(typeof name === 'string' && name ? name : 'Untitled.mds');
     const r = await dialog.showSaveDialog(win, {
-      title: 'Save MODSYNTH project',
+      title: 'Save PHILSYNTH project',
       defaultPath: join(lastDir ?? app.getPath('documents'), withExtension(file)),
       filters: FILTERS,
       properties: ['showOverwriteConfirmation', 'createDirectory'],

@@ -1,4 +1,4 @@
-// MODMIDI: MODSYNTH's internal note language. Like MIDI, but every note is an object of its own
+// MODMIDI: PHILSYNTH's internal note language. Like MIDI, but every note is an object of its own
 // that can be changed while it sounds:
 //   id        unique number per played note (newNoteId), also when the same key is hit twice
 //   pitch     float in MIDI note numbers: 60 = middle C, 60.5 = middle C + 50 cents
