@@ -1,6 +1,6 @@
 // Right-click menu for the sequencer views (DOM overlay, closes on any outside press, Escape,
-// scrolling or window blur). Arrow keys + Enter work too.
-//   showMenu({ x, y (client px), items: [{ label, shortcut?, disabled?, action() } | '-'] }) -> close()
+// scrolling or window blur). Arrow keys + Enter / Space work too.
+//   showMenu({ x, y (client px), items: [{ label, shortcut?, disabled?, checked?, action() } | '-'] }) -> close()
 let current = null;
 
 const MAC = /Mac|iPhone|iPad/.test(globalThis.navigator?.platform ?? '');
@@ -28,10 +28,18 @@ export function showMenu({ x, y, items }) {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'ctx-item';
-    b.setAttribute('role', 'menuitem');
+    const checkbox = typeof item.checked === 'boolean';
+    b.setAttribute('role', checkbox ? 'menuitemcheckbox' : 'menuitem');
+    if (checkbox) b.setAttribute('aria-checked', String(item.checked));
     b.disabled = !!item.disabled;
     const label = document.createElement('span');
     label.textContent = item.label;
+    if (checkbox) {
+      const check = document.createElement('span');
+      check.className = 'ctx-check';
+      check.setAttribute('aria-hidden', 'true');
+      label.prepend(check);
+    }
     const key = document.createElement('kbd');
     key.textContent = item.shortcut ?? '';
     b.append(label, key);
@@ -55,11 +63,11 @@ export function showMenu({ x, y, items }) {
   const outside = (e) => { if (!el.contains(e.target)) close(); };
   const keys = (e) => {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); return; }
-    if (!['ArrowDown', 'ArrowUp', 'Enter'].includes(e.key) || !buttons.length) return;
+    if (!['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key) || !buttons.length) return;
     e.preventDefault();
     e.stopPropagation();
     const i = buttons.indexOf(document.activeElement);
-    if (e.key === 'Enter') { if (i >= 0) buttons[i].click(); return; }
+    if (e.key === 'Enter' || e.key === ' ') { if (i >= 0) buttons[i].click(); return; }
     const next = e.key === 'ArrowDown' ? (i + 1) % buttons.length : (i <= 0 ? buttons.length - 1 : i - 1);
     buttons[next].focus();
   };

@@ -8,13 +8,14 @@ import { createController } from './controller.js';
 import { linePath, arrowPath, centerOf, visibleSegment } from './cable.js';
 import { Transport } from './transport.js';
 import { confirmDialog } from './dialogs.js';
+import { exitToOS } from './exit.js';
 import { createSequencer } from './seq/index.js';
 import { defaultCam, validCam, toWorld, zoomAt, fitBox, ZOOM_STEP } from './camera.js';
 import { initWidgets } from './widgets.js';
 import { snapStep } from './song.js';
 import { CableScope } from './cablescope.js';
 import { openMapDialog, patchControllersView } from './mapdialog.js';
-import { MAX_NAME } from './patch.js';
+import { MAX_NAME, cableSignals } from './patch.js';
 import { showMenu, shortcut } from './seq/menu.js';
 
 const engine = new Engine();
@@ -495,6 +496,7 @@ function drawCables() {
   for (const cable of patch.cables) {
     const a = patch.modules.get(cable.from);
     const b = patch.modules.get(cable.to);
+    const signals = cableSignals(a.def, b.def);
     const ra = boxOf(a);
     const rb = boxOf(b);
     const { from, to } = visibleSegment(ra, rb); // arrow and audio wave go on the visible part
@@ -503,7 +505,7 @@ function drawCables() {
     g.cable = cable; // for the right-click menu
     g.classList.toggle('selected', sel?.cable === cable);
     g.classList.toggle('mod', !!a.def.modulator);
-    g.classList.toggle('midi', !!a.def.midiOut);
+    g.classList.toggle('midi', signals.midi && !signals.audio);
     setColor(g, a.def);
     const wire = document.createElementNS(SVGNS, 'path');
     wire.classList.add('wire');
@@ -518,7 +520,7 @@ function drawCables() {
       select({ kind: 'cable', cable });
     });
     svg.append(g);
-    const h = a.def.midiOut ? undefined : a.inst?.node?.h;
+    const h = signals.audio || a.def.modulator ? a.inst?.node?.h : undefined;
     if (h !== undefined) live.push({ g, h, from, to });
   }
   scope?.setCables(live);
@@ -696,9 +698,15 @@ canvas.addEventListener('contextmenu', (e) => {
 });
 
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && path.length > 1 && !document.querySelector('dialog[open]')) {
-    path.pop();
-    render();
+  if (e.key === 'Escape' && path.length && !document.querySelector('dialog[open]')) {
+    if (e.repeat) return;
+    if (path.length > 1) {
+      path.pop();
+      render();
+    } else if (!e.defaultPrevented && !e.target.closest('input, select, textarea, dialog, #seq')) {
+      e.preventDefault();
+      exitToOS(persist, (message) => { $('status').textContent = message; });
+    }
     return;
   }
   if (e.target.closest('input, select, textarea, dialog, #seq')) return; // the sequencer handles its own keys
@@ -784,7 +792,10 @@ function select(s) {
       const p = paramsOf(patch.modules.get(s.cable.to))[n];
       panel.append(hint(`Control cable: modulates controller <kbd>${n}</kbd> ${p ? p.label : '(does not exist on this module)'}.`));
     }
-    if (lfo?.def.midiOut) panel.append(hint('MIDI cable: carries MODMIDI notes (float pitch + velocity, changed per note while they sound).'));
+    if (lfo?.def.midiOut) {
+      const signals = cableSignals(lfo.def, patch.modules.get(s.cable.to).def);
+      if (signals.midi) panel.append(hint(`${signals.audio ? 'Audio + MIDI' : 'MIDI'} cable: carries MODMIDI notes (float pitch, velocity and start phase).`));
+    }
     panel.append(hint('Press <kbd>Backspace</kbd> to remove this cable.'));
     return;
   }
@@ -797,7 +808,7 @@ function select(s) {
       hint('<kbd>Alt</kbd> + drag a module to duplicate it (or the whole selection).'),
       hint('<kbd>Backspace</kbd> deletes the selection.'),
       hint(`Right-click a module, cable or the canvas for <b>Cut / Copy / Paste / Delete</b> (also <kbd>${shortcut('X')}</kbd> <kbd>${shortcut('C')}</kbd> <kbd>${shortcut('V')}</kbd>; paste lands at the mouse pointer). <b>Rename…</b> (or <kbd>F2</kbd>) gives a module its own name on its box; the controller panel keeps showing the module type.`),
-      hint('<kbd>Double-click</kbd> a module (or <kbd>F2</kbd>) to rename it. Select a Patch and press <kbd>Enter</kbd> (or right-click → Open patch) to enter it, <kbd>Esc</kbd> to go up.'),
+      hint('<kbd>Double-click</kbd> a module (or <kbd>F2</kbd>) to rename it. Select a Patch and press <kbd>Enter</kbd> (or right-click → Open patch) to enter it, <kbd>Esc</kbd> to go up. At the main layer, <kbd>Esc</kbd> asks <b>Exit to OS?</b>; Yes autosaves and closes the app.'),
       hint('Select a Patch and click <b>Controllers…</b> to map controllers of any module inside to controllers of the Patch module, so they can be set, modulated (LFO) and automated from outside.'),
       hint('OSC / ADSR: with <b>Sustain</b> at 0, <b>Decay</b> and <b>Release</b> are linked: moving one moves the other.'),
       hint('<kbd>Middle mouse</kbd> + drag pans the canvas, <kbd>scroll</kbd> zooms. Click the zoom % (bottom right) to fit all modules.'),
@@ -805,7 +816,7 @@ function select(s) {
       hint('<b>Sequencer</b> (right; <kbd>S</kbd> slides its divider away to hide it, <kbd>S</kbd> again brings it back): <kbd>Double-click</kbd> the TimeLine to add a clip, drag its edges to resize, <kbd>Alt</kbd> + drag to copy. In the piano roll click / drag to write notes (new notes get the last used length), drag a note body for its length, its circle for pitch and time; right click opens a menu (cut / copy / paste / delete / duplicate / quantize / octave). <kbd>Space</kbd> plays. <kbd>Double-click</kbd> the TimeLine ruler to insert a time signature change (right-click it to remove).'),
       hint('<b>Piano roll selection:</b> <kbd>Shift</kbd> + drag or <kbd>right</kbd> + drag draws a selection rectangle; clicking a note selects it, <kbd>Shift</kbd> + click toggles it. Dragging a selected note moves / resizes the whole selection. <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> duplicates the selection, <kbd>Q</kbd> quantizes note starts (selection, else all). <kbd>Ctrl/Cmd</kbd> + <kbd>A</kbd> selects all notes, <kbd>Esc</kbd> clears the selection, and <kbd>Backspace</kbd> / <kbd>Delete</kbd> deletes it. <kbd>Alt</kbd> + drag a note (body or circle) moves a clone.'),
       hint('<b>Arrow keys:</b> in the piano roll, <kbd>Left</kbd> / <kbd>Right</kbd> transpose selected notes by one semitone; <kbd>Up</kbd> / <kbd>Down</kbd> move them earlier/later by one snap step. With <kbd>Shift</kbd>: an octave / a bar. The selection moves together and stops at time zero or the MIDI pitch limits.'),
-      hint('<b>Velocity:</b> the strip left of the piano roll shows every note\'s velocity (stick) and how it changes while the note sounds. Drag a note\'s dot to set its velocity (<kbd>Shift</kbd>-click adds it to the selection). The selected notes share one curve: <kbd>Double-click</kbd> inside them to add a point, drag points (time snaps, <kbd>Shift</kbd> = fine), the mouse wheel on a point rounds it, right click deletes it. One selected note edits its own curve.'),
+      hint('<b>Velocity:</b> the strip left of the piano roll shows every note\'s velocity (stick) and how it changes while the note sounds. Drag a note\'s dot to set its velocity (<kbd>Shift</kbd>-click adds it to the selection). The selected notes share one curve: <kbd>Double-click</kbd> inside them to add a point, drag points (time snaps, <kbd>Shift</kbd> = fine), and use the mouse wheel on a point to round it. Right-click the lane to toggle <b>Snap velocity values</b> (1/16 increments, enabled by default, no grid), or right-click a point and choose <b>Delete point</b>. The snap setting is saved with the project and only affects new edits. One selected note edits its own curve.'),
       hint('<b>Automation:</b> <kbd>Double right-click</kbd> the TimeLine to add an automation clip, then pick the module (<i>Send to</i>) and its <i>Controller</i> in the toolbar. In the automation lane <kbd>Double-click</kbd> inserts a point (snapped to the grid), drag moves it (<kbd>Shift</kbd> = fine), the mouse wheel on a point rounds the corner and right click deletes it. While playing, the clip drives the controller like an LFO; outside the clip (or when stopped) the controller has its own value again.'),
       hint('<b>Sequencer clipboard:</b> click the piano roll or TimeLine to focus it, then use <kbd>Ctrl/Cmd</kbd> + <kbd>X</kbd> / <kbd>C</kbd> / <kbd>V</kbd> to cut / copy / paste selected notes or the selected clip. Each view has its own in-app clipboard. Paste at the mouse pointer, snapped to the grid; note pitches and relative timing are preserved.'),
       hint('<b>TimeLine selection &amp; clones:</b> drag on empty TimeLine space for a selection rectangle (<kbd>Ctrl/Cmd</kbd> adds), <kbd>Ctrl/Cmd</kbd> + click toggles a clip. Dragging moves the whole selection; <kbd>Alt</kbd> + drag copies it, <kbd>Shift</kbd> + drag makes <i>linked clones</i> that share their notes with the source (marked ⧉): editing one edits all. Clones are drawn with diagonal stripes and a dashed outline; a selected clone shows a dashed arrow to its source. Right click a clip for cut / copy / paste / delete / duplicate / clone / detach (turns a clone into a standalone clip) / go to source. <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> duplicates, <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd> clones.'),
@@ -863,7 +874,16 @@ function select(s) {
       ? `${what}. MIDI keeps playing <kbd>${target.def.type} #${target.id}</kbd>.`
       : `${what}. Select an OSC or Patch to play it with MIDI.`));
   }
-  if (entry.def.midiOut) {
+  if (entry.def.type === 'DELAY') {
+    panel.append(hint('<b>Left Delay</b> delays left audio and each incoming MODMIDI message; <b>Right Delay</b> delays right audio only. No dry signal or feedback. Cables carry audio, MIDI, or both, according to the destination. Notes keep their pitch, velocity and start phase. Changing the delay affects new messages, not ones already queued; a release that overtakes its pending note cancels that note. MIDI delivery runs on the audio-clock reports (about every 5 ms).'));
+  }
+  if (entry.def.type === 'ECHO') {
+    panel.append(hint('<b>STEREO</b> repeats left and right together, preserving their separation. <b>PINGPONG</b> averages the input into a left-first echo, then alternates sides. <b>Filter</b> processes the first echo and every feedback repeat; dry audio is unaffected. Feedback is limited to 99%. At 0 ms, the echo uses a one-sample delay.'));
+  }
+  if (entry.def.type === 'DELAY' || entry.def.type === 'ECHO') {
+    panel.append(hint('<b>Delay Unit:</b> ms gives 0–10,000 milliseconds. In 1/4, 1/8 or 1/16 mode, the same slider selects musical lengths from 1/4 to 64 of that note unit, synced to this patch’s Output BPM (including dotted and triplet lengths). Audio delay changes glide to avoid abrupt jumps.'));
+  }
+  if (entry.def.type === 'MULTIMIDI') {
     panel.append(hint('<kbd>Shift</kbd> + drag to an OSC, Patch or another MultiMIDI. Every note drifts on its own. Several MultiMIDIs can feed one synth in parallel (each plays its own voices); chained ones add up. <b>Random Phase</b> starts every note at its own random point of the OSC waveform cycle (0 % = all start at the beginning, 100 % = anywhere).'));
   }
   if (entry.def.routeParams) {

@@ -2,6 +2,7 @@
 // SVF types use the zero-delay-feedback state variable filter (Cytomic / A. Simper),
 // which stays stable under fast cutoff modulation. The ladder is a ZDF 4-pole Moog-style model.
 import { Kernel } from '../dsp/kernel.js';
+import { newSvf, tickSvf } from '../dsp/svf.js';
 
 const TAIL_BLOCKS = 8; // silent render quanta before an input-less filter stops
 const T = {
@@ -25,7 +26,6 @@ const ANTI_DENORMAL = 1e-20;
 const LN2 = Math.log(2);
 
 const qFromRes = (r) => 0.5 * Math.pow(80, r); // 0 -> Q 0.5, 1 -> Q 40
-const newSvf = () => ({ ic1: 0, ic2: 0 });
 
 export default class FilterKernel extends Kernel {
   constructor() {
@@ -84,13 +84,9 @@ export default class FilterKernel extends Kernel {
 
   // One SVF tick; results in this.v1 (band) and this.v2 (low).
   tick(st, v0, a1, a2, a3) {
-    const v3 = v0 - st.ic2;
-    const v1 = a1 * st.ic1 + a2 * v3;
-    const v2 = st.ic2 + a2 * st.ic1 + a3 * v3;
-    st.ic1 = 2 * v1 - st.ic1;
-    st.ic2 = 2 * v2 - st.ic2;
-    this.v1 = v1;
-    this.v2 = v2;
+    tickSvf(st, v0, a1, a2, a3);
+    this.v1 = st.band;
+    this.v2 = st.low;
   }
 
   // need: the value is used (else only the phase moves; lfoLast is only read between blocks, so

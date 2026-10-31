@@ -35,16 +35,22 @@ export function createSurface(host, paint) {
 // Drag with pointer capture: onMove(e) while the button is down, then onUp(e).
 export function capture(cv, e, onMove, onUp) {
   cv.setPointerCapture(e.pointerId);
-  const move = (ev) => onMove(ev);
+  let ended = false;
+  const move = (ev) => { if (ev.pointerId === e.pointerId) onMove(ev); };
   const up = (ev) => {
+    if (ended || (ev.pointerId !== undefined && ev.pointerId !== e.pointerId)) return;
+    ended = true;
     cv.removeEventListener('pointermove', move);
     cv.removeEventListener('pointerup', up);
     cv.removeEventListener('pointercancel', up);
+    cv.removeEventListener('lostpointercapture', up);
     onUp?.(ev);
   };
   cv.addEventListener('pointermove', move);
   cv.addEventListener('pointerup', up);
   cv.addEventListener('pointercancel', up);
+  cv.addEventListener('lostpointercapture', up);
+  return up;
 }
 
 // Middle mouse drag: pan(dx, dy) gets the movement since the last call.

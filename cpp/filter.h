@@ -2,6 +2,7 @@
 // src/modules/filter.dsp.js.
 #pragma once
 #include "kernel.h"
+#include "svf.h"
 
 namespace ms {
 
@@ -12,8 +13,6 @@ struct Filter : Kernel {
   static constexpr int MAX_STAGES = 4;
   static constexpr int CHANNELS = 2;
   static constexpr double ANTI_DENORMAL = 1e-20;
-
-  struct Svf { double ic1 = 0, ic2 = 0; };
 
   double p[PARAMS] = {LP, 1, 1000, 0.1, 0, 0, 0, 0, 1, 0, 1, 1};
   // smoothed copies
@@ -66,13 +65,9 @@ struct Filter : Kernel {
   }
 
   inline void tick(Svf& st, double x0, double a1, double a2, double a3) {
-    const double v3 = x0 - st.ic2;
-    const double b1 = a1 * st.ic1 + a2 * v3;
-    const double b2 = st.ic2 + a2 * st.ic1 + a3 * v3;
-    st.ic1 = 2 * b1 - st.ic1;
-    st.ic2 = 2 * b2 - st.ic2;
-    v1 = b1;
-    v2 = b2;
+    st.tick(x0, a1, a2, a3);
+    v1 = st.band;
+    v2 = st.low;
   }
 
   // need: the value is used (else only the phase moves; lfoLast is only read between blocks, so

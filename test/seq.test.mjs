@@ -38,7 +38,7 @@ class Canvas extends EventTarget {
 }
 
 globalThis.document = { createElement: () => new Canvas(), activeElement: null, addEventListener() {} };
-globalThis.window = { devicePixelRatio: 1 };
+globalThis.window = Object.assign(new EventTarget(), { devicePixelRatio: 1 });
 const flush = () => {
   while (resizes.length) resizes.shift()();
   while (frames.length) frames.shift()();
@@ -77,7 +77,7 @@ const click = (cv, x, y, props = {}) => {
 const host = () => ({ clientWidth: 480, clientHeight: 400, append() {} });
 const note = (pitch, start, length = 1, vel = 0.8) => ({ pitch, start, length, vel });
 
-function setup() {
+function setup({ snapVelocity = false } = {}) {
   const song = emptySong();
   const clip = addClip(song, { length: 16, target: 7 });
   song.selected = clip.id;
@@ -97,10 +97,11 @@ function setup() {
     preview: { on() { previews++; return {}; }, off(h) { if (h) previews--; } },
   };
   const roll = createPianoRoll(host(), ctx);
+  const initialSnap = roll.getView().snapVelocity;
   const arranger = createArranger(host(), ctx);
-  roll.setView({ sx: 50 * 14, sy: 0, ppq: 48, kw: 14 });
+  roll.setView({ sx: 50 * 14, sy: 0, ppq: 48, kw: 14, snapVelocity });
   flush();
-  return { song, clip, roll, arranger, ctx, menus, changes: () => changes, previews: () => previews };
+  return { song, clip, roll, arranger, ctx, menus, initialSnap, changes: () => changes, previews: () => previews };
 }
 // runs the action of the last opened context menu's item with this label
 const pick = (menus, label) => {
@@ -120,6 +121,60 @@ const assertNoOverlap = (song) => {
     for (let j = i + 1; j < song.clips.length; j++) assert.equal(clipsOverlap(song.clips[i], song.clips[j]), false);
   }
 };
+
+// The keyboard auditions white/black keys without inserting notes or changing the selection.
+for (const ending of ['pointerup', 'pointercancel', 'lostpointercapture', 'blur']) {
+  const { clip, roll, ctx, changes } = setup();
+  const cv = roll.surface.cv;
+  const calls = [];
+  ctx.preview.on = (c, pitch) => { assert.equal(c, clip); calls.push(['on', pitch]); return pitch; };
+  ctx.preview.off = (pitch) => { if (pitch !== null) calls.push(['off', pitch]); };
+  clip.notes.push(note(65, 1));
+  key(cv, 'a', { ctrlKey: true });
+  point(cv, 'pointerdown', nx(60), 390, { buttons: 1 });
+  assert.deepEqual(calls, [['on', 60]]);
+  assert.ok(cv.drawing.some(([op, , y, , , color]) => op === 'fillRect' && y === 377 && color === '#ff916e'), 'held key highlighted');
+  point(cv, 'pointermove', nx(60) + 1, 390, { buttons: 1 });
+  assert.equal(calls.length, 1, 'same key is not retriggered');
+  point(cv, 'pointerup', nx(60), 390, { pointerId: 2 });
+  assert.equal(calls.length, 1, 'unrelated pointer cannot release the note');
+  point(cv, 'pointermove', nx(61), 390, { buttons: 1 });
+  assert.deepEqual(calls.slice(-2), [['off', 60], ['on', 61]], 'drag auditions adjacent black key');
+  point(cv, ending, nx(61), 390);
+  assert.deepEqual(calls.at(-1), ['off', 61]);
+  point(cv, 'pointerup', nx(61), 390);
+  assert.equal(calls.length, 4, 'released exactly once');
+  assert.equal(changes(), 0);
+  assert.deepEqual(clip.notes, [note(65, 1)]);
+  key(cv, 'Backspace');
+  assert.equal(clip.notes.length, 0, 'selection survived audition');
+}
+{
+  const { clip, roll, previews, changes } = setup();
+  const cv = roll.surface.cv;
+  point(cv, 'pointerdown', nx(60), 390, { buttons: 1 });
+  assert.equal(previews(), 1);
+  point(cv, 'pointermove', nx(60), 350, { buttons: 1 });
+  assert.equal(previews(), 0, 'leaving keyboard releases preview');
+  point(cv, 'pointermove', nx(64), 390, { buttons: 1 });
+  assert.equal(previews(), 1, 're-entering keyboard auditions again');
+  window.dispatchEvent(new Event('blur'));
+  assert.equal(previews(), 0, 'leaving window cannot leave a stuck note');
+  point(cv, 'pointerup', nx(64), 390);
+  assert.equal(previews(), 0);
+  assert.equal(changes(), 0);
+  assert.equal(clip.notes.length, 0);
+}
+{
+  const { song, roll, previews } = setup();
+  const cv = roll.surface.cv;
+  point(cv, 'pointerdown', nx(60), 390, { buttons: 1 });
+  song.selected = null;
+  roll.redraw(); flush();
+  assert.equal(previews(), 0, 'changing clip ends keyboard audition');
+  click(cv, nx(60), 390);
+  assert.equal(previews(), 0, 'no clip means no audition target');
+}
 
 // Marquee selects intersecting notes (including their bodies), in either direction.
 for (const reverse of [false, true]) {
@@ -625,7 +680,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
 
 // Velocity strip: drag a note's handle, then shape one shared curve for several notes.
 {
-  const { clip, roll, changes } = setup();
+  const { clip, roll, changes, menus } = setup();
   const cv = roll.surface.cv;
   const vx = (v) => 7 + v * 70;
   clip.notes.push(note(60, 0, 1, 0.5), note(62, 2, 2, 0.5), note(64, 0, 1, 0.3));
@@ -656,15 +711,102 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(a.vel, 0.5);
   assert.deepEqual(a.vels?.map((p) => p.t), [0.5, 1], 'first note follows the line until its end');
   assert.ok(b.vel > 0.5 && b.vel < 1, 'second note starts on the line');
-  // wheel rounds the point, right click deletes it again
+  // wheel rounds the point; right click offers deletion without deleting immediately
   point(cv, 'wheel', vx(1), ny(3), { deltaY: -100 });
   assert.equal(b.vels[0].r, 1, 'already at maximum rounding');
   point(cv, 'wheel', vx(1), ny(3), { deltaY: 100 });
   assert.equal(b.vels[0].r, 0.95);
   point(cv, 'pointerdown', vx(1), ny(3), { button: 2 });
   point(cv, 'pointerup', vx(1), ny(3), { button: 2 });
+  assert.ok(b.vels);
+  pick(menus, 'Delete point');
   assert.equal('vels' in b, false);
   assert.ok(changes() > 4);
+}
+
+// Velocity snapping: all sixteen intervals, including both endpoints, without a drawn grid.
+for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 16), 0.531249, 0.53125, 0.531251, 1.2]) {
+  const { clip, roll } = setup({ snapVelocity: true });
+  const cv = roll.surface.cv;
+  clip.notes.push(note(60, 1, 3, 0.5));
+  drag(cv, 7 + 0.5 * 70, ny(1), 7 + value * 70, ny(1));
+  assert.equal(clip.notes[0].vel, Math.round(Math.max(0, Math.min(1, value)) * 16) / 16);
+}
+{
+  const { clip, roll, menus, changes, initialSnap, song } = setup({ snapVelocity: true });
+  const cv = roll.surface.cv;
+  const vx = (v) => 7 + v * 70;
+  assert.equal(initialSnap, true, 'new piano rolls enable snapping by default');
+  clip.notes.push(note(60, 1, 3, 0.53));
+  const before = structuredClone(clip.notes);
+  point(cv, 'pointerdown', 35, ny(5), { button: 2 });
+  assert.deepEqual(labels(menus), ['Snap velocity values'], 'blank lane offers the toggle');
+  assert.equal(menus.at(-1).items[0].checked, true);
+  pick(menus, 'Snap velocity values');
+  assert.equal(roll.getView().snapVelocity, false);
+  assert.deepEqual(clip.notes, before, 'toggling does not quantize existing values');
+  assert.equal(changes(), 1, 'toggle schedules persistence');
+  drag(cv, vx(0.53), ny(1), vx(0.9), ny(1));
+  assert.ok(Math.abs(clip.notes[0].vel - 0.9) < 1e-9, 'disabled toggle restores free editing');
+  point(cv, 'pointerdown', 35, ny(5), { button: 2 });
+  assert.equal(menus.at(-1).items[0].checked, false);
+  pick(menus, 'Snap velocity values');
+  assert.ok(Math.abs(clip.notes[0].vel - 0.9) < 1e-9, 'enabling leaves old values untouched too');
+  drag(cv, vx(0.9), ny(1), vx(0.6), ny(1), {}, 'pointercancel');
+  assert.ok(Math.abs(clip.notes[0].vel - 0.9) < 1e-9, 'cancellation restores the original unsnapped value');
+  // Fine movement is still snapped.
+  drag(cv, vx(0.9), ny(1), vx(0.6), ny(1), { shiftKey: true });
+  assert.equal(clip.notes[0].vel, 0.875);
+  drag(cv, vx(0.875), ny(1), vx(0.6), ny(1), {}, 'pointercancel');
+  assert.equal(clip.notes[0].vel, 0.875);
+  const saved = roll.getView();
+  roll.setView({ ...saved, snapVelocity: false });
+  roll.setView(saved);
+  assert.equal(roll.getView().snapVelocity, true, 'roll view round-trip');
+  roll.setView({ ...saved, snapVelocity: false });
+  const off = roll.getView();
+  roll.setView(null);
+  assert.equal(roll.getView().snapVelocity, true, 'new / older projects use the default');
+  roll.setView(off);
+  assert.equal(roll.getView().snapVelocity, false, 'saved false survives restoring');
+  song.selected = null;
+  point(cv, 'pointerdown', 35, ny(5), { button: 2 });
+  assert.equal(menus.at(-1).items[0].checked, false, 'setting is available without a selected clip');
+  cv.drawing.length = 0;
+  roll.redraw(); flush();
+  for (const x of [7.5, 42.5, 77.5]) {
+    assert.equal(cv.drawing.some(([op, px, py]) => op === 'lineTo' && px === x && py === 376), false, 'no velocity grid lines');
+  }
+}
+{
+  const { clip, roll, menus } = setup({ snapVelocity: true });
+  const cv = roll.surface.cv;
+  const vx = (v) => 7 + v * 70;
+  clip.notes.push(note(60, 1, 3, 0.5), note(64, 1, 3, 0.5));
+  key(cv, 'a', { ctrlKey: true });
+  dbl(cv, vx(0.71), ny(2));
+  for (const n of clip.notes) {
+    assert.equal(n.vel, 0.5);
+    assert.equal(n.vels[0].v, 0.6875, 'new shared curve point snaps');
+    assert.equal(n.vels[0].t, 1, 'time snapping unchanged');
+  }
+  drag(cv, vx(0.6875), ny(2), vx(0.91), ny(2.5));
+  for (const n of clip.notes) {
+    assert.equal(n.vels[0].v, 0.9375, 'existing curve point snaps');
+    assert.equal(n.vels[0].t, 1.5);
+  }
+  dbl(cv, vx(0.31), ny(2.5));
+  for (const n of clip.notes) {
+    assert.equal(n.vels.length, 1);
+    assert.equal(n.vels[0].v, 0.3125, 'replacing a point at the same time also snaps');
+  }
+  point(cv, 'pointerdown', vx(0.5), ny(1), { button: 2 });
+  const firstMenu = menus.at(-1).items;
+  assert.equal(firstMenu.find((i) => i.label === 'Delete point').disabled, true, 'cannot delete the start point');
+  point(cv, 'pointerdown', vx(0.3125), ny(2.5), { button: 2 });
+  assert.ok(clip.notes[0].vels, 'opening menu does not delete');
+  pick(menus, 'Delete point');
+  assert.ok(clip.notes.every((n) => !n.vels), 'deletion still works for shared curves');
 }
 
 // Double right-click on empty TimeLine space inserts an automation clip.
@@ -1041,6 +1183,15 @@ for (const { sx, kw, width } of [
   });
   seq.reload();
   flush();
+  assert.equal(seq.viewState().roll.snapVelocity, true);
+  seq.applyView({ roll: { snapVelocity: false } });
+  const snapView = JSON.parse(JSON.stringify(seq.viewState()));
+  seq.applyView(null);
+  assert.equal(seq.viewState().roll.snapVelocity, true, 'new project resets the toggle');
+  seq.applyView(snapView);
+  assert.equal(seq.viewState().roll.snapVelocity, false, 'project view restores unchecked state');
+  seq.applyView({ roll: { sx: 0, sy: 0 } });
+  assert.equal(seq.viewState().roll.snapVelocity, true, 'old projects default to snapping');
   const press = (key, props = {}, target = elements.get('arranger')) => {
     const e = new Event('keydown', { cancelable: true });
     Object.assign(e, { key, repeat: false, ctrlKey: false, altKey: false, metaKey: false, ...props });

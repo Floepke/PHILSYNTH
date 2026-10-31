@@ -11,6 +11,8 @@
 //                                 synth glides to the new values, so it never clicks
 //   noteOff(id)                   release a note
 //   allOff()                      silence everything
-// MIDI processors (MULTIMIDI) receive MODMIDI, change it, and send MODMIDI on with their own ids.
+// MIDI processors (MULTIMIDI, DELAY) receive MODMIDI and send it on with their own ids.
+// DELAY schedules each message with the current LEFT DELAY, preserving pitch, velocity and
+// phase. allOff / cable removal cancel pending events and release only its own outgoing notes.
 let lastId = 0;
 export const newNoteId = () => ++lastId;

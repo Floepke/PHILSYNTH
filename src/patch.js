@@ -18,6 +18,12 @@ export const instanceSalt = (parent, k) => (parent * 17 + k) % 1000003;
 export const MAX_NAME = 40;
 export const cleanName = (name) => (typeof name === 'string' ? name.trim().slice(0, MAX_NAME) : '');
 
+// DELAY is a dual source: one cable carries whichever signals its destination accepts.
+export const cableSignals = (a, b) => ({
+  audio: !!(!a.modulator && (!a.midiOut || a.audioMidi) && a.hasOutput && b.hasInput),
+  midi: !!(a.midiOut && b.acceptsMidi),
+});
+
 export class PatchRuntime {
   constructor(engine, sink, salt = 0) {
     this.engine = engine;
@@ -91,7 +97,8 @@ export class PatchRuntime {
       inst.getTargets = () => this.cables.filter((c) => c.from === id).map((c) => this.modules.get(c.to)).filter(Boolean);
     }
     if (def.midiOut) {
-      inst.getMidiTargets = () => this.cables.filter((c) => c.from === id).map((c) => this.modules.get(c.to)?.inst).filter(Boolean);
+      inst.getMidiTargets = () => this.cables.filter((c) => c.from === id)
+        .map((c) => this.modules.get(c.to)).filter((t) => t && cableSignals(def, t.def).midi).map((t) => t.inst);
     }
     if (inst.patch) inst.patch.watchers.add(() => { inst.mirror?.(); this.changed(); });
     if (def.isOutput) inst.input.connect(this.sink);
@@ -357,9 +364,10 @@ export class PatchRuntime {
     return walk(from);
   }
 
-  // true if a MIDI processor (MULTIMIDI) is cabled into this module
+  // true if a MIDI processor is cabled into this module
   hasMidiInput(id) {
-    return this.cables.some((c) => c.to === id && this.modules.get(c.from)?.def.midiOut);
+    const target = this.modules.get(id);
+    return !!target && this.cables.some((c) => c.to === id && cableSignals(this.modules.get(c.from).def, target.def).midi);
   }
 
   connect(fromId, toId) {
@@ -369,13 +377,11 @@ export class PatchRuntime {
     if (this.cables.some((c) => c.from === fromId && c.to === toId)) return false;
     if (a.def.modulator) {
       if (!paramsOf(b).length) return false; // control cable: target only needs controllers
-    } else if (a.def.midiOut) {
-      if (!b.def.acceptsMidi) return false; // MIDI cable: target must play notes
-      if (this.reaches(toId, fromId)) return false; // notes would circle forever
     } else {
-      if (!a.def.hasOutput || !b.def.hasInput) return false;
-      if (this.reaches(toId, fromId)) return false; // feedback loops would be silenced by Web Audio
-      a.inst.node.connect(b.inst.input);
+      const signals = cableSignals(a.def, b.def);
+      if (!signals.audio && !signals.midi) return false;
+      if (this.reaches(toId, fromId)) return false; // audio or notes would circle forever
+      if (signals.audio) a.inst.node.connect(b.inst.input);
     }
     this.cables.push({ from: fromId, to: toId });
     a.def.connected?.(a, b, a.inst.getTargets?.() ?? []); // e.g. MULTICTL copies routes to a module of a routed type
@@ -393,10 +399,10 @@ export class PatchRuntime {
       a.def.disconnected?.(a, b); // e.g. MULTICTL forgets its routes to that module
       this.updateRoutes(a); // gives the controller back its own value
     }
-    else if (a.def.midiOut) {
-      a.inst.releaseTarget?.(b.inst);
-    } else {
-      try { a.inst.node.disconnect(b.inst.input); } catch { /* already disconnected */ }
+    else {
+      const signals = cableSignals(a.def, b.def);
+      if (signals.midi) a.inst.releaseTarget?.(b.inst);
+      if (signals.audio) a.inst.node.disconnect(b.inst.input);
     }
     if (notify) this.emit();
   }

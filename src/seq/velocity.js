@@ -11,7 +11,8 @@
 //   Shift + drag                       fine velocity
 //   double-click inside the selection  insert a curve point (hold the second press to drag it)
 //   mouse wheel on a point             round the corner
-//   right click a point                delete it
+//   right click                        toggle velocity snapping (1/16 increments, no grid);
+//                                       on a curve point, the menu also offers Delete point
 import { snapStep, snapRound, clean, notePoints, noteVelAt, groupVelCurve, applyVelCurve } from '../song.js';
 import { curvePolyline, NEW_POINT_ROUND } from '../curve.js';
 import { doublePress } from '../doublepress.js';
@@ -24,7 +25,7 @@ const ROUND_STEP = 0.05;
 const SELECT = '#65b4ff';
 
 // o: { cv, local(e), clip(), selected() -> Set, setSelected(Set), yOf(t), timeAt(y), bottom(), ppq(), song(),
-//      color(clip), changed(), redraw() }
+//      color(clip), changed(), redraw(), menu(opts), snapVelocity(), toggleSnapVelocity() }
 export function createVelocityStrip(o) {
   let group = null; // { notes, points (absolute clip times), start, end, sig }
   let hover = null; // { kind: 'point', i } | { kind: 'note', note }
@@ -33,6 +34,7 @@ export function createVelocityStrip(o) {
 
   const xv = (v) => PAD + v * (VEL_W - 2 * PAD);
   const vx = (x) => clamp((x - PAD) / (VEL_W - 2 * PAD), 0, 1);
+  const snapVelocity = (v) => o.snapVelocity() ? Math.round(v * 16) / 16 : v;
   const contains = (x, y) => x >= 0 && x < VEL_W && y >= 0 && y < o.bottom();
   const step = () => snapStep(o.song().snap);
   const sigOf = (notes) => notes.map((n) => `${n.start},${n.length},${n.vel},${JSON.stringify(n.vels ?? [])}`).join(';');
@@ -96,11 +98,6 @@ export function createVelocityStrip(o) {
     g.beginPath();
     g.rect(0, 0, VEL_W, bottom);
     g.clip();
-    g.strokeStyle = 'rgba(255, 255, 255, 0.07)';
-    g.lineWidth = 1;
-    g.beginPath();
-    for (const v of [0, 0.5, 1]) { const x = Math.round(xv(v)) + 0.5; g.moveTo(x, 0); g.lineTo(x, bottom); }
-    g.stroke();
     const clip = o.clip();
     if (clip) {
       sync();
@@ -203,7 +200,7 @@ export function createVelocityStrip(o) {
       if (!drag.moved && Math.hypot(q.x - x, q.y - y) < 2) return;
       drag.moved = true;
       presses.reset();
-      p.v = clamp(v0 + ((q.x - x) * (ev.shiftKey ? 0.1 : 1)) / (VEL_W - 2 * PAD), 0, 1);
+      p.v = snapVelocity(clamp(v0 + ((q.x - x) * (ev.shiftKey ? 0.1 : 1)) / (VEL_W - 2 * PAD), 0, 1));
       if (i > 0) {
         const lo = pts[i - 1].t;
         const hi = i < pts.length - 1 ? pts[i + 1].t : group.end;
@@ -228,7 +225,8 @@ export function createVelocityStrip(o) {
     const pts = group.points;
     let i = 0;
     while (i < pts.length && pts[i].t <= t) i++;
-    if (pts[i - 1]?.t === t) { pts[i - 1].v = vx(x); i--; } else pts.splice(i, 0, { t, v: vx(x), r: NEW_POINT_ROUND });
+    const v = snapVelocity(vx(x));
+    if (pts[i - 1]?.t === t) { pts[i - 1].v = v; i--; } else pts.splice(i, 0, { t, v, r: NEW_POINT_ROUND });
     apply();
     o.changed();
     return i;
@@ -240,10 +238,30 @@ export function createVelocityStrip(o) {
     // pointer down inside the strip; returns true when handled
     pointerdown(e, x, y) {
       if (!contains(x, y)) return false;
+      if (drag) return true;
       sync();
       if (e.button === 2) {
+        presses.reset();
         const i = pointAt(x, y);
-        if (i > 0) { group.points.splice(i, 1); apply(); hover = null; o.changed(); }
+        const target = group;
+        const items = [{
+          label: 'Snap velocity values',
+          checked: o.snapVelocity(),
+          action: o.toggleSnapVelocity,
+        }];
+        if (i >= 0) items.push('-', {
+          label: 'Delete point',
+          disabled: i === 0,
+          action() {
+            if (sync() !== target) return;
+            group.points.splice(i, 1);
+            apply();
+            hover = null;
+            o.changed();
+            o.redraw();
+          },
+        });
+        o.menu({ x: e.clientX, y: e.clientY, items });
         return true;
       }
       if (e.button !== 0) return true;

@@ -93,6 +93,27 @@ function compare(kind, { opts = {}, script = [], input = null, blocks = 200, tol
 const param = (id, value) => ({ type: 'param', id, value });
 const noteOn = (id, pitch, velocity = 0.8, phase) => ({ type: 'noteOn', id, pitch, velocity, ...(phase === undefined ? {} : { phase }) });
 
+// DELAY / ECHO: fractional taps, controller glides, tempo sync and all feedback filters.
+compare('delay', {
+  blocks: 160, input: (b, i, ch) => b < 20 ? Math.sin((b * N + i) * (ch ? 0.13 : 0.1)) : 0,
+  script: [[0, param('left', 3.25)], [0, param('right', 5.125)], [10, param('left', 10.7)],
+    [15, param('right', 0)], [25, param('unit', 3)], [25, param('left', 0)],
+    [35, { type: 'bpm', value: 240 }], [60, param('unit', 0)]],
+});
+compare('delay', { blocks: 10 });
+for (let filter = 0; filter <= 8; filter++) {
+  compare('echo', {
+    blocks: 160, tol: 1e-6, inHeap: filter % 2 === 1,
+    input: (b, i, ch) => b < 20 ? 0.5 * Math.sin((b * N + i) * (ch ? 0.13 : 0.1)) : 0,
+    script: [[0, param('delay', 3.25)], [0, param('filter', filter)], [0, param('cutoff', 1700)],
+      [0, param('feedback', 0.8)], [5, param('mode', 1)], [10, param('delay', 7.1)],
+      [20, param('cutoff', 500)], [30, param('unit', 3)], [30, param('delay', 0)],
+      [40, { type: 'bpm', value: 300 }], [50, param('unit', 0)], [70, param('filter', (filter + 4) % 9)],
+      [100, param('wet', 0.1)], [110, param('feedback', 0.99)]],
+  });
+}
+compare('echo', { blocks: 10 });
+
 // OSC: every waveform, duty sweeps, glides, release, voice stealing, polyphony changes
 for (let wave = 0; wave <= 4; wave++) {
   compare('osc', {

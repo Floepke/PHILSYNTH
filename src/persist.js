@@ -27,7 +27,9 @@ export function createPersistence({ getState, onSaved }) {
     let local = true;
     try { localStorage.setItem(LS_KEY, json); } catch { local = false; }
     await putDisk(json);
-    onSaved?.({ local, disk: disk === true, at: state.savedAt });
+    const result = { local, disk: disk === true, at: state.savedAt };
+    onSaved?.(result);
+    return result;
   }
 
   return {

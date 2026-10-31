@@ -2,6 +2,7 @@
 // src/dsp/wasm.js (adapters that plug these kernels into the engine graph, src/dsp/graph.js).
 // Pointers are byte offsets into the module's memory; audio buffers are float[n].
 #include "basic.h"
+#include "delay.h"
 #include "eq.h"
 #include "filter.h"
 #include "kernel.h"
@@ -18,10 +19,10 @@ void operator delete(void* p, __SIZE_TYPE__) noexcept { free(p); }
 
 using namespace ms;
 
-enum Kind { KIND_OSC = 1, KIND_FILTER = 2, KIND_REVERB = 3, KIND_WAVESHAPER = 4, KIND_BUS = 5, KIND_AMP = 6, KIND_OUT = 7, KIND_DCBLOCK = 8, KIND_EQ = 9 };
+enum Kind { KIND_OSC = 1, KIND_FILTER = 2, KIND_REVERB = 3, KIND_WAVESHAPER = 4, KIND_BUS = 5, KIND_AMP = 6, KIND_OUT = 7, KIND_DCBLOCK = 8, KIND_EQ = 9, KIND_DELAY = 10, KIND_ECHO = 11 };
 
 // Bumped when the API changes; src/dsp/wasm.js refuses other versions.
-EXPORT(ms_version) int ms_version() { return 3; }
+EXPORT(ms_version) int ms_version() { return 4; }
 
 EXPORT(ms_param_count) int ms_param_count(int kind) {
   switch (kind) {
@@ -34,6 +35,8 @@ EXPORT(ms_param_count) int ms_param_count(int kind) {
     case KIND_OUT: return Out::PARAMS;
     case KIND_DCBLOCK: return DcBlock::PARAMS;
     case KIND_EQ: return Eq::PARAMS;
+    case KIND_DELAY: return Delay::PARAMS;
+    case KIND_ECHO: return Echo::PARAMS;
   }
   return 0;
 }
@@ -53,12 +56,15 @@ EXPORT(ms_create) Kernel* ms_create(int kind, double sampleRate, int salt, uint3
     case KIND_OUT: return new Out(sampleRate);
     case KIND_DCBLOCK: return new DcBlock(sampleRate);
     case KIND_EQ: return new Eq(sampleRate);
+    case KIND_DELAY: return new Delay(sampleRate);
+    case KIND_ECHO: return new Echo(sampleRate);
   }
   return nullptr;
 }
 
 EXPORT(ms_destroy) void ms_destroy(Kernel* k) { delete k; }
 EXPORT(ms_param) void ms_param(Kernel* k, int id, double v) { k->param(id, v); }
+EXPORT(ms_bpm) void ms_bpm(Kernel* k, double value) { k->tempo(value); }
 EXPORT(ms_note) void ms_note(Kernel* k, int type, double id, double pitch, double vel, double phase) { k->note(type, id, pitch, vel, phase); }
 EXPORT(ms_data) float* ms_data(Kernel* k, int slot, int size) { return k->data(slot, size); }
 EXPORT(ms_process) int ms_process(Kernel* k, const float* inL, const float* inR, float* outL, float* outR, int n) {

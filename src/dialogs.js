@@ -13,10 +13,11 @@ function run(dialog) {
   });
 }
 
-export async function confirmDialog(text, { title = 'Are you sure?', ok = 'OK' } = {}) {
+export async function confirmDialog(text, { title = 'Are you sure?', ok = 'OK', cancel = 'Cancel' } = {}) {
   $('confirm-title').textContent = title;
   $('confirm-text').textContent = text;
   $('confirm-ok').textContent = ok;
+  $('confirm-cancel').textContent = cancel;
   return (await run($('confirm-dialog'))) === 'ok';
 }
 

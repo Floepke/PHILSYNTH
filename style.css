@@ -863,6 +863,27 @@ dialog .sig-ok { order: 1; }
   color: var(--text-faint);
   cursor: default;
 }
+.ctx-check {
+  position: relative;
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  margin-right: 8px;
+  border: 1px solid currentColor;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+.ctx-item[aria-checked="true"] .ctx-check::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0;
+  width: 4px;
+  height: 7px;
+  border: solid currentColor;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
 .ctx-item kbd {
   font: 11px var(--mono);
   color: var(--text-dim);

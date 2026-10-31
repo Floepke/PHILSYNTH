@@ -12,6 +12,7 @@
 //   acceptsMidi true if the module receives note events when selected
 //   liveMidi    optional; false = notes only from clips / MIDI cables, never from the MIDI device
 //   midiOut     true for MIDI processors (MULTIMIDI): cables carry MODMIDI notes to MIDI modules
+//   audioMidi   with midiOut: cables also carry audio when the destination hasInput (DELAY)
 //   hasInput / hasOutput  which cable ports the box shows
 //   modulator   true for control sources (LFO): cables drive a controller instead of carrying audio
 //   create(ctx, def, host) returns (or resolves to) an instance. The DSP runs on the audio thread

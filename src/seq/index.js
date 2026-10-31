@@ -384,6 +384,7 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
     },
     viewState: () => ({ ...layout, roll: roll.getView(), lane: lane.getView(), arranger: arranger.getView() }),
     applyView(v) {
+      roll.setView(v?.roll);
       if (v) {
         if (Number.isFinite(v.width)) layout.width = clamp(v.width, 0, 1);
         if (Number.isFinite(v.restoreWidth) && v.restoreWidth > 0) layout.restoreWidth = clamp(v.restoreWidth, 0, 1);
@@ -393,7 +394,6 @@ export function createSequencer({ engine, transport, getTarget, defaultTarget, d
         }
         if (Number.isFinite(v.split)) layout.split = clamp(v.split, 0, 1);
         if (Number.isFinite(v.panelWidth)) layout.panelWidth = Math.max(0, v.panelWidth);
-        roll.setView(v.roll);
         lane.setView(v.lane);
         arranger.setView(v.arranger);
       }

@@ -14,6 +14,8 @@ import AdsrKernel from '../modules/adsr.dsp.js';
 import Velocity2CtlKernel from '../modules/velocity2ctl.dsp.js';
 import Sound2CtlKernel from '../modules/sound2ctl.dsp.js';
 import MultiCtlKernel from '../modules/multictl.dsp.js';
+import DelayKernel from '../modules/delay.dsp.js';
+import EchoKernel from '../modules/echo.dsp.js';
 
 export const KERNELS = {
   bus: BusKernel,
@@ -31,4 +33,6 @@ export const KERNELS = {
   velocity2ctl: Velocity2CtlKernel,
   sound2ctl: Sound2CtlKernel,
   multictl: MultiCtlKernel,
+  delay: DelayKernel,
+  echo: EchoKernel,
 };
