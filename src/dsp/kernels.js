@@ -16,6 +16,7 @@ import Sound2CtlKernel from '../modules/sound2ctl.dsp.js';
 import MultiCtlKernel from '../modules/multictl.dsp.js';
 import DelayKernel from '../modules/delay.dsp.js';
 import EchoKernel from '../modules/echo.dsp.js';
+import ModulatorKernel from '../modules/modulator.dsp.js';
 
 export const KERNELS = {
   bus: BusKernel,
@@ -35,4 +36,5 @@ export const KERNELS = {
   multictl: MultiCtlKernel,
   delay: DelayKernel,
   echo: EchoKernel,
+  modulator: ModulatorKernel,
 };

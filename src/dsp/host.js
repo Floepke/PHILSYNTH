@@ -14,6 +14,7 @@ export class DspNode {
     this.host = host;
     this.h = h;
     this.out = new Set();
+    this.inputs = new Set(); // incoming audio sources, in cable connection order
     this.onMod = null;
     this.dead = false;
     this.port = { postMessage: (m) => host.post(['msg', h, m]) };
@@ -22,6 +23,7 @@ export class DspNode {
   connect(node) {
     if (!this.out.has(node)) {
       this.out.add(node);
+      node.inputs.add(this);
       this.host.post(['con', this.h, node.h]);
     }
     return node;
@@ -29,10 +31,16 @@ export class DspNode {
 
   disconnect(node) {
     if (node) {
-      if (this.out.delete(node)) this.host.post(['dis', this.h, node.h]);
+      if (this.out.delete(node)) {
+        node.inputs.delete(this);
+        this.host.post(['dis', this.h, node.h]);
+      }
       return;
     }
-    for (const n of this.out) this.host.post(['dis', this.h, n.h]);
+    for (const n of this.out) {
+      n.inputs.delete(this);
+      this.host.post(['dis', this.h, n.h]);
+    }
     this.out.clear();
   }
 
@@ -45,7 +53,10 @@ export class DspNode {
   destroy() {
     if (this.dead) return;
     this.dead = true;
+    for (const n of this.out) n.inputs.delete(this);
+    for (const n of this.inputs) n.out.delete(this);
     this.out.clear();
+    this.inputs.clear();
     this.onMod = null;
     this.host.nodes.delete(this.h);
     this.host.post(['del', this.h]);

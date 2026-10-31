@@ -10,7 +10,7 @@
     "serve": "node server.mjs",
     "build:wasm": "node build-wasm.mjs",
     "bench": "node test/bench.mjs",
-    "test": "node test/patch.test.mjs && node test/midi.test.mjs && node test/filter.test.mjs && node test/delay.test.mjs && node test/echo.test.mjs && node test/cpu.test.mjs && node test/reverb.test.mjs && node test/params.test.mjs && node test/exit.test.mjs && node test/widgets.test.mjs && node test/menu.test.mjs && node test/camera.test.mjs && node test/cable.test.mjs && node test/song.test.mjs && node test/transport.test.mjs && node test/clipplacement.test.mjs && node test/toolbar.test.mjs && node test/seq.test.mjs && node test/osc.test.mjs && node test/lfo.test.mjs && node test/curve.test.mjs && node test/adsr.test.mjs && node test/graph.test.mjs && node test/wasm.test.mjs"
+    "test": "node test/patch.test.mjs && node test/midi.test.mjs && node test/filter.test.mjs && node test/delay.test.mjs && node test/echo.test.mjs && node test/modulator.test.mjs && node test/cpu.test.mjs && node test/reverb.test.mjs && node test/params.test.mjs && node test/exit.test.mjs && node test/widgets.test.mjs && node test/menu.test.mjs && node test/camera.test.mjs && node test/cable.test.mjs && node test/song.test.mjs && node test/transport.test.mjs && node test/clipplacement.test.mjs && node test/toolbar.test.mjs && node test/seq.test.mjs && node test/osc.test.mjs && node test/lfo.test.mjs && node test/curve.test.mjs && node test/adsr.test.mjs && node test/graph.test.mjs && node test/wasm.test.mjs"
   },
   "devDependencies": {
     "electron": "^45.0.0"

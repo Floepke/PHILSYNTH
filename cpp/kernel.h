@@ -35,6 +35,12 @@ struct Kernel {
   virtual float* data(int, int) { return nullptr; }
   // inL == nullptr: nothing connected. outR may equal outL (mono). Returns 0 for a silent output.
   virtual int process(const float* inL, const float* inR, float* outL, float* outR, int n) = 0;
+  // Carrier-aware kernels get the selected input and the sum of all other inputs separately.
+  virtual int carrier() const { return 0; }
+  virtual int processModulated(const float* inL, const float* inR, const float*, const float*,
+                               float* outL, float* outR, int n) {
+    return process(inL, inR, outL, outR, n);
+  }
 };
 
 inline double clampd(double v, double lo, double hi) { return v < lo ? lo : v > hi ? hi : v; }

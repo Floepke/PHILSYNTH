@@ -881,6 +881,10 @@ function select(s) {
   if (entry.def.type === 'ECHO') {
     explanations.append(hint('<b>STEREO</b> repeats left and right together, preserving their separation. <b>PINGPONG</b> averages the input into a left-first echo, then alternates sides. <b>Filter</b> processes the first echo and every feedback repeat; dry audio is unaffected. Feedback is limited to 99%. At 0 ms, the echo uses a one-sample delay.'));
   }
+  if (entry.def.type === 'MODULATOR') {
+    explanations.append(hint('<b>Carrier</b> selects an audio input; all other audio inputs are summed as the modulator, separately for left and right. Inputs are numbered in cable connection order; changing cables can change their numbering. <b>Amp modulation</b> multiplies carrier by modulator (no modulator means silence). Add/Subtract and Min/Max combine those same two signals; Min/Max abs chooses by magnitude and keeps the chosen signal’s sign.'));
+    explanations.append(hint('<b>Phase modulation</b> is a variable delay: modulator -1 = 0 ms, 0 = 20 ms, +1 = 40 ms. <b>Absolute</b> uses the modulator’s magnitude: 0 = 0 ms, either -1 or +1 = 40 ms. Larger levels are clamped. Interpolation is Off (nearest sample), Linear or Spline (cubic). <b>Bitwise AND/XOR</b> clamps and quantizes each signal to signed 16-bit audio before combining the bits.'));
+  }
   if (entry.def.type === 'DELAY' || entry.def.type === 'ECHO') {
     explanations.append(hint('<b>Delay Unit:</b> ms gives 0–10,000 milliseconds. In 1/4, 1/8 or 1/16 mode, the same slider selects musical lengths from 1/4 to 64 of that note unit, synced to this patch’s Output BPM (including dotted and triplet lengths). Audio delay changes glide to avoid abrupt jumps.'));
   }

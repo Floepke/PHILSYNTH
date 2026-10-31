@@ -16,8 +16,9 @@ import multictl from './multictl.js';
 import patch from './patch.js';
 import delay from './delay.js';
 import echo from './echo.js';
+import modulator from './modulator.js';
 
-const all = [out, osc, multimidi, filter, eq, waveshaper, amp, dcblock, delay, echo, reverb, lfo, adsr, velocity2ctl, sound2ctl, multictl, patch];
+const all = [out, osc, multimidi, filter, eq, waveshaper, amp, dcblock, delay, echo, modulator, reverb, lfo, adsr, velocity2ctl, sound2ctl, multictl, patch];
 
 export const getModule = (type) => all.find((m) => m.type === type);
 // Modules offered in the insert dialog (system modules like OUT are excluded)

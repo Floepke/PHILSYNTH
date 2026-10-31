@@ -12,7 +12,7 @@
 import { Kernel } from './kernel.js';
 import { curveTable, defaultCurve } from '../curve.js';
 
-export const WASM_VERSION = 4;
+export const WASM_VERSION = 5;
 
 // kind = Kind in cpp/engine.cpp; params in the order of the kernel's enum
 export const SPECS = {
@@ -33,11 +33,12 @@ export const SPECS = {
   eq: { kind: 9, params: [...Array.from({ length: 16 }, (_, i) => `b${i}`), 'q', 'level'] },
   delay: { kind: 10, params: ['left', 'right', 'unit'] },
   echo: { kind: 11, params: ['dry', 'wet', 'feedback', 'delay', 'unit', 'mode', 'filter', 'cutoff'] },
+  modulator: { kind: 12, params: ['type', 'carrier', 'interpolation'], carrierInput: true },
 };
 
 const NOTE = { noteOn: 0, noteMod: 1, noteOff: 2, allOff: 3 };
 const TABLE = 4096; // Waveshaper::TABLE
-const SCRATCH = 4096; // samples per scratch slot (inL, inR, outL, outR)
+const SCRATCH = 4096; // samples per scratch slot (inL, inR, outL, outR, modL, modR)
 
 export function instantiateDsp(bytes) {
   const x = new WebAssembly.Instance(new WebAssembly.Module(bytes), {}).exports;
@@ -57,7 +58,7 @@ export class WasmHeap {
     this.x = x;
     this.memory = x.memory;
     this.buffer = this.memory.buffer;
-    this.scratchPtr = this.alloc(4 * SCRATCH * 4);
+    this.scratchPtr = this.alloc(6 * SCRATCH * 4);
   }
 
   alloc(bytes) {
@@ -103,6 +104,7 @@ function kernelClass(name, spec, x, heap, sr) {
   return class WasmKernel extends Kernel {
     static passive = !!spec.passive;
     static wasm = true;
+    static carrierInput = !!spec.carrierInput;
 
     constructor(opts = {}) {
       super();
@@ -114,6 +116,8 @@ function kernelClass(name, spec, x, heap, sr) {
       const i = ids.get(id);
       if (i !== undefined) x.ms_param(this.ptr, i, +value);
     }
+
+    get carrier() { return x.ms_carrier(this.ptr); }
 
     message(m) {
       switch (m.type) {
@@ -143,7 +147,13 @@ function kernelClass(name, spec, x, heap, sr) {
       const inR = heap.has(oR);
       const dl = inL ? oL.byteOffset : heap.scratch(2);
       const dr = oR === oL ? dl : inR ? oR.byteOffset : heap.scratch(3);
-      const r = x.ms_process(this.ptr, pl, pr, dl, dr, n);
+      let r;
+      if (spec.carrierInput) {
+        const m = inputs[1];
+        const ml = m?.length ? heap.input(m[0], 4, n) : 0;
+        const mr = m?.[1] && m[1] !== m[0] ? heap.input(m[1], 5, n) : ml;
+        r = x.ms_process_modulated(this.ptr, pl, pr, ml, mr, dl, dr, n);
+      } else r = x.ms_process(this.ptr, pl, pr, dl, dr, n);
       if (r === 0) return false; // silent: outputs are undefined, like the JS kernels
       if (!inL) oL.set(heap.f32(dl, n));
       if (oR !== oL && !inR) oR.set(heap.f32(dr, n));

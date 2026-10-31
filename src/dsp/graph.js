@@ -86,6 +86,7 @@ export class Graph {
       audio: K.audio !== false && (!K.modulator || !!K.audioInput),
       audioInput: !!K.audioInput,
       passive: !!K.passive,
+      carrierInputs: K.carrierInput ? [[], []] : null,
       outs: null,
       outPtr: 0, // heap: [L, R] buffers of outs
       sums: null, // [[L, R]] scratch for summing several inputs (allocated on demand)
@@ -97,7 +98,7 @@ export class Graph {
     };
     if (this.heap) node.outPtr = this.heap.alloc(2 * BLOCK * 4);
     node.outs = this.stereo(node.outPtr);
-    if (this.x && K.wasm) node.rec = this.x.ms_node(node.k.ptr, node.outPtr, node.passive ? 1 : 0);
+    if (this.x && K.wasm) node.rec = this.x.ms_node(node.k.ptr, node.outPtr, (node.passive ? 1 : 0) | (node.carrierInputs ? 2 : 0));
     this.nodes.set(h, node);
     this.dirty = true;
     return node;
@@ -212,12 +213,11 @@ export class Graph {
     if (this.prog) this.heap.free(this.prog);
     this.prog = 0;
     if (x && order.every((n) => n.rec)) {
-      // [count, then per node: GNode*, source count, source GNode*...] (sources that never
-      // render, like modulators, are left out: they are always silent)
+      // Non-native sources outside the render order are silent placeholders, so carrier
+      // input numbering stays the same in native and mixed graphs.
       const words = [order.length];
       for (const n of order) {
-        const srcs = n.srcs.filter((s) => s.rec);
-        words.push(n.rec, srcs.length, ...srcs.map((s) => s.rec));
+        words.push(n.rec, n.srcs.length, ...n.srcs.map((s) => s.rec));
       }
       this.prog = this.heap.alloc(words.length * 4);
       new Int32Array(this.heap.memory.buffer, this.prog, words.length).set(words);
@@ -251,6 +251,16 @@ export class Graph {
     }
     if (this.prog) this.master.silent = !this.x.ms_run(this.prog, BLOCK);
     else for (const n of this.order) {
+      if (n.carrierInputs) {
+        const carrier = n.srcs[n.k.carrier];
+        let live = 0;
+        let last = null;
+        for (const s of n.srcs) if (s !== carrier && !s.silent) { live++; last = s; }
+        n.carrierInputs[0] = carrier && !carrier.silent ? carrier.outs[0] : NO_INPUT[0];
+        n.carrierInputs[1] = live === 0 ? NO_INPUT[0] : live === 1 ? last.outs[0] : this.sum(n, carrier)[0];
+        n.silent = n.k.process(n.carrierInputs, n.outs) === false;
+        continue;
+      }
       let live = 0;
       let last = null;
       for (const s of n.srcs) if (!s.silent) { live++; last = s; }
@@ -317,12 +327,12 @@ export class Graph {
     this.scopeQuiet = loud ? 0 : this.scopeQuiet + 1;
   }
 
-  sum(n) {
+  sum(n, skip = null) {
     const [L, R] = n.sums[0]; // allocated by rebuild()
     L.fill(0);
     R.fill(0);
     for (const s of n.srcs) {
-      if (s.silent) continue;
+      if (s === skip || s.silent) continue;
       const [a, b] = s.outs[0];
       for (let i = 0; i < BLOCK; i++) { L[i] += a[i]; R[i] += b[i]; }
     }
