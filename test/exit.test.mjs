@@ -110,7 +110,7 @@ for (const cancel of ['cancel', '']) {
 // The real persistence layer reports its save outcome without changing notifications.
 for (const local of [false, true]) for (const disk of [false, true]) {
   globalThis.localStorage = { setItem() { if (!local) throw new Error('Storage unavailable'); } };
-  globalThis.fetch = async () => ({ ok: disk });
+  globalThis.fetch = async () => ({ ok: disk, headers: new Headers({ 'X-ModSynth-Server': '1' }) }); // as server.mjs answers
   let notification;
   const p = createPersistence({ getState: () => ({ format: 'modsynth' }), onSaved: (r) => { notification = r; } });
   const result = await p.flush();

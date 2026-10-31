@@ -34,7 +34,7 @@ const MIME = {
 const liveClients = new Set();
 
 function send(res, status, body = '', type = 'text/plain; charset=utf-8') {
-  res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store' });
+  res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-ModSynth-Server': '1' });
   res.end(body);
 }
 
@@ -92,7 +92,7 @@ async function handleAutosave(req, res) {
 }
 
 function handleLive(req, res) {
-  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
+  res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-ModSynth-Server': '1' });
   res.write('retry: 1000\n\n');
   liveClients.add(res);
   req.on('close', () => liveClients.delete(res));

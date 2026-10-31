@@ -1,7 +1,11 @@
 // Autosave: every change is written to localStorage (always) and to the dev server's
 // projects/autosave.json (when served by server.mjs). On boot the newest copy wins.
+// Static hosts (GitHub Pages) have no API: only responses marked by server.mjs count as a disk.
 const LS_KEY = 'modsynth:autosave';
-const API = '/api/autosave';
+// relative: the app may live in a subfolder (https://user.github.io/REPO/)
+const API = 'api/autosave';
+const SERVER_HEADER = 'X-ModSynth-Server';
+let serverFound = false;
 const DEBOUNCE_MS = 300;
 
 export function createPersistence({ getState, onSaved }) {
@@ -13,7 +17,7 @@ export function createPersistence({ getState, onSaved }) {
     if (disk === false) return;
     try {
       const res = await fetch(API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: json, keepalive: json.length < 60000 });
-      disk = res.ok;
+      disk = res.ok && res.headers.get(SERVER_HEADER) === '1';
     } catch {
       disk = false;
     }
@@ -57,8 +61,9 @@ export function createPersistence({ getState, onSaved }) {
       try { local = JSON.parse(localStorage.getItem(LS_KEY)); } catch { /* corrupt or blocked */ }
       try {
         const res = await fetch(API, { cache: 'no-store' });
-        disk = res.ok || res.status === 404;
-        if (res.ok) server = await res.json();
+        disk = res.headers.get(SERVER_HEADER) === '1' && (res.ok || res.status === 404);
+        serverFound = disk;
+        if (disk && res.ok) server = await res.json();
       } catch {
         disk = false;
       }
@@ -76,9 +81,10 @@ export function createPersistence({ getState, onSaved }) {
 }
 
 // Live reload from server.mjs: CSS is hot-swapped, everything else reloads the page.
+// Call after loadAll(): without server.mjs (static hosting) nothing is requested.
 export function connectLiveReload(beforeReload) {
-  if (!window.EventSource) return;
-  const es = new EventSource('/api/live');
+  if (!window.EventSource || !serverFound) return;
+  const es = new EventSource('api/live');
   let opened = false;
   es.addEventListener('open', () => (opened = true));
   es.addEventListener('error', () => { if (!opened) es.close(); }); // no live server: stop retrying

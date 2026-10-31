@@ -89,6 +89,17 @@ npm test
 Rebuilding the WASM DSP engine uses `npm run build:wasm`.
 macOS packaging uses `npm run build:mac` on macOS.
 
+## GitHub Pages
+
+`.github/workflows/pages.yml` tests and publishes `index.html`, `style.css` and
+`src/` on every push to `main`. To enable it once, open
+**Settings → Pages** in the repository and choose **Source: GitHub Actions**.
+The app then runs at `https://floepke.github.io/MODSYNTH/`.
+
+Without `server.mjs` the web version autosaves to browser storage only and has no
+live reload. Projects still open and save as files (Chromium browsers) or downloads.
+Web MIDI works because Pages is served over HTTPS.
+
 ## App icon
 
 The original icon in [src/icon.svg](src/icon.svg) combines a wooden synth case,
