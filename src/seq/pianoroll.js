@@ -557,7 +557,11 @@ export function createPianoRoll(host, ctx) {
       e.preventDefault();
       const note = hit(x, y)?.note;
       selectRect(e, x, y, () => {
-        if (!note || !clip.notes.includes(note)) return;
+        if (!note) { // short right-click on empty space: deselect all
+          if (selected.size) { selected = new Set(); s.redraw(); }
+          return;
+        }
+        if (!clip.notes.includes(note)) return;
         remove(note);
         ctx.changed();
       }, () => openMenu(x, y, e.clientX, e.clientY));

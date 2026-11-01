@@ -442,11 +442,25 @@ for (const y of [ny(1) + 5, ny(1.5)]) {
     assert.equal(clip.notes.length, 0, 'other selected notes stay selected');
     click(cv, nx(70), ny(3), { button: 2 });
     mock.timers.tick(1000);
-    assert.equal(menus.length, 0, 'quick right-click on empty space does nothing');
+    assert.equal(menus.length, 0, 'quick right-click on empty space opens no menu');
     assert.equal(changes(), 2);
   } finally {
     mock.timers.reset();
   }
+}
+
+// A quick right-click on empty space deselects all notes (without deleting anything).
+{
+  const { clip, roll, menus, changes } = setup();
+  const cv = roll.surface.cv;
+  clip.notes.push(note(60, 1), note(64, 2));
+  key(cv, 'a', { ctrlKey: true });
+  click(cv, nx(70), ny(4), { button: 2 });
+  assert.equal(menus.length, 0);
+  assert.equal(clip.notes.length, 2, 'no notes deleted');
+  assert.equal(changes(), 0);
+  key(cv, 'Delete');
+  assert.equal(clip.notes.length, 2, 'the selection is empty, so Delete removes nothing');
 }
 
 // Even if the timer is delayed by a busy event loop, a 250 ms release is not a delete.

@@ -1,21 +1,28 @@
-// Classic curve editor on a canvas (used by the WAVESHAPER panel).
+// Classic curve editor on a canvas (used by the WAVESHAPER and ENVELOPE panels).
 //   Double-click: add a point (keep the second press held to drag it right away, see doublepress.js)
 //   Drag a point: move it (the end points move up/down only)
 //   Scroll on a point: round its corner  Right-click a point: delete it
-// createCurveEditor({ curve, color, labels, onChange }) -> { el, set(curve), setLabels(labels) }
+// createCurveEditor({ curve, color, labels, onChange, identity, formatX, formatY })
+//   -> { el, set(curve), setLabels(labels), setPlayhead(x) }
 //   onChange(curve) is called with a new curve object on every edit.
-import { MIN_GAP, NEW_POINT_ROUND, curvePolyline, normalizeCurve } from './curve.js';
+//   identity: draw the dashed no-change diagonal; formatX / formatY: point readout in the info line.
+//   setPlayhead(x): a white dot riding the curve at x (0..1), null hides it (ENVELOPE playback).
+import { MIN_GAP, NEW_POINT_ROUND, curvePolyline, normalizeCurve, sampleAt } from './curve.js';
 import { doublePress } from './doublepress.js';
 
 const PAD = 12;
 const HIT = 9; // px
 const ROUND_STEP = 0.05;
 
-export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onChange, beginEdit, endEdit }) {
+const IN = (x) => `in ${x.toFixed(3)}`;
+const OUT = (y) => `out ${y.toFixed(3)}`;
+
+export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onChange, beginEdit, endEdit, identity = true, formatX = IN, formatY = OUT }) {
   let pts = normalizeCurve(curve).points;
   let hover = -1;
   let drag = -1;
   let cursor = null; // {x, y} in curve units while the mouse is over the graph
+  let playhead = null; // x of the playback dot, or null
   const presses = doublePress();
 
   const el = document.createElement('div');
@@ -61,11 +68,12 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
     }
     g.strokeStyle = '#3a3a3a';
     g.strokeRect(PAD + 0.5, PAD + 0.5, s - 1, s - 1);
-    // identity line (no change)
-    g.setLineDash([4, 4]);
-    g.strokeStyle = '#555';
-    g.beginPath(); g.moveTo(PAD, PAD + s); g.lineTo(PAD + s, PAD); g.stroke();
-    g.setLineDash([]);
+    if (identity) { // identity line (no change)
+      g.setLineDash([4, 4]);
+      g.strokeStyle = '#555';
+      g.beginPath(); g.moveTo(PAD, PAD + s); g.lineTo(PAD + s, PAD); g.stroke();
+      g.setLineDash([]);
+    }
     // axis labels
     g.fillStyle = '#777';
     g.font = '10px system-ui, sans-serif';
@@ -100,6 +108,22 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
       g.stroke();
     });
     // points
+    drawPoints();
+    if (playhead !== null) { // playback dot: on the curve, above the points
+      const [x, y] = toPx({ x: playhead, y: sampleAt(poly, playhead) });
+      g.beginPath();
+      g.arc(x, y, 9, 0, Math.PI * 2);
+      g.fillStyle = '#ffffff40';
+      g.fill();
+      g.beginPath();
+      g.arc(x, y, 5, 0, Math.PI * 2);
+      g.fillStyle = '#fff';
+      g.fill();
+    }
+    drawInfo();
+  }
+
+  function drawPoints() {
     pts.forEach((p, i) => {
       const [x, y] = toPx(p);
       const active = i === hover || i === drag;
@@ -117,12 +141,14 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
         g.stroke();
       }
     });
-    // info line
+  }
+
+  function drawInfo() {
     const i = drag >= 0 ? drag : hover;
     if (i >= 0) {
       const p = pts[i];
-      info.textContent = `in ${p.x.toFixed(3)} → out ${p.y.toFixed(3)}${i > 0 && i < pts.length - 1 ? ` · round ${Math.round(p.r * 100)} %` : ' · end point'}`;
-    } else if (cursor) info.textContent = `in ${cursor.x.toFixed(3)} · double-click to add a point`;
+      info.textContent = `${formatX(p.x)} → ${formatY(p.y)}${i > 0 && i < pts.length - 1 ? ` · round ${Math.round(p.r * 100)} %` : ' · end point'}`;
+    } else if (cursor) info.textContent = `${formatX(cursor.x)} · double-click to add a point`;
     else info.textContent = `${pts.length} points`;
   }
 
@@ -214,5 +240,9 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
     el,
     set(c) { if (drag < 0) { pts = normalizeCurve(c).points; draw(); } },
     setLabels(l) { labels = l; draw(); },
+    setPlayhead(x) {
+      const v = x === null || x === undefined ? null : Math.min(1, Math.max(0, x));
+      if (v !== playhead) { playhead = v; draw(); }
+    },
   };
 }

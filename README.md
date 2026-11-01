@@ -71,12 +71,33 @@ chord; nearby but different starts stay independent.
 - **Timing Humanize**: 0–100%; zero gives evenly spaced notes, higher values vary
   the interior timing while preserving order and the duration endpoints.
 
+**MULTIMIDI / Velocity** scales every outgoing note velocity (0–100 %, default
+100 % = unchanged), so trimming it down makes the notes it sends quieter; held
+notes follow changes and it can be modulated like any other controller.
+
+**MULTIMIDI / Overtone** (0–128, default 0 = fundamental) shifts every note to
+its n-th overtone of the natural harmonic series: n + 1 times the frequency,
+i.e. 12·log2(n + 1) semitones up (1 = octave, 2 = octave + fifth at +19.02 st,
+3 = two octaves, …). The interval is exact, not rounded to semitones.
+
 **MULTIMIDI / Random Delay** delays each note independently by a random amount
 from zero to the chosen maximum (0–5000 ms, default zero). Both processors delay
 note-off and velocity updates by the same per-note amount, preserving note
 lengths even for very short notes. MIDI phase and onset metadata survive chaining.
 Cable removal, module deletion, and Panic cancel pending notes and release only
 the processor's own voices. WAV export includes delayed MIDI in its bounded tail.
+
+## ENVELOPE modulator
+
+Insert **ENVELOPE** and draw its shape in the panel's curve editor (same editing
+as the WAVESHAPER curve): left to right is time, bottom to top is the output.
+Notes trigger it (select it and play, send a clip to it, or Shift + drag a
+MULTIMIDI into it); each note restarts the curve, which then holds its last value.
+Shift + drag from it to a module to modulate that module.
+
+- **Envelope Length**: 0–10000 ms, the duration of the whole curve.
+- **Out Controller**: which controller of the cabled module(s) is modulated.
+- **Out Min / Out Max**: trim the output range (% of that controller's range).
 
 ## Development
 

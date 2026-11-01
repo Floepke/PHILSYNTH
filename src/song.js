@@ -161,7 +161,7 @@ export function normalizeSong(s) {
     ids.add(id);
     const clip = {
       id,
-      name: typeof c.name === 'string' ? c.name : `Clip ${id}`,
+      name: typeof c.name === 'string' ? c.name : 'Clip',
       start: num(c.start, 0),
       length: Math.max(1e-3, num(c.length, BAR)),
       y: laneY(num(c.y, 0)),
@@ -237,7 +237,7 @@ export const getClip = (song, id) => song.clips.find((c) => c.id === id) ?? null
 
 export function addClip(song, { start = 0, y = 0, length = BAR, target = null } = {}) {
   const id = song.nextId++;
-  const clip = { id, name: `Clip ${id}`, start, length, y, target, notes: [] };
+  const clip = { id, name: 'Clip', start, length, y, target, notes: [] };
   song.clips.push(clip);
   return clip;
 }

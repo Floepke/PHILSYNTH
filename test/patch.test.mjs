@@ -448,6 +448,45 @@ const set = (e, x) => { hold(e, x); render(1); };
   mmC.inst.noteOff(1003);
   assert.deepEqual(log.at(-1), { type: 'noteOff', id: chained.id });
 
+  // Velocity scales the outgoing velocity (default 100 % = unchanged)
+  r.setParam(mmC.id, 'velocity', 0.5);
+  mmC.inst.noteOn(1004, 60, 0.8);
+  const quiet = log.filter((m) => m.type === 'noteOn').at(-1);
+  assert.ok(Math.abs(quiet.velocity - 0.4) < 1e-9, `velocity 50 % halves it (${quiet.velocity})`);
+  r.setParam(mmC.id, 'velocity', 0);
+  dsp.receive({ time: 0.35 });
+  await flush();
+  assert.deepEqual(log.at(-1).notes.find(([id]) => id === quiet.id), [quiet.id, 60 + 5 + 12.5, 0], 'held notes follow it');
+  r.setParam(mmC.id, 'velocity', 1);
+  mmC.inst.noteOff(1004);
+
+  // Overtone n = (n + 1) × the fundamental frequency, i.e. +12·log2(n + 1) semitones
+  {
+    const { overtoneSemitones } = await import('../src/modules/multimidi.js');
+    const ot = mmC.def.params.find((p) => p.id === 'overtone');
+    assert.deepEqual([ot.min, ot.max, ot.default, ot.step], [0, 128, 0, 1]);
+    assert.equal(mmC.def.params.indexOf(ot), mmC.def.params.length - 1, 'appended: older controller numbers unchanged');
+    assert.equal(ot.format(0), 'Fundamental');
+    assert.equal(ot.format(2), '2 (×3, +19.02 st)');
+    assert.equal(overtoneSemitones(1), 12);
+    assert.equal(overtoneSemitones(3), 24);
+    assert.ok(Math.abs(overtoneSemitones(128) - 12 * Math.log2(129)) < 1e-12);
+    assert.equal(overtoneSemitones(999), overtoneSemitones(128), 'clamped to 128');
+    assert.equal(overtoneSemitones(1.4), 12, 'modulated values snap to whole overtones');
+    const hzOf = (p) => 440 * 2 ** ((p - 69) / 12);
+    r.setParam(mmC.id, 'overtone', 2);
+    mmC.inst.noteOn(1005, 60, 1);
+    const ov = log.filter((m) => m.type === 'noteOn').at(-1);
+    assert.ok(Math.abs(hzOf(ov.pitch) / hzOf(60 + 5 + 12.5) - 3) < 1e-9, 'overtone 2 = 3 × frequency');
+    r.setParam(mmC.id, 'overtone', 1);
+    dsp.receive({ time: 0.4 });
+    await flush();
+    const held = log.at(-1).notes.find(([id]) => id === ov.id);
+    assert.ok(Math.abs(held[1] - (60 + 5 + 12.5 + 12)) < 1e-9, 'held notes follow: overtone 1 = one octave');
+    r.setParam(mmC.id, 'overtone', 0);
+    mmC.inst.noteOff(1005);
+  }
+
   // disconnecting a MIDI cable releases the notes that went through it
   const before = log.length;
   r.disconnect(r.cables.find((c) => c.from === mmB.id));
@@ -606,6 +645,52 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.equal(osc.values.duty, 10, 'the real controller value follows the envelope');
   r.removeModule(env.id);
   assert.equal(osc.values.duty, 10, 'deleting the ADSR keeps the last value');
+}
+
+// ---- ENVELOPE: notes play a drawn curve over Envelope Length onto Out Controller (Out Min..Out Max) ----
+{
+  const r = await PatchRuntime.create(engine, dsp.destination);
+  const mm = await r.addModule('MULTIMIDI');
+  const osc = await r.addModule('OSC');
+  const env = await r.addModule('ENVELOPE');
+  assert.equal(env.values.length, 1000, 'default length 1 s');
+  assert.equal(env.state.points.length, 3, 'default curve');
+  assert.ok(r.connect(mm.id, env.id), 'MULTIMIDI -> ENVELOPE (MIDI cable)');
+  assert.ok(r.connect(env.id, osc.id), 'ENVELOPE -> OSC (control cable)');
+  assert.equal(r.connect(osc.id, env.id), false, 'ENVELOPE has no audio input');
+  assert.match(env.inst.params().find((p) => p.id === 'outController').format(7), /Duty/);
+
+  r.setState(env.id, { points: [{ x: 0, y: 1, r: 0 }, { x: 1, y: 0, r: 0 }] }); // falling ramp
+  r.setParam(env.id, 'outController', 7); // OSC duty 0..100
+  r.setParam(env.id, 'outMin', 20);
+  r.setParam(env.id, 'outMax', 60);
+  r.setParam(env.id, 'length', 0);
+  const before = osc.values.duty;
+  render(4);
+  assert.equal(osc.values.duty, before, 'idle until a note');
+  mm.inst.noteOn(1, 60, 1);
+  render(2);
+  assert.equal(osc.values.duty, 20, 'length 0: the end of the curve = Out Min');
+  r.setParam(env.id, 'length', 10000);
+  assert.equal(env.inst.playhead, null, 'finished (length 0): no playhead');
+  let seen = 0;
+  env.inst.onPlayhead = () => seen++;
+  env.inst.noteOn(2, 60, 1);
+  render(2);
+  assert.ok(env.inst.playhead && env.inst.playhead.pos < 0.01 && seen > 0, 'the playhead position reaches the panel');
+  assert.ok(osc.values.duty > 59.9 && osc.values.duty <= 60, `restarts at the top = Out Max (${osc.values.duty})`);
+  assert.equal(kernel(osc.inst.node).p.duty, osc.values.duty, 'applied in the OSC kernel');
+
+  const json = JSON.parse(JSON.stringify(r.toJSON()));
+  assert.deepEqual(json.modules.find((m) => m.type === 'ENVELOPE').state.points.map((p) => p.y), [1, 0], 'curve saved');
+  const r2 = await PatchRuntime.create(engine, dsp.destination);
+  await r2.load(json);
+  const env2 = [...r2.modules.values()].find((m) => m.def.type === 'ENVELOPE');
+  assert.equal(env2.values.length, 10000, 'length loaded');
+  assert.equal(kernel(env2.inst.node).table[0], 1, 'curve loaded into the kernel');
+  r2.destroy();
+  r.removeModule(env.id);
+  r.destroy();
 }
 
 // ---- SOUND2CTL: audio input with a control-only output ----

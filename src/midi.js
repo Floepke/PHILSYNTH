@@ -65,12 +65,25 @@ export function initKeyboard({ getTarget, onActivity, onNoTarget, pitchOffset })
   return { releaseAll: player.releaseAll, playing: player.playing };
 }
 
-export function initMidi({ getTarget, onStatus, onActivity, pitchOffset }) {
-  const { noteOn, noteOff, allOff } = notePlayer(getTarget, pitchOffset);
+// Linux (ALSA) always has a "Midi Through Port-0" that echoes whatever other software sends to
+// it; with every port open, those echoes double (and retrigger) notes. Auto skips such ports.
+export const isThru = (name = '') => /\bthrough\b|\bthru\b/i.test(name);
+export const MIDI_AUTO = 'auto';
+
+// MIDI devices. `selected`: MIDI_AUTO (every input except Through ports) or the name of one
+// input; select(name) changes it (onSelect(name) lets the caller remember it).
+// onNoTarget(): a note arrived but no module can play it.
+export function initMidi({ getTarget, onStatus, onActivity, onNoTarget, onSelect, pitchOffset, selected = MIDI_AUTO }) {
+  const { noteOn, noteOff, allOff, releaseAll } = notePlayer(getTarget, pitchOffset);
+  const hooked = new WeakSet();
   const send = (fn, ...a) => {
     onActivity?.();
-    ({ noteOn, noteOff, allOff })[fn](...a);
+    const ok = ({ noteOn, noteOff, allOff })[fn](...a);
+    if (fn === 'noteOn' && !ok) onNoTarget?.();
   };
+
+  const nameOf = (input) => input.name || input.id;
+  const used = (input) => (selected === MIDI_AUTO ? !isThru(nameOf(input)) : nameOf(input) === selected);
 
   const onMessage = (e) => {
     const [status, d1, d2 = 0] = e.data;
@@ -80,20 +93,38 @@ export function initMidi({ getTarget, onStatus, onActivity, pitchOffset }) {
     else if (cmd === 0xb0 && (d1 === 120 || d1 === 123)) send('allOff');
   };
 
-  const hookInputs = () => {
-    const names = [];
-    access.inputs.forEach((input) => {
-      if (!input._modsynth) {
-        input.addEventListener('midimessage', onMessage);
-        input._modsynth = true;
-        input.open?.().catch(() => {});
-      }
-      if (input.state === 'connected') names.push(input.name || input.id);
+  // connected inputs: [{ name, used, thru }]
+  const list = () => {
+    const out = [];
+    access?.inputs.forEach((input) => {
+      if (input.state === 'connected') out.push({ name: nameOf(input), used: used(input), thru: isThru(nameOf(input)) });
     });
-    onStatus(names.length
-      ? `MIDI: ${names.join(', ')}`
-      : 'MIDI enabled, but no input devices found. Plug in a controller.');
+    return out;
   };
+
+  const hookInputs = () => {
+    access.inputs.forEach((input) => {
+      if (hooked.has(input)) return;
+      hooked.add(input);
+      input.addEventListener('midimessage', (e) => { if (used(input)) onMessage(e); });
+      input.open?.().catch(() => {});
+    });
+    const all = list();
+    const on = all.filter((i) => i.used).map((i) => i.name);
+    const off = all.filter((i) => !i.used).map((i) => i.name);
+    const ignored = off.length ? ` (ignored: ${off.join(', ')})` : '';
+    if (!all.length) onStatus('MIDI enabled, but no input devices found. Plug in a controller.');
+    else if (on.length) onStatus(`MIDI: ${on.join(', ')}${ignored}`);
+    else if (selected === MIDI_AUTO) onStatus(`MIDI: only Through ports found${ignored}. Plug in a controller or pick an input in the main menu → MIDI Input.`);
+    else onStatus(`MIDI input "${selected}" is not connected${ignored}. Pick another one in the main menu → MIDI Input.`);
+  };
+
+  function select(name) {
+    selected = name || MIDI_AUTO;
+    releaseAll(); // notes held on the old input would never get their note-off
+    onSelect?.(selected);
+    if (access) hookInputs();
+  }
 
   // Firefox only shows its permission prompt when it detects a MIDI device; it scans for
   // devices at browser start. Without one, or after an earlier "Block", it silently rejects the
@@ -124,11 +155,11 @@ export function initMidi({ getTarget, onStatus, onActivity, pitchOffset }) {
       access = null;
       onStatus(err.name === 'SecurityError'
         // Firefox rejects like this without a prompt
-        ? 'MIDI denied by Firefox without a prompt: it sees no MIDI device (plug in the controller, then restart Firefox completely) or access was blocked earlier (click the icon left of the address bar and clear the MIDI permission). Then click "MIDI".'
-        : `MIDI blocked (${err.name}: ${err.message}). Click "MIDI" to retry and allow access.`);
+        ? 'MIDI denied by Firefox without a prompt: it sees no MIDI device (plug in the controller, then restart Firefox completely) or access was blocked earlier (click the icon left of the address bar and clear the MIDI permission). Then open the main menu → MIDI Input…'
+        : `MIDI blocked (${err.name}: ${err.message}). Open the main menu → MIDI Input… to retry and allow access.`);
       return false;
     }
   }
 
-  return { enable };
+  return { enable, select, inputs: list, selected: () => selected };
 }

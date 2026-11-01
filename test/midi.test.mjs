@@ -112,6 +112,58 @@ current = { def: { acceptsMidi: true, liveMidi: false }, inst: { noteOn: () => v
 ctl2.emit(0x90, 61, 127);
 ctl2.emit(0x80, 61, 0);
 assert.deepEqual(vel, []);
+// input selection: Auto skips Linux's "Midi Through" port (it echoes notes), or one chosen input
+{
+  const { isThru, MIDI_AUTO } = await import('../src/midi.js');
+  assert.ok(isThru('Midi Through Port-0') && isThru('Midi Through:Midi Through Port-0 14:0') && isThru('MIDI Thru'));
+  assert.ok(!isThru('Arturia KeyStep 32') && !isThru('Throughput Synth'));
+  const got = [];
+  let st = '';
+  let saved = null;
+  let noTarget = 0;
+  let tgt = { def: { acceptsMidi: true }, inst: { noteOn: () => got.push('on'), noteOff: () => got.push('off'), allOff() {} } };
+  const thru = new FakeInput('Midi Through Port-0');
+  inputs.set('3', thru);
+  const m = initMidi({ getTarget: () => tgt, onStatus: (s) => (st = s), onSelect: (n) => (saved = n), onNoTarget: () => noTarget++ });
+  assert.equal(m.selected(), MIDI_AUTO);
+  await m.enable();
+  assert.match(st, /^MIDI: Arturia KeyStep, Second controller \(ignored: Midi Through Port-0\)$/);
+  assert.deepEqual(m.inputs().map((i) => [i.name, i.used, i.thru]),
+    [['Arturia KeyStep', true, false], ['Second controller', true, false], ['Midi Through Port-0', false, true]]);
+  thru.emit(0x90, 60, 100);
+  assert.deepEqual(got, [], 'Auto ignores the Through port');
+  // pick one controller: the others are ignored, a held note is released
+  ctl2.emit(0x90, 61, 100);
+  m.select('Arturia KeyStep');
+  assert.equal(saved, 'Arturia KeyStep', 'the choice is reported for saving');
+  assert.deepEqual(got.splice(0), ['on', 'off'], 'switching releases held notes');
+  ctl2.emit(0x90, 62, 100); thru.emit(0x90, 62, 100);
+  assert.deepEqual(got, []);
+  ctl.emit(0x90, 63, 100); ctl.emit(0x80, 63, 0);
+  assert.deepEqual(got.splice(0), ['on', 'off'], 'the selected input plays');
+  assert.match(st, /^MIDI: Arturia KeyStep \(ignored: /);
+  // even a Through port can be picked explicitly
+  m.select('Midi Through Port-0');
+  thru.emit(0x90, 64, 100); thru.emit(0x80, 64, 0);
+  assert.deepEqual(got.splice(0), ['on', 'off']);
+  // a remembered input that is not plugged in
+  const gone = initMidi({ getTarget: () => tgt, onStatus: (s) => (st = s), selected: 'Old Keyboard' });
+  await gone.enable();
+  assert.match(st, /"Old Keyboard" is not connected/);
+  ctl.emit(0x90, 65, 100);
+  // only Through ports in Auto
+  inputs.delete('1'); inputs.delete('2');
+  m.select(MIDI_AUTO);
+  assert.match(st, /only Through ports found/);
+  // notes with no module to play them are reported
+  m.select('Midi Through Port-0');
+  tgt = null;
+  thru.emit(0x90, 66, 100);
+  assert.equal(noTarget, 1, 'no target: reported');
+  inputs.delete('3');
+  inputs.set('1', ctl); inputs.set('2', ctl2);
+  calls.splice(0);
+}
 const { default: vel2ctl } = await import('../src/modules/velocity2ctl.js');
 assert.equal(vel2ctl.acceptsMidi, true, 'clips and MIDI cables still play it');
 assert.equal(vel2ctl.liveMidi, false);

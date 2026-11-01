@@ -1,4 +1,4 @@
-// Transfer curve of the WAVESHAPER: points {x, y, r} in 0..1, sorted by x, the first at x=0 and
+// Transfer curve of the WAVESHAPER (also the ENVELOPE shape over time): points {x, y, r} in 0..1, sorted by x, the first at x=0 and
 // the last at x=1. Straight lines between points; an inner point with rounding r > 0 has its
 // corner replaced by a quadratic Bézier that starts/ends r/2 of the way along its two segments
 // (r = 1: the curve touches the midpoints of both segments, so neighbours never overlap).
@@ -7,6 +7,8 @@ export const MIN_GAP = 0.002; // smallest x distance between points
 export const NEW_POINT_ROUND = 1;
 
 export const defaultCurve = () => ({ points: [{ x: 0, y: 0, r: 0 }, { x: 1, y: 1, r: 0 }] });
+// ENVELOPE default: a quick rise and a rounded fall back to 0
+export const defaultEnvelope = () => ({ points: [{ x: 0, y: 0, r: 0 }, { x: 0.1, y: 1, r: 0.5 }, { x: 1, y: 0, r: 0 }] });
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
@@ -57,6 +59,14 @@ export function sampleAt(poly, x) {
   const x0 = poly[lo * 2], x1 = poly[hi * 2];
   const y0 = poly[lo * 2 + 1], y1 = poly[hi * 2 + 1];
   return x1 > x0 ? y0 + ((y1 - y0) * (x - x0)) / (x1 - x0) : y1;
+}
+
+// The curve as y over evenly spaced x 0..1 (`size` values, the ENVELOPE's time table).
+export function curveSamples({ points }, size = 1024) {
+  const poly = curvePolyline(points);
+  const t = new Float32Array(size);
+  for (let i = 0; i < size; i++) t[i] = sampleAt(poly, i / (size - 1));
+  return t;
 }
 
 // Lookup table for a WaveShaperNode: input -1..1 -> output -1..1.

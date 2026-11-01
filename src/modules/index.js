@@ -12,6 +12,7 @@ import eq from './eq.js';
 import reverb from './reverb.js';
 import lfo from './lfo.js';
 import adsr from './adsr.js';
+import envelope from './envelope.js';
 import waveshaper from './waveshaper.js';
 import velocity2ctl from './velocity2ctl.js';
 import sound2ctl from './sound2ctl.js';
@@ -23,7 +24,7 @@ import modulator from './modulator.js';
 import input from './input.js';
 import compressor from './compressor.js';
 
-const all = [out, osc, sampler, wavetable, input, multimidi, strum, filter, eq, waveshaper, amp, compressor, dcblock, delay, echo, modulator, reverb, lfo, adsr, velocity2ctl, sound2ctl, multictl, patch];
+const all = [out, osc, sampler, wavetable, input, multimidi, strum, filter, eq, waveshaper, amp, compressor, dcblock, delay, echo, modulator, reverb, lfo, adsr, envelope, velocity2ctl, sound2ctl, multictl, patch];
 
 export const getModule = (type) => all.find((m) => m.type === type);
 // Modules offered in the insert dialog (system modules like OUT are excluded)

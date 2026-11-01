@@ -15,6 +15,12 @@ m = midpoint({ x: 200, y: 0 }, { x: 0, y: 0 });
 near(m.x, 100); assert.ok(m.tx < 0);
 assert.ok(tipOf(arrowPath({ x: 200, y: 0 }, { x: 0, y: 0 }))[0] < 100);
 
+// two-way connection: both arrows shifted back towards their source, tips facing each other
+const fwd = tipOf(arrowPath({ x: 0, y: 0 }, { x: 200, y: 0 }, 7, 9));
+const rev = tipOf(arrowPath({ x: 200, y: 0 }, { x: 0, y: 0 }, 7, 9));
+assert.deepEqual(fwd, [98, 0]);
+assert.deepEqual(rev, [102, 0]);
+
 // vertical-ish cable: tangent points from a towards b, unit length
 m = midpoint({ x: 0, y: 0 }, { x: 0, y: 300 });
 near(Math.hypot(m.tx, m.ty), 1); assert.ok(m.ty > 0); near(m.y, 150);

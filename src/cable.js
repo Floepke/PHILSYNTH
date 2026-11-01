@@ -43,8 +43,13 @@ export function midpoint(a, b) {
 }
 
 // Arrowhead (closed triangle path) centred on the segment's midpoint, pointing from a to b.
-export function arrowPath(a, b, size = 7) {
-  const { x, y, tx, ty } = midpoint(a, b);
+// `back` shifts it that many px towards a: for a two-way connection (a -> b and b -> a) both arrows
+// get back = size + gap, so their tips point at each other with a small gap at the midpoint.
+export function arrowPath(a, b, size = 7, back = 0) {
+  const m = midpoint(a, b);
+  const { tx, ty } = m;
+  const x = m.x - tx * back;
+  const y = m.y - ty * back;
   const nx = -ty;
   const ny = tx;
   const tip = { x: x + tx * size, y: y + ty * size };

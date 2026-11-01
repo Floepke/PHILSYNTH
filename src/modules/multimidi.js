@@ -12,6 +12,8 @@
 // phase, 0..1): 0 % passes the incoming phase on unchanged (OSC starts at the cycle's beginning),
 // 100 % = anywhere in the cycle. The offset is drawn once per note and added to the incoming phase
 // (so chained MULTIMIDIs add up here too).
+// Velocity: overall level, scales every outgoing velocity (100 % = unchanged, 0 % = silent).
+// Overtone: plays the note's n-th overtone, (n + 1) × the fundamental frequency (0 = fundamental).
 // Random Delay: sample one 0..maximum delay per note, keeping that offset for its
 // onset, modulation, and release so short notes retain their length.
 import { createMidiScheduler } from '../midischedule.js';
@@ -47,6 +49,15 @@ const st = (v) => `${v > 0 ? '+' : ''}${v} st`;
 const cents = (v) => `${v > 0 ? '+' : ''}${Math.round(v * 100)} ct`;
 const hz = (v) => (v ? `${v < 10 ? v.toFixed(2) : v.toFixed(1)} Hz` : 'Hold');
 
+// Overtone n = harmonic n + 1: n + 1 times the fundamental's frequency (1 = octave, 2 = octave +
+// fifth, 3 = two octaves ...), i.e. 12·log2(n + 1) semitones up. Whole numbers only (also when modulated).
+export const overtoneOf = (v) => Math.min(128, Math.max(0, Math.round(+v || 0)));
+export const overtoneSemitones = (v) => 12 * Math.log2(overtoneOf(v) + 1);
+function overtoneLabel(v) {
+  const n = overtoneOf(v);
+  return n ? `${n} (×${n + 1}, +${overtoneSemitones(n).toFixed(2)} st)` : 'Fundamental';
+}
+
 export default {
   type: 'MULTIMIDI',
   color: '#b84d4e',
@@ -64,20 +75,23 @@ export default {
     { id: 'velDriftFreq', label: 'Velocity Drift Freq', min: 0, max: 20, default: 1, step: 0.01, format: hz },
     { id: 'randomPhase', label: 'Random Phase', min: 0, max: 1, default: 0, step: 0.01, format: (v) => `${Math.round(v * 100)} %` },
     { id: 'randomDelay', label: 'Random Delay', min: 0, max: 5000, default: 0, step: 1, format: (v) => `${Math.round(v)} ms` },
+    // appended last: Out Controller targets controllers by index, existing ones keep their number
+    { id: 'velocity', label: 'Velocity', min: 0, max: 1, default: 1, step: 0.01, format: (v) => `${Math.round(v * 100)} %` },
+    { id: 'overtone', label: 'Overtone', min: 0, max: 128, default: 0, step: 1, format: overtoneLabel },
   ],
   create(ctx, _def, host, { rand = Math.random } = {}) {
     // no DSP: its controllers live here; the node only receives modulation (LFO -> Transpose ...)
     const ctl = host.dsp.create('none');
 
-    const v = { transpose: 0, finetune: 0, drift: 0, driftFreq: 1, velDrift: 0, velDriftFreq: 1, randomPhase: 0, randomDelay: 0 };
+    const v = { transpose: 0, finetune: 0, drift: 0, driftFreq: 1, velocity: 1, overtone: 0, velDrift: 0, velDriftFreq: 1, randomPhase: 0, randomDelay: 0 };
     // Incoming id -> per-note pitch/velocity drift, including its delayed release tail.
     const notes = new Map();
     const midi = createMidiScheduler(ctx, host.dsp, () => inst.getMidiTargets());
     let lastTime = null;
 
     const outOf = (n) => [
-      n.pitch + v.transpose + v.finetune + v.drift * n.pd.value,
-      Math.max(0, n.vel * (1 - v.velDrift * n.vd.value)),
+      n.pitch + v.transpose + v.finetune + overtoneSemitones(v.overtone) + v.drift * n.pd.value,
+      Math.max(0, n.vel * Math.min(1, Math.max(0, v.velocity)) * (1 - v.velDrift * n.vd.value)),
     ];
     const update = (inId, n) => {
       const out = outOf(n);

@@ -197,7 +197,7 @@ body.panel-collapsed #panel { visibility: hidden; }
 #panel-content.no-selection .hint { margin-bottom: 12px; font-size: 14px; line-height: 1.65; }
 #panel-content.no-selection .hint kbd { font-size: 12px; }
 
-/* curve editor (WAVESHAPER) */
+/* curve editor (WAVESHAPER, ENVELOPE) */
 .curve-editor { margin: 4px 0 14px; }
 .curve-editor canvas { display: block; width: 100%; border-radius: 6px; background: var(--surface-2); touch-action: none; cursor: crosshair; }
 .curve-info { margin-top: 4px; min-height: 16px; color: var(--text-faint); font: 500 11px var(--mono); }

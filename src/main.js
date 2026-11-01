@@ -1,6 +1,6 @@
 import { Engine } from './engine.js';
 import { modules, getModule } from './modules/index.js';
-import { initMidi, initKeyboard } from './midi.js';
+import { initMidi, initKeyboard, MIDI_AUTO } from './midi.js';
 import { createPersistence, connectLiveReload } from './persist.js';
 import { paramsOf, wheelNotches } from './params.js';
 import { initCpuMeter } from './cpumeter.js';
@@ -627,7 +627,9 @@ function drawCables() {
     wire.setAttribute('d', linePath(centerOf(ra), centerOf(rb)));
     const arrow = document.createElementNS(SVGNS, 'path');
     arrow.classList.add('arrow');
-    arrow.setAttribute('d', arrowPath(from, to));
+    // two-way connection: shift both arrows back so they point towards each other instead of overlapping
+    const twoWay = patch.cables.some((c) => c.from === cable.to && c.to === cable.from);
+    arrow.setAttribute('d', arrowPath(from, to, 7, twoWay ? 9 : 0));
     g.append(wire, arrow);
     g.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
@@ -1045,14 +1047,14 @@ function select(s) {
       hint('Drag on empty canvas to select several modules. <kbd>Ctrl</kbd> + click toggles a module, <kbd>Ctrl</kbd> + drag adds, <kbd>Ctrl</kbd> + <kbd>A</kbd> selects all.'),
       hint('<kbd>Alt</kbd> + drag a module to duplicate it (or the whole selection).'),
       hint('<kbd>Backspace</kbd> deletes the selection.'),
-      hint('<b>Context menus:</b> in the patcher, the TimeLine and the velocity lane a normal <kbd>right</kbd>-click opens the menu. In the piano roll hold the right mouse button still for <b>250 ms</b> (moving 5 px or more first cancels it); there a short right-click deletes a note. On the TimeLine ruler a right-click removes a time signature or the loop region.'),
+      hint('<b>Context menus:</b> in the patcher, the TimeLine and the velocity lane a normal <kbd>right</kbd>-click opens the menu. In the piano roll hold the right mouse button still for <b>250 ms</b> (moving 5 px or more first cancels it); there a short right-click deletes a note (on empty space it deselects all notes). On the TimeLine ruler a right-click removes a time signature or the loop region.'),
       hint(`Right-click a module, cable or the canvas for <b>Cut / Copy / Paste / Delete</b> (or press the keyboard menu key; shortcuts <kbd>${shortcut('X')}</kbd> <kbd>${shortcut('C')}</kbd> <kbd>${shortcut('V')}</kbd>; paste lands at the mouse pointer). <b>Rename…</b> (or <kbd>F2</kbd>) gives a module its own name on its box; the controller panel keeps showing the module type.`),
       hint('Select a module and press <kbd>F2</kbd> (or right-click → Rename…) to rename it. <kbd>Double-click</kbd> a Patch (or select it and press <kbd>Enter</kbd>, or right-click → Open patch) to enter it; use the mouse <b>back</b> button or patch-path breadcrumbs to go up. Inside a Patch the piano roll and TimeLine show that Patch\'s <b>own sequencer</b>: its clips send to modules of that level only. Play inside a Patch plays that level\'s TimeLine (with its own meter and loop region) at the BPM of its own <b>Output</b> module. Play always plays only the TimeLine of the level you are on, so a Patch\'s TimeLine is a sketch pad that never sounds in the main song. Every <b>Output</b> has <b>Global Transpose</b> and <b>Global Cents Offset</b>: they shift every note (clips, MIDI device, keyboards) while their level is the current one, so each level can be transposed on its own. <kbd>Esc</kbd> or <b>Exit</b> at the bottom of the main menu asks <b>Exit to OS?</b>; <kbd>Enter</kbd> / Yes autosaves and closes the app, while <kbd>Esc</kbd> / No cancels. Escape still dismisses open menus and editing controls first.'),
       hint('Select a Patch and click <b>Controllers…</b> to map controllers of any module inside to controllers of the Patch module, so they can be set, modulated (LFO) and automated from outside.'),
       hint('OSC / ADSR: with <b>Sustain</b> at 0, <b>Decay</b> and <b>Release</b> are linked: moving one moves the other.'),
       hint('<kbd>Middle mouse</kbd> + drag pans the canvas, <kbd>scroll</kbd> zooms. Click the zoom % (bottom right) to fit all modules.'),
       hint('Play the MIDI module that shows the <b>MIDI</b> badge in the patcher (the last selected one, e.g. OSC; click the badge to lock MIDI to it — it lights up red — and click again to unlock). Every patch level has its own MIDI module and lock, saved with that level; when the open level has none, MIDI plays the one of the level above with a MIDI controller, the piano roll keyboard or the computer keyboard: <kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>T</kbd> <kbd>Y</kbd> <kbd>U</kbd> <kbd>I</kbd> <kbd>O</kbd> <kbd>P</kbd> are the white keys C4–E5, the number row above them (<kbd>2</kbd> <kbd>3</kbd> <kbd>5</kbd> <kbd>6</kbd> <kbd>7</kbd> <kbd>9</kbd> <kbd>0</kbd>) the black keys. In a focused piano roll <kbd>Q</kbd> quantizes instead.'),
-      hint('<b>Sequencer</b> (piano roll above the patcher, TimeLine below; <kbd>S</kbd> maximizes the patcher, <kbd>S</kbd> again restores both panes): <kbd>Double-click</kbd> the TimeLine to add a clip, drag its edges to resize, <kbd>Alt</kbd> + drag to copy. In the piano roll click / drag to write notes (new notes get the last used length), drag a note body for its length (the end jumps to the pointer, snapped to the grid), its circle for pitch and time. A short right-click deletes the note under the pointer; hold the right button for <b>250 ms</b> to open the menu instead (cut / copy / paste / delete / duplicate / quantize / octave). Releasing after the menu opens never deletes a note. <kbd>Space</kbd> plays. <kbd>Double-click</kbd> the TimeLine ruler to insert a time signature change (right-click it to remove). Selecting a clip while stopped moves the playhead to its start (during playback it keeps playing).'),
+      hint('<b>Sequencer</b> (piano roll above the patcher, TimeLine below; <kbd>S</kbd> maximizes the patcher, <kbd>S</kbd> again restores both panes): <kbd>Double-click</kbd> the TimeLine to add a clip, drag its edges to resize, <kbd>Alt</kbd> + drag to copy. In the piano roll click / drag to write notes (new notes get the last used length), drag a note body for its length (the end jumps to the pointer, snapped to the grid), its circle for pitch and time. A short right-click deletes the note under the pointer (on empty space it deselects all notes); hold the right button for <b>250 ms</b> to open the menu instead (cut / copy / paste / delete / duplicate / quantize / octave). Releasing after the menu opens never deletes a note. <kbd>Space</kbd> plays. <kbd>Double-click</kbd> the TimeLine ruler to insert a time signature change (right-click it to remove). Selecting a clip while stopped moves the playhead to its start (during playback it keeps playing).'),
       hint('<b>Free timing:</b> enable the checkbox beside <b>Grid</b> to draw, move, resize and paste piano-roll notes at unsnapped times. Velocity-curve timing is free too; pitch and velocity-value snapping are unchanged. The alternating dark/light guide stays visible. Grid controls still set the guide, explicit Quantize (Q), keyboard time nudges, timeline and automation snapping. The setting is saved per sequencer/Patch level.'),
       hint('<b>Piano roll selection:</b> <kbd>Shift</kbd> + drag or <kbd>right</kbd> + drag draws a selection rectangle; clicking a note selects it, <kbd>Shift</kbd> + click toggles it. Dragging a selected note moves / resizes the whole selection. <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> duplicates the selection, <kbd>Q</kbd> quantizes note starts (selection, else all). <kbd>Ctrl/Cmd</kbd> + <kbd>A</kbd> selects all notes, <kbd>Esc</kbd> clears the selection, and <kbd>Backspace</kbd> / <kbd>Delete</kbd> deletes it. <kbd>Alt</kbd> + drag a note (body or circle) moves a clone.'),
       hint('<b>Arrow keys:</b> in the piano roll, <kbd>Left</kbd> / <kbd>Right</kbd> transpose selected notes by one semitone; <kbd>Up</kbd> / <kbd>Down</kbd> move them earlier/later by one snap step. With <kbd>Shift</kbd>: an octave / a bar. The selection moves together and stops at time zero or the MIDI pitch limits.'),
@@ -1067,7 +1069,7 @@ function select(s) {
       hint('<b>Playback:</b> <kbd>/</kbd> loops the time range of the selected clip from its start, with every other clip playing in that range (muted lanes stay silent, the selected clip too when its lane is muted). <kbd>\'</kbd> stops playback; pressing <kbd>\'</kbd> again is a panic (all notes off, echo / reverb tails cut, all audio state reset). <kbd>.</kbd> plays/resumes the full song, and <kbd>,</kbd> restarts the song at zero. <kbd>Space</kbd> toggles play/stop; with the pointer over the piano-roll note grid, playback starts at its snapped time and continues through the song beyond the selected clip. Only <kbd>/</kbd> loops the selected clip. Stopping with <kbd>Space</kbd> (or the ■ button) moves the playhead to the start of the selected clip; outside the note grid, the next <kbd>Space</kbd> resumes from the parked playhead. Shortcuts are inactive while typing in a field. Note chasing: starting or jumping into the middle of a note plays it for the rest of its length.'),
       hint('<b>Controls:</b> scroll a dropdown to change its selection. Number fields have permanent up/down buttons and also support scrolling; <kbd>Double-click</kbd> a number (or use <kbd>Tab</kbd>) to type. Mouse adjustments leave keyboard focus in the editor so <kbd>Space</kbd> still plays.'),
       hint('<b>Toolbar:</b> controls stay on one row. When space is tight, move the pointer across the toolbar to continuously reveal its controls: left shows the beginning, the middle shows the middle, and right shows the end. Scrolling follows the pointer position and stops when the pointer stops. Clicking, typing or using the wheel pauses motion; the wheel still changes control values. <kbd>Tab</kbd> also reveals focused controls.'),
-      hint(`<b>Main menu:</b> click the logo / <b>PHILSYNTH</b> (always in the top-right corner of the window) for <b>New</b> (<kbd>${shortcut('N')}</kbd>), <b>Open…</b> (<kbd>${shortcut('O')}</kbd>), <b>Save</b> (<kbd>${shortcut('S')}</kbd>), <b>Save As…</b> (<kbd>${shortcut('⇧S')}</kbd>) <b>Export Audio…</b> and <b>Enable / Re-scan MIDI</b>. Projects are <b>.mds</b> files (older .json projects open too; Save then asks for a new .mds file). The file name is shown in the status bar (bottom right) and the window title, with <b>•</b> while there are unsaved changes; New and Open ask whether to save them first (Yes / No / Cancel). Independently, every change is autosaved, so the app always starts with your latest project, its file name and unsaved state.`),
+      hint(`<b>Main menu:</b> click the logo / <b>PHILSYNTH</b> (always in the top-right corner of the window) for <b>New</b> (<kbd>${shortcut('N')}</kbd>), <b>Open…</b> (<kbd>${shortcut('O')}</kbd>), <b>Save</b> (<kbd>${shortcut('S')}</kbd>), <b>Save As…</b> (<kbd>${shortcut('⇧S')}</kbd>) <b>Export Audio…</b> and <b>MIDI Input…</b> (pick the MIDI controller to play; <i>Auto</i> uses every input except Linux\'s <i>Midi Through</i> port, <b>Re-scan</b> looks for newly plugged-in devices; remembered on this computer). Projects are <b>.mds</b> files (older .json projects open too; Save then asks for a new .mds file). The file name is shown in the status bar (bottom right) and the window title, with <b>•</b> while there are unsaved changes; New and Open ask whether to save them first (Yes / No / Cancel). Independently, every change is autosaved, so the app always starts with your latest project, its file name and unsaved state.`),
       hint(`<b>Export Audio…</b> (main menu or <kbd>${shortcut('E')}</kbd>): choose where to save, then the song renders offline (much faster than real time) from its start to the end of the last clip, or just the loop region when one is set, plus the sound tail (releases, echoes, reverb; at most 10 s). The file is a 24-bit stereo WAV at the audio device's sample rate. The status bar warns when the mix clips.`),
       hint('<b>Layout:</b> piano roll, patcher and TimeLine are stacked top to bottom. The main menu button stays in the top-right corner, on top of everything. Play/stop, clip and snap controls sit on the upper divider (it can be dragged up to the window edge, under the menu button) and remain visible even when the piano roll is hidden. The patch path (<b>Main</b> / …, click a level to go up) sits at the left of the lower divider. Drag the exposed divider grip or empty space up/down to resize (left/right resizes the controller panel); the widgets do not drag the divider. When the patcher closes, the dragged divider pushes the other one. Drag to an edge to hide a pane and back to reopen it. Positions are saved with the project. The piano keyboard stays at the bottom of the roll; selected notes are filled blue.'),
       hint('The piano roll fits all <b>128 MIDI notes (0–127)</b> across its width and rescales with the window width. A thin wooden frame surrounds all four edges of the window. Horizontal zoom is automatic; <kbd>Alt</kbd> + scroll no longer changes key width. Each mouse-wheel step scrolls exactly one snap step (the selected snap); scroll upward to reveal the 128px blank margin above beat zero. <kbd>Ctrl/Cmd</kbd> + scroll still zooms time.'),
@@ -1134,6 +1136,9 @@ function select(s) {
   if (entry.def.type === 'ECHO') {
     explanations.append(hint('<b>STEREO</b> repeats left and right together, preserving their separation. <b>PINGPONG</b> averages the input into a left-first echo, then alternates sides. <b>Filter</b> processes the first echo and every feedback repeat; dry audio is unaffected. Feedback is limited to 99%. At 0 ms, the echo uses a one-sample delay.'));
   }
+  if (entry.def.type === 'ENVELOPE') {
+    explanations.append(hint('Draw the envelope in the graph below: left to right is time over <b>Envelope Length</b> (0–10,000 ms), bottom = <kbd>Out Min</kbd>, top = <kbd>Out Max</kbd> of the controller picked with <kbd>Out Controller</kbd>. Every note restarts it from the left; at the end it holds the last point\'s value. Note-off does not affect it.'));
+  }
   if (entry.def.type === 'MODULATOR') {
     explanations.append(hint('<b>Carrier</b> selects an audio input; all other audio inputs are summed as the modulator, separately for left and right. Inputs are numbered in cable connection order; changing cables can change their numbering. <b>Amp modulation</b> multiplies carrier by modulator (no modulator means silence). Add/Subtract and Min/Max combine those same two signals; Min/Max abs chooses by magnitude and keeps the chosen signal’s sign.'));
     explanations.append(hint('<b>Phase modulation</b> is a variable delay: modulator -1 = 0 ms, 0 = 20 ms, +1 = 40 ms. <b>Absolute</b> uses the modulator’s magnitude: 0 = 0 ms, either -1 or +1 = 40 ms. Larger levels are clamped. Interpolation is Off (nearest sample), Linear or Spline (cubic). <b>Bitwise AND/XOR</b> clamps and quantizes each signal to signed 16-bit audio before combining the bits.'));
@@ -1142,7 +1147,7 @@ function select(s) {
     explanations.append(hint('<b>Delay Unit:</b> ms gives 0–10,000 milliseconds. In 1/4, 1/8 or 1/16 mode, the same slider selects musical lengths from 1/4 to 64 of that note unit, synced to this patch’s Output BPM (including dotted and triplet lengths). Audio delay changes glide to avoid abrupt jumps.'));
   }
   if (entry.def.type === 'MULTIMIDI') {
-    explanations.append(hint('<kbd>Shift</kbd> + drag to an OSC, Patch or another MultiMIDI. Every note drifts on its own. Several MultiMIDIs can feed one synth in parallel (each plays its own voices); chained ones add up. <b>Random Phase</b> starts every note at its own random point of the OSC waveform cycle (0 % = all start at the beginning, 100 % = anywhere).'));
+    explanations.append(hint('<kbd>Shift</kbd> + drag to an OSC, Patch or another MultiMIDI. Every note drifts on its own. Several MultiMIDIs can feed one synth in parallel (each plays its own voices); chained ones add up. <b>Velocity</b> scales every outgoing velocity (100 % = unchanged, lower = quieter). <b>Overtone</b> plays the note\'s n-th overtone of the harmonic series: n + 1 times the frequency (0 = fundamental, 1 = octave, 2 = octave + fifth, 3 = two octaves …, up to 128). <b>Random Phase</b> starts every note at its own random point of the OSC waveform cycle (0 % = all start at the beginning, 100 % = anywhere).'));
     explanations.append(hint('<b>Random Delay</b> independently delays each incoming note by 0 to the selected maximum (0–5000 ms; default 0). Velocity changes and note-off use that same delay, preserving the note’s length. Chained MIDI processors add their delays. Stop ends input notes normally; Panic cancels pending notes.'));
   }
   if (entry.def.type === 'STRUM') {
@@ -1311,12 +1316,42 @@ function openMainMenu(focusFirst) {
       '-',
       { label: 'Export Audio…', shortcut: shortcut('E'), disabled: exporting, action: exportAudio },
       '-',
-      { label: 'Enable / Re-scan MIDI', disabled: !midi, action: () => midi.enable() },
+      { label: 'MIDI Input…', disabled: !midi, action: openMidiMenu },
       '-',
       { label: 'Exit', shortcut: 'Esc', action: () => exitToOS(persist, (message) => { $('status').textContent = message; }) },
     ],
   });
   if (focusFirst) document.querySelector('.main-menu .ctx-item')?.focus();
+}
+// MIDI Input menu (opened from the main menu): Auto = every input except Through ports, or one input.
+// Asks for MIDI access first if needed, so the list is current.
+async function openMidiMenu() {
+  const granted = await midi.enable();
+  const r = brand.getBoundingClientRect();
+  const sel = midi.selected();
+  const inputs = midi.inputs();
+  if (sel !== MIDI_AUTO && !inputs.some((i) => i.name === sel)) inputs.push({ name: sel, missing: true });
+  mainMenuOpen = true;
+  brand.setAttribute('aria-expanded', 'true');
+  showMenu({
+    x: r.right + 2,
+    y: r.bottom + 2,
+    className: 'main-menu',
+    onClose: () => {
+      mainMenuOpen = false;
+      brand.setAttribute('aria-expanded', 'false');
+    },
+    items: [
+      { label: 'Auto (all inputs except MIDI Through)', checked: sel === MIDI_AUTO, action: () => midi.select(MIDI_AUTO) },
+      '-',
+      ...(inputs.length
+        ? inputs.map((i) => ({ label: `${i.name}${i.missing ? ' (not connected)' : ''}`, checked: sel === i.name, action: () => midi.select(i.name) }))
+        : [{ label: granted ? 'No MIDI inputs found' : 'No MIDI access (see the status bar)', disabled: true, action() {} }]),
+      '-',
+      { label: 'Re-scan MIDI Inputs', action: openMidiMenu },
+    ],
+  });
+  document.querySelector('.main-menu .ctx-item')?.focus();
 }
 brand.addEventListener('click', (e) => {
   if (brandClosesMenu) {
@@ -1540,11 +1575,17 @@ const flushAll = () => {
 };
 window.addEventListener('pagehide', flushAll);
 connectLiveReload(flushAll);
+const MIDI_INPUT_KEY = 'modsynth:midiInput'; // chosen MIDI input: a setting of this computer, not of the project
+let savedMidiInput = MIDI_AUTO;
+try { savedMidiInput = localStorage.getItem(MIDI_INPUT_KEY) || MIDI_AUTO; } catch { /* storage blocked */ }
 midi = initMidi({
   getTarget: midiTarget,
   pitchOffset,
+  selected: savedMidiInput,
+  onSelect: (name) => { try { localStorage.setItem(MIDI_INPUT_KEY, name); } catch { /* storage blocked */ } },
   onStatus: (msg) => ($('status').textContent = msg),
   onActivity: () => engine.resume(),
+  onNoTarget: () => ($('status').textContent = 'MIDI note received, but no module to play: select a module that takes MIDI (e.g. OSC).'),
 });
 midi.enable();
 // Q..P (and the number row) play the current MIDI module, else the first one in the main patch
