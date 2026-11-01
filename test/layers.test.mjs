@@ -1,5 +1,5 @@
 // Run: node test/layers.test.mjs — every Patch has its own TimeLine and MIDI lock (saved with it),
-// and the Transport plays all layers' songs together on one clock.
+// and the Transport plays only the TimeLine of the level it starts from.
 import assert from 'node:assert/strict';
 
 import { dspTestHost } from './dsphost.mjs';
@@ -64,6 +64,7 @@ assert.deepEqual(layers.map((l) => l.key), ['', String(box.id)]);
 assert.equal(layers[1].song, inner.song);
 assert.equal(layers[1].getTarget(osc.id), osc.inst);
 assert.equal(layers[0].getTarget(osc.id), mainOsc.inst, 'module numbers resolve in their own layer');
+assert.deepEqual(songLayers(root, engine.song, [], { nested: false }).map((l) => l.key), [''], 'nested: false = the level alone');
 
 // ---- playback: inner notes reach the inner module, automation drives it ----
 const played = [];
@@ -79,14 +80,17 @@ const t = new Transport({
   getSong: (ids) => (ids.length ? inner.song : engine.song),
   getBpm: (ids) => (ids.length ? inner.bpm : root.bpm),
   getTarget: () => null,
-  getLayers: (ids) => songLayers(root, engine.song, ids),
+  getLayers: (ids) => songLayers(root, engine.song, ids, { nested: false }),
+  pitchOffset: (ids) => (ids.length ? inner : root).pitchOffset,
   now: () => now,
   ticker: () => ({ start() {}, stop() {} }),
 });
-// the main song is empty: the inner song alone sets the length (whole bars of the main meter)
-assert.deepEqual(t.songBounds(), [0, 10], 'song end from the inner layer, rounded up to a bar of the main meter (3/4 from 4)');
+// main-level play: the inner TimeLine is a sketch inside the Patch, not part of the main song
+assert.equal(t.play(), false, 'main song empty: nothing to play (inner clips do not count)');
+assert.deepEqual(played, [], 'inner clip not heard from the main level');
+scope = [box.id];
 const p = paramsOf(osc)[0];
-assert.ok(t.play());
+assert.ok(t.play({ fromStart: true }));
 now += 100;
 t.tick(now);
 assert.equal(osc.values[p.id], fromNorm(p, 1), 'inner automation drives the inner controller');
@@ -94,6 +98,7 @@ for (let i = 0; i < 30; i++) { now += 100; t.tick(now); }
 assert.deepEqual(played, [60], 'inner clip note played on the inner module');
 assert.deepEqual(mainPlayed, [], 'main module with the same number not played');
 t.stop();
+scope = [];
 
 // / loops a clip of the inner layer
 assert.ok(t.playClip(clip.id, inner.song));
@@ -134,6 +139,30 @@ assert.deepEqual(t.songBounds(), [0, 2], 'main loop region');
 t.stop();
 engine.song.loop = null;
 engine.song.clips = [];
+
+// ---- Global Transpose / Cents Offset: every level's Output has them; the playing level's apply ----
+assert.ok(paramsOf(root.modules.get(0)).some((q) => q.id === 'transpose'), 'main Output has Global Transpose');
+assert.ok(paramsOf(inner.modules.get(0)).some((q) => q.id === 'transpose') && paramsOf(inner.modules.get(0)).some((q) => q.id === 'cents'), 'Outputs inside Patches have them too');
+root.setParam(0, 'transpose', 7);
+inner.setParam(0, 'transpose', -12);
+inner.setParam(0, 'cents', 25);
+assert.equal(inner.pitchOffset, -11.75);
+inner.setParam(0, 'bpm', 240);
+scope = [box.id];
+played.length = 0;
+assert.ok(t.play({ fromStart: true }));
+for (let i = 0; i < 20; i++) { now += 100; t.tick(now); }
+assert.deepEqual(played, [48.25], 'inside the Patch only its own Output transposes (the main +7 does not apply)');
+t.stop();
+inner.setParam(0, 'transpose', 0);
+inner.setParam(0, 'cents', 0);
+played.length = 0;
+assert.ok(t.play({ fromStart: true }));
+for (let i = 0; i < 20; i++) { now += 100; t.tick(now); }
+assert.deepEqual(played, [60], 'the main level transpose does not reach the inner level');
+t.stop();
+root.setParam(0, 'transpose', 0);
+scope = [];
 
 // automation of an inner layer reaches every instance (Instances > 1)
 root.setParam(box.id, 'inputModule', osc.id);

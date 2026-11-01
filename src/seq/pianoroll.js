@@ -153,10 +153,7 @@ export function createPianoRoll(host, ctx) {
 
   function paint(g, w, h) {
     if (!w || !h) return;
-    // while this layer plays: keep the playhead in the middle of the grid (no scroll limits meanwhile)
-    const follow = ctx.clip();
-    if (follow && ctx.transport.following?.(ctx.song())) view.sy = (ctx.transport.pos - follow.start) * view.ppq - gridBottom() / 2;
-    else limitScroll();
+    limitScroll();
     syncSelection();
     const clip = ctx.clip();
     const kw = keyWidth();
@@ -250,30 +247,32 @@ export function createPianoRoll(host, ctx) {
       }
     }
 
-    // stave lines (black keys of the 88-key piano), on top of the note bodies
-    g.strokeStyle = STAVE;
-    const thin = kw * 0.22;
-    const staveTop = Math.min(bottom, Math.max(0, yOf(0)));
-    // the group of three (F# G# A#) is twice as thick as the group of two (C# D#)
-    const isThree = (p) => [6, 8, 10].includes(p % 12);
-    const stave = (dashed, three) => {
-      g.lineWidth = three ? thin * 2 : thin;
-      g.beginPath();
-      for (let p = PIANO_LOW; p <= PIANO_HIGH; p++) {
-        if (!isBlack(p) || CENTRAL.includes(p) !== dashed || isThree(p) !== three) continue;
-        const x = xOf(p) + kw / 2;
-        g.moveTo(x, staveTop); g.lineTo(x, bottom);
-      }
-      g.stroke();
-    };
-    stave(false, false);
-    stave(false, true);
-    // C#4 + D#4 dashed: marks the central octave; the dashes scroll with the notes
-    g.setLineDash([7, 5]);
-    g.lineDashOffset = Math.max(0, view.sy);
-    stave(true, false);
-    g.setLineDash([]);
-    g.lineDashOffset = 0;
+    // stave lines (black keys of the 88-key piano), on top of the note bodies; none without a clip
+    if (clip) {
+      g.strokeStyle = STAVE;
+      const thin = kw * 0.22;
+      const staveTop = Math.min(bottom, Math.max(0, yOf(0)));
+      // the group of three (F# G# A#) is twice as thick as the group of two (C# D#)
+      const isThree = (p) => [6, 8, 10].includes(p % 12);
+      const stave = (dashed, three) => {
+        g.lineWidth = three ? thin * 2 : thin;
+        g.beginPath();
+        for (let p = PIANO_LOW; p <= PIANO_HIGH; p++) {
+          if (!isBlack(p) || CENTRAL.includes(p) !== dashed || isThree(p) !== three) continue;
+          const x = xOf(p) + kw / 2;
+          g.moveTo(x, staveTop); g.lineTo(x, bottom);
+        }
+        g.stroke();
+      };
+      stave(false, false);
+      stave(false, true);
+      // C#4 + D#4 dashed: marks the central octave; the dashes scroll with the notes
+      g.setLineDash([7, 5]);
+      g.lineDashOffset = Math.max(0, view.sy);
+      stave(true, false);
+      g.setLineDash([]);
+      g.lineDashOffset = 0;
+    }
 
     if (clip) {
       for (const n of clip.notes) {

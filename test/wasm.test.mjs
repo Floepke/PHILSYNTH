@@ -71,7 +71,7 @@ for (const [kind, spec] of Object.entries(SPECS)) {
   if (kind === 'bus') continue; // no module of its own
   const def = getModule({ dcblock: 'DC BLOCKER' }[kind] ?? kind.toUpperCase());
   assert.ok(def, kind);
-  assert.deepEqual([...spec.params].sort(), def.params.map((p) => p.id).sort(), `${kind}: every controller is mapped`);
+  assert.deepEqual([...spec.params].sort(), def.params.filter((p) => p.dsp !== false).map((p) => p.id).sort(), `${kind}: every controller is mapped`);
 }
 
 // ---- parity: the same messages and input into both kernels give the same samples ----

@@ -14,10 +14,13 @@
 // (song.solos) only those play. Muting / soloing while playing cuts silenced notes right away.
 // Layers: every Patch has its own song (see PatchRuntime.song). Playback runs from one level (the
 // scope: getScope(), taken when playback starts, so navigating while playing changes nothing):
-// getSong(scope) / getBpm(scope) are that level's song and Output BPM, getLayers(scope) returns its
-// song and those of the Patches inside it as { key, song, getTarget, setAuto } (its own first);
-// they play together on its clock. Its loop region applies to all; without one, playback loops at
-// the end of the last clip of any of these layers. The / audition loops a clip (playClip(id, song)).
+// getSong(scope) / getBpm(scope) are that level's song and Output BPM, getLayers(scope) returns the
+// songs to play as { key, song, getTarget, setAuto } (the app passes only the level's own one:
+// a Patch's TimeLine is heard only from inside it). They play together on its clock; the loop
+// region of the first applies, without one playback loops at the end of the last clip of any.
+// The / audition loops a clip (playClip(id, song)).
+// pitchOffset(scope): semitones added to every played note (that level's Output Global Transpose /
+// Cents Offset).
 import { newNoteId } from './modmidi.js';
 import { automationAt, barCeil, clipSilent, getClip, loopEnd, loopRegion, notesSounding, notesStarting, noteVelAt, songEnd } from './song.js';
 
@@ -39,8 +42,8 @@ function createTicker(fn) {
 
 export class Transport {
   // getTarget(moduleNumber) -> instance with noteOn/noteOff, or null
-  constructor({ getSong, getBpm, getTarget, setAuto = null, getLayers = null, getScope = () => null, onState, now = () => performance.now(), ticker = createTicker }) {
-    Object.assign(this, { getTarget, setAuto, getScope, onState, now });
+  constructor({ getSong, getBpm, getTarget, setAuto = null, getLayers = null, getScope = () => null, onState, now = () => performance.now(), ticker = createTicker, pitchOffset = () => 0 }) {
+    Object.assign(this, { getTarget, setAuto, getScope, onState, now, pitchOffset });
     this.scope = null; // the level playing (see getScope)
     this.song = () => getSong(this.scopeNow());
     this.bpm = () => getBpm(this.scopeNow());
@@ -72,11 +75,6 @@ export class Transport {
   // whether `song` is heard now (it is one of the playing layers); stopped: true (parked playhead)
   plays(song) {
     return !this.playing || this.layers().some((l) => l.song === song);
-  }
-
-  // true while this song is playing (song or / clip loop): the clip editors keep the playhead centred
-  following(song) {
-    return this.playing && this.layers().some((l) => l.song === song);
   }
 
   // the looped clip (playClip), or null
@@ -202,7 +200,7 @@ export class Transport {
       const v = noteVelAt(n.note, q - n.start);
       if (Math.abs(v - n.vel) < 1e-4) continue;
       n.vel = v;
-      n.inst.noteMod?.(n.id, n.note.pitch, v);
+      n.inst.noteMod?.(n.id, n.pitch, v);
     }
   }
 
@@ -243,8 +241,9 @@ export class Transport {
     const vel = noteVelAt(ev.note, at - ev.start);
     // Preserve distinct musical onsets even when one transport tick delivers several notes.
     const time = this.last / 1000 + (at - this.pos) * 60 / this.getBpm();
-    inst.noteOn(id, ev.note.pitch, vel, 0, time);
-    this.active.push({ id, inst, end: ev.end, note: ev.note, start: ev.start, vel, clip: ev.clip, song: layer.song });
+    const pitch = ev.note.pitch + this.pitchOffset(this.scopeNow()); // kept for noteMod: a sounding note keeps its pitch
+    inst.noteOn(id, pitch, vel, 0, time);
+    this.active.push({ id, inst, pitch, end: ev.end, note: ev.note, start: ev.start, vel, clip: ev.clip, song: layer.song });
   }
 
   // note-offs due by `to`, then note-ons starting in [from, to)

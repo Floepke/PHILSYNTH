@@ -37,7 +37,8 @@ const target = {
     allOff: () => calls.push(['all']),
   },
 };
-const midi = initMidi({ getTarget: () => target, onStatus: (s) => (status = s), onActivity: () => activity++ });
+let shift = 0; // Output Global Transpose / Cents Offset
+const midi = initMidi({ getTarget: () => target, pitchOffset: () => shift, onStatus: (s) => (status = s), onActivity: () => activity++ });
 
 // initMidi itself does not listen to the computer keyboard (initKeyboard does)
 assert.ok(!winListeners.keydown && !winListeners.keyup, 'no keyboard listeners');
@@ -78,6 +79,12 @@ ctl.emit(0x90, 70, 127); ctl.emit(0x90, 70, 127); ctl.emit(0x80, 70, 0);
 const used = [...ids.keys()].slice(-2);
 assert.notEqual(used[0], used[1]);
 assert.deepEqual(calls.splice(0), [['on', 70, 1], ['off', 70], ['on', 70, 1], ['off', 70]]);
+
+// the global transpose shifts device notes before they reach the module
+shift = -2.5;
+ctl.emit(0x90, 60, 127); ctl.emit(0x80, 60, 0);
+assert.deepEqual(calls.splice(0), [['on', 57.5, 1], ['off', 57.5]]);
+shift = 0;
 
 // the note-off goes to the module that got the note-on, also after selecting another one
 const other = [];

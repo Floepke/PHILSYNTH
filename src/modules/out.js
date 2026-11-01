@@ -1,4 +1,6 @@
 // System module: the single Output of every patch. Always id 0, cannot be deleted or inserted.
+// Global Transpose / Cents Offset shift every note entering that patch level while it is the current
+// one (see PatchRuntime.pitchOffset); they are not DSP controllers (dsp: false).
 // Its state holds free text: comments / notes about the song (or patch), edited in its panel and
 // saved with the project.
 export const MAX_COMMENT = 20000;
@@ -18,6 +20,9 @@ export default {
     { id: 'volume', label: 'Master volume', min: 0, max: 1, default: 0.8, step: 0.01 },
     // tempo of this patch level; LFO, DELAY and ECHO sync to it
     { id: 'bpm', label: 'BPM', min: 20, max: 1000, default: 120, step: 1, wheelStep: 1 }, // 1 BPM per wheel click
+    // per level: shift every note entering this level while it is the current one, see PatchRuntime.pitchOffset
+    { id: 'transpose', dsp: false, label: 'Global Transpose', min: -48, max: 48, default: 0, step: 1, wheelStep: 1, format: (v) => `${v > 0 ? '+' : ''}${v} st` },
+    { id: 'cents', dsp: false, label: 'Global Cents Offset', min: -100, max: 100, default: 0, step: 1, wheelStep: 1, format: (v) => `${v > 0 ? '+' : ''}${v} ct` },
   ],
   defaultState: () => ({ comment: '' }),
   normalizeState: normalizeComment,
@@ -43,12 +48,13 @@ export default {
     el.append(title, text);
     return { el };
   },
-  create(_ctx, _def, host) {
+  create(_ctx, def, host) {
     const input = host.dsp.create('out'); // DSP: out.dsp.js (sum × Master volume)
+    const noDsp = new Set(def.params.filter((p) => p.dsp === false).map((p) => p.id));
     return {
       input,
       node: null,
-      setParam: (id, v) => input.param(id, v),
+      setParam: (id, v) => { if (!noDsp.has(id)) input.param(id, v); },
       destroy: () => input.destroy(),
     };
   },

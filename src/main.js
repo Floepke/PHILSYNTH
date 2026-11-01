@@ -48,7 +48,7 @@ const selectEntries = (entries) => select(entries.length > 1 ? { kind: 'group', 
 // Modules with liveMidi: false (VELOCITY2CTL) only get notes from clips and MIDI cables.
 const takesLiveMidi = (def) => !!def?.acceptsMidi && def.liveMidi !== false;
 // Every patch level (layer: the main patch, a Patch's inside) has its own MIDI module: the one
-// followed there (view state) or the one locked there (LOCK badge, saved with that layer as
+// followed there (view state) or the one locked there (MIDI badge, saved with that layer as
 // PatchRuntime.midiLock). Live MIDI plays the shown layer's module, else the nearest one above.
 const followed = new WeakMap(); // runtime -> modules selected there, most recent last
 const midiEntry = (rt, id) => {
@@ -456,7 +456,7 @@ function createBox(entry) {
     const badge = document.createElement('button');
     badge.type = 'button';
     badge.className = 'midi-badge';
-    badge.textContent = 'LOCK';
+    badge.textContent = 'MIDI-LOCK';
     badge.addEventListener('pointerdown', (e) => e.stopPropagation()); // no drag / selection change
     badge.addEventListener('dblclick', (e) => e.stopPropagation()); // don't open a Patch
     badge.addEventListener('click', (e) => {
@@ -467,7 +467,7 @@ function createBox(entry) {
       rt.midiLock = lock ? entry.id : null; // saved with this patch level (undoable)
       rt.changed();
       showMidiTarget();
-      $('status').textContent = lock ? `MIDI locked to ${entry.name || def.type} on this patch level — click LOCK again to unlock.` : 'MIDI unlocked: on this patch level it follows the selected module again.';
+      $('status').textContent = lock ? `MIDI locked to ${entry.name || def.type} on this patch level — click MIDI again to unlock.` : 'MIDI unlocked: on this patch level it follows the selected module again.';
     });
     el.append(badge);
   }
@@ -1047,11 +1047,11 @@ function select(s) {
       hint('<kbd>Backspace</kbd> deletes the selection.'),
       hint('<b>Context menus:</b> in the patcher, the TimeLine and the velocity lane a normal <kbd>right</kbd>-click opens the menu. In the piano roll hold the right mouse button still for <b>250 ms</b> (moving 5 px or more first cancels it); there a short right-click deletes a note. On the TimeLine ruler a right-click removes a time signature or the loop region.'),
       hint(`Right-click a module, cable or the canvas for <b>Cut / Copy / Paste / Delete</b> (or press the keyboard menu key; shortcuts <kbd>${shortcut('X')}</kbd> <kbd>${shortcut('C')}</kbd> <kbd>${shortcut('V')}</kbd>; paste lands at the mouse pointer). <b>Rename…</b> (or <kbd>F2</kbd>) gives a module its own name on its box; the controller panel keeps showing the module type.`),
-      hint('Select a module and press <kbd>F2</kbd> (or right-click → Rename…) to rename it. <kbd>Double-click</kbd> a Patch (or select it and press <kbd>Enter</kbd>, or right-click → Open patch) to enter it; use the mouse <b>back</b> button or patch-path breadcrumbs to go up. Inside a Patch the piano roll and TimeLine show that Patch\'s <b>own sequencer</b>: its clips send to modules of that level only. Play inside a Patch plays that level\'s TimeLine (with its own meter and loop region) at the BPM of its own <b>Output</b> module, plus the TimeLines of the Patches inside it; play on the main level plays everything at the main BPM. <kbd>Esc</kbd> or <b>Exit</b> at the bottom of the main menu asks <b>Exit to OS?</b>; <kbd>Enter</kbd> / Yes autosaves and closes the app, while <kbd>Esc</kbd> / No cancels. Escape still dismisses open menus and editing controls first.'),
+      hint('Select a module and press <kbd>F2</kbd> (or right-click → Rename…) to rename it. <kbd>Double-click</kbd> a Patch (or select it and press <kbd>Enter</kbd>, or right-click → Open patch) to enter it; use the mouse <b>back</b> button or patch-path breadcrumbs to go up. Inside a Patch the piano roll and TimeLine show that Patch\'s <b>own sequencer</b>: its clips send to modules of that level only. Play inside a Patch plays that level\'s TimeLine (with its own meter and loop region) at the BPM of its own <b>Output</b> module. Play always plays only the TimeLine of the level you are on, so a Patch\'s TimeLine is a sketch pad that never sounds in the main song. Every <b>Output</b> has <b>Global Transpose</b> and <b>Global Cents Offset</b>: they shift every note (clips, MIDI device, keyboards) while their level is the current one, so each level can be transposed on its own. <kbd>Esc</kbd> or <b>Exit</b> at the bottom of the main menu asks <b>Exit to OS?</b>; <kbd>Enter</kbd> / Yes autosaves and closes the app, while <kbd>Esc</kbd> / No cancels. Escape still dismisses open menus and editing controls first.'),
       hint('Select a Patch and click <b>Controllers…</b> to map controllers of any module inside to controllers of the Patch module, so they can be set, modulated (LFO) and automated from outside.'),
       hint('OSC / ADSR: with <b>Sustain</b> at 0, <b>Decay</b> and <b>Release</b> are linked: moving one moves the other.'),
       hint('<kbd>Middle mouse</kbd> + drag pans the canvas, <kbd>scroll</kbd> zooms. Click the zoom % (bottom right) to fit all modules.'),
-      hint('Play the MIDI module marked red in the patcher (the last selected one, e.g. OSC; click its blinking <b>LOCK</b> badge to lock MIDI to it, click again to unlock). Every patch level has its own MIDI module and lock, saved with that level; when the open level has none, MIDI plays the one of the level above with a MIDI controller, the piano roll keyboard or the computer keyboard: <kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>T</kbd> <kbd>Y</kbd> <kbd>U</kbd> <kbd>I</kbd> <kbd>O</kbd> <kbd>P</kbd> are the white keys C4–E5, the number row above them (<kbd>2</kbd> <kbd>3</kbd> <kbd>5</kbd> <kbd>6</kbd> <kbd>7</kbd> <kbd>9</kbd> <kbd>0</kbd>) the black keys. In a focused piano roll <kbd>Q</kbd> quantizes instead.'),
+      hint('Play the MIDI module that shows the <b>MIDI</b> badge in the patcher (the last selected one, e.g. OSC; click the badge to lock MIDI to it — it lights up red — and click again to unlock). Every patch level has its own MIDI module and lock, saved with that level; when the open level has none, MIDI plays the one of the level above with a MIDI controller, the piano roll keyboard or the computer keyboard: <kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>T</kbd> <kbd>Y</kbd> <kbd>U</kbd> <kbd>I</kbd> <kbd>O</kbd> <kbd>P</kbd> are the white keys C4–E5, the number row above them (<kbd>2</kbd> <kbd>3</kbd> <kbd>5</kbd> <kbd>6</kbd> <kbd>7</kbd> <kbd>9</kbd> <kbd>0</kbd>) the black keys. In a focused piano roll <kbd>Q</kbd> quantizes instead.'),
       hint('<b>Sequencer</b> (piano roll above the patcher, TimeLine below; <kbd>S</kbd> maximizes the patcher, <kbd>S</kbd> again restores both panes): <kbd>Double-click</kbd> the TimeLine to add a clip, drag its edges to resize, <kbd>Alt</kbd> + drag to copy. In the piano roll click / drag to write notes (new notes get the last used length), drag a note body for its length (the end jumps to the pointer, snapped to the grid), its circle for pitch and time. A short right-click deletes the note under the pointer; hold the right button for <b>250 ms</b> to open the menu instead (cut / copy / paste / delete / duplicate / quantize / octave). Releasing after the menu opens never deletes a note. <kbd>Space</kbd> plays. <kbd>Double-click</kbd> the TimeLine ruler to insert a time signature change (right-click it to remove). Selecting a clip while stopped moves the playhead to its start (during playback it keeps playing).'),
       hint('<b>Free timing:</b> enable the checkbox beside <b>Grid</b> to draw, move, resize and paste piano-roll notes at unsnapped times. Velocity-curve timing is free too; pitch and velocity-value snapping are unchanged. The alternating dark/light guide stays visible. Grid controls still set the guide, explicit Quantize (Q), keyboard time nudges, timeline and automation snapping. The setting is saved per sequencer/Patch level.'),
       hint('<b>Piano roll selection:</b> <kbd>Shift</kbd> + drag or <kbd>right</kbd> + drag draws a selection rectangle; clicking a note selects it, <kbd>Shift</kbd> + click toggles it. Dragging a selected note moves / resizes the whole selection. <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> duplicates the selection, <kbd>Q</kbd> quantizes note starts (selection, else all). <kbd>Ctrl/Cmd</kbd> + <kbd>A</kbd> selects all notes, <kbd>Esc</kbd> clears the selection, and <kbd>Backspace</kbd> / <kbd>Delete</kbd> deletes it. <kbd>Alt</kbd> + drag a note (body or circle) moves a clone.'),
@@ -1427,16 +1427,20 @@ const targetIn = (rt) => (id) => {
   const e = id === null || id === undefined ? null : rt.modules.get(id);
   return e?.def.acceptsMidi ? e.inst : null;
 };
-// Play runs from the level shown (scope = its path of Patch module numbers): its own TimeLine at
-// its Output's BPM, with the TimeLines of the Patches inside it on the same clock. Automation
-// drives a controller's real value (see PatchRuntime.drive).
+// Play runs from the level shown (scope = its path of Patch module numbers): only its own TimeLine,
+// at its Output's BPM (the TimeLines of Patches inside it are sketches heard only from inside).
+// Automation drives a controller's real value (see PatchRuntime.drive). Every note entering the
+// project is shifted by the Global Transpose / Cents Offset of the current level's Output (playback:
+// the level playing; live input: the level shown).
+const pitchOffset = () => shown()?.pitchOffset ?? 0;
 const scopeRt = (ids) => runtimesAt(engine.root, ids ?? [])[0] ?? null;
 transport = new Transport({
   getScope: () => path.slice(1).map((l) => l.id),
   getSong: (ids) => { const rt = scopeRt(ids); return rt ? layerSong(rt) : emptySong(); },
   getBpm: (ids) => scopeRt(ids)?.bpm ?? engine.root.bpm,
   getTarget: targetIn(engine.root),
-  getLayers: (ids) => songLayers(engine.root, engine.song, ids ?? []),
+  getLayers: (ids) => songLayers(engine.root, engine.song, ids ?? [], { nested: false }),
+  pitchOffset: (ids) => scopeRt(ids)?.pitchOffset ?? 0,
 });
 // live notes (computer keyboard, on-screen piano keys) go to the red MIDI module
 const firstLive = (rt) => [...rt.modules.values()].find((e) => takesLiveMidi(e.def)) ?? null;
@@ -1448,6 +1452,7 @@ seq = createSequencer({
   getPatch: () => shown(),
   getTarget: (id) => targetIn(shown())(id),
   liveTarget: () => liveMidiEntry()?.inst ?? null,
+  pitchOffset,
   // new clips play this level's MIDI module, else its first module that takes MIDI
   defaultTarget() {
     return layerMidi(shown())?.id ?? [...shown().modules.values()].find((e) => e.def.acceptsMidi)?.id ?? null;
@@ -1537,6 +1542,7 @@ window.addEventListener('pagehide', flushAll);
 connectLiveReload(flushAll);
 midi = initMidi({
   getTarget: midiTarget,
+  pitchOffset,
   onStatus: (msg) => ($('status').textContent = msg),
   onActivity: () => engine.resume(),
 });
@@ -1544,6 +1550,7 @@ midi.enable();
 // Q..P (and the number row) play the current MIDI module, else the first one in the main patch
 initKeyboard({
   getTarget: liveMidiEntry,
+  pitchOffset,
   onActivity: () => engine.resume(),
   onNoTarget: () => ($('status').textContent = 'No module to play: add a module that takes MIDI (e.g. OSC) to hear the Q..P keys.'),
 });

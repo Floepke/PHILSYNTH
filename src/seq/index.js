@@ -21,7 +21,7 @@ const NO_COLOR = '#8a8a92';
 // for new automation clips; onChange() after every edit.
 // getSong() / getPatch(): the layer shown (a Patch has its own TimeLine for its own modules);
 // default: the main song and patch. Call setLayer() after the shown layer changed.
-export function createSequencer({ engine, transport, getSong = null, getPatch = null, getTarget, liveTarget = () => null, defaultTarget, defaultAutoTarget = () => null, onChange, undoHistory }) {
+export function createSequencer({ engine, transport, getSong = null, getPatch = null, getTarget, liveTarget = () => null, pitchOffset = () => 0, defaultTarget, defaultAutoTarget = () => null, onChange, undoHistory }) {
   const $ = (id) => document.getElementById(id);
   const seq = $('seq');
   const ui = {
@@ -101,7 +101,7 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
         if (!inst) return null;
         engine.resume();
         const id = newNoteId();
-        inst.noteOn(id, pitch, DEFAULT_VEL);
+        inst.noteOn(id, pitch + pitchOffset(), DEFAULT_VEL);
         return { inst, id };
       },
       // the on-screen keyboard plays the live MIDI module (red MIDI marker in the patcher)
@@ -110,7 +110,7 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
         if (!inst) return null;
         engine.resume();
         const id = newNoteId();
-        inst.noteOn(id, pitch, DEFAULT_VEL);
+        inst.noteOn(id, pitch + pitchOffset(), DEFAULT_VEL);
         return { inst, id };
       },
       off(h) { h?.inst.noteOff(h.id); },

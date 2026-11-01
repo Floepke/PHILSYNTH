@@ -7,7 +7,8 @@ import { newNoteId } from './modmidi.js';
 let access = null; // keep a strong reference, otherwise the browser may GC it and stop delivering messages
 
 // key -> playing note bookkeeping shared by the MIDI device and the computer keyboard
-function notePlayer(getTarget) {
+// pitchOffset(): semitones added to every note (Output Global Transpose / Cents Offset)
+function notePlayer(getTarget, pitchOffset = () => 0) {
   const playing = new Map(); // key -> { id, inst }
   const noteOff = (key) => {
     const n = playing.get(key);
@@ -21,7 +22,7 @@ function notePlayer(getTarget) {
     if (!t?.def.acceptsMidi || t.def.liveMidi === false) return false;
     const id = newNoteId();
     playing.set(key, { id, inst: t.inst });
-    t.inst.noteOn?.(id, pitch, velocity, 0, time);
+    t.inst.noteOn?.(id, pitch + pitchOffset(), velocity, 0, time);
     return true;
   };
   const releaseAll = () => [...playing.keys()].forEach(noteOff);
@@ -47,8 +48,8 @@ export const KEYBOARD_KEYS = {
 const KEYBOARD_VEL = 0.8;
 const TYPING = 'input, select, textarea, dialog, [contenteditable]:not([contenteditable="false"])';
 
-export function initKeyboard({ getTarget, onActivity, onNoTarget }) {
-  const player = notePlayer(getTarget);
+export function initKeyboard({ getTarget, onActivity, onNoTarget, pitchOffset }) {
+  const player = notePlayer(getTarget, pitchOffset);
   window.addEventListener('keydown', (e) => {
     const semi = KEYBOARD_KEYS[e.code];
     if (semi === undefined || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
@@ -64,8 +65,8 @@ export function initKeyboard({ getTarget, onActivity, onNoTarget }) {
   return { releaseAll: player.releaseAll, playing: player.playing };
 }
 
-export function initMidi({ getTarget, onStatus, onActivity }) {
-  const { noteOn, noteOff, allOff } = notePlayer(getTarget);
+export function initMidi({ getTarget, onStatus, onActivity, pitchOffset }) {
+  const { noteOn, noteOff, allOff } = notePlayer(getTarget, pitchOffset);
   const send = (fn, ...a) => {
     onActivity?.();
     ({ noteOn, noteOff, allOff })[fn](...a);

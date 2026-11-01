@@ -8,6 +8,7 @@
 //                 scale: 'log'           exponential slider (e.g. Hz); needs min > 0
 //                 format: (v, values) => string  custom value display (values = all controllers)
 //                 visible: (values) => bool  hide the slider depending on other params
+//                 dsp: false             main-thread only (not sent to the DSP kernel)
 //   color       type colour of the box, panel header and cables (darkish tone, optional)
 //   acceptsMidi true if the module receives note events when selected
 //   liveMidi    optional; false = notes only from clips / MIDI cables, never from the MIDI device

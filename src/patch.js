@@ -219,6 +219,13 @@ export class PatchRuntime {
     return this.modules.get(0)?.values.bpm ?? 120;
   }
 
+  // Global Transpose + Cents of this level's Output in semitones: added to every note entering the
+  // project (clips, MIDI device, keyboards) while this level is the current one
+  get pitchOffset() {
+    const v = this.modules.get(0)?.values;
+    return (v?.transpose ?? 0) + (v?.cents ?? 0) / 100;
+  }
+
   setParam(id, key, value) {
     const e = this.modules.get(id);
     // controllers that follow this one (e.g. OSC Decay <-> Release with Sustain at 0)
@@ -459,11 +466,12 @@ export function runtimesAt(root, ids = []) {
   return rts;
 }
 
-// TimeLines for the Transport: the song of the level at `path` (Patch module numbers from root;
-// [] = the main patch, whose song is mainSong) and every Patch's own song inside it, nested ones
-// too, as { key, path, rt, song, getTarget, setAuto }. Notes of a layer play its modules in the
-// edited instance; automation drives the controller in every instance, so they stay alike.
-export function songLayers(root, mainSong, path = []) {
+// TimeLines of the level at `path` (Patch module numbers from root; [] = the main patch, whose song
+// is mainSong) and, with `nested`, every Patch's own song inside it too, as { key, path, rt, song,
+// getTarget, setAuto }. Playback uses only the level's own (nested: false): a Patch's TimeLine is a
+// sketch pad heard only from inside that Patch. Notes of a layer play its modules in the edited
+// instance; automation drives the controller in every instance, so they stay alike.
+export function songLayers(root, mainSong, path = [], { nested = true } = {}) {
   const layers = [];
   const walk = (rts, path, song) => {
     const [rt] = rts;
@@ -480,7 +488,7 @@ export function songLayers(root, mainSong, path = []) {
         for (const r of rts) r.automate(id, clip?.target ?? null, clip?.controller ?? 0, value);
       },
     });
-    for (const e of rt.modules.values()) {
+    if (nested) for (const e of rt.modules.values()) {
       if (e.inst.patch) walk(rts.flatMap((r) => runtimesAt(r, [e.id])), [...path, e.id], e.inst.patch.song);
     }
   };

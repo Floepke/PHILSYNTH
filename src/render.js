@@ -60,7 +60,8 @@ export async function renderSong(project, { sampleRate = 48000, wasm = null, onP
         return e?.def.acceptsMidi ? e.inst : null;
       },
       setAuto: (id, clip, value) => root.automate(id, clip?.target ?? null, clip?.controller ?? 0, value),
-      getLayers: () => songLayers(root, song), // every Patch's own TimeLine plays along
+      getLayers: () => songLayers(root, song, [], { nested: false }), // Patch TimeLines are not part of the song
+      pitchOffset: () => root.pitchOffset,
       now: () => time * 1000,
       ticker: () => ({ start() {}, stop() {} }),
     });
