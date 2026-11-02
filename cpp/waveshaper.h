@@ -1,7 +1,8 @@
 // WAVESHAPER: drive -> curve table (optionally oversampled) -> DC blocker, dry/wet, level. Twin of
 // src/modules/waveshaper.dsp.js. The table is built from the curve on the JS side (curve.js) and
 // written into data(0) by the adapter (src/dsp/wasm.js), which also handles 'range'.
-// Not passive (memory): a silent input is processed as zeros, silent again once settled.
+// Not passive (memory): a silent input is processed as zeros, silent again once settled. While idle
+// it rests as if the input had been silent forever (rest() before the first audio, see waveshaper.dsp.js).
 #pragma once
 #include "kernel.h"
 
@@ -20,7 +21,14 @@ struct Waveshaper : Kernel {
   double s[T_N] = {1, 1, 0, 1};  // smoothed
   double k, dcR;
   struct Ch { double prev = 0, x1 = 0, y1 = 0; } ch[2];
-  void panic() override { for (auto& c : ch) c.prev = c.x1 = c.y1 = 0; }
+  bool idle = true;
+  void panic() override { idle = true; }
+
+  void rest() {
+    const double z = shape(0);
+    for (auto& c : ch) { c.prev = 0; c.x1 = z; c.y1 = 0; }
+    for (int j = 0; j < T_N; j++) s[j] = t[j];
+  }
 
   explicit Waveshaper(double sampleRate) : Kernel(sampleRate) {
     for (int i = 0; i < TABLE; i++) table[i] = (float)(-1 + (2.0 * i) / (TABLE - 1));
@@ -51,10 +59,10 @@ struct Waveshaper : Kernel {
   int process(const float* inL, const float* inR, float* outL, float* outR, int n) override {
     const bool silent = !inL;
     const int chans = outR != outL ? 2 : 1;
-    if (silent) {
-      bool idle = true;
-      for (int c = 0; c < chans; c++) idle = idle && ch[c].prev == 0 && ch[c].y1 == 0;
-      if (idle) return 0;
+    if (idle) {
+      if (silent) return 0;
+      rest();
+      idle = false;
     }
     double s0[T_N];
     for (int j = 0; j < T_N; j++) s0[j] = s[j];
@@ -93,7 +101,7 @@ struct Waveshaper : Kernel {
       bool settled = true;
       for (int c = 0; c < chans; c++) settled = settled && fabs(ch[c].y1) < SETTLE;
       if (settled) {
-        for (int c = 0; c < chans; c++) ch[c].y1 = 0;
+        idle = true;
         return 0;
       }
     }

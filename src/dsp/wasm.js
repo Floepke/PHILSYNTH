@@ -12,7 +12,7 @@
 import { Kernel } from './kernel.js';
 import { curveTable, defaultCurve } from '../curve.js';
 
-export const WASM_VERSION = 8;
+export const WASM_VERSION = 9;
 
 // kind = Kind in cpp/engine.cpp; params in the order of the kernel's enum
 export const SPECS = {

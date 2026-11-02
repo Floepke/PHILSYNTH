@@ -46,3 +46,58 @@ for (const os of [0, 1, 2]) {
 }
 
 console.log('waveshaper tests passed');
+
+// First audio after creation / idling: no thump. In the Full -/+ range silence maps to curve(0.5),
+// often not 0; the DC blocker rests as if the input had always been silent (not at 0, which made the
+// first note of every instance click), and the controllers start on their values (no glide from
+// the defaults).
+{
+  const curve = { points: [{ x: 0, y: 0, r: 0 }, { x: 0.5, y: 0.9, r: 0 }, { x: 1, y: 1, r: 0 }] }; // silence -> 0.8
+  const soft = (n) => 0.3 * Math.sin((2 * Math.PI * 220 * n) / SR) * Math.min(1, n / 480); // 10 ms fade-in
+  const firstNote = (k) => {
+    const out = [];
+    for (let b = 0, n = 0; b < 40; b++) {
+      const L = new Float32Array(128);
+      for (let i = 0; i < 128; i++, n++) L[i] = soft(n);
+      const o = block();
+      k.process([[L]], o);
+      out.push(...o[0][0]);
+    }
+    return out;
+  };
+  for (const os of [0, 2]) {
+    const k = new Proc();
+    const m = (data) => k.port.onmessage({ data });
+    m({ type: 'param', id: 'oversample', value: os });
+    for (let b = 0; b < 3; b++) assert.equal(k.process([[]], block()), false, 'idle before any audio');
+    m({ type: 'curve', curve }); // the curve arrives later than the kernel
+    m({ type: 'param', id: 'range', value: 1 });
+    const first = firstNote(k);
+    assert.ok(Math.abs(first[0]) < 0.01, `os ${os}: first sample of the first note is no step: ${first[0]}`);
+    // ring out, go idle: the same note again (the case that was always clean) sounds identical
+    const ringOut = () => {
+      let alive = true;
+      for (let b = 0; b < 2000 && alive; b++) alive = k.process([[]], block()) !== false;
+      assert.equal(alive, false, 'idle again');
+    };
+    ringOut();
+    const second = firstNote(k);
+    const diff = Math.max(...first.map((v, i) => Math.abs(v - second[i])));
+    assert.ok(diff < 1e-4, `os ${os}: first note = a later note, no thump: ${diff}`);
+    ringOut();
+    m({ type: 'curve', curve: { points: [{ x: 0, y: 0.2, r: 0 }, { x: 1, y: 1, r: 0 }] } });
+    const again = firstNote(k);
+    assert.ok(Math.abs(again[0]) < 0.01, `os ${os}: clean after a curve change while idle: ${again[0]}`);
+  }
+  // controllers set before the first audio apply from its first sample
+  const k = new Proc();
+  const m = (data) => k.port.onmessage({ data });
+  m({ type: 'param', id: 'mix', value: 0 });
+  m({ type: 'param', id: 'level', value: 0.25 });
+  m({ type: 'param', id: 'drive', value: 20 });
+  const L = new Float32Array(128).map((_, i) => 0.5 * Math.sin(i / 7));
+  const o = block();
+  k.process([[L]], o);
+  for (let i = 0; i < 128; i += 9) assert.ok(Math.abs(o[0][0][i] - L[i] * 0.25) < 1e-6, `dry × level from the first sample @${i}`);
+  console.log('waveshaper first-note tests passed');
+}

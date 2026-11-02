@@ -4,6 +4,10 @@
 // Not passive: the oversampling and DC blocker have memory. A silent input (a source reporting a
 // silent block, e.g. a half sine's zero half through a MODULATOR) is processed as zeros, so that
 // state fades out instead of being cut to 0 (a click); silent again once settled (SETTLE).
+// While idle it rests as if the input had been silent forever (rest(), again right before the
+// first audio after idling, with the curve and controllers of that moment): the DC blocker holds the
+// curve's output for silence (non-zero e.g. in the Full -/+ range) and the smoothed controllers sit
+// on their targets, so the first audio doesn't start with a thump or a glide from the defaults.
 import { Kernel } from '../dsp/kernel.js';
 import { curveTable, defaultCurve } from '../curve.js';
 
@@ -23,6 +27,7 @@ export default class WaveshaperKernel extends Kernel {
     this.k = 1 - Math.exp(-1 / (SMOOTH_S * sampleRate));
     this.dcR = Math.exp((-2 * Math.PI * DC_HZ) / sampleRate);
     this.ch = [0, 1].map(() => ({ prev: 0, x1: 0, y1: 0 })); // per channel: last input, DC blocker state
+    this.idle = true;
   }
 
   param(id, v) {
@@ -35,7 +40,13 @@ export default class WaveshaperKernel extends Kernel {
     else if (id === 'level') this.t.level = v;
   }
 
-  panic() { for (const c of this.ch) c.prev = c.x1 = c.y1 = 0; }
+  panic() { this.idle = true; }
+
+  rest() {
+    const z = this.shape(0);
+    for (const c of this.ch) { c.prev = 0; c.x1 = z; c.y1 = 0; }
+    Object.assign(this.s, this.t);
+  }
 
   message(m) {
     if (m.type === 'param') this.param(m.id, m.value);
@@ -57,7 +68,11 @@ export default class WaveshaperKernel extends Kernel {
     const inp = inputs[0];
     const o = outputs[0];
     const silent = !inp || !inp.length;
-    if (silent && this.ch.every((c) => c.prev === 0 && c.y1 === 0)) return false;
+    if (this.idle) {
+      if (silent) return false;
+      this.rest();
+      this.idle = false;
+    }
     const n = o[0].length;
     const { t, s, k, os, dcR } = this;
     const s0 = { ...s };
@@ -93,7 +108,7 @@ export default class WaveshaperKernel extends Kernel {
       st.prev = prev; st.x1 = x1; st.y1 = Math.abs(y1) < 1e-20 ? 0 : y1;
     }
     if (silent && this.ch.every((c) => Math.abs(c.y1) < SETTLE)) {
-      for (const c of this.ch) c.y1 = 0;
+      this.idle = true;
       return false;
     }
     return true;
