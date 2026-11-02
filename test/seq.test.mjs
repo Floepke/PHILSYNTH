@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { setMaxListeners } from 'node:events';
-import { emptySong, addClip, addAutoClip, isAuto, cloneClip, normalizeSong, setLaneMute, snapStep } from '../src/song.js';
+import { emptySong, addClip, addAutoClip, isAuto, cloneClip, normalizeSong, setLaneMute, snapStep, clipFileText, parseClipFile } from '../src/song.js';
 import { createAutomationLane } from '../src/seq/automation.js';
-import { createPianoRoll } from '../src/seq/pianoroll.js';
+import { createPianoRoll, TOP_MARGIN } from '../src/seq/pianoroll.js';
 import { createArranger } from '../src/seq/arranger.js';
 import { clipsOverlap } from '../src/seq/clipplacement.js';
 import { createSequencer } from '../src/seq/index.js';
@@ -1054,6 +1054,40 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.ok(menus.at(-1).items.find((i) => i.label === 'Split at playhead').disabled, 'playhead outside the clip');
 }
 
+// Context menu: Save Clip(s)… hands the selected clips to ctx.saveClips; Load Clip… on empty
+// space places the opened clips at the pointer with fresh ids.
+{
+  const { song, clip, arranger, ctx, menus } = setup();
+  const cv = arranger.surface.cv;
+  clip.length = 4;
+  clip.notes.push(note(60, 1));
+  const b = addClip(song, { start: 6, length: 2, target: 9 });
+  let saved = null;
+  ctx.saveClips = (clips) => { saved = clips; };
+  holdRightClick(cv, ax(1), ay(0));
+  pick(menus, 'Save Clip…');
+  assert.deepEqual(saved, [clip]);
+  click(cv, ax(7), ay(0), { ctrlKey: true });
+  holdRightClick(cv, ax(7), ay(0));
+  pick(menus, 'Save Clips…');
+  assert.deepEqual(saved.map((c) => c.id).sort(), [clip.id, b.id].sort());
+
+  const loaded = parseClipFile(clipFileText([clip, b]));
+  ctx.openClips = async () => structuredClone(loaded);
+  holdRightClick(cv, ax(12.1), ay(68));
+  assert.ok(labels(menus).includes('Load Clip…'));
+  pick(menus, 'Load Clip…');
+  await new Promise((r) => setImmediate(r));
+  assert.equal(song.clips.length, 4);
+  const [l1, l2] = song.clips.slice(2);
+  assert.deepEqual([l1.start, l1.y, l1.length, l1.target], [12, 68, 4, 7]);
+  assert.deepEqual([l2.start, l2.y, l2.length, l2.target], [18, 68, 2, 9]);
+  assert.deepEqual(l1.notes, clip.notes);
+  assert.notEqual(l1.notes, clip.notes);
+  assert.equal(new Set(song.clips.map((c) => c.id)).size, 4);
+  assertNoOverlap(song);
+}
+
 // Clipboard placement follows the current triplet grid and scrolled arranger coordinates.
 {
   const { song, clip, roll, arranger, ctx } = setup();
@@ -1590,7 +1624,8 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   flush();
   const cv = lane.surface.cv;
   const lx = (v) => 48 + v * 420;
-  const ly = (t) => t * 48;
+  const ly = (t) => t * 48 - lane.getView().sy; // starts with free space above time 0, like the piano roll
+  assert.equal(lane.getView().sy, -TOP_MARGIN, 'starts with the piano roll\'s top margin');
   dbl(cv, lx(0.25), ly(1.1));
   assert.deepEqual(a.points, [{ t: 1, v: 0.25, r: 1 }], 'time snaps to the grid, new points start fully rounded');
   dbl(cv, lx(0.75), ly(3));
@@ -1621,6 +1656,7 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   assert.deepEqual(a.points.map((p) => p.t), [2.5]);
   assert.ok(changes >= 8);
   assert.deepEqual(Object.keys(lane.getView()).sort(), ['ppq', 'sy']);
+  lane.setView({ sy: 0 }); // scrolled down: later times fit the test canvas
   // down-up-DOWN inserts on the second press, and that press keeps dragging the new point
   point(cv, 'pointerdown', lx(0.5), ly(6), { buttons: 1 });
   point(cv, 'pointerup', lx(0.5), ly(6));

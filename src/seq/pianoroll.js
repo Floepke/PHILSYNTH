@@ -37,7 +37,9 @@ const GRID_LOW = 22; // A#0 (American notation)
 const GRID_HIGH = 106; // A#7
 
 const KEYBOARD = 24;
-const TOP_MARGIN = 128;
+// free space above time 0 (keeps the first notes clear of the PHILSYNTH menu button); the
+// automation lane uses the same
+export const TOP_MARGIN = 128;
 const TILT = -Math.PI / 9;
 const HEAD_STRETCH = 1.25; // noteheads are stretched along the time (y) axis
 const GUTTER = 36; // bar / beat ruler (right of the velocity strip)

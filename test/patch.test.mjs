@@ -465,7 +465,7 @@ const set = (e, x) => { hold(e, x); render(1); };
     const { overtoneSemitones } = await import('../src/modules/multimidi.js');
     const ot = mmC.def.params.find((p) => p.id === 'overtone');
     assert.deepEqual([ot.min, ot.max, ot.default, ot.step], [0, 128, 0, 1]);
-    assert.equal(mmC.def.params.indexOf(ot), mmC.def.params.length - 1, 'appended: older controller numbers unchanged');
+    assert.equal(mmC.def.params.indexOf(ot), 9, 'appended: older controller numbers unchanged');
     assert.equal(ot.format(0), 'Fundamental');
     assert.equal(ot.format(2), '2 (×3, +19.02 st)');
     assert.equal(overtoneSemitones(1), 12);
@@ -485,6 +485,70 @@ const set = (e, x) => { hold(e, x); render(1); };
     assert.ok(Math.abs(held[1] - (60 + 5 + 12.5 + 12)) < 1e-9, 'held notes follow: overtone 1 = one octave');
     r.setParam(mmC.id, 'overtone', 0);
     mmC.inst.noteOff(1005);
+  }
+
+  // Route Mode: Sent to All / Round Robin / Random / Random (no repeat); off follows the note's route
+  {
+    const { ROUTE_MODES, routeTargets } = await import('../src/modules/multimidi.js');
+    const rm = mmC.def.params.find((p) => p.id === 'routeMode');
+    assert.deepEqual([rm.min, rm.max, rm.default, rm.step], [0, 3, 0, 1]);
+    assert.deepEqual(rm.options, ['Sent to All', 'Round Robin', 'Random', 'Random (no repeat)']);
+    assert.equal(rm.options, ROUTE_MODES);
+    assert.equal(mmC.def.params.indexOf(rm), 10, 'appended: older controller numbers unchanged');
+
+    const pr = await PatchRuntime.create(engine, dsp.destination);
+    const mm = await pr.addModule('MULTIMIDI');
+    const oscs = [await pr.addModule('OSC'), await pr.addModule('OSC'), await pr.addModule('OSC')];
+    const logs = oscs.map(capture);
+    for (const o of oscs) assert.ok(pr.connect(mm.id, o.id));
+    const hits = () => logs.map((l) => l.filter((m) => m.type === 'noteOn').length);
+    const play = (n, base) => { for (let i = 0; i < n; i++) { mm.inst.noteOn(base + i, 60, 1); mm.inst.noteOff(base + i); } };
+    const order = (n, base) => {
+      const seq = [];
+      for (let i = 0; i < n; i++) {
+        const before = hits();
+        play(1, base + i);
+        const after = hits();
+        const got = after.map((c, k) => c - before[k]);
+        assert.equal(got.reduce((a, b) => a + b), 1, 'one cable per note');
+        seq.push(got.indexOf(1));
+      }
+      return seq;
+    };
+
+    play(2, 20000);
+    assert.deepEqual(hits(), [2, 2, 2], 'Sent to All (default): every cable');
+
+    pr.setParam(mm.id, 'routeMode', 1);
+    assert.deepEqual(order(7, 20100), [0, 1, 2, 0, 1, 2, 0], 'Round Robin: cable order, cyclic');
+    // the note off goes to the cable its note on took
+    const before = logs.map((l) => l.length);
+    mm.inst.noteOn(20200, 60, 1);
+    const k = logs.findIndex((l, i) => l.length > before[i]);
+    assert.equal(k, 1);
+    mm.inst.noteOff(20200);
+    assert.deepEqual(logs.map((l, i) => l.slice(before[i]).map((m) => m.type)), [[], ['noteOn', 'noteOff'], []]);
+
+    pr.setParam(mm.id, 'routeMode', 2);
+    const random = order(300, 20300);
+    assert.ok([0, 1, 2].every((i) => random.filter((x) => x === i).length > 60), 'Random: all cables');
+    assert.ok(random.some((x, i) => i && x === random[i - 1]), 'Random may repeat');
+
+    pr.setParam(mm.id, 'routeMode', 3);
+    const noRepeat = order(300, 20700);
+    assert.ok(noRepeat.every((x, i) => !i || x !== noRepeat[i - 1]), 'Random (no repeat): never the same twice in a row');
+    assert.ok([0, 1, 2].every((i) => noRepeat.filter((x) => x === i).length > 60), 'still all cables');
+
+    // one cable left: every mode uses it; no cables: nothing
+    const [a, b] = [{}, {}];
+    for (const mode of [0, 1, 2, 3]) {
+      assert.deepEqual(routeTargets(mode, [a], a), [a]);
+      assert.deepEqual(routeTargets(mode, [], null), []);
+      assert.equal(routeTargets(mode, [a, b], null, () => 0.99).length, mode ? 1 : 2);
+    }
+    assert.deepEqual(routeTargets(1, [a, b], {}), [a], 'Round Robin restarts when the last cable is gone');
+    assert.deepEqual(routeTargets(3, [a, b], a, () => 0), [b]);
+    pr.destroy();
   }
 
   // disconnecting a MIDI cable releases the notes that went through it
@@ -680,6 +744,23 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.ok(env.inst.playhead && env.inst.playhead.pos < 0.01 && seen > 0, 'the playhead position reaches the panel');
   assert.ok(osc.values.duty > 59.9 && osc.values.duty <= 60, `restarts at the top = Out Max (${osc.values.duty})`);
   assert.equal(kernel(osc.inst.node).p.duty, osc.values.duty, 'applied in the OSC kernel');
+
+  // Loop mode: note-offs through the MULTIMIDI cable reach the kernel; releasing all notes stops it
+  assert.equal(env.def.params.at(-1).id, 'mode', 'Mode appended: older controller numbers unchanged');
+  r.setParam(env.id, 'mode', 1);
+  const ek = kernel(env.inst.node);
+  env.inst.allOff(); // the notes above were never released
+  render(1);
+  assert.equal(ek.mode, 1);
+  mm.inst.noteOn(10, 60, 1);
+  render(2);
+  assert.ok(ek.running && ek.held.size === 1, 'looping while the note is held');
+  mm.inst.noteOff(10);
+  await new Promise((res) => setTimeout(res, 20)); // MULTIMIDI schedules on the audio clock
+  render(2);
+  assert.equal(ek.held.size, 0, 'note-off reached the ENVELOPE');
+  assert.equal(ek.running, false, 'all notes released: the loop stops');
+  r.setParam(env.id, 'mode', 0);
 
   const json = JSON.parse(JSON.stringify(r.toJSON()));
   assert.deepEqual(json.modules.find((m) => m.type === 'ENVELOPE').state.points.map((p) => p.y), [1, 0], 'curve saved');

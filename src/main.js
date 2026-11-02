@@ -22,6 +22,7 @@ import { renderSong, encodeWav } from './render.js';
 import { withSamples, importSamples } from './samples.js';
 import { createProjectFile, pickBackend } from './projectfile.js';
 import { initStatusTips } from './statustips.js';
+import { saveTextFile, openTextFile } from './filedialog.js';
 
 const engine = new Engine();
 let transport = null; // song playback (created after the engine)
@@ -325,10 +326,15 @@ canvas.addEventListener('dblclick', (e) => {
   moduleList.focus();
 });
 
-$('load-synth').onclick = () => $('synth-file').click();
-$('synth-file').onchange = (e) => {
-  const file = e.target.files[0];
-  e.target.value = '';
+// the open dialog starts in the folder a module was last saved to / loaded from
+$('load-synth').onclick = async () => {
+  let file;
+  try {
+    file = await openTextFile('synth');
+  } catch (err) {
+    $('status').textContent = `Load failed: ${err.message}`;
+    return;
+  }
   if (!file) return;
   dialog.close('cancel');
   insertSynthFile(file);
@@ -456,7 +462,7 @@ function createBox(entry) {
     const badge = document.createElement('button');
     badge.type = 'button';
     badge.className = 'midi-badge';
-    badge.textContent = 'MIDI-LOCK';
+    badge.textContent = 'LOCK';
     badge.addEventListener('pointerdown', (e) => e.stopPropagation()); // no drag / selection change
     badge.addEventListener('dblclick', (e) => e.stopPropagation()); // don't open a Patch
     badge.addEventListener('click', (e) => {
@@ -811,28 +817,16 @@ async function saveModules() {
   const data = current().copyMany(mods.map((m) => m.id));
   if (!data) { $('status').textContent = 'Select a module to save (the Output module cannot be saved).'; return; }
   const suggestedName = `${fileSafe(mods.length === 1 ? mods[0].name || mods[0].def.type : 'modules')}.synth`;
-  const blob = new Blob([JSON.stringify(withSamples({ format: SYNTH_FORMAT, version: 1, ...data }), null, 2)], { type: 'application/octet-stream' });
-  let name = suggestedName;
-  let saved = false;
-  if (typeof window.showSaveFilePicker === 'function') {
-    try {
-      const handle = await window.showSaveFilePicker({ suggestedName, types: [{ description: 'PHILSYNTH module', accept: { 'application/octet-stream': ['.synth'] } }] });
-      const writable = await handle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-      name = handle.name;
-      saved = true;
-    } catch (err) {
-      if (err?.name === 'AbortError') return; // dialog cancelled
-      console.warn('Saving through the file dialog failed, downloading instead:', err);
-    }
+  const text = JSON.stringify(withSamples({ format: SYNTH_FORMAT, version: 1, ...data }), null, 2);
+  let saved;
+  try {
+    saved = await saveTextFile('synth', suggestedName, text); // starts in the last module folder
+  } catch (err) {
+    $('status').textContent = `Save failed: ${err.message}`;
+    return;
   }
-  if (!saved) {
-    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: suggestedName });
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-  }
-  $('status').textContent = `Saved ${data.modules.length} module(s) to ${name}.`;
+  if (!saved) return; // dialog cancelled
+  $('status').textContent = `Saved ${data.modules.length} module(s) to ${saved.name}.`;
 }
 function parseSynthFile(text) {
   const data = JSON.parse(text);
@@ -844,7 +838,7 @@ function parseSynthFile(text) {
 async function insertSynthFile(file) {
   const patch = current();
   try {
-    const data = parseSynthFile(await file.text());
+    const data = parseSynthFile(file.text);
     importSamples(data.samples);
     const options = { x: dropPos.x, y: dropPos.y };
     const added = undoHistory
@@ -1061,7 +1055,7 @@ function select(s) {
       hint('<b>Velocity:</b> the strip left of the piano roll shows every note\'s velocity (stick) and how it changes while the note sounds. Drag a note\'s dot to set its velocity (<kbd>Shift</kbd>-click adds it to the selection). The selected notes share one curve: <kbd>Double-click</kbd> inside them to add a point, drag points (time snaps, <kbd>Shift</kbd> = fine), and use the mouse wheel on a point to round it. Right-click the lane for the menu: <b>Snap velocity values</b> (1/16 increments, enabled by default, no grid) and, on a point, <b>Delete point</b>. The snap setting is saved with the project and only affects new edits. One selected note edits its own curve. Drag the bar ruler between the strip and the notes sideways to make the strip wider or narrower (the piano roll scales along; <kbd>Double-click</kbd> the ruler resets it).'),
       hint('<b>Automation:</b> <kbd>Double right-click</kbd> the TimeLine to add an automation clip, then pick the module (<i>Send to</i>) and its <i>Controller</i> in the toolbar. In the automation lane <kbd>Double-click</kbd> inserts a point (snapped to the grid), drag moves it (<kbd>Shift</kbd> = fine), the mouse wheel on a point rounds the corner and right click deletes it. While playing, the clip drives the controller like an LFO; outside the clip (or when stopped) the controller has its own value again.'),
       hint('<b>Sequencer clipboard:</b> click the piano roll or TimeLine to focus it, then use <kbd>Ctrl/Cmd</kbd> + <kbd>X</kbd> / <kbd>C</kbd> / <kbd>V</kbd> to cut / copy / paste selected notes or the selected clip. Each view has its own in-app clipboard. Paste at the mouse pointer, snapped to the grid; note pitches and relative timing are preserved.'),
-      hint('<b>TimeLine selection &amp; clones:</b> drag on empty TimeLine space for a selection rectangle (<kbd>Ctrl/Cmd</kbd> adds), <kbd>Ctrl/Cmd</kbd> + click toggles a clip. Dragging moves the whole selection; <kbd>Alt</kbd> + drag copies it, <kbd>Shift</kbd> + drag makes <i>linked clones</i> that share their notes with the source (marked ⧉): editing one edits all. Clones are drawn with diagonal stripes and a dashed outline; a selected clone shows a dashed arrow to its source. Hold right-click on a clip for cut / copy / paste / delete / duplicate / clone / detach (turns a clone into a standalone clip) / go to source / <i>Consolidate</i> (two or more selected clips on one lane become one clip spanning them; module and name come from the first clip) / <i>Split at playhead</i> (cuts the selected clips under the playhead in two). <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> clones, <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd> duplicates.'),
+      hint('<b>TimeLine selection &amp; clones:</b> drag on empty TimeLine space for a selection rectangle (<kbd>Ctrl/Cmd</kbd> adds), <kbd>Ctrl/Cmd</kbd> + click toggles a clip. Dragging moves the whole selection; <kbd>Alt</kbd> + drag copies it, <kbd>Shift</kbd> + drag makes <i>linked clones</i> that share their notes with the source (marked ⧉): editing one edits all. Clones are drawn with diagonal stripes and a dashed outline; a selected clone shows a dashed arrow to its source. Hold right-click on a clip for cut / copy / paste / delete / duplicate / clone / detach (turns a clone into a standalone clip) / go to source / <i>Consolidate</i> (two or more selected clips on one lane become one clip spanning them; module and name come from the first clip) / <i>Split at playhead</i> (cuts the selected clips under the playhead in two) / <i>Save Clip…</i> (writes the selected clips to a <b>.clip</b> file). Right-click empty TimeLine space → <i>Load Clip…</i> places the clips of a .clip file there. File dialogs remember their folder per kind: projects opened, projects saved, clips and modules (.synth) each start where you last were. <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> clones, <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd> duplicates.'),
       hint('<b>Undo / redo:</b> <kbd>Ctrl/Cmd</kbd> + <kbd>Z</kbd> undoes edits in the patcher and sequencer, <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> (or <kbd>Ctrl</kbd> + <kbd>Y</kbd>) redoes.'),
       hint('<b>Loop region:</b> click the TimeLine ruler (the signature row too, where dragging scrubs) to set the play position, drag along it to select a loop region (snapped to the grid, shown in blue). Song playback then loops inside the region and starts at its beginning. Right-click the region in the ruler to remove it; playback goes back to looping the whole song.'),
       hint('<b>TimeLine lanes:</b> clips sit on numbered lanes (the numbers left of the clips), one clip high; dragging up / down snaps to them. Scroll left past the bright zero line to park clips before the song start: they are not played (<kbd>/</kbd> still auditions them), which suits source clips whose clones make up the song. The mouse wheel scrolls sideways over time, <kbd>Shift</kbd> + wheel scrolls the lanes, middle-drag pans and <kbd>Ctrl/Cmd</kbd> + wheel zooms. Dragging a clip close to an edge auto-scrolls the TimeLine, so a clip can be moved anywhere in one drag. The <b>M</b> button left of a lane number mutes that lane, the <b>S</b> button solos it (lit when on): while any lane is soloed only the soloed lanes play, and mute wins over solo. Drag over a column of M or S buttons to switch many lanes in one go. A silenced clip is silent everywhere, also with <kbd>/</kbd>, and its piano roll / automation editor shows a big M.'),
@@ -1137,7 +1131,7 @@ function select(s) {
     explanations.append(hint('<b>STEREO</b> repeats left and right together, preserving their separation. <b>PINGPONG</b> averages the input into a left-first echo, then alternates sides. <b>Filter</b> processes the first echo and every feedback repeat; dry audio is unaffected. Feedback is limited to 99%. At 0 ms, the echo uses a one-sample delay.'));
   }
   if (entry.def.type === 'ENVELOPE') {
-    explanations.append(hint('Draw the envelope in the graph below: left to right is time over <b>Envelope Length</b> (0–10,000 ms), bottom = <kbd>Out Min</kbd>, top = <kbd>Out Max</kbd> of the controller picked with <kbd>Out Controller</kbd>. Every note restarts it from the left; at the end it holds the last point\'s value. Note-off does not affect it.'));
+    explanations.append(hint('Draw the envelope in the graph below: left to right is time over <b>Envelope Length</b> (0–10,000 ms), bottom = <kbd>Out Min</kbd>, top = <kbd>Out Max</kbd> of the controller picked with <kbd>Out Controller</kbd>. <b>Mode</b>: <i>Note ON Trigger</i> — every note restarts it from the left; at the end it holds the last point\'s value and note-off does not affect it. <i>Notes ON/OFF Loop</i> — the first note starts it and it repeats while any note is held; releasing the last note stops it where it is (the value holds) and the next note starts over. <i>Notes ON/OFF Loop Forward/Backwards</i> — the same, but the playhead runs forward and back (ping-pong).'));
   }
   if (entry.def.type === 'MODULATOR') {
     explanations.append(hint('<b>Carrier</b> selects an audio input; all other audio inputs are summed as the modulator, separately for left and right. Inputs are numbered in cable connection order; changing cables can change their numbering. <b>Amp modulation</b> multiplies carrier by modulator (no modulator means silence). Add/Subtract and Min/Max combine those same two signals; Min/Max abs chooses by magnitude and keeps the chosen signal’s sign.'));
@@ -1147,7 +1141,7 @@ function select(s) {
     explanations.append(hint('<b>Delay Unit:</b> ms gives 0–10,000 milliseconds. In 1/4, 1/8 or 1/16 mode, the same slider selects musical lengths from 1/4 to 64 of that note unit, synced to this patch’s Output BPM (including dotted and triplet lengths). Audio delay changes glide to avoid abrupt jumps.'));
   }
   if (entry.def.type === 'MULTIMIDI') {
-    explanations.append(hint('<kbd>Shift</kbd> + drag to an OSC, Patch or another MultiMIDI. Every note drifts on its own. Several MultiMIDIs can feed one synth in parallel (each plays its own voices); chained ones add up. <b>Velocity</b> scales every outgoing velocity (100 % = unchanged, lower = quieter). <b>Overtone</b> plays the note\'s n-th overtone of the harmonic series: n + 1 times the frequency (0 = fundamental, 1 = octave, 2 = octave + fifth, 3 = two octaves …, up to 128). <b>Random Phase</b> starts every note at its own random point of the OSC waveform cycle (0 % = all start at the beginning, 100 % = anywhere).'));
+    explanations.append(hint('<kbd>Shift</kbd> + drag to an OSC, Patch or another MultiMIDI. Every note drifts on its own. Several MultiMIDIs can feed one synth in parallel (each plays its own voices); chained ones add up. <b>Velocity</b> scales every outgoing velocity (100 % = unchanged, lower = quieter). <b>Overtone</b> plays the note\'s n-th overtone of the harmonic series: n + 1 times the frequency (0 = fundamental, 1 = octave, 2 = octave + fifth, 3 = two octaves …, up to 128). <b>Route Mode</b>: <i>Sent to All</i> sends every note out of every MIDI cable; <i>Round Robin</i> sends each note out of the next cable in turn (in the order the cables were made); <i>Random</i> picks one random cable per note; <i>Random (no repeat)</i> does too but never the same cable twice in a row. <b>Random Phase</b> starts every note at its own random point of the OSC waveform cycle (0 % = all start at the beginning, 100 % = anywhere).'));
     explanations.append(hint('<b>Random Delay</b> independently delays each incoming note by 0 to the selected maximum (0–5000 ms; default 0). Velocity changes and note-off use that same delay, preserving the note’s length. Chained MIDI processors add their delays. Stop ends input notes normally; Panic cancels pending notes.'));
   }
   if (entry.def.type === 'STRUM') {
@@ -1595,3 +1589,17 @@ initKeyboard({
   onActivity: () => engine.resume(),
   onNoTarget: () => ($('status').textContent = 'No module to play: add a module that takes MIDI (e.g. OSC) to hear the Q..P keys.'),
 });
+
+// wall clock (HH:MM, 24 h) on the lower divider; re-aligned to every minute boundary
+(function startClock() {
+  const el = $('clock');
+  if (!el) return;
+  const tick = () => {
+    const now = new Date();
+    const hm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    el.textContent = hm;
+    el.dateTime = hm;
+    setTimeout(tick, 60000 - (now.getSeconds() * 1000 + now.getMilliseconds()) + 50);
+  };
+  tick();
+})();

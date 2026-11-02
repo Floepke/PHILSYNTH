@@ -40,6 +40,7 @@
     </section>
     <div id="seq-hsplit" class="splitter horizontal" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Patcher / TimeLine divider" aria-controls="patcher arranger" title="Drag up/down to resize the TimeLine and left/right to resize the controller panel; pushes the upper divider when they meet. Arrow keys resize; Home/End move to an edge.">
       <nav id="crumbs" aria-label="Patch path"></nav>
+      <time id="clock" aria-label="Current time"></time>
     </div>
     <div id="arranger" class="seq-view" role="region" aria-label="TimeLine"></div>
   </div>
@@ -64,7 +65,6 @@
         <button value="ok" class="primary">OK</button>
       </menu>
     </form>
-    <input id="synth-file" type="file" accept=".synth" hidden>
   </dialog>
 
   <!-- in-app dialogs: native confirm() crashes Electron on some Linux desktops -->

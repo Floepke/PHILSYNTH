@@ -152,7 +152,8 @@ export function fsaBackend(win = window) {
     async open() {
       let handle;
       try {
-        [handle] = await win.showOpenFilePicker({ types: OPEN_TYPES, multiple: false });
+        // id: the browser starts in the folder the last project was opened from
+        [handle] = await win.showOpenFilePicker({ id: 'project-open', types: OPEN_TYPES, multiple: false });
       } catch (err) {
         if (cancelled(err)) return null;
         throw err;
@@ -180,7 +181,7 @@ export function fsaBackend(win = window) {
     async saveAs(name, text) {
       let handle;
       try {
-        handle = await win.showSaveFilePicker({ suggestedName: name, types: TYPES });
+        handle = await win.showSaveFilePicker({ id: 'project-save', suggestedName: name, types: TYPES });
       } catch (err) {
         if (cancelled(err)) return null;
         throw err;

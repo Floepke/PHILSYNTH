@@ -5,6 +5,7 @@ import {
   meter, barLines, beatLines, barRound, barCeil, barLength, setSig, removeSig, normalizeSigs,
   addAutoClip, isAuto, autoValue, automationAt, pointIndex,
   notePoints, noteVelAt, groupVelCurve, applyVelCurve, canConsolidate, consolidateClips, splitClip,
+  clipFileText, parseClipFile, CLIP_FORMAT,
 } from '../src/song.js';
 import { Transport } from '../src/transport.js';
 
@@ -411,5 +412,35 @@ console.log('song tests passed');
   const ar = splitClip(s2, am, 3.5);
   values(s2, ts).forEach((v, i) => assert.ok(Math.abs(v - v0[i]) < 1e-9, `split auto at ${ts[i]}`));
   assert.equal(ar.start, 3.5);
+}
+
+// .clip files: relative positions, no ids / links, module types kept; parsing validates
+{
+  const s = emptySong();
+  const a = addClip(s, { start: 4, y: LANE_H, length: 2, target: 3 });
+  a.name = 'Riff';
+  a.notes.push({ pitch: 60, start: 0.5, length: 1, vel: 0.7 });
+  const clone = cloneClip(s, a);
+  clone.start = 8;
+  const auto = addAutoClip(s, { start: 6, y: 2 * LANE_H, target: 5, controller: 2 });
+  auto.points.push({ t: 0, v: 0.2, r: 0 }, { t: 1, v: 0.9, r: 0 });
+  const types = { 3: 'MULTIMIDI', 5: 'FILTER' };
+  const text = clipFileText([clone, auto], (id) => types[id] ?? null);
+  const data = JSON.parse(text);
+  assert.equal(data.format, CLIP_FORMAT);
+  assert.equal(data.version, 1);
+  assert.deepEqual(data.clips.map((c) => [c.start, c.y, c.targetType, 'id' in c, 'link' in c]), [[2, 0, 'MULTIMIDI', false, false], [0, LANE_H, 'FILTER', false, false]]);
+  const clips = parseClipFile(text);
+  assert.equal(clips.length, 2);
+  assert.deepEqual([clips[0].name, clips[0].target, clips[0].targetType, clips[0].link], ['Riff', 3, 'MULTIMIDI', undefined]);
+  assert.deepEqual(clips[0].notes, a.notes);
+  assert.notEqual(clips[0].notes, a.notes);
+  assert.ok(isAuto(clips[1]));
+  assert.deepEqual([clips[1].controller, clips[1].targetType], [2, 'FILTER']);
+  assert.deepEqual(clips[1].points.map((p) => [p.t, p.v]), [[0, 0.2], [1, 0.9]]);
+  assert.equal(s.clips[0].link, a.id, 'saving leaves the song alone');
+  assert.throws(() => parseClipFile('{"format":"modsynth-module","modules":[]}'), /not a PHILSYNTH \.clip file/);
+  assert.throws(() => parseClipFile(JSON.stringify({ format: CLIP_FORMAT, clips: [null] })), /no clips/);
+  assert.throws(() => parseClipFile('nope'));
 }
 console.log('link tests passed');

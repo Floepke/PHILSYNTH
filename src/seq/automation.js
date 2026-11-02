@@ -12,6 +12,7 @@ import { snapStep, snapRound, clipSilent, BAR, meter, barLines, beatLines, autoP
 import { createSurface, capture, startPan, onWheel, clamp, snapBands, mutedMark } from './surface.js';
 import { NEW_POINT_ROUND } from '../curve.js';
 import { doublePress } from '../doublepress.js';
+import { TOP_MARGIN } from './pianoroll.js';
 
 const GUTTER = 36;
 const VALUE_H = 24; // value scale strip at the bottom
@@ -28,7 +29,7 @@ const BOUNDARY = '#a1a7b3';
 // ctx: { song(), clip() (an automation clip or null), color(clip), transport, changed(),
 //        autoParam(clip) -> { p, format(v) } | null (the controller the clip drives) }
 export function createAutomationLane(host, ctx) {
-  const view = { sy: 0, ppq: 48 };
+  const view = { sy: -TOP_MARGIN, ppq: 48 }; // top margin like the piano roll
   let selected = null; // point object
   let selectionClip = null;
   let hover = null; // point under the pointer
@@ -58,7 +59,7 @@ export function createAutomationLane(host, ctx) {
   function limitScroll() {
     const clip = ctx.clip();
     const end = clip ? Math.max(clip.length, ...clip.points.map((p) => p.t)) : BAR;
-    view.sy = clamp(view.sy, 0, Math.max(0, (end + BAR) * view.ppq - bottom()));
+    view.sy = clamp(view.sy, -TOP_MARGIN, Math.max(0, (end + BAR) * view.ppq - bottom()));
   }
 
   const valueText = (clip, v) => {
@@ -98,7 +99,8 @@ export function createAutomationLane(host, ctx) {
       g.strokeStyle = 'rgba(255, 255, 255, 0.07)';
       g.lineWidth = 1;
       g.beginPath();
-      for (const v of [0, 0.25, 0.5, 0.75, 1]) { const x = Math.round(xOf(v)) + 0.5; g.moveTo(x, 0); g.lineTo(x, bot); }
+      const guideTop = Math.min(bot, Math.max(0, yOf(0))); // the top margin stays empty, like the piano roll
+      for (const v of [0, 0.25, 0.5, 0.75, 1]) { const x = Math.round(xOf(v)) + 0.5; g.moveTo(x, guideTop); g.lineTo(x, bot); }
       g.stroke();
       const line = (t, color, lw = 1) => {
         const y = Math.round(yOf(t)) + 0.5;
@@ -408,7 +410,7 @@ export function createAutomationLane(host, ctx) {
   return {
     surface: s,
     redraw: s.redraw,
-    reveal() { view.sy = 0; s.redraw(); },
+    reveal() { view.sy = -TOP_MARGIN; s.redraw(); },
     getView: () => ({ sy: view.sy, ppq: view.ppq }),
     setView(v) {
       if (!v) return;

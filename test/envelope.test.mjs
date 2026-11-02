@@ -45,4 +45,77 @@ assert.ok(e.meter > 0, 'playing');
 msg({ type: 'reset' });
 assert.equal(e.value, null, 'reset stops driving');
 assert.equal(e.meter, -1, 'reset hides the playhead');
+
+// ---- Mode 1: Notes ON/OFF Loop ----
+{
+  const l = new Proc();
+  const m = (data) => l.port.onmessage({ data });
+  const go = (s) => { for (let b = 0; b < Math.round((s * SR) / 128); b++) l.process([], [[new Float32Array(128)]]); return l.value; };
+  m({ type: 'curve', curve: { points: [{ x: 0, y: 0, r: 0 }, { x: 1, y: 1, r: 0 }] } }); // straight ramp: value = position
+  m({ type: 'param', id: 'length', value: 1000 });
+  m({ type: 'param', id: 'mode', value: 1 });
+  m({ type: 'noteOn', id: 1 });
+  close(go(0.4), 0.4, 0.01, 'loop: plays forward');
+  m({ type: 'noteOn', id: 2 });
+  close(go(0.2), 0.6, 0.01, 'a second note while one is held does not restart');
+  close(go(0.6), 0.2, 0.01, 'past the end it starts over');
+  m({ type: 'noteOff', id: 1 });
+  close(go(0.3), 0.5, 0.01, 'still looping while a note is held');
+  assert.ok(l.meter >= 0, 'playhead shown while looping');
+  m({ type: 'noteOff', id: 2 });
+  const held = go(128 / SR);
+  close(go(0.5), held, 1e-9, 'all released: stops and holds');
+  assert.equal(l.meter, -1, 'stopped: the playhead is hidden');
+  m({ type: 'noteOn', id: 3 });
+  close(go(0.1), 0.1, 0.01, 'the next note starts over from the beginning');
+  m({ type: 'allOff' });
+  const h2 = go(128 / SR);
+  close(go(0.3), h2, 1e-9, 'allOff (stop/panic) stops the loop too');
+}
+
+// ---- Mode 2: Notes ON/OFF Loop Forward/Backwards ----
+{
+  const l = new Proc();
+  const m = (data) => l.port.onmessage({ data });
+  const go = (s) => { for (let b = 0; b < Math.round((s * SR) / 128); b++) l.process([], [[new Float32Array(128)]]); return l.value; };
+  m({ type: 'curve', curve: { points: [{ x: 0, y: 0, r: 0 }, { x: 1, y: 1, r: 0 }] } });
+  m({ type: 'param', id: 'length', value: 1000 });
+  m({ type: 'param', id: 'mode', value: 2 });
+  m({ type: 'noteOn', id: 1 });
+  close(go(0.8), 0.8, 0.01, 'ping-pong: forward first');
+  close(go(0.4), 0.8, 0.01, 'bounced at the end: now going back');
+  close(go(0.7), 0.1, 0.01, 'back towards the start');
+  close(go(0.3), 0.2, 0.01, 'bounced at the start: forward again');
+  m({ type: 'noteOff', id: 1 });
+  const held = go(128 / SR);
+  close(go(0.5), held, 1e-9, 'released: holds');
+  m({ type: 'noteOn', id: 2 });
+  close(go(0.3), 0.3, 0.01, 'restarts forward from the beginning');
+}
+
+// ---- Mode 0 ignores note-offs (as before) ----
+{
+  const l = new Proc();
+  const m = (data) => l.port.onmessage({ data });
+  const go = (s) => { for (let b = 0; b < Math.round((s * SR) / 128); b++) l.process([], [[new Float32Array(128)]]); return l.value; };
+  m({ type: 'curve', curve: { points: [{ x: 0, y: 0, r: 0 }, { x: 1, y: 1, r: 0 }] } });
+  m({ type: 'param', id: 'length', value: 1000 });
+  m({ type: 'noteOn', id: 1 });
+  go(0.3);
+  m({ type: 'noteOff', id: 1 });
+  close(go(0.3), 0.6, 0.01, 'trigger mode plays on after note-off');
+  m({ type: 'noteOn', id: 1 });
+  m({ type: 'noteOn', id: 2 });
+  close(go(0.2), 0.2, 0.01, 'every note restarts in trigger mode');
+}
+
+// ---- main-thread playhead extrapolation follows the mode ----
+{
+  const { playheadAt, MODES } = await import('../src/modules/envelope.js');
+  assert.equal(MODES.length, 3);
+  close(playheadAt({ pos: 0.9 }, 0.3, 0), 1, 1e-9, 'trigger: stops at the end');
+  close(playheadAt({ pos: 0.9 }, 0.3, 1), 0.2, 1e-9, 'loop: wraps');
+  close(playheadAt({ pos: 0.9, dir: 1 }, 0.3, 2), 0.8, 1e-9, 'ping-pong: bounces at the end');
+  close(playheadAt({ pos: 0.1, dir: -1 }, 0.3, 2), 0.2, 1e-9, 'ping-pong: bounces at the start');
+}
 console.log('envelope tests passed');

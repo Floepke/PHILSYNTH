@@ -360,6 +360,37 @@ export function duplicateClip(song, clip) {
   return copy;
 }
 
+// ---- .clip files: clips saved to disk (TimeLine menu "Save Clip…" / "Load Clip…") ----
+// JSON text: { format: 'modsynth-clip', version, clips }. The clips are standalone copies (no link)
+// placed relative to the earliest / top one; targetType is the type of the module a clip played
+// (module numbers differ per project) so loading can pick a module of the same type.
+export const CLIP_FORMAT = 'modsynth-clip';
+export function clipFileText(clips, typeOf = () => null) {
+  const t0 = Math.min(...clips.map((c) => c.start));
+  const y0 = Math.min(...clips.map((c) => c.y));
+  const saved = clips.map((c) => {
+    const copy = structuredClone(c);
+    delete copy.id;
+    delete copy.link;
+    copy.start = c.start - t0;
+    copy.y = c.y - y0;
+    const type = c.target === null ? null : typeOf(c.target);
+    if (type) copy.targetType = type;
+    return copy;
+  });
+  return JSON.stringify({ format: CLIP_FORMAT, version: 1, clips: saved }, null, 2);
+}
+// -> validated clips (ids are placeholders: add them with duplicateClip), each with its targetType
+export function parseClipFile(text) {
+  const data = JSON.parse(text);
+  if (data?.format !== CLIP_FORMAT || !Array.isArray(data.clips)) throw new Error('not a PHILSYNTH .clip file');
+  const raw = data.clips.filter((c) => c && typeof c === 'object');
+  if (!raw.length) throw new Error('the file has no clips');
+  const clips = normalizeSong({ clips: raw.map(({ link, ...c }) => c) }).clips;
+  clips.forEach((c, i) => { c.targetType = typeof raw[i].targetType === 'string' ? raw[i].targetType : null; });
+  return clips;
+}
+
 // All clips of a clip's linked group (itself included; just [clip] when it is not linked).
 export const linkedClips = (song, clip) => (clip?.link ? song.clips.filter((c) => c.link === clip.link) : clip ? [clip] : []);
 export const isLinked = (song, clip) => linkedClips(song, clip).length > 1;

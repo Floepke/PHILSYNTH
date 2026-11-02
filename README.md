@@ -80,6 +80,15 @@ its n-th overtone of the natural harmonic series: n + 1 times the frequency,
 i.e. 12·log2(n + 1) semitones up (1 = octave, 2 = octave + fifth at +19.02 st,
 3 = two octaves, …). The interval is exact, not rounded to semitones.
 
+**MULTIMIDI / Route Mode** chooses which outgoing MIDI cables a note takes:
+- **Sent to All** (default): every connected module plays its own copy.
+- **Round Robin**: one cable per note, cycling through the cables in the order they
+  were connected (1st note → 1st cable, 2nd → 2nd, …, then the 1st again).
+- **Random**: one random cable per note.
+- **Random (no repeat)**: one random cable per note, never the same one twice in a row.
+
+A note's velocity / pitch updates and its note-off follow the cable its note-on took.
+
 **MULTIMIDI / Random Delay** delays each note independently by a random amount
 from zero to the chosen maximum (0–5000 ms, default zero). Both processors delay
 note-off and velocity updates by the same per-note amount, preserving note
@@ -92,12 +101,31 @@ the processor's own voices. WAV export includes delayed MIDI in its bounded tail
 Insert **ENVELOPE** and draw its shape in the panel's curve editor (same editing
 as the WAVESHAPER curve): left to right is time, bottom to top is the output.
 Notes trigger it (select it and play, send a clip to it, or Shift + drag a
-MULTIMIDI into it); each note restarts the curve, which then holds its last value.
-Shift + drag from it to a module to modulate that module.
+MULTIMIDI into it). Shift + drag from it to a module to modulate that module.
 
 - **Envelope Length**: 0–10000 ms, the duration of the whole curve.
 - **Out Controller**: which controller of the cabled module(s) is modulated.
 - **Out Min / Out Max**: trim the output range (% of that controller's range).
+- **Mode**:
+  - *Note ON Trigger* (default): each note restarts the curve, which plays once
+    and then holds its last value; note-off is ignored.
+  - *Notes ON/OFF Loop*: the first note starts the curve and it repeats while any
+    note is held. Releasing the last note stops it where it is (the value holds);
+    the next note starts over from the beginning.
+  - *Notes ON/OFF Loop Forward/Backwards*: like the loop, but the playhead runs
+    forward and then back (ping-pong).
+
+## Clip files
+
+Right-click a clip in the TimeLine and choose **Save Clip…** to store the selected
+clips as a `.clip` file (JSON: `{ "format": "modsynth-clip", "version": 1, "clips": [...] }`).
+Right-click empty TimeLine space and choose **Load Clip…** to place them there again,
+also in another project. A clip plays the same module when it still exists, otherwise
+the first module of the same type, otherwise the default MIDI module.
+
+The file dialogs remember the last folder per kind: opening projects, saving projects,
+clips and modules (`.synth`). The desktop app stores these folders in `dialog-dirs.json`
+in its user data folder. Chromium browsers remember them per site.
 
 ## Development
 

@@ -700,6 +700,18 @@ body.panel-collapsed #panel { visibility: hidden; }
 }
 #crumbs button:hover { background: var(--surface-3); color: var(--text); }
 #crumbs button.current { background: var(--surface-3); border-color: var(--border-strong); color: var(--text); }
+/* wall clock (HH:MM) on the outer right of the lower divider; clicks pass through to the divider */
+#clock {
+  flex: none;
+  margin-left: auto;
+  padding: 0 6px;
+  color: var(--beam-ink);
+  font: 600 12px var(--mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.85);
+  pointer-events: none;
+}
 #seq-bar button, #seq-bar select, #seq-bar .spinbox { cursor: default; }
 #seq-bar input { user-select: text; }
 .splitter:hover { filter: brightness(1.12); }

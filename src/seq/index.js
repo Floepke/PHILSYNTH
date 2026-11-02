@@ -2,7 +2,8 @@
 // with a toolbar for transport, the selected clip and the snap grid above the roll.
 // An automation clip shows the automation lane editor in place of the piano roll.
 import { newNoteId } from '../modmidi.js';
-import { getClip, isAuto, SNAP_BASES, SNAP_NAMES, snapStep, formatPos, DEFAULT_VEL, meter, segAt, setSig, removeSig, linkedClips, normalizeSong } from '../song.js';
+import { getClip, isAuto, SNAP_BASES, SNAP_NAMES, snapStep, formatPos, DEFAULT_VEL, meter, segAt, setSig, removeSig, linkedClips, normalizeSong, clipFileText, parseClipFile } from '../song.js';
+import { saveTextFile, openTextFile } from '../filedialog.js';
 import { sigDialog } from '../dialogs.js';
 import { createPianoRoll } from './pianoroll.js';
 import { createArranger } from './arranger.js';
@@ -94,6 +95,39 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
       if (!undoHistory) record();
       onChange();
       sync();
+    },
+    // .clip files; the dialogs start in the folder clips were last saved to / loaded from
+    async saveClips(clips) {
+      const fileSafe = (n) => n.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'Clip';
+      const suggestedName = `${fileSafe(clips.length === 1 ? clips[0].name : 'Clips')}.clip`;
+      try {
+        const saved = await saveTextFile('clip', suggestedName, clipFileText(clips, (id) => entryOf(id)?.def.type ?? null));
+        if (saved) $('status').textContent = `Saved ${clips.length} clip(s) to ${saved.name}.`;
+      } catch (err) {
+        $('status').textContent = `Save failed: ${err.message}`;
+      }
+    },
+    // -> the file's clips (still to be added to the song) or null; each plays the module it
+    // played before when that is still here, else the first module of the same type, else the
+    // default target (note clips) / nothing (automation clips)
+    async openClips() {
+      let file;
+      try {
+        file = await openTextFile('clip');
+        if (!file) return null;
+        const clips = parseClipFile(file.text);
+        const mods = [...patch().modules.values()];
+        for (const c of clips) {
+          const same = (e) => e && (!c.targetType || e.def.type === c.targetType);
+          if (!same(entryOf(c.target))) c.target = (c.targetType && mods.find((e) => e.def.type === c.targetType)?.id) ?? (isAuto(c) ? null : defaultTarget());
+          delete c.targetType;
+        }
+        $('status').textContent = `Loaded ${clips.length} clip(s) from ${file.name}.`;
+        return clips;
+      } catch (err) {
+        $('status').textContent = `Loading ${file?.name ?? 'the clip'} failed: ${err.message}`;
+        return null;
+      }
     },
     preview: {
       on(c, pitch) {

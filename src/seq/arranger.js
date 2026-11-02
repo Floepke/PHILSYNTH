@@ -20,6 +20,7 @@
 //                              are hatched, a selected clone shows a dashed arrow to its source
 //   right-click                menu: cut / copy / paste / delete / duplicate / clone / detach / go to source /
 //                              consolidate (selected clips on one lane -> one clip) / split at the playhead
+//                              / save clip (.clip file); on empty space: paste / insert / load clip
 //   Backspace / Delete         delete the selected clips
 //   Ctrl/Cmd + X / C / V       cut / copy / paste clips at the snapped pointer position
 //   Ctrl/Cmd + D / Shift + D   linked clone / duplicate the selection right after itself
@@ -867,6 +868,19 @@ export function createArranger(host, ctx) {
     setSelection(copies, copies[0]);
     ctx.changed();
   }
+  // clips from a .clip file, placed like a paste at local point p
+  async function loadClips(p) {
+    const loaded = await ctx.openClips?.();
+    if (!loaded?.length) return;
+    const song = ctx.song();
+    const at = dropAt(p);
+    const t0 = Math.min(...loaded.map((c) => c.start));
+    const y0 = Math.min(...loaded.map((c) => c.y));
+    const copies = loaded.map((c) => duplicateClip(song, c));
+    placeAll(copies, loaded.map((c) => ({ start: clean(at.start + c.start - t0), y: at.y + c.y - y0 })));
+    setSelection(copies, copies[0]);
+    ctx.changed();
+  }
   // copies (or linked clones) of the selection, right after it on the same rows
   function repeat(linkedCopies) {
     const clips = selectedClips();
@@ -928,6 +942,8 @@ export function createArranger(host, ctx) {
         { label: 'Consolidate', disabled: !canConsolidate(ctx.song(), clips), action: consolidate },
         { label: 'Split at playhead', disabled: !splittable().length, action: split },
         '-',
+        { label: clips.length > 1 ? 'Save Clips…' : 'Save Clip…', disabled: !ctx.saveClips, action: () => ctx.saveClips(clips) },
+        '-',
         { label: 'Select all', shortcut: shortcut('A'), action: selectAll },
       ]
       : [
@@ -935,6 +951,7 @@ export function createArranger(host, ctx) {
         '-',
         { label: 'Insert clip', action: () => insert(x, y, false) },
         { label: 'Insert automation clip', action: () => insert(x, y, true) },
+        { label: 'Load Clip…', disabled: !ctx.openClips || !inTimeArea(p), action: () => loadClips(p) },
         '-',
         { label: 'Select all', shortcut: shortcut('A'), disabled: !ctx.song().clips.length, action: selectAll },
       ];
