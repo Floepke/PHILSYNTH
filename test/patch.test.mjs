@@ -165,10 +165,11 @@ assert.equal((await c2.inst.patch.addModule('OSC')).id, 1, 'numbering is per pat
 // ---- DC BLOCKER: no controllers, removes a DC offset, passes audio ----
 {
   const r = await PatchRuntime.create(engine, dsp.destination);
-  const dc = await r.addModule('DC BLOCKER');
+  const dc = await r.addModule('DC BLOCKER', { values: { cutoff: 2 } }); // a briefly existing controller
   assert.equal(dc.def.params.length, 0, 'works out of the box: no controllers');
   assert.ok(!r.modules.get(dc.id).def.acceptsMidi);
   const k = kernel(dc.inst.node);
+  assert.ok(Math.abs(k.r - Math.exp((-2 * Math.PI * 20) / 48000)) < 1e-15, 'fixed 20 Hz corner');
   const run = (fn, blocks) => {
     const out = [[new Float32Array(128), new Float32Array(128)]];
     let last = null;
@@ -188,8 +189,11 @@ assert.equal((await c2.inst.patch.addModule('OSC')).id, 1, 'numbering is per pat
   const osc = await r.addModule('OSC');
   assert.ok(r.connect(osc.id, dc.id) && r.connect(dc.id, 0));
   const g = graph.nodes.get(dc.inst.node.h);
+  assert.equal(g.passive, false, 'not skipped on silent input: its correction rings out instead of jumping to 0');
   render(4);
-  assert.equal(g.silent, true, 'nothing playing: skipped');
+  assert.equal(g.silent, false, 'still ringing out the tone fed above');
+  render(60);
+  assert.equal(g.silent, true, 'nothing playing: silent once settled');
   osc.inst.noteOn(1, 69, 1);
   render(20);
   assert.equal(g.silent, false, 'plays the OSC through');

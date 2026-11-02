@@ -24,7 +24,7 @@ Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {
   },
 } });
 
-const { initMidi, initKeyboard } = await import('../src/midi.js');
+const { initMidi, initKeyboard, heldPitches, onHeldChange } = await import('../src/midi.js');
 const calls = [];
 const ids = new Map(); // MODMIDI note id -> pitch
 let status = '';
@@ -211,5 +211,33 @@ assert.equal(vel2ctl.liveMidi, false);
   (winListeners.blur ?? []).forEach((fn) => fn({}));
   fire('keyup', 'KeyR');
   assert.deepEqual(calls.splice(0), [['on', 62, 0.8], ['off', 62], ['on', 65, 0.8], ['off', 65]]);
+
+  // held keys (blue on the piano roll keyboard): played pitches before Global Transpose, chords,
+  // also without a module to play them; released by keyup, blur and repeats change nothing
+  let changes = 0;
+  const stop = onHeldChange(() => changes++);
+  const base = heldPitches(); // notes still held on the MIDI devices of the tests above
+  const mine = () => [...heldPitches()].filter((p) => !base.has(p)).sort((a, b) => a - b);
+  shift = 12;
+  fire('keydown', 'KeyQ'); fire('keydown', 'KeyE');
+  assert.deepEqual(mine(), [60, 64], 'chord held, untransposed');
+  assert.equal(changes, 2);
+  fire('keydown', 'KeyQ', { repeat: true });
+  assert.equal(changes, 2, 'repeat: no change');
+  fire('keyup', 'KeyQ');
+  assert.deepEqual(mine(), [64]);
+  kbTarget = null;
+  fire('keydown', 'KeyT');
+  assert.deepEqual(mine(), [64, 67], 'shown even when no module plays it');
+  (winListeners.blur ?? []).forEach((fn) => fn({}));
+  assert.deepEqual(mine(), [], 'blur releases every key');
+  fire('keyup', 'KeyT');
+  const n = changes;
+  stop();
+  fire('keydown', 'KeyQ'); fire('keyup', 'KeyQ');
+  assert.equal(changes, n, 'unsubscribed');
+  shift = 0;
+  kbTarget = target;
+  calls.splice(0);
 }
 console.log('all midi tests passed');

@@ -91,17 +91,19 @@ struct Out : Kernel {
   }
 };
 
-// one-pole high-pass y = x - x1 + r * y1, ~10 Hz corner
+// one-pole high-pass y = x - x1 + r * y1, fixed CUTOFF_HZ corner. Not passive (it has memory): a
+// silent input is filtered as zeros so the correction fades out; silent again once settled.
 struct DcBlock : Kernel {
   enum { PARAMS };
-  static constexpr double CUTOFF_HZ = 10;
+  static constexpr double CUTOFF_HZ = 20, SETTLE = 1e-6;
   double r, x1[2] = {0, 0}, y1[2] = {0, 0};
 
   explicit DcBlock(double sampleRate) : Kernel(sampleRate) { r = exp(-2 * PI * CUTOFF_HZ / sr); }
   void panic() override { x1[0] = x1[1] = y1[0] = y1[1] = 0; }
 
   int process(const float* inL, const float* inR, float* outL, float* outR, int n) override {
-    if (!inL) return 0;
+    const bool silent = !inL;
+    if (silent && !x1[0] && !x1[1] && !y1[0] && !y1[1]) return 0;
     const float* src[2] = {inL, inR ? inR : inL};
     float* dst[2] = {outL, outR};
     const int chans = outR != outL ? 2 : 1;
@@ -110,13 +112,17 @@ struct DcBlock : Kernel {
       float* d = dst[c];
       double x1c = x1[c], y1c = y1[c];
       for (int i = 0; i < n; i++) {
-        const double x = s[i];
+        const double x = silent ? 0 : s[i];
         y1c = x - x1c + r * y1c;
         x1c = x;
         d[i] = (float)y1c;
       }
       x1[c] = x1c;
       y1[c] = fabs(y1c) < 1e-20 ? 0 : y1c;
+    }
+    if (silent && fabs(y1[0]) < SETTLE && fabs(y1[1]) < SETTLE) {
+      y1[0] = y1[1] = 0;
+      return 0;
     }
     return 1;
   }

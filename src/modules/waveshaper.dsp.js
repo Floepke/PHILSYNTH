@@ -1,15 +1,17 @@
 // WAVESHAPER kernel: input × drive -> curve table (optionally oversampled) -> DC blocker -> wet,
 // mixed with the dry input, × output level. The curve (module state) arrives as
 // { type: 'curve', curve } and is turned into a table for the current Range here.
+// Not passive: the oversampling and DC blocker have memory. A silent input (a source reporting a
+// silent block, e.g. a half sine's zero half through a MODULATOR) is processed as zeros, so that
+// state fades out instead of being cut to 0 (a click); silent again once settled (SETTLE).
 import { Kernel } from '../dsp/kernel.js';
 import { curveTable, defaultCurve } from '../curve.js';
 
 const SMOOTH_S = 0.01;
 const DC_HZ = 8;
+const SETTLE = 1e-6;
 
 export default class WaveshaperKernel extends Kernel {
-  static passive = true;
-
   constructor() {
     super();
     this.curve = defaultCurve();
@@ -54,7 +56,8 @@ export default class WaveshaperKernel extends Kernel {
   process(inputs, outputs) {
     const inp = inputs[0];
     const o = outputs[0];
-    if (!inp || !inp.length) return false;
+    const silent = !inp || !inp.length;
+    if (silent && this.ch.every((c) => c.prev === 0 && c.y1 === 0)) return false;
     const n = o[0].length;
     const { t, s, k, os, dcR } = this;
     const s0 = { ...s };
@@ -62,14 +65,14 @@ export default class WaveshaperKernel extends Kernel {
     const kb = 1 - Math.pow(1 - k, n);
     for (const key in t) s[key] = Math.abs(t[key] - s[key]) < 1e-6 ? t[key] : s[key] + (t[key] - s[key]) * kb;
     for (let c = 0; c < 2; c++) {
-      const src = inp[c] ?? inp[0];
+      const src = silent ? null : inp[c] ?? inp[0];
       const dst = o[c];
       const st = this.ch[c];
       let { prev, x1, y1 } = st;
       for (let i = 0; i < n; i++) {
         const u = i / n;
         const drive = s0.drive + (s.drive - s0.drive) * u;
-        const x = src[i];
+        const x = silent ? 0 : src[i];
         let w;
         if (os === 1) w = this.shape(x * drive);
         else {
@@ -88,6 +91,10 @@ export default class WaveshaperKernel extends Kernel {
         dst[i] = (y * wet + x * dry) * level;
       }
       st.prev = prev; st.x1 = x1; st.y1 = Math.abs(y1) < 1e-20 ? 0 : y1;
+    }
+    if (silent && this.ch.every((c) => Math.abs(c.y1) < SETTLE)) {
+      for (const c of this.ch) c.y1 = 0;
+      return false;
     }
     return true;
   }

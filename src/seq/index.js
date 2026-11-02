@@ -2,6 +2,7 @@
 // with a toolbar for transport, the selected clip and the snap grid above the roll.
 // An automation clip shows the automation lane editor in place of the piano roll.
 import { newNoteId } from '../modmidi.js';
+import { heldPitches, onHeldChange } from '../midi.js';
 import { getClip, isAuto, SNAP_BASES, SNAP_NAMES, snapStep, formatPos, DEFAULT_VEL, meter, segAt, setSig, removeSig, linkedClips, normalizeSong, clipFileText, parseClipFile } from '../song.js';
 import { saveTextFile, openTextFile } from '../filedialog.js';
 import { sigDialog } from '../dialogs.js';
@@ -153,7 +154,11 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
 
   // the piano roll only sees note clips, the lane only automation clips
   // live: a clip-length drag in the piano roll keeps the TimeLine in step
-  const roll = createPianoRoll($('roll'), { ...ctx, clip: () => (isAuto(clip()) ? null : clip()), live: () => arranger.redraw() });
+  // heldKeys: keys held on the MIDI device / computer keyboard light up blue on its keyboard
+  const roll = createPianoRoll($('roll'), {
+    ...ctx, clip: () => (isAuto(clip()) ? null : clip()), live: () => arranger.redraw(), heldKeys: heldPitches,
+  });
+  onHeldChange(() => roll.redraw());
   const lane = createAutomationLane($('roll'), { ...ctx, clip: () => (isAuto(clip()) ? clip() : null) });
   const arranger = createArranger($('arranger'), ctx);
 

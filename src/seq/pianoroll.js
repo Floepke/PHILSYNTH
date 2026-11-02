@@ -4,6 +4,7 @@
 // white-key notes sit between the lines (2- and 3-line groups like a keyboard). Outside the
 // piano range there are no lines, notes just float.
 // The keyboard sits below the stave. Noteheads are left-tilted ovals, white/black by key.
+// Keys held on the MIDI device or computer keyboard (ctx.heldKeys) light up blue (the selection colour).
 // All 128 MIDI pitches fit the available width; only time can be scrolled / zoomed.
 //   click / drag the keyboard  play pitches on the live MIDI module (red MIDI in the patcher) without editing notes
 //   click / drag on empty space  insert a note (last used length), dragging sets its duration
@@ -57,7 +58,8 @@ const BOUNDARY = STAVE;
 const TIME_EPSILON = 1e-7;
 
 // ctx: { song(), clip(), color(clip), preview: { on(clip, pitch) -> handle, key(pitch) -> handle, off(handle) }, changed(), transport,
-//        menu?(opts) (context menu, default showMenu) }
+//        menu?(opts) (context menu, default showMenu), heldKeys?() -> Set of pitches held on the live
+//        inputs (shown blue on the keyboard; call redraw() when it changes) }
 export function createPianoRoll(host, ctx) {
   const view = { sy: -TOP_MARGIN, ppq: 48, snapVelocity: true, velW: VEL_W };
   let hover = null; // { pitch, t } where a click would insert a note
@@ -327,9 +329,12 @@ export function createPianoRoll(host, ctx) {
     g.font = '600 8px system-ui, sans-serif';
     g.textAlign = 'center';
     const keyGap = Math.min(1, kw * 0.1);
+    const live = ctx.heldKeys?.() ?? new Set(); // keys held on the MIDI device / computer keyboard
+    const blackLive = `color-mix(in srgb, ${SELECT} 70%, #000)`;
     for (let p = 0; p <= PITCH_MAX; p++) {
       const x = xOf(p);
       g.fillStyle = drag?.kind === 'keyboard' && drag.pitch === p ? PLAYHEAD
+        : live.has(p) ? (isBlack(p) ? blackLive : SELECT)
         : inPiano(p) ? (isBlack(p) ? '#191a20' : '#bfc1c7') : (isBlack(p) ? '#24262c' : '#777a84');
       g.fillRect(x + keyGap / 2, bottom + 1, kw - keyGap, KEYBOARD - 2);
       if (p === hoverPitch) {

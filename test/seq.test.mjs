@@ -233,6 +233,18 @@ for (const ending of ['pointerup', 'pointercancel', 'lostpointercapture', 'blur'
   point(cv, 'pointerdown', nx(60), 390, { buttons: 1 });
   assert.deepEqual(calls, [['on', 60]]);
   assert.ok(cv.drawing.some(([op, , y, , , color]) => op === 'fillRect' && y === 377 && color === '#ff916e'), 'held key highlighted');
+  if (ending === 'pointerup') {
+    // keys held on the MIDI device / computer keyboard light up in the selection colour
+    const held = new Set([62, 63]);
+    ctx.heldKeys = () => held;
+    roll.redraw();
+    flush();
+    const keyFill = (p) => cv.drawing.findLast(([op, x, y, w]) => op === 'fillRect' && y === 377 && x <= nx(p) && nx(p) < x + w)?.at(-1);
+    assert.equal(keyFill(62), '#65b4ff', 'held white key: selection blue');
+    assert.match(keyFill(63), /color-mix\(in srgb, #65b4ff/, 'held black key: darker blue');
+    assert.notEqual(keyFill(64), '#65b4ff', 'other keys unchanged');
+    delete ctx.heldKeys;
+  }
   point(cv, 'pointermove', nx(60) + 1, 390, { buttons: 1 });
   assert.equal(calls.length, 1, 'same key is not retriggered');
   point(cv, 'pointerup', nx(60), 390, { pointerId: 2 });

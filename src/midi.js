@@ -6,11 +6,28 @@ import { newNoteId } from './modmidi.js';
 
 let access = null; // keep a strong reference, otherwise the browser may GC it and stop delivering messages
 
+// Keys held right now on any live input (MIDI device and computer keyboard), as played pitches
+// (before Global Transpose), for the piano roll keyboard. Also when no module plays them.
+const held = new Map(); // `${player}:${key}` -> pitch
+const heldListeners = new Set();
+let players = 0;
+export const heldPitches = () => new Set(held.values());
+export function onHeldChange(fn) { heldListeners.add(fn); return () => heldListeners.delete(fn); }
+function setHeld(token, pitch) {
+  if (pitch === null ? !held.delete(token) : held.get(token) === pitch) return;
+  if (pitch !== null) held.set(token, pitch);
+  heldListeners.forEach((fn) => fn());
+}
+
 // key -> playing note bookkeeping shared by the MIDI device and the computer keyboard
 // pitchOffset(): semitones added to every note (Output Global Transpose / Cents Offset)
 function notePlayer(getTarget, pitchOffset = () => 0) {
   const playing = new Map(); // key -> { id, inst }
+  const player = ++players;
+  const keys = new Set(); // keys held on this input (with or without a module playing them)
+  const release = (key) => { keys.delete(key); setHeld(`${player}:${key}`, null); };
   const noteOff = (key) => {
+    release(key);
     const n = playing.get(key);
     if (!n) return;
     playing.delete(key);
@@ -18,6 +35,8 @@ function notePlayer(getTarget, pitchOffset = () => 0) {
   };
   const noteOn = (key, velocity, pitch = key, time) => {
     noteOff(key); // the same key again without a note-off: release the old note first
+    keys.add(key);
+    setHeld(`${player}:${key}`, pitch);
     const t = getTarget();
     if (!t?.def.acceptsMidi || t.def.liveMidi === false) return false;
     const id = newNoteId();
@@ -25,8 +44,9 @@ function notePlayer(getTarget, pitchOffset = () => 0) {
     t.inst.noteOn?.(id, pitch + pitchOffset(), velocity, 0, time);
     return true;
   };
-  const releaseAll = () => [...playing.keys()].forEach(noteOff);
+  const releaseAll = () => { [...playing.keys()].forEach(noteOff); [...keys].forEach(release); };
   const allOff = () => {
+    [...keys].forEach(release);
     const insts = new Set([...playing.values()].map((n) => n.inst));
     playing.clear();
     const t = getTarget();

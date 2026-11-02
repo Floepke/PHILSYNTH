@@ -86,7 +86,7 @@ function noise(seed) {
 }
 
 // script: [[block, message], ...]; input: (block, i, ch) -> sample, or null (nothing connected)
-function compare(kind, { opts = {}, script = [], input = null, blocks = 200, tol = 1e-5, inHeap = false }) {
+function compare(kind, { opts = {}, script = [], input = null, gaps = () => false, blocks = 200, tol = 1e-5, inHeap = false }) {
   const js = new KERNELS[kind](opts);
   const wa = new WASM[kind](opts);
   let worst = 0;
@@ -97,7 +97,7 @@ function compare(kind, { opts = {}, script = [], input = null, blocks = 200, tol
       if (m === 'panic') { js.panic(); wa.panic(); } else { js.message(m); wa.message(m); }
     }
     let ins = [[]];
-    if (input) {
+    if (input && !gaps(b)) {
       const [L, R] = stereo();
       for (let i = 0; i < N; i++) { L[i] = input(b, i, 0); R[i] = input(b, i, 1); }
       ins = [[L, R]];
@@ -245,6 +245,13 @@ for (let os = 0; os <= 2; os++) {
   });
 }
 compare('waveshaper', { blocks: 4 }); // nothing connected: silent
+// silent input blocks in between (a source reporting silence): both twins ring out alike, then go silent
+for (let os = 0; os <= 2; os++) {
+  compare('waveshaper', {
+    input: (b, i, ch) => signal(b, i, ch) + 0.3, gaps: (b) => (b >= 20 && b < 24) || b >= 40, blocks: 200,
+    script: [[0, param('oversample', os)], [0, { type: 'curve', curve }], [0, param('mix', 70)]],
+  });
+}
 
 // BUS, AMP, OUT: the small kernels of the native graph
 compare('bus', { input: signal, blocks: 4 });
@@ -257,6 +264,8 @@ compare('out', { input: signal, blocks: 30, script: [[0, param('volume', 0.5)], 
 compare('out', { input: signal, blocks: 10 }); // no volume message yet: starts at the target
 compare('dcblock', { input: (b, i, ch) => signal(b, i, ch) + 0.3, blocks: 60, tol: 1e-6 });
 compare('dcblock', { blocks: 2 });
+// silent input blocks in between (a source reporting silence): both twins ring out alike, then go silent
+compare('dcblock', { input: (b, i, ch) => signal(b, i, ch) + 0.3, gaps: (b) => (b >= 20 && b < 24) || b >= 40, blocks: 200, tol: 1e-6 });
 // EQ: band gains glide, Q change recomputes all, level glide, ring-out after the input stops
 compare('eq', {
   input: (b, i, ch) => (b < 60 ? signal(b, i, ch) : 0), blocks: 120,

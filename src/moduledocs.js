@@ -200,7 +200,7 @@ export const DOCS = {
   },
 
   'DC BLOCKER': {
-    summary: 'Removes DC offset and sub-audio drift (below about 10 Hz) from the signal, recentring the waveform on zero. Use it after asymmetric distortion or modulation. It has no controllers.',
+    summary: 'Removes DC offset and sub-audio drift (below about 20 Hz) from the signal, recentring the waveform on zero: a constant offset glides back to zero in about 40 ms, without a click. Use it after asymmetric distortion or modulation (e.g. a half sine). It has no controllers.',
     params: {},
     notes: [],
   },

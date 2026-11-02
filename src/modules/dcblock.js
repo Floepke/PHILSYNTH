@@ -1,4 +1,4 @@
-// DC BLOCKER: removes DC offset (and sub-audio drift below ~10 Hz) from the signal. No controllers.
+// DC BLOCKER: removes DC offset (and sub-audio drift below ~20 Hz) from the signal. No controllers.
 // DSP: dcblock.dsp.js (C++: cpp/basic.h DcBlock).
 export default {
   type: 'DC BLOCKER',

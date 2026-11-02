@@ -1,6 +1,7 @@
 // WAVESHAPER: drive -> curve table (optionally oversampled) -> DC blocker, dry/wet, level. Twin of
 // src/modules/waveshaper.dsp.js. The table is built from the curve on the JS side (curve.js) and
 // written into data(0) by the adapter (src/dsp/wasm.js), which also handles 'range'.
+// Not passive (memory): a silent input is processed as zeros, silent again once settled.
 #pragma once
 #include "kernel.h"
 
@@ -10,7 +11,7 @@ struct Waveshaper : Kernel {
   enum { DRIVE, RANGE, OVERSAMPLE, MIX, LEVEL, PARAMS };
   static constexpr int TABLE = 4096;
   static constexpr double SMOOTH_S = 0.01;
-  static constexpr double DC_HZ = 8;
+  static constexpr double DC_HZ = 8, SETTLE = 1e-6;
   enum { T_DRIVE, T_WET, T_DRY, T_LEVEL, T_N };
 
   float table[TABLE];
@@ -48,21 +49,26 @@ struct Waveshaper : Kernel {
   }
 
   int process(const float* inL, const float* inR, float* outL, float* outR, int n) override {
-    if (!inL) return 0;
+    const bool silent = !inL;
+    const int chans = outR != outL ? 2 : 1;
+    if (silent) {
+      bool idle = true;
+      for (int c = 0; c < chans; c++) idle = idle && ch[c].prev == 0 && ch[c].y1 == 0;
+      if (idle) return 0;
+    }
     double s0[T_N];
     for (int j = 0; j < T_N; j++) s0[j] = s[j];
     const double kb = 1 - pow(1 - k, n);
     for (int j = 0; j < T_N; j++) s[j] = fabs(t[j] - s[j]) < 1e-6 ? t[j] : s[j] + (t[j] - s[j]) * kb;
     const float* src[2] = {inL, inR ? inR : inL};
     float* dst[2] = {outL, outR};
-    const int chans = outR != outL ? 2 : 1;
     for (int c = 0; c < chans; c++) {
       Ch& st = ch[c];
       double prev = st.prev, x1 = st.x1, y1 = st.y1;
       for (int i = 0; i < n; i++) {
         const double u = (double)i / n;
         const double drive = s0[T_DRIVE] + (s[T_DRIVE] - s0[T_DRIVE]) * u;
-        const double x = src[c][i];
+        const double x = silent ? 0 : src[c][i];
         double w;
         if (os == 1) w = shape(x * drive);
         else {
@@ -82,6 +88,14 @@ struct Waveshaper : Kernel {
       st.prev = prev;
       st.x1 = x1;
       st.y1 = fabs(y1) < 1e-20 ? 0 : y1;
+    }
+    if (silent) {
+      bool settled = true;
+      for (int c = 0; c < chans; c++) settled = settled && fabs(ch[c].y1) < SETTLE;
+      if (settled) {
+        for (int c = 0; c < chans; c++) ch[c].y1 = 0;
+        return 0;
+      }
     }
     return 1;
   }

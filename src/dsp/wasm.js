@@ -12,7 +12,7 @@
 import { Kernel } from './kernel.js';
 import { curveTable, defaultCurve } from '../curve.js';
 
-export const WASM_VERSION = 6;
+export const WASM_VERSION = 7;
 
 // kind = Kind in cpp/engine.cpp; params in the order of the kernel's enum
 export const SPECS = {
@@ -25,11 +25,11 @@ export const SPECS = {
     kind: 3,
     params: ['mix', 'size', 'decay', 'damp', 'seed', 'predelay', 'early', 'diffusion', 'mod', 'lowCut', 'highCut', 'width', 'freeze', 'level'],
   },
-  waveshaper: { kind: 4, params: ['drive', 'range', 'oversample', 'mix', 'level'], passive: true },
+  waveshaper: { kind: 4, params: ['drive', 'range', 'oversample', 'mix', 'level'] },
   bus: { kind: 5, params: [], passive: true },
   amp: { kind: 6, params: ['amp', 'inverse', 'pan'], passive: true },
   out: { kind: 7, params: ['volume', 'bpm'], passive: true },
-  dcblock: { kind: 8, params: [], passive: true },
+  dcblock: { kind: 8, params: [] },
   eq: { kind: 9, params: [...Array.from({ length: 16 }, (_, i) => `b${i}`), 'q', 'level'] },
   delay: { kind: 10, params: ['left', 'right', 'unit'] },
   echo: { kind: 11, params: ['dry', 'wet', 'feedback', 'delay', 'unit', 'mode', 'filter', 'cutoff'] },

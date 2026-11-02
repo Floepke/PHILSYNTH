@@ -199,7 +199,7 @@ export const GUIDE = [
         title: 'Write notes',
         items: [
           'Click empty space to insert a note at that pitch, starting on the grid line at or before the pointer, with the last used length; keep dragging to set its duration.',
-          'Click / drag the keyboard at the bottom to audition pitches on the live MIDI module without writing notes.',
+          'Click / drag the keyboard at the bottom to audition pitches on the live MIDI module without writing notes. Keys held on your MIDI controller or the computer keyboard light up blue there, so you can read what you play.',
         ],
       },
       {
