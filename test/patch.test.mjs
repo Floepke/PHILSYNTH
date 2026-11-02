@@ -28,9 +28,20 @@ assert.equal(root.connect(2, 1), false, 'OSC has no input port');
 // inside the patch: route input to an inner module
 const inner = sub.inst.patch;
 assert.ok(inner.modules.get(0).def.isOutput);
-// default Input Module = 0 -> passthrough to inner Output
-assert.ok(sub.inst.input.out.has(inner.modules.get(0).inst.input));
+// default Input Module = 1: the first module inserted inside gets the input (none yet: no route)
+assert.equal(sub.values.inputModule, 1);
+assert.equal(sub.inst.params()[0].max, 1, 'the range always includes the default');
+assert.equal(sub.inst.input.out.size, 0);
 assert.ok(inner.modules.get(0).inst.input.out.has(sub.inst.node), 'inner Output feeds patch output');
+{
+  const fresh = await root.addModule('PATCH');
+  const first = await fresh.inst.patch.addModule('DELAY');
+  assert.equal(first.id, 1);
+  assert.ok(fresh.inst.input.out.has(first.inst.input), 'the first inner module gets the input right away');
+  root.setParam(fresh.id, 'inputModule', 0);
+  assert.ok(fresh.inst.input.out.has(fresh.inst.patch.modules.get(0).inst.input), 'Input Module 0 = the inner Output (passthrough)');
+  root.removeModule(fresh.id);
+}
 const innerOsc = await inner.addModule('OSC');
 const inner2 = await inner.addModule('PATCH');
 assert.equal(innerOsc.id, 1);
@@ -590,6 +601,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   const fmt = (v) => pm.inst.params().find((p) => p.id === 'instances').format(v);
 
   // Input Module is the Output (audio): instances stay off
+  r.setParam(pm.id, 'inputModule', 0);
   r.setParam(pm.id, 'instances', 4);
   await pm.inst.sync();
   assert.equal(pm.inst.clones.length, 0, 'no copies while Input Module takes audio');

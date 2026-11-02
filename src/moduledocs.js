@@ -348,7 +348,7 @@ export const DOCS = {
   PATCH: {
     summary: 'A folder holding a complete sub-patch with its own Output: it groups modules into one reusable module. Audio and notes go in, its inner Output comes out. It can also run several copies (Instances) and pass notes and modulation out, to act as a custom MIDI or modulation module.',
     params: {
-      inputModule: 'The module inside that receives the audio/midi/modulation cabled into the Patch.',
+      inputModule: 'The number of the module inside that receives the audio/midi/modulation cabled into the Patch. Defaults to 1, so the first module you insert inside gets the input right away; 0 passes the input straight to the inner Output.',
       instances: 'Number of copies of the contents (1–16). With more than one, and a MIDI-only Input Module (OSC, MULTIMIDI), incoming notes go round-robin over the copies, free copies first. Every copy has its own random generators.',
     },
     mapped: 'Mapped controller: sets this controller inside the Patch (every instance follows). It can be modulated and automated from outside like any other controller.',

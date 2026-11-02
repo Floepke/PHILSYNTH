@@ -69,7 +69,8 @@ export default {
   hasInput: true,
   hasOutput: true,
   params: [
-    { id: 'inputModule', label: 'Input Module', min: 0, max: 0, default: 0, step: 1 },
+    // default 1: the first module inserted inside (always id 1) gets the input right away
+    { id: 'inputModule', label: 'Input Module', min: 0, max: 1, default: 1, step: 1 },
     { id: 'instances', label: 'Instances', min: 1, max: MAX_INSTANCES, default: 1, step: 1 },
   ],
   defaultState: () => ({ maps: [] }),
@@ -267,7 +268,7 @@ export default {
       sync,
       // slider range follows the highest module id inside; mapped controllers follow
       params: () => [
-        { ...def.params[0], max: Math.max(...patch.modules.keys()) },
+        { ...def.params[0], max: Math.max(1, ...patch.modules.keys()) },
         { ...def.params[1], format: (v) => (v <= 1 ? '1' : midiTarget() ? `${v} · round robin` : `${v} · off (Input Module is not a MIDI module)`) },
         ...maps.map(mappedParam).filter(Boolean),
       ],

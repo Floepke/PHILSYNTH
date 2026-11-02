@@ -152,7 +152,8 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
   };
 
   // the piano roll only sees note clips, the lane only automation clips
-  const roll = createPianoRoll($('roll'), { ...ctx, clip: () => (isAuto(clip()) ? null : clip()) });
+  // live: a clip-length drag in the piano roll keeps the TimeLine in step
+  const roll = createPianoRoll($('roll'), { ...ctx, clip: () => (isAuto(clip()) ? null : clip()), live: () => arranger.redraw() });
   const lane = createAutomationLane($('roll'), { ...ctx, clip: () => (isAuto(clip()) ? clip() : null) });
   const arranger = createArranger($('arranger'), ctx);
 

@@ -504,6 +504,116 @@ for (const cancel of ['pointercancel', 'lostpointercapture', 'blur', 'windowBlur
   }
 }
 
+// The selection rectangle survives scrolling: the wheel (or dragging past the grid's bottom edge)
+// moves the view while the start corner stays put in the clip, so a selection can span the clip.
+for (const how of ['wheel', 'edge']) {
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  try {
+    const { clip, roll, menus, changes } = setup();
+    const cv = roll.surface.cv;
+    clip.notes.push(note(60, 1), note(62, 6), note(64, 14), note(80, 14));
+    point(cv, 'pointerdown', nx(59), ny(0.5), { button: 2, buttons: 2 });
+    if (how === 'wheel') {
+      for (let i = 0; i < 60; i++) fire(cv, 'wheel', { clientX: nx(66), clientY: 200, deltaX: 0, deltaY: 100, deltaMode: 0 });
+      point(cv, 'pointermove', nx(66), 200, { button: 2, buttons: 2 });
+    } else {
+      point(cv, 'pointermove', nx(66), 300, { button: 2, buttons: 2 });
+      point(cv, 'pointermove', nx(66), 1000, { button: 2, buttons: 2 }); // far below the grid
+      mock.timers.tick(5000); flush();
+    }
+    const sy = roll.getView().sy;
+    assert.ok(sy > ny(10), `${how}: the view scrolled down (${sy})`);
+    mock.timers.tick(1000);
+    point(cv, 'pointerup', nx(66), how === 'wheel' ? 200 : 1000, { button: 2 });
+    assert.equal(menus.length, 0, `${how}: no menu`);
+    assert.equal(changes(), 0, `${how}: nothing deleted`);
+    key(cv, 'Delete');
+    assert.deepEqual(clip.notes.map((n) => n.pitch), [80], `${how}: the notes from the top to the scrolled-to bottom were selected`);
+  } finally {
+    mock.timers.reset();
+  }
+}
+
+// Dragging the thick clip end line changes the clip length instead of adding a note; the wheel and
+// dragging past the bottom edge scroll the view along, so the end can go anywhere in one drag.
+{
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  try {
+    const { song, clip, roll, changes } = setup();
+    const cv = roll.surface.cv;
+    clip.length = 4;
+    roll.redraw(); flush();
+    point(cv, 'pointermove', nx(70), ny(4) + 2);
+    assert.equal(cv.style.cursor, 'row-resize', 'the end line shows a resize cursor');
+    drag(cv, nx(70), ny(4) + 2, nx(70), ny(2.1));
+    assert.equal(clip.length, 2, 'dragging up shortens the clip (snapped)');
+    assert.equal(clip.notes.length, 0, 'no note was added');
+    assert.equal(changes(), 1, 'one undo step');
+    // Escape cancels the drag and restores the length
+    point(cv, 'pointerdown', nx(70), ny(2), { buttons: 1 });
+    point(cv, 'pointermove', nx(70), ny(5), { buttons: 1 });
+    assert.equal(clip.length, 5);
+    key(cv, 'Escape');
+    point(cv, 'pointerup', nx(70), ny(5));
+    assert.equal(clip.length, 2, 'Escape restores the length');
+    assert.equal(changes(), 1);
+    // wheel scrolling while dragging lengthens past the visible area
+    point(cv, 'pointerdown', nx(70), ny(2), { buttons: 1 });
+    point(cv, 'pointermove', nx(70), 300, { buttons: 1 });
+    for (let i = 0; i < 40; i++) fire(cv, 'wheel', { clientX: nx(70), clientY: 300, deltaX: 0, deltaY: 100, deltaMode: 0 });
+    point(cv, 'pointerup', nx(70), 300);
+    assert.ok(clip.length > 300 / 48 + 5, `the wheel scrolled the end along (${clip.length})`);
+    assert.equal(clip.length, Math.round(clip.length * 4) / 4, 'still snapped');
+    // dragging past the bottom edge auto-scrolls and keeps lengthening
+    roll.setView({ sy: 0 }); flush();
+    clip.length = 4;
+    roll.redraw(); flush();
+    point(cv, 'pointerdown', nx(70), ny(4), { buttons: 1 });
+    point(cv, 'pointermove', nx(70), 1000, { buttons: 1 });
+    mock.timers.tick(3000); flush();
+    point(cv, 'pointerup', nx(70), 1000);
+    assert.ok(clip.length > 20, `edge auto-scroll lengthened the clip (${clip.length})`);
+    mock.timers.tick(1000); // no interval left running
+    // the end never runs into the next clip on the same TimeLine lane
+    roll.setView({ sy: 0 }); flush();
+    clip.length = 4;
+    addClip(song, { start: clip.start + 6, length: 4, y: clip.y, target: 7 });
+    roll.redraw(); flush();
+    drag(cv, nx(70), ny(4), nx(70), ny(7.5));
+    assert.equal(clip.length, 6, 'capped at the next clip');
+    // a note crossing the end line keeps its own drag (resizing the note, not the clip)
+    clip.notes.push(note(70, 5, 2));
+    roll.redraw(); flush();
+    drag(cv, nx(70), ny(6), nx(70), ny(7.5));
+    assert.equal(clip.length, 6);
+    assert.equal(clip.notes[0].length, 2.5);
+  } finally {
+    mock.timers.reset();
+  }
+}
+
+// Shortening the clip with the view scrolled to its end: the view must not jump under the pointer
+// (that shortened the clip again on every move); each move puts the end exactly at the pointer.
+{
+  const { clip, roll, changes } = setup();
+  const cv = roll.surface.cv;
+  clip.length = 32;
+  roll.setView({ sy: 1e9 }); flush(); // clamped to the bottom of the scroll range
+  const sy = roll.getView().sy;
+  const yEnd = 32 * 48 - sy;
+  assert.ok(yEnd > 0 && yEnd < 376, 'the end line is visible');
+  point(cv, 'pointerdown', nx(70), yEnd, { buttons: 1 });
+  for (let i = 1; i <= 4; i++) {
+    point(cv, 'pointermove', nx(70), yEnd - i * 24, { buttons: 1 });
+    point(cv, 'pointermove', nx(70), yEnd - i * 24, { buttons: 1 }); // the same spot again: no change
+    assert.equal(roll.getView().sy, sy, `the view stays put (${i})`);
+    assert.equal(clip.length, 32 - i / 2, `the end follows the pointer (${i})`);
+  }
+  point(cv, 'pointerup', nx(70), yEnd - 96);
+  assert.equal(clip.length, 30);
+  assert.equal(changes(), 1);
+}
+
 // Dragging before the hold threshold stays a marquee, even if the button remains down.
 {
   mock.timers.enable({ apis: ['setTimeout'] });
