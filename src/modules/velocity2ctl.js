@@ -7,8 +7,12 @@
 //   Out Controller / Out Min / Out Max: see modtarget.js (velocity 0 -> Out Min, 127 -> Out Max).
 //   Noteoff Action: what happens when the newest note ends: hold the value (Do Nothing), go to
 //   Out Min (Control Down) or to Out Max (Control Up).
+//   Smooth: glide time (ms) to every new value instead of jumping (0 = jump, the old behaviour).
 // DSP: velocity2ctl.dsp.js (no audio; the engine graph maps the velocity onto the controllers).
 import { modulatorParams, outParams } from './modtarget.js';
+import { SMOOTH_MAX_MS } from './velocity2ctl.dsp.js';
+
+const smoothLabel = (v) => (v < 0.5 ? 'Off (jump)' : v < 1000 ? `${Math.round(v)} ms` : `${(v / 1000).toFixed(2)} s`);
 
 export default {
   type: 'VELOCITY2CTL',
@@ -22,6 +26,8 @@ export default {
   params: [
     ...outParams(),
     { id: 'noteOffAction', label: 'Noteoff Action', min: 0, max: 2, default: 0, step: 1, options: ['Do Nothing', 'Control Down', 'Control Up'] },
+    // appended last: Out Controller targets controllers by index, existing ones keep their number
+    { id: 'smooth', label: 'Smooth', min: 0, max: SMOOTH_MAX_MS, default: 0, step: 1, format: smoothLabel },
   ],
   create(_ctx, def, host) {
     const node = host.dsp.create('velocity2ctl');

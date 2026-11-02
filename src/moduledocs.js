@@ -309,6 +309,7 @@ export const DOCS = {
       outMin: `${OUT_MIN} Velocity 0 gives this value.`,
       outMax: `${OUT_MAX} Velocity 127 gives this value.`,
       noteOffAction: 'What happens when the newest note ends: Do Nothing holds the value until the next note, Control Down moves it to Out Min, Control Up to Out Max.',
+      smooth: 'Glide time to every new value, 0–5000 ms: instead of jumping, the controller moves in a straight line from where it is to the new value in this time (for a new note, the velocity curve and the Noteoff Action alike). A new value during a glide starts a new glide from the current position. 0 (default, <i>Off</i>) jumps. The very first note jumps, as there is nothing to glide from.',
     },
     notes: [
       MOD_CABLE,
@@ -317,15 +318,17 @@ export const DOCS = {
   },
 
   SOUND2CTL: {
-    summary: 'Turns an audio signal into a controller value: the voltage of the incoming audio directly drives a controller, e.g. an audio-rate oscillator modulating a filter. It makes no sound.',
+    summary: 'Turns an audio signal into a controller value: the voltage of the incoming audio drives a controller, either at audio speed (e.g. an oscillator modulating a filter) or sampled slowly and optionally smoothed (e.g. a random or stepped modulation taken from a sound). It makes no sound.',
     params: {
       outController: OUT_CONTROLLER,
       outMin: `${OUT_MIN} Audio voltage −1 gives this value.`,
       outMax: `${OUT_MAX} Audio voltage +1 gives this value; silence (0) is halfway.`,
+      rate: 'How many times a second a new value is taken from the audio (0.01 Hz … audio rate). At the maximum (default) it follows the audio as fast as controllers can change: once per 128-sample block, about 375 times a second at 48 kHz, so any rate above that behaves the same. Lower rates sample and hold: at 1 Hz the controller gets a new value once a second.',
+      smooth: 'How gradually the controller moves to each new value: the glide takes this percentage of the time between two values. 0 % (default) jumps straight to it; 100 % glides the whole time and arrives just as the next value is taken (at 1 Hz a one-second glide). Has no effect when the glide would be shorter than one block (e.g. at the maximum Audio Rate).',
     },
     notes: [
       'Cable an audio source into it, then <kbd>Shift</kbd> + drag it to the module to control.',
-      'Stereo is averaged and clamped to −1…+1. It is a direct voltage conversion, not an envelope follower: the last sample of every 128-sample block sets the next block.',
+      'Stereo is averaged and clamped to −1…+1. It is a direct voltage conversion, not an envelope follower: each value is the audio sample at that moment, not its loudness. The value controls the next 128-sample block.',
     ],
   },
 

@@ -781,7 +781,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   const ctl = await r.addModule('SOUND2CTL');
   const target = await r.addModule('AMP');
   const mm = await r.addModule('MULTIMIDI');
-  assert.deepEqual(ctl.def.params.map((p) => p.id), ['outController', 'outMin', 'outMax']);
+  assert.deepEqual(ctl.def.params.map((p) => p.id), ['outController', 'outMin', 'outMax', 'rate', 'smooth'], 'new controllers appended last');
   assert.ok(r.connect(src.id, ctl.id), 'audio input');
   assert.ok(r.connect(ctl.id, target.id), 'controller output');
   assert.equal(r.connect(mm.id, ctl.id), false, 'no MIDI input');
@@ -824,7 +824,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.ok(r.connect(mm.id, v2c.id), 'MULTIMIDI -> VELOCITY2CTL (MIDI cable)');
   assert.ok(r.connect(v2c.id, osc.id), 'VELOCITY2CTL -> OSC (control cable)');
   assert.equal(r.connect(osc.id, v2c.id), false, 'no audio input');
-  assert.deepEqual(v2c.def.params.map((p) => p.id), ['outController', 'outMin', 'outMax', 'noteOffAction']);
+  assert.deepEqual(v2c.def.params.map((p) => p.id), ['outController', 'outMin', 'outMax', 'noteOffAction', 'smooth'], 'Smooth appended last');
   assert.match(v2c.inst.params().find((p) => p.id === 'outController').format(7), /Duty/);
 
   r.setParam(v2c.id, 'outController', 7); // OSC duty 0..100
