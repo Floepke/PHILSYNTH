@@ -267,13 +267,13 @@ export const DOCS = {
   LFO: {
     summary: 'Low-frequency oscillator: a repeating control wave that modulates one controller of every module it is cabled to (vibrato, tremolo, filter sweeps, …). It makes no sound.',
     params: {
-      freq: 'Speed of the wave: 0.01–50 Hz, or (with a synced Freq Unit) a cycle length in note values.',
-      unit: 'Hz runs freely; 1/4, 1/8 or 1/16 syncs the cycle to note lengths at the BPM of this patch level\'s Output.',
+      freq: 'Speed of the wave: 0.01–50 Hz, or (with a synced Freq Unit) a cycle length in note values. Ignored with Freq Unit MIDI Pitch.',
+      unit: 'Hz runs freely; 1/4, 1/8 or 1/16 syncs the cycle to note lengths at the BPM of this patch level\'s Output. <i>MIDI Pitch</i> runs the wave at the frequency of the incoming note (A4 = 440 Hz), following pitch bends; Frequency is ignored. Notes come from a clip sent to the LFO or a MULTIMIDI (or other MIDI module) cabled into it. With no note held it keeps the last pitch; before the first note it stands still.',
       wave: 'Shape of the wave: Sine, Triangle, Saw, Square, or Random (glides smoothly to a new random value every cycle).',
       ...MOD_PARAMS,
       amp: 'Depth of the wave around its centre: 100 % = full swing between Out Min and Out Max, 0 % = steady in the middle.',
     },
-    notes: [MOD_CABLE],
+    notes: [MOD_CABLE, 'Modulation is applied once per 128-sample block (~375 times a second), so with MIDI Pitch only low notes (below about 90 Hz, F♯2) give a clean wave; higher notes alias into a slower, stepped movement.'],
   },
 
   ADSR: {

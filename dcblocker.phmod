@@ -1,0 +1,131 @@
+{
+  "format": "philsynth-module",
+  "version": 1,
+  "modules": [
+    {
+      "id": 6,
+      "type": "PATCH",
+      "x": 411,
+      "y": 566,
+      "values": {
+        "inputModule": 1,
+        "instances": 1
+      },
+      "state": {
+        "maps": []
+      },
+      "patch": {
+        "modules": [
+          {
+            "id": 0,
+            "type": "OUT",
+            "x": 881,
+            "y": 55,
+            "values": {
+              "volume": 0.8,
+              "bpm": 120,
+              "transpose": 0,
+              "cents": 0
+            },
+            "state": {
+              "comment": ""
+            }
+          },
+          {
+            "id": 1,
+            "type": "MULTIMIDI",
+            "x": 114,
+            "y": 228,
+            "values": {
+              "transpose": 0,
+              "finetune": 0,
+              "drift": 0,
+              "driftFreq": 1,
+              "velDrift": 0.32,
+              "velDriftFreq": 1.68,
+              "randomPhase": 0,
+              "randomDelay": 0,
+              "velocity": 0.63,
+              "overtone": 0,
+              "routeMode": 0,
+              "velSense": 0
+            }
+          },
+          {
+            "id": 3,
+            "type": "OSC",
+            "x": 173,
+            "y": -62,
+            "values": {
+              "polyphony": 32,
+              "wave": 4,
+              "attack": 0.001,
+              "decay": 0.001,
+              "sustain": 1,
+              "release": 0.101,
+              "gain": 1,
+              "duty": 35.4
+            }
+          },
+          {
+            "id": 4,
+            "type": "AMP",
+            "x": 352,
+            "y": 249,
+            "values": {
+              "amp": 1.02,
+              "pan": -0.57,
+              "inverse": 0
+            }
+          },
+          {
+            "id": 5,
+            "type": "MODULATOR",
+            "x": 535,
+            "y": 48,
+            "values": {
+              "type": 1,
+              "carrier": 0,
+              "interpolation": 1
+            }
+          },
+          {
+            "id": 2,
+            "type": "DC BLOCKER",
+            "x": 701,
+            "y": 181,
+            "values": {}
+          }
+        ],
+        "cables": [
+          {
+            "from": 1,
+            "to": 3
+          },
+          {
+            "from": 3,
+            "to": 5
+          },
+          {
+            "from": 3,
+            "to": 4
+          },
+          {
+            "from": 4,
+            "to": 5
+          },
+          {
+            "from": 2,
+            "to": 0
+          },
+          {
+            "from": 5,
+            "to": 2
+          }
+        ],
+        "midiLock": 1
+      }
+    }
+  ],
+  "cables": []
+}

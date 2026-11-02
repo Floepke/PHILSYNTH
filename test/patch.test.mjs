@@ -847,6 +847,34 @@ const set = (e, x) => { hold(e, x); render(1); };
   restored.destroy();
 }
 
+// ---- LFO Freq Unit MIDI Pitch: the LFO runs at the frequency of the notes cabled into it ----
+{
+  const { lfoRateHz, MIDI_UNIT } = await import('../src/modules/lfo.js');
+  const r = await PatchRuntime.create(engine, dsp.destination);
+  const mm = await r.addModule('MULTIMIDI');
+  const lfo = await r.addModule('LFO');
+  const unit = lfo.def.params.find((p) => p.id === 'unit');
+  assert.equal(unit.options.at(-1), 'MIDI Pitch (use incoming MIDI pitch)', 'appended as the last option');
+  assert.deepEqual([MIDI_UNIT, unit.max, unit.default], [unit.options.length - 1, unit.options.length - 1, 0]);
+  assert.equal(lfo.def.liveMidi, false, 'the MIDI keyboard keeps playing the synth');
+  assert.equal(lfoRateHz(5, MIDI_UNIT, 120, 69), 440);
+  assert.equal(lfoRateHz(5, MIDI_UNIT, 120, null), 0, 'no note yet: stands still');
+  assert.equal(lfo.def.params.find((p) => p.id === 'freq').format(5, { unit: MIDI_UNIT }), 'MIDI pitch (ignored)');
+  assert.ok(r.connect(mm.id, lfo.id), 'MULTIMIDI -> LFO (MIDI cable)');
+  const k = kernel(lfo.inst.node);
+  r.setParam(lfo.id, 'unit', MIDI_UNIT);
+  r.setParam(lfo.id, 'freq', 7);
+  assert.equal(k.rate, 0, 'Frequency is ignored; nothing to follow yet');
+  mm.inst.noteOn(1, 45, 1); // A2 (MULTIMIDI transpose 0)
+  assert.equal(k.rate, 110);
+  mm.inst.noteOff(1);
+  assert.equal(k.rate, 110, 'keeps the last pitch');
+  r.setParam(lfo.id, 'unit', 0);
+  assert.equal(k.rate, 7, 'back to Hz: Frequency counts again');
+  r.setParam(lfo.id, 'unit', MIDI_UNIT);
+  assert.equal(k.rate, 110);
+}
+
 // ---- VELOCITY2CTL: the newest note's velocity drives a controller (through Out Min..Out Max) ----
 {
   const r = await PatchRuntime.create(engine, dsp.destination);
@@ -1236,10 +1264,11 @@ const set = (e, x) => { hold(e, x); render(1); };
 {
   const r = await PatchRuntime.create(engine, dsp.destination);
   const o = await r.addModule('OSC');
+  assert.deepEqual(['attack', 'decay', 'sustain', 'release'].map((id) => o.values[id]), [0.001, 0.001, 1, 0.001], 'new OSC envelope defaults');
   r.setParam(o.id, 'decay', 0.5);
-  assert.equal(o.values.release, 0.4, 'not linked while Sustain > 0');
+  assert.equal(o.values.release, 0.001, 'not linked while Sustain > 0');
   r.setParam(o.id, 'sustain', 0);
-  assert.equal(o.values.release, 0.4, 'setting Sustain to 0 moves nothing');
+  assert.equal(o.values.release, 0.001, 'setting Sustain to 0 moves nothing');
   r.setParam(o.id, 'decay', 1.2);
   assert.equal(o.values.release, 1.2, 'decay moves release');
   r.setParam(o.id, 'release', 5);
