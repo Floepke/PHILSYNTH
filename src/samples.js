@@ -1,10 +1,12 @@
-// Sample pool (main thread): audio loaded into SAMPLER / WAVETABLE modules.
+// Sample pool (main thread): audio loaded into SAMPLER / WAVETABLE modules (+ IMAGE SAMPLER images).
 // Module state only names a sample ({ sampleId, name, ... }), so undo snapshots, copies and Patch
 // instances stay small; the audio itself lives here, keyed by a hash of its content (the same file
 // loaded twice is stored once). Audio is kept as 16-bit (what is saved is what plays).
 // Saved files (autosave, .phproject projects, .phmod modules) carry the samples they use under
 // `samples: { id: { rate, channels, length, data } }` (data = base64 of the planar Int16 audio);
 // withSamples() adds them, importSamples() puts them back into the pool before the modules load.
+// Images of IMAGE SAMPLER modules (state { imageId }) share the pool and the `samples` entry:
+// { kind: 'image', width, height, data } (data = base64 of the RGB bytes, row by row).
 //
 // File formats (decodeAudioFile):
 //   .wav   PCM 8/16/24/32-bit or float 32/64, mono or multichannel (WAVE_FORMAT_EXTENSIBLE too).
@@ -78,11 +80,31 @@ export function addSample({ rate, channels }) {
   return id;
 }
 
+// Puts an image into the pool; returns its id. rgb: Uint8Array of width * height * 3 bytes.
+export const MAX_IMAGE = 256; // longest side in pixels (keeps project files small)
+export function addImage({ width, height, rgb }) {
+  width |= 0;
+  height |= 0;
+  if (width < 1 || height < 1 || width > MAX_IMAGE || height > MAX_IMAGE || !(rgb?.length === width * height * 3)) throw new Error('the file has no usable image');
+  const bytes = Uint8Array.from(rgb);
+  const id = `img${width}x${height}-${hash(new Int16Array(bytes), width)}`;
+  if (!pool.has(id)) {
+    pool.set(id, { kind: 'image', width, height, rgb: bytes });
+    listeners.forEach((fn) => fn(id));
+  }
+  return id;
+}
+
+export const getImage = (id) => {
+  const s = getSample(id);
+  return s?.kind === 'image' ? s : null;
+};
+
 function sampleIds(data, ids = new Set()) {
   if (Array.isArray(data)) data.forEach((d) => sampleIds(d, ids));
   else if (data && typeof data === 'object') {
     for (const [k, v] of Object.entries(data)) {
-      if (k === 'sampleId' && typeof v === 'string') ids.add(v);
+      if ((k === 'sampleId' || k === 'imageId') && typeof v === 'string') ids.add(v);
       else if (v && typeof v === 'object') sampleIds(v, ids);
     }
   }
@@ -95,6 +117,11 @@ export function exportSamples(data) {
   for (const id of sampleIds(data)) {
     const s = pool.get(id);
     if (!s) continue;
+    if (s.kind === 'image') {
+      s.b64 ??= toBase64(s.rgb);
+      out[id] = { kind: 'image', width: s.width, height: s.height, data: s.b64 };
+      continue;
+    }
     s.b64 ??= toBase64(new Uint8Array(s.pcm.buffer, s.pcm.byteOffset, s.pcm.byteLength));
     out[id] = { rate: s.rate, channels: s.channels.length, length: s.length, data: s.b64 };
   }
@@ -112,6 +139,15 @@ export function importSamples(samples) {
   for (const [id, s] of Object.entries(samples)) {
     if (pool.has(id)) continue;
     try {
+      if (s.kind === 'image') {
+        const width = s.width | 0;
+        const height = s.height | 0;
+        const rgb = fromBase64(s.data);
+        if (width < 1 || height < 1 || width > MAX_IMAGE || height > MAX_IMAGE || rgb.length !== width * height * 3) continue;
+        pool.set(id, { kind: 'image', width, height, rgb, b64: s.data });
+        listeners.forEach((fn) => fn(id));
+        continue;
+      }
       const count = s.channels | 0;
       const length = s.length | 0;
       const bytes = fromBase64(s.data);

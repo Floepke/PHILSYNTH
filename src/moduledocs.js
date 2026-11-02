@@ -93,6 +93,38 @@ export const DOCS = {
     ],
   },
 
+  IMAGESAMPLER: {
+    summary: 'Polyphonic synthesizer that plays a picture: a scanner lies on the image and every note reads the colours along it once per cycle at its pitch, so the colours are the waveform. Red, green and blue are read separately; a Pan and a Level per colour mix them onto the left and right speaker. Each note is shaped by an ADSR envelope with stage curves.',
+    params: {
+      polyphony: POLYPHONY,
+      ...VOICE_ENV,
+      ...ENV_CURVES,
+      redPan: 'Where the red channel of the image plays: −100 % = left speaker only, Centre = both equally, +100 % = right only. Default: left.',
+      greenPan: 'Where the green channel plays (−100 % left … +100 % right). Default: centre.',
+      bluePan: 'Where the blue channel plays (−100 % left … +100 % right). Default: right.',
+      redLevel: 'Amount of red in the mix, −100…+100 %. Negative inverts it: red at +100 % and blue at −100 % on the same side play the colour <i>difference</i>, which cancels the brightness both share (a very different waveform on photos). 0 % = no red.',
+      greenLevel: 'Amount of green in the mix, −100…+100 % (negative inverts it, 0 % = off).',
+      blueLevel: 'Amount of blue in the mix, −100…+100 % (negative inverts it, 0 % = off).',
+      scanType: 'Shape of the scanner: <b>Line</b> = a straight line at Rotation; <b>Propellor</b> = a line that spins around its centre at Propellor Speed, so the waveform keeps changing; <b>Oval</b> = an ellipse (Width / Height / Rotation) scanned once around per cycle, counterclockwise from the end of its width axis: a closed path, so the waveform has no jump and sounds softer. The controllers of the chosen type appear below the shared ones.',
+      x: 'Horizontal position of the scanner\'s centre on the image (0 % = left edge, 100 % = right edge). Shared by the Line and Propellor (hidden for the Oval, which has Width / Height).',
+      y: 'Vertical position of the scanner\'s centre on the image (0 % = top edge, 100 % = bottom edge). Shared by all scanner types.',
+      length: 'Length of the scanner in % of the image diagonal (tip to tip for the Propellor). Longer scanners cross more of the picture: more detail and more harmonics in the waveform. Shared by all scanner types.',
+      rotation: 'Line scanner: its angle in degrees (0° = horizontal, scanning left to right; positive turns it counterclockwise).',
+      ovalWidth: 'Oval scanner: the length of its width axis (the one at Rotation, where every cycle starts), in % of the image width.',
+      ovalHeight: 'Oval scanner: the length of its height axis (square to the width axis), in % of the image height. Width or Height 0 flattens the oval into a line that is scanned there and back.',
+      ovalRotation: 'Oval scanner: its angle in degrees (0° = the width axis horizontal, positive turns it counterclockwise).',
+      speed: 'Propellor scanner: turns per second (negative = clockwise). Slow speeds sweep the timbre; tens of turns per second give a buzzing, audio-rate movement. All voices share the same propellor.',
+    },
+    notes: [
+      NOTES_IN,
+      '<b>Load Image</b> (or drop a picture on the photo): PNG, JPEG, WebP… It is scaled to 256 px on its longest side and saved inside the project and .phmod files.',
+      '<b>Scanner editor</b> (on the photo): drag the centre dot or click anywhere to move the scanner (X / Y); drag an end to set Length (and Rotation for the Line). Double-click the centre to reset X / Y, an end to reset Length / Rotation. The arrow shows the scan direction: every cycle runs from the round start to the arrow. <b>Oval</b>: drag the square handles to set Width and Height, and the ring on the stalk beyond the Width handle around the centre to set Rotation (double-click a handle to reset it); the arrow shows the way round.',
+      '<b>Colour mix:</b> each speaker plays the sum of the colours panned to it, scaled down when they add up to more than full level (all three at 100 % on one side play their average), so no setting clips. In natural photos red, green and blue mostly follow the brightness, so plain pans give a narrow stereo image; inverting one colour\'s Level (e.g. red +100 %, blue −100 %, both centred) brings out the colour differences. Pan and Level glide, so an LFO on them pans colours without clicks.',
+      'The average colour along the scanner is removed (no DC offset), and high notes read a smoothed copy of the image, so they do not alias harshly.',
+      `<b>ADSR editor</b> (below the photo): ${ADSR_EDITOR}`,
+    ],
+  },
+
   INPUT: {
     summary: 'Audio input of the computer (microphone, line in, audio interface) as a sound source in the patch.',
     params: {

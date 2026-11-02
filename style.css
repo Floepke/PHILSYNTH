@@ -273,6 +273,7 @@ body.panel-collapsed #panel { visibility: hidden; }
 .sample-view .sample-info.error { color: #e06666; }
 .sample-view .sample-edit { touch-action: none; }
 .sample-view .sample-edit:focus-visible, .sample-view .sample-edit:focus { outline: 1px solid var(--text-dim); outline-offset: -1px; }
+.image-view .image-scan { touch-action: none; }
 .sample-view.drop .wave-view { outline: 2px dashed currentColor; outline-offset: -2px; }
 .meter { display: grid; grid-template-columns: auto 1fr 64px; align-items: center; gap: 8px; margin-top: 10px; font-size: 11px; color: var(--text-dim); }
 .meter-bar { height: 8px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; }

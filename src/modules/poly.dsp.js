@@ -3,6 +3,7 @@
 // pitch and velocity, noteMod glides to new values (one-pole per block, linear ramp inside the
 // block), retrigger by note id, else a free voice, else the oldest voice is stolen.
 import { Kernel } from '../dsp/kernel.js';
+import { ATTACK_KMAX, FALL_KMAX, CURVE_EPS, curveK } from './adsrcurve.js';
 
 export const MAX_VOICES = 32;
 const SMOOTH_S = 0.006;
@@ -93,6 +94,60 @@ export class PolyKernel extends Kernel {
     if (v.vel !== v.velT) v.vel = Math.abs(v.velT - v.vel) < 1e-6 ? v.velT : v.vel + (v.velT - v.vel) * k;
     return (v.vel - vel) / n;
   }
+}
+
+// ---- curved ADSR (Attack/Decay/Release Curve, the OSC envelope of osc.dsp.js, see adsrcurve.js) ----
+// A voice keeps its stage progress u (0..1), e = e^(-k u) of the stage curve and l0 = the level
+// where the release started. The kernel calls curveStart(v) on noteOn, curveRelease(v) on noteOff,
+// curveBlock(v, env) once per block (the curve or time may have changed) and curveTick per sample.
+function curveStage(seconds, amount, kmax) {
+  const inc = 1 / (Math.max(seconds, 0.001) * sampleRate);
+  const k = curveK(amount, kmax);
+  if (Math.abs(k) < CURVE_EPS) return { inc, k: 0, m: 1, norm: 1 };
+  return { inc, k, m: Math.exp(-k * inc), norm: 1 / (1 - Math.exp(-k)) };
+}
+
+export const curveEnv = (p) => ({
+  A: curveStage(p.attack, p.atkCurve, ATTACK_KMAX),
+  D: curveStage(p.decay, p.decCurve, FALL_KMAX),
+  R: curveStage(p.release, p.relCurve, FALL_KMAX),
+  sus: p.sustain,
+});
+
+export function curveStart(v) { v.level = 0; v.u = 0; v.e = 1; }
+
+export function curveRelease(v) {
+  v.stage = v.level > 0 ? 4 : 0;
+  v.l0 = v.level;
+  v.u = 0;
+  v.e = 1;
+}
+
+export function curveBlock(v, E) {
+  const st = v.stage === 1 ? E.A : v.stage === 2 ? E.D : v.stage === 4 ? E.R : null;
+  if (st) v.e = st.k ? Math.exp(-st.k * v.u) : 1;
+}
+
+export function curveTick(v, E) {
+  switch (v.stage) {
+    case 1:
+      v.u += E.A.inc;
+      if (v.u >= 1) { v.level = 1; v.stage = 2; v.u = 0; v.e = 1; }
+      else { v.e *= E.A.m; v.level = E.A.k ? (1 - v.e) * E.A.norm : v.u; }
+      break;
+    case 2:
+      v.u += E.D.inc;
+      if (v.u >= 1) { v.level = E.sus; v.stage = 3; }
+      else { v.e *= E.D.m; v.level = 1 + (E.sus - 1) * (E.D.k ? (1 - v.e) * E.D.norm : v.u); }
+      break;
+    case 3: v.level = E.sus; break;
+    case 4:
+      v.u += E.R.inc;
+      if (v.u >= 1) { v.level = 0; v.stage = 0; }
+      else { v.e *= E.R.m; v.level = v.l0 * (1 - (E.R.k ? (1 - v.e) * E.R.norm : v.u)); }
+      break;
+  }
+  return v.level;
 }
 
 // One envelope sample: advances v.stage / v.level; v.stage is 0 once the release has ended.
