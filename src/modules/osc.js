@@ -36,6 +36,8 @@
 //                       { id: value } or null (e.g. Decay <-> Release here, see envlink.js)
 //   system / isOutput  reserved for the Output module
 import { createWaveView } from './oscview.js';
+import { createAdsrView } from './adsrview.js';
+import { curveParams } from './adsrcurve.js';
 import { WAVE_NAMES, isNoise } from './oscshape.js';
 import { linkDecayRelease } from './envlink.js';
 
@@ -60,9 +62,18 @@ export default {
     // shapes every waveform (see oscshape.js shape()); half sine uses duty as its bow length;
     // the noise colours are unpitched and have no duty cycle
     { id: 'duty', label: 'Duty Cycle', min: 0, max: 100, default: 50, step: 0.1, format: (v) => `${v.toFixed(1)} %`, visible: (v) => !isNoise(v.wave) },
+    // envelope stage shapes (adsrcurve.js): 0 = linear, +100 = analog RC, negative = mirrored
+    ...curveParams(),
   ],
   linked: linkDecayRelease, // Sustain at 0: Decay and Release move together
-  view: (entry, api) => createWaveView({ color: api.color, values: entry.values }),
+  // waveform preview + ADSR editor (drags the Attack/Decay/Sustain/Release and Curve controllers)
+  view(entry, api) {
+    const wave = createWaveView({ color: api.color, values: entry.values });
+    const adsr = createAdsrView({ color: api.color, values: entry.values, params: entry.def.params, ...api });
+    const el = document.createElement('div');
+    el.append(wave.el, adsr.el);
+    return { el, refresh(v) { wave.refresh?.(v); adsr.refresh(v); } };
+  },
   create(_ctx, _def, host) {
     const node = host.dsp.create('osc'); // DSP: osc.dsp.js
     const send = (m) => node.send(m);

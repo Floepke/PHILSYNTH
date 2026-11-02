@@ -16,7 +16,7 @@ const argmax = (a) => a.indexOf(Math.max(...a));
 const close = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`);
 
 // Append the waveform without renumbering saved wave selections or controller routings.
-assert.deepEqual(osc.params.map((p) => p.id), ['polyphony', 'wave', 'attack', 'decay', 'sustain', 'release', 'gain', 'duty']);
+assert.deepEqual(osc.params.map((p) => p.id), ['polyphony', 'wave', 'attack', 'decay', 'sustain', 'release', 'gain', 'duty', 'atkCurve', 'decCurve', 'relCurve']);
 const waveParam = osc.params[1];
 assert.deepEqual(waveParam.options, ['Sine', 'Tri/Saw', 'Saw', 'Square', 'Half sine',
   'White noise', 'Pink noise', 'Brown noise', 'Blue noise', 'Violet noise']);
@@ -244,4 +244,143 @@ console.log('osc tests passed');
   for (let b = 0; b < 20; b++) alive = k.process([], [[new Float32Array(128), new Float32Array(128)]]) !== false;
   assert.equal(alive, false, 'noise voice releases to silence');
   console.log('osc noise ok');
+}
+
+// ---- envelope stage curves (adsrcurve.js): exact stage times, linear at 0, analog at +100 % ----
+{
+  const { attackLevel, decayLevel, releaseLevel, curveAt } = await import('../src/modules/adsrcurve.js');
+  // one-sample blocks: read the voice level at every sample
+  const trace = (params, { offAt = Infinity, len = 4000, block = 1 } = {}) => {
+    const k = new Proc({ seed: 1 });
+    const m = (data) => k.port.onmessage({ data });
+    for (const [id, value] of Object.entries(params)) m({ type: 'param', id, value });
+    m({ type: 'noteOn', id: 1, pitch: 60, velocity: 1 });
+    const lv = [];
+    const stages = [];
+    for (let i = 0; i < len; i += block) {
+      if (i === offAt) m({ type: 'noteOff', id: 1 });
+      k.process([], [[new Float32Array(block), new Float32Array(block)]]);
+      lv.push(k.voices[0].level);
+      stages.push(k.voices[0].stage);
+    }
+    return { lv, stages };
+  };
+  const near = (a, b, msg) => assert.ok(Math.abs(a - b) <= 1, `${msg}: ${a} vs ${b}`); // ±1 sample of float accumulation
+  const env = { attack: 0.01, decay: 0.02, sustain: 0.25, release: 0.02 }; // 480 / 960 / 960 samples
+  // linear (the old envelope): straight ramps, exact times
+  {
+    const { lv, stages } = trace(env, { offAt: 2000 });
+    for (const i of [0, 99, 239, 400]) close(lv[i], (i + 1) / 480, 1e-9, `linear attack @${i}`);
+    near(stages.indexOf(2), 479, 'attack lasts exactly 10 ms');
+    for (const i of [600, 900, 1200]) close(lv[i], decayLevel((i - stages.indexOf(2)) / 960, 0, 0.25), 1e-9, `linear decay @${i}`);
+    near(stages.indexOf(3), 479 + 960, 'decay lasts exactly 20 ms');
+    for (const i of [2000, 2480, 2900]) close(lv[i], 0.25 * (1 - (i - 1999) / 960), 1e-9, `linear release @${i}`);
+    near(stages.indexOf(0, 2000), 1999 + 960, 'release lasts exactly 20 ms');
+  }
+  // +100 %: the analog RC shapes, stage times unchanged
+  {
+    const c = { ...env, atkCurve: 100, decCurve: 100, relCurve: 100 };
+    const { lv, stages } = trace(c, { offAt: 2000 });
+    close(lv[239], 1.5 * (1 - Math.pow(3, -0.5)), 1e-6, 'attack: RC charge toward 1.5 (63 % at half time)');
+    for (let i = 0; i < 479; i += 37) close(lv[i], attackLevel((i + 1) / 480, 100), 1e-9, `analog attack @${i}`);
+    near(stages.indexOf(2), 479, 'curved attack keeps its time');
+    for (let i = 481; i < 1439; i += 41) close(lv[i], decayLevel((i - stages.indexOf(2)) / 960, 100, 0.25), 1e-9, `analog decay @${i}`);
+    close(decayLevel(0.5, 100, 0.25) - 0.25, 0.75 * (1 - 1 / (1 + Math.pow(1000, -0.5))), 1e-12, 'decay at half time');
+    close(curveAt(1 - 1e-9, Math.log(1000)), 1, 1e-6, 'decay ends on sustain');
+    near(stages.indexOf(3), 479 + 960, 'curved decay keeps its time');
+    for (let i = 2000; i < 2959; i += 43) close(lv[i], releaseLevel((i - 1999) / 960, 100, 0.25), 1e-9, `analog release @${i}`);
+    assert.ok(lv[2479] < 0.25 * 0.04 && lv[2479] > 0.25 * 0.02, 'analog release: about -30 dB at half time');
+    near(stages.indexOf(0, 2000), 1999 + 960, 'curved release keeps its time');
+  }
+  // negative = inverse shapes; release from mid-attack starts at that level, no jump
+  {
+    const c = { ...env, atkCurve: -60, relCurve: -50 };
+    const { lv } = trace(c, { offAt: 200 });
+    assert.ok(lv[100] < 101 / 480, 'inverse attack starts slower than linear');
+    const l0 = attackLevel(200 / 480, -60);
+    close(lv[199], l0, 1e-9, 'level at the note-off');
+    for (let i = 200; i < 1150; i += 47) close(lv[i], releaseLevel((i - 199) / 960, -50, l0), 1e-9, `inverse release @${i}`);
+    assert.ok(Math.abs(lv[200] - lv[199]) < 0.001, 'release starts where the attack was');
+  }
+  // the block size doesn't change the curve (e^(-k u) is set up again every block)
+  {
+    const c = { ...env, atkCurve: 80, decCurve: -40, relCurve: 70 };
+    const a = trace(c, { offAt: 1920, len: 3840, block: 1 }).lv.filter((_, i) => i % 128 === 127);
+    const b = trace(c, { offAt: 1920, len: 3840, block: 128 }).lv;
+    a.forEach((x, i) => close(b[i], x, 1e-9, `block size @${i}`));
+  }
+  // live curve change mid-stage: no jump bigger than the stage itself moves
+  {
+    const k = new Proc({ seed: 1 });
+    const m = (data) => k.port.onmessage({ data });
+    for (const [id, value] of Object.entries({ ...env, attack: 0.1 })) m({ type: 'param', id, value });
+    m({ type: 'noteOn', id: 1, pitch: 60, velocity: 1 });
+    for (let b = 0; b < 10; b++) k.process([], [[new Float32Array(128), new Float32Array(128)]]);
+    const before = k.voices[0].level;
+    m({ type: 'param', id: 'atkCurve', value: 100 });
+    k.process([], [[new Float32Array(128), new Float32Array(128)]]);
+    close(k.voices[0].level, attackLevel(11 * 128 / 4800, 100), 1e-9, 'a changed curve applies to the running stage');
+    assert.ok(k.voices[0].level > before, 'still rising');
+  }
+  console.log('osc envelope curves ok');
+}
+
+// ---- curve controllers, Decay/Release Curve link, ADSR editor maths ----
+{
+  const { formatCurve } = await import('../src/modules/adsrcurve.js');
+  const { linkDecayRelease } = await import('../src/modules/envlink.js');
+  const { timeFrac, fracTime, stepValue, adsrLayout, adsrPath, handleAt, dragValues } = await import('../src/modules/adsrview.js');
+  const P = (id) => osc.params.find((p) => p.id === id);
+  for (const id of ['atkCurve', 'decCurve', 'relCurve']) {
+    const p = P(id);
+    assert.deepEqual([p.min, p.max, p.default, p.step], [-100, 100, 0, 1], `${id} range`);
+  }
+  assert.equal(formatCurve(0), 'Linear');
+  assert.equal(formatCurve(35), '+35 %');
+  assert.equal(formatCurve(-20), '-20 %');
+  assert.equal(formatCurve(100), '+100 % (analog)');
+  assert.deepEqual(linkDecayRelease({ sustain: 0 }, 'decCurve', 40, osc.params), { relCurve: 40 }, 'Sustain 0: curves linked');
+  assert.deepEqual(linkDecayRelease({ sustain: 0 }, 'relCurve', -10, osc.params), { decCurve: -10 });
+  assert.equal(linkDecayRelease({ sustain: 0.5 }, 'decCurve', 40, osc.params), null);
+  assert.equal(linkDecayRelease({ sustain: 0 }, 'atkCurve', 40, osc.params), null);
+  const adsrParams = [{ id: 'decay', min: 0.001, max: 10 }, { id: 'release', min: 0.001, max: 10 }];
+  assert.equal(linkDecayRelease({ sustain: 0 }, 'decCurve', 40, adsrParams), null, 'modules without curves ignore them');
+
+  // log time axis round trip
+  for (const t of [0.001, 0.01, 0.37, 2, 10]) close(fracTime(timeFrac(t)), t, t * 1e-9, `time axis ${t}`);
+  assert.equal(fracTime(0), 0.001);
+  assert.equal(fracTime(2), 10);
+  assert.equal(stepValue(P('attack'), 0.01234), 0.012);
+  assert.equal(stepValue(P('sustain'), 1.7), 1);
+  assert.equal(stepValue(P('atkCurve'), -133.4), -100);
+
+  const v = Object.fromEntries(osc.params.map((p) => [p.id, p.default]));
+  Object.assign(v, { attack: 0.05, decay: 0.3, sustain: 0.5, release: 1, atkCurve: 60, decCurve: 100, relCurve: -30 });
+  const W = 300, H = 84;
+  const L = adsrLayout(v, W, H, osc.params);
+  assert.ok(L.x0 < L.xA && L.xA < L.xD && L.xD < L.xS && L.xS < L.xR && L.xR <= W, 'stages left to right');
+  close(L.corner.y, L.yOf(0.5), 1e-9, 'corner at the sustain level');
+  // the drawn path is the DSP curve
+  const path = adsrPath(L, 10);
+  close(path[5][1], (1 - Math.pow(3, -0.3)) / (1 - Math.pow(3, -0.6)), 1e-9, 'path follows the attack curve');
+  assert.equal(path.at(-1)[1], 0, 'path ends at silence');
+  // handles
+  assert.equal(handleAt(L, L.peak.x + 2, L.peak.y + 2), 'peak');
+  assert.equal(handleAt(L, L.corner.x, L.corner.y), 'corner');
+  assert.equal(handleAt(L, L.relDot.x, L.relDot.y - 3), 'relDot');
+  assert.equal(handleAt(L, L.xS, L.top + 30), null);
+  // dragging lands on stepped controller values that put the handle back under the pointer
+  const start = { values: v, y: 40 };
+  const a = dragValues('peak', start, L.x0 + L.lane * timeFrac(0.25), 0, L, osc.params);
+  assert.deepEqual(a, { attack: 0.25 });
+  const d = dragValues('corner', start, L.xA + L.lane * timeFrac(1.5), L.yOf(0.8), L, osc.params);
+  assert.deepEqual(d, { decay: 1.5, sustain: 0.8 });
+  assert.deepEqual(Object.keys(d), ['sustain', 'decay'], 'Sustain applies first (Decay/Release link)');
+  assert.deepEqual(dragValues('end', start, L.xS + L.lane * 5, 0, L, osc.params), { release: 10 }, 'clamped to 10 s');
+  assert.deepEqual(dragValues('corner', start, L.xA, L.bottom + 50, L, osc.params), { decay: 0.001, sustain: 0 }, 'clamped low');
+  assert.deepEqual(dragValues('atkDot', start, 0, 30, L, osc.params), { atkCurve: 80 }, 'attack dot up = more curve');
+  assert.deepEqual(dragValues('decDot', start, 0, 30, L, osc.params), { decCurve: 80 }, 'decay dot up = less curve');
+  assert.deepEqual(dragValues('relDot', start, 0, 80, L, osc.params), { relCurve: 50 }, 'release dot down = more curve');
+  assert.deepEqual(dragValues('relDot', start, 0, 200, L, osc.params), { relCurve: 100 }, 'curve clamps');
+  console.log('osc curve controllers + ADSR editor ok');
 }

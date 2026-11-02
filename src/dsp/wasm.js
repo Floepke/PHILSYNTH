@@ -12,11 +12,11 @@
 import { Kernel } from './kernel.js';
 import { curveTable, defaultCurve } from '../curve.js';
 
-export const WASM_VERSION = 7;
+export const WASM_VERSION = 8;
 
 // kind = Kind in cpp/engine.cpp; params in the order of the kernel's enum
 export const SPECS = {
-  osc: { kind: 1, params: ['polyphony', 'wave', 'attack', 'decay', 'sustain', 'release', 'gain', 'duty'] },
+  osc: { kind: 1, params: ['polyphony', 'wave', 'attack', 'decay', 'sustain', 'release', 'gain', 'duty', 'atkCurve', 'decCurve', 'relCurve'] },
   filter: {
     kind: 2,
     params: ['type', 'slope', 'cutoff', 'resonance', 'gain', 'vowel', 'drive', 'lfoShape', 'lfoRate', 'lfoDepth', 'mix', 'level'],

@@ -4,9 +4,19 @@
 // new values (one-pole smoothing per block + a linear ramp inside the block), so no clicks.
 import { WAVES, shape, isNoise, noiseSample, noiseState, xorshift } from './oscshape.js';
 import { Kernel } from '../dsp/kernel.js';
+import { ATTACK_KMAX, FALL_KMAX, CURVE_EPS, curveK } from './adsrcurve.js';
 
 const MAX_VOICES = 32;
 const SMOOTH_S = 0.006;
+
+// One envelope stage for this block (see adsrcurve.js): progress step per sample, curve k, the
+// per-sample factor of e^(-k u) and the normalisation 1 / (1 - e^(-k)). k = 0: linear, no exp.
+function stage(seconds, amount, kmax) {
+  const inc = 1 / (Math.max(seconds, 0.001) * sampleRate);
+  const k = curveK(amount, kmax);
+  if (Math.abs(k) < CURVE_EPS) return { inc, k: 0, m: 1, norm: 1 };
+  return { inc, k, m: Math.exp(-k * inc), norm: 1 / (1 - Math.exp(-k)) };
+}
 
 // Start phase of a note (MODMIDI phase, 0..1 of the waveform cycle): wrapped into [0, 1); missing or
 // invalid -> 0 (every note starts at the beginning of the cycle, as before phase existed).
@@ -18,12 +28,14 @@ export default class OscKernel extends Kernel {
     super();
     this.rng = (seed ?? Math.random() * 2 ** 32) >>> 0 || 0x9e3779b9; // xorshift32, shared by the voices
     this.poly = 8;
-    this.p = { wave: WAVES.SAW, attack: 0.01, decay: 0.2, sustain: 0.7, release: 0.4, gain: 0.5, duty: 50 };
+    this.p = { wave: WAVES.SAW, attack: 0.01, decay: 0.2, sustain: 0.7, release: 0.4, gain: 0.5, duty: 50,
+      atkCurve: 0, decCurve: 0, relCurve: 0 };
     this.duty = 0.5; // smoothed duty (0..1), ramps per block so LFO modulation doesn't zipper
     this.clock = 0;
     this.voices = Array.from({ length: MAX_VOICES }, () => ({
       stage: 0, // 0 idle, 1 attack, 2 decay, 3 sustain, 4 release
-      id: 0, phase: 0, inc: 0, level: 0, relStep: 0, age: 0,
+      id: 0, phase: 0, inc: 0, level: 0, age: 0,
+      u: 0, e: 1, l0: 0, // stage progress 0..1, e^(-k u) of the stage curve, level where the release started
       pitch: 0, vel: 0, // current (smoothed) values
       pitchT: 0, velT: 0, // targets from noteOn / noteMod
       noise: noiseState(),
@@ -66,6 +78,8 @@ export default class OscKernel extends Kernel {
     v.inc = this.incOf(pitch);
     v.phase = startPhase(phase);
     v.level = 0;
+    v.u = 0;
+    v.e = 1;
     v.noise = noiseState();
     v.stage = 1;
     v.age = ++this.clock;
@@ -83,8 +97,10 @@ export default class OscKernel extends Kernel {
   noteOff(id) {
     const v = this.voiceOf(id);
     if (v && v.stage !== 4) {
-      v.stage = 4;
-      v.relStep = v.level / (Math.max(this.p.release, 0.001) * sampleRate);
+      v.stage = v.level > 0 ? 4 : 0;
+      v.l0 = v.level;
+      v.u = 0;
+      v.e = 1;
     }
   }
 
@@ -94,8 +110,10 @@ export default class OscKernel extends Kernel {
     const buf = out[0];
     buf.fill(0);
     const p = this.p;
-    const atkStep = 1 / (Math.max(p.attack, 0.001) * sampleRate);
-    const decStep = (1 - p.sustain) / (Math.max(p.decay, 0.001) * sampleRate);
+    const sus = p.sustain;
+    const A = stage(p.attack, p.atkCurve, ATTACK_KMAX);
+    const D = stage(p.decay, p.decCurve, FALL_KMAX);
+    const R = stage(p.release, p.relCurve, FALL_KMAX);
     const wave = p.wave | 0;
     const noise = isNoise(wave);
     const k = 1 - Math.exp(-n / (SMOOTH_S * sampleRate)); // per-block smoothing coefficient
@@ -121,12 +139,27 @@ export default class OscKernel extends Kernel {
         v.vel = Math.abs(v.velT - v.vel) < 1e-6 ? v.velT : v.vel + (v.velT - v.vel) * k;
         velStep = (v.vel - vel) / n;
       }
+      // e^(-k u) again from u each block (the curve or the stage time may have changed)
+      const st = v.stage === 1 ? A : v.stage === 2 ? D : v.stage === 4 ? R : null;
+      if (st) v.e = st.k ? Math.exp(-st.k * v.u) : 1;
       for (let i = 0; i < n; i++) {
         switch (v.stage) {
-          case 1: v.level += atkStep; if (v.level >= 1) { v.level = 1; v.stage = 2; } break;
-          case 2: v.level -= decStep; if (v.level <= p.sustain) { v.level = p.sustain; v.stage = 3; } break;
-          case 3: v.level = p.sustain; break;
-          case 4: v.level -= v.relStep; if (v.level <= 0) { v.level = 0; v.stage = 0; } break;
+          case 1:
+            v.u += A.inc;
+            if (v.u >= 1) { v.level = 1; v.stage = 2; v.u = 0; v.e = 1; }
+            else { v.e *= A.m; v.level = A.k ? (1 - v.e) * A.norm : v.u; }
+            break;
+          case 2:
+            v.u += D.inc;
+            if (v.u >= 1) { v.level = sus; v.stage = 3; }
+            else { v.e *= D.m; v.level = 1 + (sus - 1) * (D.k ? (1 - v.e) * D.norm : v.u); }
+            break;
+          case 3: v.level = sus; break;
+          case 4:
+            v.u += R.inc;
+            if (v.u >= 1) { v.level = 0; v.stage = 0; }
+            else { v.e *= R.m; v.level = v.l0 * (1 - (R.k ? (1 - v.e) * R.norm : v.u)); }
+            break;
         }
         if (!v.stage) break;
         v.inc += incStep;

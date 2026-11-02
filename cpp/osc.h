@@ -74,19 +74,31 @@ inline double noiseSample(int wave, double w, NoiseState& z) {
 }
 
 struct Osc : Kernel {
-  enum { POLYPHONY, WAVE, ATTACK, DECAY, SUSTAIN, RELEASE, GAIN, DUTY, PARAMS };
+  enum { POLYPHONY, WAVE, ATTACK, DECAY, SUSTAIN, RELEASE, GAIN, DUTY, ATK_CURVE, DEC_CURVE, REL_CURVE, PARAMS };
   static constexpr int MAX_VOICES = 32;
+  static constexpr double ATTACK_KMAX = 1.0986122886681098;  // ln 3
+  static constexpr double FALL_KMAX = 6.907755278982137;     // ln 1000
   static constexpr double SMOOTH_S = 0.006;
+
+  // One envelope stage for this block, see stage() in osc.dsp.js and src/modules/adsrcurve.js
+  struct Stage { double inc, k, m, norm; };
+  Stage stage(double seconds, double amount, double kmax) const {
+    const double inc = 1 / (maxd(seconds, 0.001) * sr);
+    const double k = (amount == amount ? clampd(amount, -100, 100) : 0) / 100 * kmax;
+    if (fabs(k) < 1e-9) return {inc, 0, 1, 1};
+    return {inc, k, exp(-k * inc), 1 / (1 - exp(-k))};
+  }
 
   struct Voice {
     int stage = 0;  // 0 idle, 1 attack, 2 decay, 3 sustain, 4 release
-    double id = 0, phase = 0, inc = 0, level = 0, relStep = 0, age = 0;
+    double id = 0, phase = 0, inc = 0, level = 0, age = 0;
+    double u = 0, e = 1, l0 = 0;  // stage progress, e^(-k u), level where the release started
     double pitch = 0, vel = 0, pitchT = 0, velT = 0;
     NoiseState noise;
   };
 
   int poly = 8;
-  double p[PARAMS] = {8, SAW, 0.01, 0.2, 0.7, 0.4, 0.5, 50};
+  double p[PARAMS] = {8, SAW, 0.01, 0.2, 0.7, 0.4, 0.5, 50, 0, 0, 0};
   double duty = 0.5;
   double clock = 0;
   Voice voices[MAX_VOICES];
@@ -110,8 +122,10 @@ struct Osc : Kernel {
     } else if (type == NOTE_OFF) {
       Voice* v = voiceOf(id);
       if (v && v->stage != 4) {
-        v->stage = 4;
-        v->relStep = v->level / (maxd(p[RELEASE], 0.001) * sr);
+        v->stage = v->level > 0 ? 4 : 0;
+        v->l0 = v->level;
+        v->u = 0;
+        v->e = 1;
       }
     } else if (type == ALL_OFF) for (auto& v : voices) v.stage = 0;
   }
@@ -139,6 +153,8 @@ struct Osc : Kernel {
     v->inc = incOf(pitch);
     v->phase = phase == phase && !isinf(phase) ? phase - floor(phase) : 0;
     v->level = 0;
+    v->u = 0;
+    v->e = 1;
     v->noise = NoiseState();
     v->stage = 1;
     v->age = ++clock;
@@ -148,8 +164,9 @@ struct Osc : Kernel {
     float* buf = outL;
     memset(buf, 0, n * sizeof(float));
     const double sustain = p[SUSTAIN];
-    const double atkStep = 1 / (maxd(p[ATTACK], 0.001) * sr);
-    const double decStep = (1 - sustain) / (maxd(p[DECAY], 0.001) * sr);
+    const Stage A = stage(p[ATTACK], p[ATK_CURVE], ATTACK_KMAX);
+    const Stage D = stage(p[DECAY], p[DEC_CURVE], FALL_KMAX);
+    const Stage R = stage(p[RELEASE], p[REL_CURVE], FALL_KMAX);
     const int wave = toInt32(p[WAVE]);
     const bool noise = wave >= WHITE;
     const double k = 1 - exp(-n / (SMOOTH_S * sr));
@@ -174,12 +191,26 @@ struct Osc : Kernel {
         v.vel = fabs(v.velT - v.vel) < 1e-6 ? v.velT : v.vel + (v.velT - v.vel) * k;
         velStep = (v.vel - vel) / n;
       }
+      const Stage* st = v.stage == 1 ? &A : v.stage == 2 ? &D : v.stage == 4 ? &R : nullptr;
+      if (st) v.e = st->k ? exp(-st->k * v.u) : 1;
       for (int i = 0; i < n; i++) {
         switch (v.stage) {
-          case 1: v.level += atkStep; if (v.level >= 1) { v.level = 1; v.stage = 2; } break;
-          case 2: v.level -= decStep; if (v.level <= sustain) { v.level = sustain; v.stage = 3; } break;
+          case 1:
+            v.u += A.inc;
+            if (v.u >= 1) { v.level = 1; v.stage = 2; v.u = 0; v.e = 1; }
+            else { v.e *= A.m; v.level = A.k ? (1 - v.e) * A.norm : v.u; }
+            break;
+          case 2:
+            v.u += D.inc;
+            if (v.u >= 1) { v.level = sustain; v.stage = 3; }
+            else { v.e *= D.m; v.level = 1 + (sustain - 1) * (D.k ? (1 - v.e) * D.norm : v.u); }
+            break;
           case 3: v.level = sustain; break;
-          case 4: v.level -= v.relStep; if (v.level <= 0) { v.level = 0; v.stage = 0; } break;
+          case 4:
+            v.u += R.inc;
+            if (v.u >= 1) { v.level = 0; v.stage = 0; }
+            else { v.e *= R.m; v.level = v.l0 * (1 - (R.k ? (1 - v.e) * R.norm : v.u)); }
+            break;
         }
         if (!v.stage) break;
         v.inc += incStep;

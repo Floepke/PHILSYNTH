@@ -270,7 +270,7 @@ const set = (e, x) => { hold(e, x); render(1); };
 
   assert.ok(r.connect(lfo.id, osc.id), 'LFO may connect to a module without audio input');
   assert.equal(r.connect(osc.id, lfo.id), false, 'LFO has no audio input');
-  assert.equal(lfo.inst.params().find((p) => p.id === 'outController').max, 7, 'Out Controller range follows the target (8 OSC controllers)');
+  assert.equal(lfo.inst.params().find((p) => p.id === 'outController').max, 10, 'Out Controller range follows the target (11 OSC controllers)');
   assert.match(lfo.inst.params().find((p) => p.id === 'outController').format(6), /Gain/);
 
   r.setParam(lfo.id, 'outController', 6); // OSC gain 0..1
@@ -1425,7 +1425,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.ok(r.connect(pm.id, osc.id), 'Patch -> OSC is now a control cable');
   assert.ok(r.signals(pm, osc).mod);
   const oc = () => ilfo.inst.params().find((p) => p.id === 'outController');
-  assert.equal(oc().max, 7, 'inner Out Controller lists the outer OSC controllers');
+  assert.equal(oc().max, 10, 'inner Out Controller lists the outer OSC controllers');
   assert.match(oc().format(6), /Gain/);
   ip.setParam(ilfo.id, 'outController', 6); // OSC gain
   ip.setParam(ilfo.id, 'outMin', 20);

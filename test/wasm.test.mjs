@@ -157,6 +157,19 @@ for (let wave = 0; wave <= 4; wave++) {
   });
 }
 
+// OSC envelope curves: analog / inverse shapes, live curve and time changes, release from mid-stage
+compare('osc', {
+  blocks: 200,
+  script: [
+    [0, param('polyphony', 4)], [0, param('attack', 0.02)], [0, param('decay', 0.05)], [0, param('sustain', 0.4)],
+    [0, param('release', 0.08)], [0, param('atkCurve', 100)], [0, param('decCurve', -60)], [0, param('relCurve', 75)],
+    [0, noteOn(1, 60)], [2, noteOn(2, 67, 0.7)], [3, { type: 'noteOff', id: 2 }], [5, param('atkCurve', -100)],
+    [6, noteOn(3, 72)], [8, param('decCurve', 100)], [10, param('decay', 0.2)], [30, { type: 'noteOff', id: 1 }],
+    [33, param('relCurve', -40)], [36, param('release', 0.3)], [60, param('sustain', 0)], [70, { type: 'noteOff', id: 3 }],
+    [120, noteOn(4, 50, 1)], [121, param('atkCurve', 0.4)], [130, { type: 'noteOff', id: 4 }], [131, noteOn(4, 52)],
+  ],
+});
+
 // OSC start phase (MODMIDI phase): wrapped into [0, 1), invalid -> 0, retrigger takes the new phase
 for (let wave = 0; wave <= 4; wave++) {
   compare('osc', {

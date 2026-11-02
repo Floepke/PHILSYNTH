@@ -79,7 +79,7 @@ function overtoneLabel(v) {
 export default {
   type: 'MULTIMIDI',
   color: '#b84d4e',
-  label: 'MultiMIDI (pitch/velocity)',
+  label: 'MultiMIDI (pitch/velocity/phase)',
   acceptsMidi: true,
   midiOut: true, // its cables carry MODMIDI notes, not audio
   hasInput: false,

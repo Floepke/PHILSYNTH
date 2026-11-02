@@ -6,8 +6,12 @@
 //   when no other note is held. Release starts when the last held note ends.
 //   Velocity: how much the note velocity scales the envelope peak (0 % = always full).
 //   Out Controller / Out Min / Out Max: see modtarget.js (the envelope runs Out Min -> Out Max).
+//   Attack/Decay/Release Curve: the stage shapes, the same as the OSC envelope (adsrcurve.js).
+// The panel shows the ADSR editor of the OSC (adsrview.js).
 import { modulatorParams, outParams, pct } from './modtarget.js';
 import { linkDecayRelease } from './envlink.js';
+import { curveParams } from './adsrcurve.js';
+import { createAdsrView } from './adsrview.js';
 
 const secs = (v) => (v < 1 ? `${Math.round(v * 1000)} ms` : `${v.toFixed(2)} s`);
 
@@ -27,8 +31,14 @@ export default {
     ...outParams(),
     { id: 'trigger', label: 'Trigger', min: 0, max: 1, default: 0, step: 1, options: ['Every note', 'Legato'] },
     { id: 'velocity', label: 'Velocity', min: 0, max: 100, default: 0, step: 1, format: pct },
+    ...curveParams(), // appended: Out Controller routings to the ADSR's own controllers keep their numbers
   ],
-  linked: linkDecayRelease, // Sustain at 0: Decay and Release move together
+  linked: linkDecayRelease, // Sustain at 0: Decay and Release (and their Curves) move together
+  view(entry, api) {
+    const v = createAdsrView({ color: api.color, values: entry.values, params: entry.def.params, ...api });
+    v.el.classList.add('adsr-solo');
+    return v;
+  },
   create(_ctx, def, host) {
     // DSP: adsr.dsp.js (held notes, legato and velocity are handled there too)
     const node = host.dsp.create('adsr');

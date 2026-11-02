@@ -12,6 +12,12 @@ const MOD_CABLE = '<kbd>Shift</kbd> + drag from this module to the module to con
 const NOTES_IN = 'Notes trigger it: select it and play the MIDI keyboard, send a clip to it, or <kbd>Shift</kbd> + drag a MULTIMIDI into it.';
 
 const POLYPHONY = 'Number of voices (notes that can sound at once). A new note beyond this steals the oldest voice.';
+const ENV_CURVES = {
+  atkCurve: 'Shape of the attack. 0 = Linear (a straight rise); +100 % = the analog RC charge curve (fast start that slows into the peak, as charging toward 1.5); negative values give the inverse, a slow start that shoots up at the end. The attack time stays exact.',
+  decCurve: 'Shape of the decay toward Sustain. 0 = Linear; +100 % = analog exponential (falls fast, then eases into the sustain level, -60 dB of the distance at the end of the Decay time); negative = the inverse (holds, then drops). With Sustain at 0 it moves together with Release Curve.',
+  relCurve: 'Shape of the release, like Decay Curve: 0 = Linear, +100 % = analog exponential fade (-60 dB at the end of the Release time), negative = holds and then drops off.',
+};
+const ADSR_EDITOR = 'drag the peak (Attack time), the corner (Decay time and Sustain level), the end (Release time) or the round dot in the middle of a stage (up/down sets its Curve). It moves the real controllers, so the graph and the sliders always agree; double-click a handle to reset it. The time axis is logarithmic per stage (1 ms up to the controller\'s maximum), the sustain plateau has a fixed width.';
 const VOICE_ENV = {
   attack: 'Time for each note to rise from silence to full level.',
   decay: 'Time to fall from full level to the Sustain level.',
@@ -44,8 +50,13 @@ export const DOCS = {
       wave: 'Waveform of every voice: Sine, Tri/Saw (a triangle that morphs into a saw with Duty Cycle), Saw, Square, Half sine, or one of five noise colours (White, Pink, Brown, Blue, Violet: dark to bright). Noise ignores the note pitch.',
       ...VOICE_ENV,
       duty: 'Reshapes the waveform within each cycle (50 % = the classic shape): the pulse width of Square, the rise/fall balance of Tri/Saw, the bow length of Half sine (100 % fills the period, 0 % is silent). Hidden for noise.',
+      ...ENV_CURVES,
     },
-    notes: [NOTES_IN, 'The waveform preview below the controllers shows one cycle of the current shape.'],
+    notes: [
+      NOTES_IN,
+      'The waveform preview below the controllers shows the current shape (two cycles).',
+      `<b>ADSR editor</b> (below the waveform): ${ADSR_EDITOR}`,
+    ],
   },
 
   SAMPLER: {
@@ -286,8 +297,14 @@ export const DOCS = {
       ...MOD_PARAMS,
       trigger: 'Every note: each new note restarts the attack (from the current level, without jumps). Legato: only a note played when no other note is held restarts it.',
       velocity: 'How much the note velocity scales the peak: 0 % = always full, 100 % = fully velocity dependent.',
+      ...ENV_CURVES,
     },
-    notes: [MOD_CABLE, NOTES_IN, 'Example: MULTIMIDI → OSC and MULTIMIDI → ADSR → OSC, so every note also sweeps a controller of the synth.'],
+    notes: [
+      MOD_CABLE,
+      NOTES_IN,
+      'Example: MULTIMIDI → OSC and MULTIMIDI → ADSR → OSC, so every note also sweeps a controller of the synth.',
+      `<b>ADSR editor</b> (below the controllers): ${ADSR_EDITOR} A retriggered attack continues from the current level along the Attack Curve.`,
+    ],
   },
 
   ENVELOPE: {
