@@ -471,6 +471,26 @@ const set = (e, x) => { hold(e, x); render(1); };
   r.setParam(mmC.id, 'velocity', 1);
   mmC.inst.noteOff(1004);
 
+  // Velocity Sense Off: every note gets exactly the Velocity value, however hard it was played
+  {
+    const vs = mmC.def.params.find((p) => p.id === 'velSense');
+    assert.deepEqual([vs.default, vs.options], [1, ['Off (fixed)', 'On']], 'default On = the old behaviour');
+    assert.equal(mmC.def.params.at(-1), vs, 'appended last (Out Controller numbers stay)');
+    r.setParam(mmC.id, 'velSense', 0);
+    r.setParam(mmC.id, 'velocity', 0.7);
+    for (const [id, vel] of [[1005, 0.1], [1006, 1]]) {
+      mmC.inst.noteOn(id, 60, vel);
+      const on = log.filter((m) => m.type === 'noteOn').at(-1);
+      assert.ok(Math.abs(on.velocity - 0.7) < 1e-9, `fixed velocity (${vel} -> ${on.velocity})`);
+      mmC.inst.noteOff(id);
+    }
+    r.setParam(mmC.id, 'velSense', 1);
+    mmC.inst.noteOn(1007, 60, 0.5);
+    assert.ok(Math.abs(log.filter((m) => m.type === 'noteOn').at(-1).velocity - 0.35) < 1e-9, 'On: played velocity × Velocity');
+    mmC.inst.noteOff(1007);
+    r.setParam(mmC.id, 'velocity', 1);
+  }
+
   // Overtone n = (n + 1) × the fundamental frequency, i.e. +12·log2(n + 1) semitones
   {
     const { overtoneSemitones } = await import('../src/modules/multimidi.js');

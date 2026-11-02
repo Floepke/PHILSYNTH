@@ -197,6 +197,35 @@ body.panel-collapsed #panel { visibility: hidden; }
 #panel-content.no-selection .hint { margin-bottom: 12px; font-size: 14px; line-height: 1.65; }
 #panel-content.no-selection .hint kbd { font-size: 12px; }
 
+/* tutorials shown when nothing is selected (src/guide.js) */
+.guide { color: var(--text-dim); font-size: 13px; line-height: 1.6; }
+.guide-part { margin: 0 0 14px; border-top: 1px solid var(--border); }
+.guide-part > summary {
+  padding: 10px 0 4px;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.guide-intro { margin: 4px 0 6px; color: var(--text); }
+.guide h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 14px 0 4px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.guide-steps { margin: 0; padding-left: 18px; }
+.guide-steps li { margin-bottom: 6px; }
+.guide-keys { width: 100%; border-collapse: collapse; font-size: 12px; }
+.guide-keys th, .guide-keys td { padding: 4px 6px; border-bottom: 1px solid var(--border); vertical-align: top; text-align: left; }
+.guide-keys th { width: 45%; font-weight: 500; white-space: normal; }
+.guide kbd { font-size: 11px; }
+
 /* module reference below the controllers (src/moduledocs.js) */
 .module-docs {
   margin: 18px 0 8px;

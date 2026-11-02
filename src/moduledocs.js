@@ -108,6 +108,7 @@ export const DOCS = {
       randomDelay: 'Delays every note by a random time between 0 and this value (0–5000 ms). The note\'s velocity changes and note-off get the same delay, so its length is kept.',
       velocity: 'Overall level: scales every outgoing velocity (100 % = unchanged, 0 % = silent).',
       overtone: 'Plays the n-th overtone of the harmonic series instead of the note: (n + 1) × its frequency. 0 = the fundamental, 1 = octave, 2 = octave + fifth, 3 = two octaves … up to 128.',
+      velSense: '<i>On</i> (default): the played velocity is passed on, scaled by <b>Velocity</b>. <i>Off (fixed)</i>: velocity detection is off, every note gets exactly the <b>Velocity</b> value however hard it was played (Velocity Drift still applies).',
       routeMode: 'Which MIDI cables each note goes out of: <i>Sent to All</i> (every cable), <i>Round Robin</i> (the next cable in turn, in the order they were made), <i>Random</i> (one random cable), <i>Random (no repeat)</i> (random, never the same cable twice in a row).',
     },
     notes: [

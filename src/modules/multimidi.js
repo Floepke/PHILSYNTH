@@ -13,6 +13,8 @@
 // 100 % = anywhere in the cycle. The offset is drawn once per note and added to the incoming phase
 // (so chained MULTIMIDIs add up here too).
 // Velocity: overall level, scales every outgoing velocity (100 % = unchanged, 0 % = silent).
+// Velocity Sense: On = the incoming velocity is passed on (scaled by Velocity); Off = fixed: every
+// note gets exactly the Velocity value, however hard it was played (Velocity Drift still applies).
 // Overtone: plays the note's n-th overtone, (n + 1) × the fundamental frequency (0 = fundamental).
 // Random Delay: sample one 0..maximum delay per note, keeping that offset for its
 // onset, modulation, and release so short notes retain their length.
@@ -57,6 +59,7 @@ const hz = (v) => (v ? `${v < 10 ? v.toFixed(2) : v.toFixed(1)} Hz` : 'Hold');
 // fifth, 3 = two octaves ...), i.e. 12·log2(n + 1) semitones up. Whole numbers only (also when modulated).
 export const overtoneOf = (v) => Math.min(128, Math.max(0, Math.round(+v || 0)));
 export const overtoneSemitones = (v) => 12 * Math.log2(overtoneOf(v) + 1);
+export const VEL_SENSE = ['Off (fixed)', 'On'];
 export const ROUTE_MODES = ['Sent to All', 'Round Robin', 'Random', 'Random (no repeat)'];
 export const routeModeOf = (v) => Math.min(ROUTE_MODES.length - 1, Math.max(0, Math.round(+v || 0)));
 // -> the targets one new note goes to; `last` is the target the previous note took (or null)
@@ -94,12 +97,13 @@ export default {
     { id: 'velocity', label: 'Velocity', min: 0, max: 1, default: 1, step: 0.01, format: (v) => `${Math.round(v * 100)} %` },
     { id: 'overtone', label: 'Overtone', min: 0, max: 128, default: 0, step: 1, format: overtoneLabel },
     { id: 'routeMode', label: 'Route Mode', min: 0, max: ROUTE_MODES.length - 1, default: 0, step: 1, options: ROUTE_MODES },
+    { id: 'velSense', label: 'Velocity Sense', min: 0, max: 1, default: 1, step: 1, options: VEL_SENSE },
   ],
   create(ctx, _def, host, { rand = Math.random } = {}) {
     // no DSP: its controllers live here; the node only receives modulation (LFO -> Transpose ...)
     const ctl = host.dsp.create('none');
 
-    const v = { transpose: 0, finetune: 0, drift: 0, driftFreq: 1, velocity: 1, overtone: 0, routeMode: 0, velDrift: 0, velDriftFreq: 1, randomPhase: 0, randomDelay: 0 };
+    const v = { transpose: 0, finetune: 0, drift: 0, driftFreq: 1, velocity: 1, overtone: 0, routeMode: 0, velSense: 1, velDrift: 0, velDriftFreq: 1, randomPhase: 0, randomDelay: 0 };
     // Incoming id -> per-note pitch/velocity drift, including its delayed release tail.
     const notes = new Map();
     let lastRoute = null; // the target the previous note went to (Round Robin / no repeat)
@@ -112,7 +116,7 @@ export default {
 
     const outOf = (n) => [
       n.pitch + v.transpose + v.finetune + overtoneSemitones(v.overtone) + v.drift * n.pd.value,
-      Math.max(0, n.vel * Math.min(1, Math.max(0, v.velocity)) * (1 - v.velDrift * n.vd.value)),
+      Math.max(0, (v.velSense >= 0.5 ? n.vel : 1) * Math.min(1, Math.max(0, v.velocity)) * (1 - v.velDrift * n.vd.value)),
     ];
     const update = (inId, n) => {
       const out = outOf(n);
