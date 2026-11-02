@@ -5,6 +5,7 @@
 // piano range there are no lines, notes just float.
 // The keyboard sits below the stave. Noteheads are left-tilted ovals, white/black by key.
 // Keys held on the MIDI device or computer keyboard (ctx.heldKeys) light up blue (the selection colour).
+// During playback the keys of the clip's notes under the playhead light up in the clip's note colour.
 // All 128 MIDI pitches fit the available width; only time can be scrolled / zoomed.
 //   click / drag the keyboard  play pitches on the live MIDI module (red MIDI in the patcher) without editing notes
 //   click / drag on empty space  insert a note (last used length), dragging sets its duration
@@ -160,6 +161,26 @@ export function createPianoRoll(host, ctx) {
     g.globalAlpha = 1;
   }
 
+  // clip time of the play position when the transport is on this clip (playing or paused), else null
+  function playheadTime(clip) {
+    const { playing, pos, clipId } = ctx.transport;
+    const t = pos - clip.start;
+    const onClip = clipId == null || (ctx.transport.loopClip ? ctx.transport.loopClip() === clip : clipId === clip.id);
+    return (playing || pos > 0) && ctx.transport.plays?.(ctx.song()) !== false && onClip && t >= 0 && t <= clip.length ? t : null;
+  }
+
+  // pitches of the clip's notes sounding at the playhead during playback (keyboard highlight)
+  function soundingPitches(clip) {
+    const out = new Set();
+    if (!clip || !ctx.transport.playing) return out;
+    const t = playheadTime(clip);
+    if (t === null) return out;
+    for (const n of clip.notes) {
+      if (n.start >= 0 && n.start < clip.length && n.start <= t && t < n.start + n.length) out.add(n.pitch);
+    }
+    return out;
+  }
+
   function paint(g, w, h) {
     if (!w || !h) return;
     limitScroll();
@@ -292,9 +313,8 @@ export function createPianoRoll(host, ctx) {
       if (hover && !drag) head(g, xOf(hover.pitch) + kw / 2, yOf(hover.t), isBlack(hover.pitch), 0.55);
       if (clipSilent(ctx.song(), clip)) mutedMark(g, gridX(), 0, w - gridX(), bottom);
       // play position
-      const { playing, pos, clipId } = ctx.transport;
-      const t = pos - clip.start;
-      if ((playing || pos > 0) && ctx.transport.plays?.(ctx.song()) !== false && (clipId == null || (ctx.transport.loopClip ? ctx.transport.loopClip() === clip : clipId === clip.id)) && t >= 0 && t <= clip.length) {
+      const t = playheadTime(clip);
+      if (t !== null) {
         const y = Math.round(yOf(t)) + 0.5;
         g.strokeStyle = PLAYHEAD;
         g.lineWidth = 2;
@@ -331,10 +351,14 @@ export function createPianoRoll(host, ctx) {
     const keyGap = Math.min(1, kw * 0.1);
     const live = ctx.heldKeys?.() ?? new Set(); // keys held on the MIDI device / computer keyboard
     const blackLive = `color-mix(in srgb, ${SELECT} 70%, #000)`;
+    const sounding = soundingPitches(clip); // notes of this clip under the playhead while it plays
+    const noteColor = clip ? `color-mix(in srgb, ${ctx.color(clip)} 75%, #fff)` : null;
+    const blackNote = `color-mix(in srgb, ${noteColor} 70%, #000)`;
     for (let p = 0; p <= PITCH_MAX; p++) {
       const x = xOf(p);
       g.fillStyle = drag?.kind === 'keyboard' && drag.pitch === p ? PLAYHEAD
         : live.has(p) ? (isBlack(p) ? blackLive : SELECT)
+        : sounding.has(p) ? (isBlack(p) ? blackNote : noteColor)
         : inPiano(p) ? (isBlack(p) ? '#191a20' : '#bfc1c7') : (isBlack(p) ? '#24262c' : '#777a84');
       g.fillRect(x + keyGap / 2, bottom + 1, kw - keyGap, KEYBOARD - 2);
       if (p === hoverPitch) {

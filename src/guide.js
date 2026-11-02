@@ -199,7 +199,7 @@ export const GUIDE = [
         title: 'Write notes',
         items: [
           'Click empty space to insert a note at that pitch, starting on the grid line at or before the pointer, with the last used length; keep dragging to set its duration.',
-          'Click / drag the keyboard at the bottom to audition pitches on the live MIDI module without writing notes. Keys held on your MIDI controller or the computer keyboard light up blue there, so you can read what you play.',
+          'Click / drag the keyboard at the bottom to audition pitches on the live MIDI module without writing notes. Keys held on your MIDI controller or the computer keyboard light up blue there, so you can read what you play. During playback the notes under the playhead light up their keys in the clip colour, so you can read the harmony.',
         ],
       },
       {
@@ -231,7 +231,7 @@ export const GUIDE = [
         items: [
           'The strip left of the notes shows each note\'s velocity (stick) and how it changes while the note sounds. Drag a note\'s dot to set its velocity; with several notes selected, dragging one dot moves the start velocity of all of them.',
           `The selected notes share one velocity curve: ${k('Double-click')} inside them adds a point, drag points (${k('Shift')} = fine), the wheel on a point rounds it. ${k('Alt')} + drag moves only the curve point.`,
-          'Right-click the strip for <b>Snap velocity values</b> (1/16 steps) and <b>Delete point</b>. Drag the bar ruler beside the strip to make it wider (double-click resets).',
+          'Right-click the strip for <b>Snap velocity values</b> (1/16 steps, shown as alternating light/dark bands while on) and <b>Delete point</b>. Drag the bar ruler beside the strip to make it wider (double-click resets).',
         ],
       },
       {

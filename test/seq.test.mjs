@@ -222,6 +222,35 @@ const assertNoOverlap = (song) => {
 }
 
 // The keyboard auditions white/black keys without inserting notes or changing the selection.
+// clip playback: keys of the notes under the playhead light up in the clip's note colour
+{
+  const { clip, roll, ctx } = setup();
+  const cv = roll.surface.cv;
+  clip.notes.push(note(60, 1, 2), note(63, 2, 1), note(67, 5, 1), note(70, 20, 1));
+  const keyFill = (p) => cv.drawing.findLast(([op, x, y, w]) => op === 'fillRect' && y === 377 && x <= nx(p) && nx(p) < x + w)?.at(-1);
+  const paintAt = (pos, playing = true) => {
+    Object.assign(ctx.transport, { pos: clip.start + pos, playing });
+    cv.drawing.length = 0;
+    roll.redraw(); flush();
+  };
+  const noteColor = 'color-mix(in srgb, #e76f51 75%, #fff)';
+  paintAt(2.5);
+  assert.equal(keyFill(60), noteColor, 'sounding white key: note colour');
+  assert.match(keyFill(63), /color-mix\(in srgb, color-mix\(in srgb, #e76f51/, 'sounding black key: darker note colour');
+  assert.notEqual(keyFill(67), noteColor, 'later note not lit yet');
+  paintAt(3);
+  assert.notEqual(keyFill(60), noteColor, 'note end releases the key');
+  paintAt(0.5);
+  assert.notEqual(keyFill(60), noteColor, 'before the note starts');
+  paintAt(2.5, false);
+  assert.notEqual(keyFill(60), noteColor, 'paused / stopped: no highlight');
+  ctx.heldKeys = () => new Set([60]);
+  paintAt(2.5);
+  assert.equal(keyFill(60), '#65b4ff', 'keys held live win over clip playback');
+  delete ctx.heldKeys;
+  Object.assign(ctx.transport, { pos: 0, playing: false });
+}
+
 for (const ending of ['pointerup', 'pointercancel', 'lostpointercapture', 'blur']) {
   const { clip, roll, ctx, changes } = setup();
   const cv = roll.surface.cv;
@@ -1539,7 +1568,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.deepEqual(clip.notes, [other], 'the selection was kept');
 }
 
-// Velocity snapping: all sixteen intervals, including both endpoints, without a drawn grid.
+// Velocity snapping: all sixteen intervals, including both endpoints.
 for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 16), 0.531249, 0.53125, 0.531251, 1.2]) {
   const { clip, roll } = setup({ snapVelocity: true });
   const cv = roll.surface.cv;
@@ -1592,6 +1621,15 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   for (const x of [7.5, 42.5, 77.5]) {
     assert.equal(cv.drawing.some(([op, px, py]) => op === 'lineTo' && px === x && py === 376), false, 'no velocity grid lines');
   }
+  // snap levels are shown as alternating light/dark bands only while snapping is on
+  const bands = () => cv.drawing.filter(([op, x, y, w, , fill]) => op === 'fillRect' && fill === 'rgba(0, 0, 0, 0.10)' && y === 0 && x < 84 && w < 10);
+  assert.equal(bands().length, 0, 'snapping off: no velocity bands');
+  pick(menus, 'Snap velocity values');
+  cv.drawing.length = 0;
+  roll.redraw(); flush();
+  const on = bands();
+  assert.equal(on.length, 8, 'snapping on: every other 1/16 step is darkened');
+  assert.deepEqual(on.map(([, x]) => x), [1, 3, 5, 7, 9, 11, 13, 15].map((k) => Math.round(7 + (k / 16) * 70)));
 }
 {
   const { clip, roll, menus } = setup({ snapVelocity: true });
@@ -2070,7 +2108,7 @@ for (const width of [240, 480, 1000, 1912, 3000]) {
   const kw = (width - 120) / 128;
   const left = 120 + 22.5 * kw;
   const right = 120 + 106.5 * kw;
-  const bands = cv.drawing.filter(([op, , , , , color]) => op === 'fillRect' && color === 'rgba(0, 0, 0, 0.10)');
+  const bands = cv.drawing.filter(([op, x, , , , color]) => op === 'fillRect' && color === 'rgba(0, 0, 0, 0.10)' && x >= 120);
   assert.ok(bands.length > 0);
   assert.ok(bands.every((b) => b[1] === left && b[3] === right - left));
   const lines = cv.drawing.flatMap(([op, color], i) => {

@@ -13,7 +13,8 @@
 //   Shift + drag                       fine velocity
 //   double-click inside the selection  insert a curve point (hold the second press to drag it)
 //   mouse wheel on a point             round the corner
-//   right-click                        menu: toggle velocity snapping (1/16 increments, no grid);
+//   right-click                        menu: toggle velocity snapping (1/16 increments, shown as
+//                                       alternating light/dark bands between the levels);
 //                                       on a curve point, the menu also offers Delete point (not the first)
 import { pianoTimeStep, snapRound, clean, notePoints, noteVelAt, groupVelCurve, applyVelCurve } from '../song.js';
 import { curvePolyline, NEW_POINT_ROUND } from '../curve.js';
@@ -25,6 +26,7 @@ const PAD = 7;
 const HIT = 7;
 const ROUND_STEP = 0.05;
 const SELECT = '#65b4ff';
+const VEL_SNAP = 16; // velocity snapping levels: 0, 1/16 .. 1
 
 // o: { cv, local(e), clip(), selected() -> Set, setSelected(Set), yOf(t), timeAt(y), bottom(), ppq(), song(),
 //      color(clip), changed(), redraw(), menu(opts), snapVelocity(), toggleSnapVelocity(), width()? }
@@ -37,7 +39,7 @@ export function createVelocityStrip(o) {
   const W = () => o.width?.() ?? VEL_W;
   const xv = (v) => PAD + v * (W() - 2 * PAD);
   const vx = (x) => clamp((x - PAD) / (W() - 2 * PAD), 0, 1);
-  const snapVelocity = (v) => o.snapVelocity() ? Math.round(v * 16) / 16 : v;
+  const snapVelocity = (v) => o.snapVelocity() ? Math.round(v * VEL_SNAP) / VEL_SNAP : v;
   const contains = (x, y) => x >= 0 && x < W() && y >= 0 && y < o.bottom();
   const step = () => pianoTimeStep(o.song().snap);
   const sigOf = (notes) => notes.map((n) => `${n.start},${n.length},${n.vel},${JSON.stringify(n.vels ?? [])}`).join(';');
@@ -97,6 +99,14 @@ export function createVelocityStrip(o) {
     const bottom = o.bottom();
     g.fillStyle = '#34353c';
     g.fillRect(0, 0, W(), bottom);
+    if (o.snapVelocity()) {
+      // alternating light/dark bands between the snap levels (like the roll's snap-step bands)
+      g.fillStyle = 'rgba(0, 0, 0, 0.10)';
+      for (let k = 1; k < VEL_SNAP; k += 2) {
+        const a = Math.round(xv(k / VEL_SNAP));
+        g.fillRect(a, 0, Math.round(xv((k + 1) / VEL_SNAP)) - a, bottom);
+      }
+    }
     g.save();
     g.beginPath();
     g.rect(0, 0, W(), bottom);
