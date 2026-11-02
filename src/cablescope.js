@@ -1,14 +1,21 @@
-// Live audio on the cables: the engine graph reports a stream of signed peak values for the
-// nodes feeding the visible cables (Graph.scope, one point per ~5 ms), and each cable draws that
-// stream as a wave along its own curve. The newest value enters at the source port and travels
-// towards the destination, so the cable shows the last fraction of a second of its signal.
+// Live audio on the cables: the engine graph streams the waveform of the nodes feeding the visible
+// cables (Graph.scope, one point per SCOPE_DECIM = 4 samples), and each cable draws that stream
+// along its own curve, newest audio at the source port. One point per STEP px, so a longer cable
+// shows a longer stretch of audio (about 0.08 ms per point at 48 kHz: a 300 px cable ≈ 8 ms).
+// Drawn at the real speed the wave would race past far too fast to read, so every frame the
+// window locks onto a rising zero crossing of the stream (hysteresis, sub-point accurate): a
+// periodic wave stands still and drifts slowly (DRIFT px/s) from the source towards the
+// destination. Without a stable period (noise, very slow signals, silence) the live stream shows.
 import { samplePoints } from './cable.js';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
-export const RING = 1024; // points kept per node (the graph sends SCOPE_QUIET zeros after the sound stops)
+export const RING = 8192; // points kept per node (~0.7 s; the graph sends SCOPE_QUIET zeros after the sound stops)
 export const STEP = 3; // world px between two points on a cable
 export const AMP = 16; // max displacement in world px
+export const DRIFT = 45; // world px per second the locked wave travels along the cable
 const EDGE = 10; // points over which the wave fades in/out at the ports
+const LOOK = 2048; // points searched for zero crossings beyond the longest cable (periods up to ~170 ms)
+const HYST = 0.25; // a rising crossing counts after the wave went below -HYST × its peak
 
 // Displacement for value v at point i of n: soft-clipped and pinned to zero at both ports.
 export function displace(v, i, n) {
@@ -16,33 +23,92 @@ export function displace(v, i, n) {
   return AMP * Math.tanh(1.5 * v) * e * e * (3 - 2 * e);
 }
 
-// Value history of one node. at(0) is the newest.
+// Value history of one node. at(0) is the newest; count = points pushed so far.
 export class Ring {
   constructor(size = RING) {
     this.buf = new Float32Array(size);
     this.pos = 0; // next write
+    this.count = 0;
     this.quiet = size; // points since the last non-zero one
   }
 
   push(v) {
     this.buf[this.pos] = v;
     this.pos = (this.pos + 1) % this.buf.length;
+    this.count++;
     this.quiet = v !== 0 ? 0 : Math.min(this.quiet + 1, this.buf.length);
   }
 
   at(age) {
     const n = this.buf.length;
-    if (age >= n) return 0;
+    if (age >= n || age < 0) return 0;
     return this.buf[(this.pos - 1 - age + n * 2) % n];
+  }
+
+  // linear interpolation between points (fractional age)
+  lerp(age) {
+    const i = Math.floor(age);
+    const f = age - i;
+    return f ? this.at(i) + (this.at(i + 1) - this.at(i)) * f : this.at(i);
   }
 }
 
-// SVG path along the cable points displaced by the ring values.
-export function scopePath(pts, ring) {
+// Ages (ascending, fractional) of the rising zero crossings within ages 0..maxAge, with hysteresis.
+export function crossings(ring, maxAge) {
+  const top = Math.min(maxAge, ring.buf.length - 1);
+  let peak = 0;
+  for (let a = 0; a <= top; a++) peak = Math.max(peak, Math.abs(ring.at(a)));
+  const out = [];
+  if (!(peak > 1e-6)) return out;
+  const h = -HYST * peak;
+  let armed = false;
+  let prev = ring.at(top);
+  for (let a = top - 1; a >= 0; a--) { // oldest -> newest
+    const v = ring.at(a);
+    if (v < h) armed = true;
+    if (armed && prev < 0 && v >= 0) {
+      out.push(a + v / (v - prev)); // the zero between age a + 1 (prev) and a (v)
+      armed = false;
+    }
+    prev = v;
+  }
+  return out.reverse();
+}
+
+// Median distance between neighbouring crossings (the period in points), 0 when unknown.
+export function period(xs) {
+  if (xs.length < 2) return 0;
+  const d = [];
+  for (let i = 1; i < Math.min(xs.length, 9); i++) d.push(xs[i] - xs[i - 1]);
+  d.sort((a, b) => a - b);
+  return d[d.length >> 1];
+}
+
+// Start age of a cable's window this frame. prev: the last start age; advanced: points that came in
+// since; drift: points the wave should travel towards the destination. The wave keeps its phase
+// relative to the crossings, placed on the newest crossing that keeps the window in the data.
+export function lockAge(xs, P, prev, advanced, drift, n, size = RING) {
+  if (!(P > 0) || xs.length < 2) return 0;
+  const want = prev + advanced - drift;
+  let k = 0;
+  for (let i = 1; i < xs.length; i++) if (Math.abs(xs[i] - want) < Math.abs(xs[k] - want)) k = i;
+  let o = want - xs[k];
+  if (Math.abs(o) > P) o %= P;
+  let j = 0;
+  while (j < xs.length && xs[j] + o < 0) j++;
+  if (j === xs.length) return 0;
+  const a = xs[j] + o;
+  // the newest crossing is old (sound stopped / changed): show the live stream
+  if (a > 2 * P + 2 || a + n >= size - 1) return 0;
+  return a;
+}
+
+// SVG path along the cable points displaced by the ring values from age `start` on.
+export function scopePath(pts, ring, start = 0) {
   const { n, x, y, nx, ny } = pts;
   let d = '';
   for (let i = 0; i < n; i++) {
-    const s = displace(ring.at(i), i, n);
+    const s = displace(ring.lerp(start + i), i, n);
     d += `${i ? 'L' : 'M'}${(x[i] + nx[i] * s).toFixed(1)},${(y[i] + ny[i] * s).toFixed(1)}`;
   }
   return d;
@@ -52,9 +118,10 @@ export class CableScope {
   constructor(host) {
     this.host = host;
     this.rings = new Map(); // node handle -> Ring
-    this.cables = []; // { g, path, h, pts, shown }
+    this.cables = []; // { g, path, h, pts, shown, a, seen }
     this.key = '';
     this.dirty = false;
+    this.last = 0;
     host.onScope = (s) => this.push(s);
     this.frame = this.frame.bind(this);
     requestAnimationFrame(this.frame);
@@ -67,7 +134,8 @@ export class CableScope {
       const path = document.createElementNS(SVGNS, 'path');
       path.classList.add('scope');
       g.insertBefore(path, g.querySelector('.arrow'));
-      return { g, path, h, pts: samplePoints(from, to, STEP), shown: false };
+      const ring = this.rings.get(h);
+      return { g, path, h, pts: samplePoints(from, to, STEP), shown: false, a: 0, seen: ring?.count ?? 0 };
     });
     const hs = [...new Set(list.map((c) => c.h))].sort((a, b) => a - b);
     for (const h of hs) if (!this.rings.has(h)) this.rings.set(h, new Ring());
@@ -89,14 +157,29 @@ export class CableScope {
     this.dirty = true;
   }
 
-  frame() {
+  frame(now = performance.now()) {
     requestAnimationFrame(this.frame);
-    if (!this.dirty) return;
+    const dt = Math.min(0.1, Math.max(0, (now - this.last) / 1000));
+    this.last = now;
+    if (!this.dirty && !this.cables.some((c) => c.shown)) return;
     this.dirty = false;
+    const locks = new Map(); // per node: crossings + period, shared by its cables
     for (const c of this.cables) {
       const ring = this.rings.get(c.h);
-      const live = !!ring && ring.quiet < c.pts.n;
-      if (live) c.path.setAttribute('d', scopePath(c.pts, ring));
+      const n = c.pts.n;
+      let live = !!ring && ring.quiet < RING;
+      if (live) {
+        let lock = locks.get(c.h);
+        if (!lock) {
+          const longest = Math.max(...this.cables.filter((o) => o.h === c.h).map((o) => o.pts.n));
+          const xs = crossings(ring, longest + LOOK);
+          locks.set(c.h, (lock = { xs, P: period(xs) }));
+        }
+        c.a = lockAge(lock.xs, lock.P, c.a, ring.count - c.seen, (DRIFT / STEP) * dt, n);
+        c.seen = ring.count;
+        live = ring.quiet <= c.a + n;
+      }
+      if (live) c.path.setAttribute('d', scopePath(c.pts, ring, c.a));
       else if (c.shown) c.path.removeAttribute('d');
       if (live !== c.shown) c.g.classList.toggle('live', live);
       c.shown = live;

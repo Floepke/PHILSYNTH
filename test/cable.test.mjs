@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { midpoint, arrowPath, linePath, samplePoints, edgePoint, visibleSegment, centerOf } from '../src/cable.js';
-import { Ring, displace, scopePath, AMP } from '../src/cablescope.js';
+import { Ring, displace, scopePath, AMP, crossings, period, lockAge } from '../src/cablescope.js';
 
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 const tipOf = (d) => d.match(/^M([-\d.]+),([-\d.]+)/).slice(1).map(Number);
@@ -91,6 +91,45 @@ assert.equal(linePath({ x: 0, y: 0 }, { x: 10, y: 10 }), 'M0,0 L10,10', 'a strai
   const ys = [...d.matchAll(/[ML][-\d.]+,([-\d.]+)/g)].map((m) => +m[1]);
   assert.equal(ys.length, pts.n);
   assert.ok(Math.max(...ys) > 4 && Math.min(...ys) < -4 && ys[0] === 0, 'the wave runs along the cable');
+}
+
+// trigger lock: a periodic wave stands still on the cable and drifts slowly towards the destination
+{
+  const P = 37.3; // period in points, not a whole number
+  const ring = new Ring();
+  let t = 0;
+  const feed = (k) => { for (let i = 0; i < k; i++, t++) ring.push(Math.sin((2 * Math.PI * t) / P) + 0.3 * Math.sin((4 * Math.PI * t) / P)); };
+  feed(3000);
+  const xs = crossings(ring, 2000);
+  assert.ok(xs.length > 40, 'one rising crossing per period');
+  near(period(xs), P, 0.05);
+  for (let i = 1; i < xs.length; i++) near(xs[i] - xs[i - 1], P, 0.05);
+  // the value at the window start is the same frame after frame (no drift)
+  const n = 100;
+  let a = lockAge(xs, period(xs), 0, 0, 0, n);
+  const v0 = [0, 10, 20].map((i) => ring.lerp(a + i));
+  for (const k of [17, 128, 64, 301]) {
+    const seen = ring.count;
+    feed(k);
+    const ys = crossings(ring, 2000);
+    a = lockAge(ys, period(ys), a, ring.count - seen, 0, n);
+    assert.ok(a >= 0 && a < 3 * P, `window stays on recent audio (${a})`);
+    [0, 10, 20].forEach((i, j) => near(ring.lerp(a + i), v0[j], 0.02));
+  }
+  // with drift the pattern moves `drift` points towards the destination per frame
+  const before = ring.lerp(a + 30);
+  const ys = crossings(ring, 2000);
+  const b = lockAge(ys, period(ys), a, 0, 2, n);
+  near(ring.lerp(b + 32), before, 0.02);
+  // no period: live stream
+  const flat = new Ring();
+  for (let i = 0; i < 500; i++) flat.push(0.4);
+  assert.deepEqual(crossings(flat, 400), []);
+  assert.equal(lockAge([], 0, 50, 10, 1, n), 0);
+  // the newest crossing is old (sound stopped): live stream, so the silence flows in
+  for (let i = 0; i < 400; i++) ring.push(0);
+  const zs = crossings(ring, 2000);
+  assert.equal(lockAge(zs, period(zs), a, 400, 0, n), 0);
 }
 
 console.log('cable tests passed');

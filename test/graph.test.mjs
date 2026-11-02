@@ -4,7 +4,7 @@ import { dspTestHost } from './dsphost.mjs';
 import { DspHost } from '../src/dsp/host.js';
 import { KERNELS } from '../src/dsp/kernels.js';
 import { Kernel } from '../src/dsp/kernel.js';
-import { SCOPE_QUIET } from '../src/dsp/graph.js';
+import { SCOPE_QUIET, SCOPE_PTS, SCOPE_DECIM } from '../src/dsp/graph.js';
 
 // test kernels: a constant source, a counter of process() calls
 class Const extends Kernel {
@@ -222,7 +222,7 @@ assert.throws(() => graph.handle([['add', 999, 'nope']]), /Unknown DSP kernel/);
   nodes.forEach((x) => x.destroy());
 }
 
-// ---- cable scope: signed peaks per watched node, batched into the reports ----
+// ---- cable scope: waveform stream per watched node (means of SCOPE_DECIM samples), batched into the reports ----
 {
   const T = dspTestHost();
   const src = T.dsp.create('const', { v: 0.5 });
@@ -234,32 +234,44 @@ assert.throws(() => graph.handle([['add', 999, 'nope']]), /Unknown DSP kernel/);
   assert.equal(got.length, 0, 'nothing is reported while no node is watched');
   T.dsp.scope([src.h, m.h, 9999]); // 9999: a node that does not exist
   T.graph.nodes.get(m.h).k.value = 0.25;
-  T.render(4);
-  assert.equal(got.length, 1, 'two points (4 blocks) per message');
-  assert.equal(got[0].n, 2);
-  assert.deepEqual([...got[0].v], [0, 0.25, 0, 0, 0.25, 0], '(L+R)/2 of +v/-v is 0; modulator value; missing node 0');
+  T.render(1);
+  assert.equal(got.length, 1, 'one message per report');
+  assert.equal(got[0].n, SCOPE_PTS, 'SCOPE_PTS points per quantum');
+  assert.equal(SCOPE_PTS * SCOPE_DECIM, 128);
+  for (let p = 0; p < SCOPE_PTS; p++) {
+    assert.deepEqual([...got[0].v.slice(p * 3, p * 3 + 3)], [0, 0.25, 0], '(L+R)/2 of +v/-v is 0; modulator value; missing node 0');
+  }
   const lfo = T.dsp.create('lfo');
-  T.graph.nodes.get(src.h).k.v = 0.5;
-  T.graph.nodes.get(src.h).k.process = function (_i, o) { o[0][0].fill(0.1); o[0][0][7] = -0.8; o[0][1].fill(0.1); return this.on; };
+  T.graph.nodes.get(src.h).k.process = function (_i, o) {
+    for (let j = 0; j < 128; j++) { o[0][0][j] = j / 128; o[0][1][j] = 0.1; }
+    o[0][0][7] = -0.8;
+    return this.on;
+  };
   T.dsp.scope([src.h, lfo.h]);
   got.length = 0;
-  T.render(4);
-  assert.equal(got.length, 1);
-  near(got[0].v[2], -0.35, 1e-6); // biggest magnitude sample, sign kept: (-0.8 + 0.1) / 2
+  T.render(2);
+  assert.equal(got.length, 2);
+  const v = got[1].v;
+  // point 1 = samples 4..7: mean of (L+R)/2
+  near(v[1 * 2], (((4 + 5 + 6) / 128 - 0.8) + 4 * 0.1) / 8, 1e-6);
+  near(v[10 * 2], ((40 + 41 + 42 + 43) / 128 + 4 * 0.1) / 8, 1e-6, 'the waveform, not a peak');
   const lv = T.graph.nodes.get(lfo.h).k.value;
-  near(got[0].v[3], 2 * lv - 1, 1e-6); // LFO shown bipolar
+  near(v[3], 2 * lv - 1, 1e-6); // LFO shown bipolar
   // silence: zeros keep coming until SCOPE_QUIET points in a row, then nothing
   T.graph.nodes.get(src.h).k.on = false;
   lfo.destroy();
   got.length = 0;
-  T.render(2 * (SCOPE_QUIET + 40));
+  T.render(SCOPE_QUIET / SCOPE_PTS + 40);
   const pts = got.reduce((n, s) => n + s.n, 0);
-  assert.ok(pts >= SCOPE_QUIET && pts <= SCOPE_QUIET + 4, `zeros flush the cables, then stop (${pts})`);
-  assert.ok(got.every((s) => s.v.every((v) => v === 0)));
+  assert.ok(pts >= SCOPE_QUIET && pts <= SCOPE_QUIET + 2 * SCOPE_PTS, `zeros flush the cables, then stop (${pts})`);
+  assert.ok(got.every((s) => s.v.every((x) => x === 0)));
   got.length = 0;
   T.graph.nodes.get(src.h).k.on = true;
-  T.render(4);
-  assert.ok(got.length && got.at(-1).v[0] !== 0, 'and start again with the sound');
+  T.render(1);
+  assert.ok(got.length && got.at(-1).v[20] !== 0, 'and start again with the sound');
+  // nobody reads (offline): the buffer never overflows
+  for (let i = 0; i < 100; i++) T.graph.render(new Float32Array(128), new Float32Array(128));
+  assert.ok(T.graph.scopeN <= T.graph.scopeBuf.length / T.graph.scopeH.length);
   T.dsp.scope([]);
   got.length = 0;
   T.render(8);
