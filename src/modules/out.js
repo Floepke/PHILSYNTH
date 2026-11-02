@@ -1,6 +1,8 @@
 // System module: the single Output of every patch. Always id 0, cannot be deleted or inserted.
 // Global Transpose / Cents Offset shift every note entering that patch level while it is the current
 // one (see PatchRuntime.pitchOffset); they are not DSP controllers (dsp: false).
+// Inside a Patch, MIDI and control cables into it pass out through the Patch module (see
+// passesMod in src/patch.js).
 // Its state holds free text: comments / notes about the song (or patch), edited in its panel and
 // saved with the project.
 export const MAX_COMMENT = 20000;
@@ -51,9 +53,17 @@ export default {
   create(_ctx, def, host) {
     const input = host.dsp.create('out'); // DSP: out.dsp.js (sum × Master volume)
     const noDsp = new Set(def.params.filter((p) => p.dsp === false).map((p) => p.id));
+    let rt = null; // the patch this Output belongs to
+    // notes cabled into the Output inside a Patch go out through the Patch module (rt.outer)
+    const pass = (fn) => (...args) => rt?.outer?.[fn](...args);
     return {
       input,
       node: null,
+      attach: (_entry, runtime) => { rt = runtime; },
+      noteOn: pass('noteOn'),
+      noteMod: pass('noteMod'),
+      noteOff: pass('noteOff'),
+      allOff: pass('allOff'),
       setParam: (id, v) => { if (!noDsp.has(id)) input.param(id, v); },
       destroy: () => input.destroy(),
     };

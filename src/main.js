@@ -15,7 +15,7 @@ import { initWidgets } from './widgets.js';
 import { emptySong, getClip, snapStep } from './song.js';
 import { CableScope } from './cablescope.js';
 import { openMapDialog, patchControllersView } from './mapdialog.js';
-import { MAX_NAME, cableSignals, runtimesAt, songLayers } from './patch.js';
+import { MAX_NAME, runtimesAt, songLayers } from './patch.js';
 import { showMenu, closeMenu, shortcut } from './seq/menu.js';
 import { createHistory } from './history.js';
 import { renderSong, encodeWav } from './render.js';
@@ -23,6 +23,7 @@ import { withSamples, importSamples } from './samples.js';
 import { createProjectFile, pickBackend } from './projectfile.js';
 import { initStatusTips } from './statustips.js';
 import { saveTextFile, openTextFile } from './filedialog.js';
+import { PROJECT_FORMAT, MODULE_FORMAT, MODULE_EXT, isFormat } from './fileformat.js';
 
 const engine = new Engine();
 let transport = null; // song playback (created after the engine)
@@ -326,18 +327,9 @@ canvas.addEventListener('dblclick', (e) => {
   moduleList.focus();
 });
 
-// the open dialog starts in the folder a module was last saved to / loaded from
-$('load-synth').onclick = async () => {
-  let file;
-  try {
-    file = await openTextFile('synth');
-  } catch (err) {
-    $('status').textContent = `Load failed: ${err.message}`;
-    return;
-  }
-  if (!file) return;
+$('load-synth').onclick = () => {
   dialog.close('cancel');
-  insertSynthFile(file);
+  loadModuleFile(dropPos);
 };
 
 dialog.addEventListener('close', async () => {
@@ -617,7 +609,11 @@ function drawCables() {
   for (const cable of patch.cables) {
     const a = patch.modules.get(cable.from);
     const b = patch.modules.get(cable.to);
-    const signals = cableSignals(a.def, b.def);
+    const signals = patch.signals(a, b);
+    // a Patch cable looks like what its inside sends out: control or MIDI unless it sends sound too
+    const out = a.inst.outSignals?.();
+    const soundy = signals.audio && (!out || out.audio || !(out.mod || out.midi));
+    const isMod = !!a.def.modulator || (signals.mod && !soundy);
     const ra = boxOf(a);
     const rb = boxOf(b);
     const { from, to } = visibleSegment(ra, rb); // arrow and audio wave go on the visible part
@@ -625,8 +621,8 @@ function drawCables() {
     g.classList.add('cable');
     g.cable = cable; // for the right-click menu
     g.classList.toggle('selected', sel?.cable === cable);
-    g.classList.toggle('mod', !!a.def.modulator);
-    g.classList.toggle('midi', signals.midi && !signals.audio);
+    g.classList.toggle('mod', isMod);
+    g.classList.toggle('midi', !isMod && signals.midi && !soundy);
     setColor(g, a.def);
     const wire = document.createElementNS(SVGNS, 'path');
     wire.classList.add('wire');
@@ -644,7 +640,7 @@ function drawCables() {
     });
     svg.append(g);
     // control cables (Out Controller modules) stay a plain dashed line, no value wave
-    const h = signals.audio && !a.def.modulator ? a.inst?.node?.h : undefined;
+    const h = soundy && !isMod ? a.inst?.node?.h : undefined;
     if (h !== undefined) live.push({ g, h, from, to });
   }
   scope?.setCables(live);
@@ -807,20 +803,19 @@ async function paste(at) {
   }
 }
 
-// ---- .synth files: modules saved to disk, inserted again from the insert dialog ----
-// JSON text: { format: 'modsynth-module', version, modules, cables } (PatchRuntime.copyMany data:
+// ---- .phmod files: modules saved to disk, inserted again from the insert dialog ----
+// JSON text: { format: 'philsynth-module', version, modules, cables } (PatchRuntime.copyMany data:
 // settings, name, nested patches and the cables between the saved modules).
-const SYNTH_FORMAT = 'modsynth-module';
 const fileSafe = (s) => s.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'module';
 async function saveModules() {
   const mods = selectedEntries().filter((m) => !m.def.isOutput);
   const data = current().copyMany(mods.map((m) => m.id));
   if (!data) { $('status').textContent = 'Select a module to save (the Output module cannot be saved).'; return; }
-  const suggestedName = `${fileSafe(mods.length === 1 ? mods[0].name || mods[0].def.type : 'modules')}.synth`;
-  const text = JSON.stringify(withSamples({ format: SYNTH_FORMAT, version: 1, ...data }), null, 2);
+  const suggestedName = `${fileSafe(mods.length === 1 ? mods[0].name || mods[0].def.type : 'modules')}${MODULE_EXT}`;
+  const text = JSON.stringify(withSamples({ format: MODULE_FORMAT, version: 1, ...data }), null, 2);
   let saved;
   try {
-    saved = await saveTextFile('synth', suggestedName, text); // starts in the last module folder
+    saved = await saveTextFile('module', suggestedName, text); // starts in the last module folder
   } catch (err) {
     $('status').textContent = `Save failed: ${err.message}`;
     return;
@@ -830,17 +825,30 @@ async function saveModules() {
 }
 function parseSynthFile(text) {
   const data = JSON.parse(text);
-  if (data?.format !== SYNTH_FORMAT || !Array.isArray(data.modules)) throw new Error('not a PHILSYNTH .synth module file');
+  if (!isFormat(data?.format, MODULE_FORMAT) || !Array.isArray(data.modules)) throw new Error('not a PHILSYNTH module file');
   const known = data.modules.filter((m) => getModule(m.type) && !getModule(m.type).isOutput);
   if (!known.length) throw new Error('no module types this version knows');
   return data;
 }
-async function insertSynthFile(file) {
+// the open dialog starts in the folder a module was last saved to / loaded from;
+// pos: world position of the modules (the insert dialog's spot, or the right-clicked spot)
+async function loadModuleFile(pos) {
+  let file;
+  try {
+    file = await openTextFile('module');
+  } catch (err) {
+    $('status').textContent = `Load module failed: ${err.message}`;
+    console.error('Load module failed', err);
+    return;
+  }
+  if (file) insertSynthFile(file, pos);
+}
+async function insertSynthFile(file, pos) {
   const patch = current();
   try {
     const data = parseSynthFile(file.text);
     importSamples(data.samples);
-    const options = { x: dropPos.x, y: dropPos.y };
+    const options = { x: pos.x, y: pos.y };
     const added = undoHistory
       ? await undoHistory.group(() => patch.pasteMany(data, options))
       : await patch.pasteMany(data, options);
@@ -873,6 +881,10 @@ function openPatcherMenu(target, x, y) {
   ];
   if (onModule && entry.inst.patch) items.push('-', { label: 'Open patch', shortcut: '↵', disabled: mods.length > 1, action: () => openPatch(entry) });
   if (onModule) items.push('-', { label: mods.length > 1 ? 'Save modules…' : 'Save module…', disabled: !copyable, action: saveModules });
+  else {
+    const w = clientToWorld(x, y);
+    items.push('-', { label: 'Load module…', action: () => loadModuleFile({ x: Math.round(w.x), y: Math.round(w.y) }) });
+  }
   if (onModule) items.push({ label: 'Rename…', shortcut: 'F2', disabled: mods.length > 1, action: () => startRename(entry) });
   if (onModule && entry.name) items.push({ label: 'Reset name', action: () => { current().rename(entry.id, ''); showName(entry); drawCables(); } });
   showMenu({ x, y, items });
@@ -1021,13 +1033,29 @@ function select(s) {
         ? `Control cable: <b>Value</b> drives ${names.join(', ')}.`
         : 'Control cable: no controller of this module is routed yet. Select the MULTICTL and pick one under <b>Routes</b>.'));
     } else if (lfo?.def.modulator) {
+      const t = patch.modules.get(s.cable.to);
       const n = lfo.values.outController | 0;
-      const p = paramsOf(patch.modules.get(s.cable.to))[n];
-      panel.append(hint(`Control cable: modulates controller <kbd>${n}</kbd> ${p ? p.label : '(does not exist on this module)'}.`));
+      const passed = patch.controlTargets(t, lfo);
+      if (passed[0] !== t) {
+        panel.append(hint(`Control cable into the Output: passes out of this Patch. Controller <kbd>${n}</kbd> of the modules the Patch module is cabled to is modulated${passed.length ? ` (${[...new Set(passed.map((o) => paramsOf(o)[n]?.label ?? '—'))].join(' / ')})` : ' (the Patch module is not cabled to any yet)'}.`));
+      } else {
+        const p = paramsOf(t)[n];
+        panel.append(hint(`Control cable: modulates controller <kbd>${n}</kbd> ${p ? p.label : '(does not exist on this module)'}.`));
+      }
     }
-    if (lfo?.def.midiOut) {
-      const signals = cableSignals(lfo.def, patch.modules.get(s.cable.to).def);
-      if (signals.midi) panel.append(hint(`${signals.audio ? 'Audio + MIDI' : 'MIDI'} cable: carries MODMIDI notes (float pitch, velocity and start phase).`));
+    const signals = lfo && !lfo.def.modulator ? patch.signals(lfo, patch.modules.get(s.cable.to)) : null;
+    if (signals?.midi) {
+      const into = patch.modules.get(s.cable.to);
+      panel.append(hint(into.def.isOutput
+        ? 'MIDI cable into the Output: the notes pass out of this Patch, over the Patch module\'s cables to MIDI modules.'
+        : `${signals.audio ? 'Audio + MIDI' : 'MIDI'} cable: carries MODMIDI notes (float pitch, velocity and start phase).`));
+    }
+    if (signals?.mod) {
+      const t = patch.modules.get(s.cable.to);
+      const names = [...lfo.inst.patch.passOutControllers()].map((k) => `<kbd>${k}</kbd> ${paramsOf(t)[k]?.label ?? '(does not exist on this module)'}`);
+      panel.append(hint(t.def.isOutput && patch.passesOut
+        ? 'Control cable into the Output: the modulation of this Patch passes on out of the Patch around it.'
+        : `Control cable: the modulators cabled into this Patch's Output drive ${names.join(', ')}.`));
     }
     panel.append(hint('Press <kbd>Backspace</kbd> to remove this cable.'));
     return;
@@ -1035,7 +1063,7 @@ function select(s) {
   if (!s) {
     panel.append(
       panelHeader('No selection', ''),
-      hint('<kbd>Double-click</kbd> the canvas to insert a module. <b>Save module…</b> in a module\'s right-click menu saves it (or the whole selection, with the cables between them and Patch contents) as a <b>.synth</b> file; <b>Load .synth…</b> in the insert dialog puts it back at the double-clicked spot.'),
+      hint('<kbd>Double-click</kbd> the canvas to insert a module. <b>Save module…</b> in a module\'s right-click menu saves it (or the whole selection, with the cables between them and Patch contents) as a <b>.phmod</b> file (older .synth files load too); <b>Load module…</b> in the insert dialog or in the right-click menu of empty canvas puts it back at the double-clicked / right-clicked spot.'),
       hint('<kbd>Shift</kbd> + drag from a module and move over other modules: each one you touch gets connected (or disconnected when already connected), so one module can feed many in one sweep.'),
       hint('Drag a module so it overlaps another one: the dragged module gets connected to it (or disconnected when already connected). When dragging a selection, the module you grabbed triggers this for all selected modules, connecting each compatible source to the touched module in one undoable edit. Selected modules never trigger connections to each other. Pull the grabbed module off and back on to toggle again.'),
       hint('Drag on empty canvas to select several modules. <kbd>Ctrl</kbd> + click toggles a module, <kbd>Ctrl</kbd> + drag adds, <kbd>Ctrl</kbd> + <kbd>A</kbd> selects all.'),
@@ -1045,6 +1073,7 @@ function select(s) {
       hint(`Right-click a module, cable or the canvas for <b>Cut / Copy / Paste / Delete</b> (or press the keyboard menu key; shortcuts <kbd>${shortcut('X')}</kbd> <kbd>${shortcut('C')}</kbd> <kbd>${shortcut('V')}</kbd>; paste lands at the mouse pointer). <b>Rename…</b> (or <kbd>F2</kbd>) gives a module its own name on its box; the controller panel keeps showing the module type.`),
       hint('Select a module and press <kbd>F2</kbd> (or right-click → Rename…) to rename it. <kbd>Double-click</kbd> a Patch (or select it and press <kbd>Enter</kbd>, or right-click → Open patch) to enter it; use the mouse <b>back</b> button or patch-path breadcrumbs to go up. Inside a Patch the piano roll and TimeLine show that Patch\'s <b>own sequencer</b>: its clips send to modules of that level only. Play inside a Patch plays that level\'s TimeLine (with its own meter and loop region) at the BPM of its own <b>Output</b> module. Play always plays only the TimeLine of the level you are on, so a Patch\'s TimeLine is a sketch pad that never sounds in the main song. Every <b>Output</b> has <b>Global Transpose</b> and <b>Global Cents Offset</b>: they shift every note (clips, MIDI device, keyboards) while their level is the current one, so each level can be transposed on its own. <kbd>Esc</kbd> or <b>Exit</b> at the bottom of the main menu asks <b>Exit to OS?</b>; <kbd>Enter</kbd> / Yes autosaves and closes the app, while <kbd>Esc</kbd> / No cancels. Escape still dismisses open menus and editing controls first.'),
       hint('Select a Patch and click <b>Controllers…</b> to map controllers of any module inside to controllers of the Patch module, so they can be set, modulated (LFO) and automated from outside.'),
+      hint('<b>Custom MIDI / modulation modules:</b> inside a Patch, cable a MULTIMIDI or STRUM into the Output to send notes out of the Patch, or an LFO, ADSR, ENVELOPE, VELOCITY2CTL or SOUND2CTL to send modulation out. Then cable the Patch module to modules outside: they get the notes, and the inner modulator\'s <b>Out Controller</b>, <b>Out Min</b> and <b>Out Max</b> pick and trim the controller it drives there. (At the top level a modulator into the Output modulates the Output\'s own controllers.)'),
       hint('OSC / ADSR: with <b>Sustain</b> at 0, <b>Decay</b> and <b>Release</b> are linked: moving one moves the other.'),
       hint('<kbd>Middle mouse</kbd> + drag pans the canvas, <kbd>scroll</kbd> zooms. Click the zoom % (bottom right) to fit all modules.'),
       hint('Play the MIDI module that shows the <b>MIDI</b> badge in the patcher (the last selected one, e.g. OSC; click the badge to lock MIDI to it — it lights up red — and click again to unlock). Every patch level has its own MIDI module and lock, saved with that level; when the open level has none, MIDI plays the one of the level above with a MIDI controller, the piano roll keyboard or the computer keyboard: <kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>T</kbd> <kbd>Y</kbd> <kbd>U</kbd> <kbd>I</kbd> <kbd>O</kbd> <kbd>P</kbd> are the white keys C4–E5, the number row above them (<kbd>2</kbd> <kbd>3</kbd> <kbd>5</kbd> <kbd>6</kbd> <kbd>7</kbd> <kbd>9</kbd> <kbd>0</kbd>) the black keys. In a focused piano roll <kbd>Q</kbd> quantizes instead.'),
@@ -1052,10 +1081,10 @@ function select(s) {
       hint('<b>Free timing:</b> enable the checkbox beside <b>Grid</b> to draw, move, resize and paste piano-roll notes at unsnapped times. Velocity-curve timing is free too; pitch and velocity-value snapping are unchanged. The alternating dark/light guide stays visible. Grid controls still set the guide, explicit Quantize (Q), keyboard time nudges, timeline and automation snapping. The setting is saved per sequencer/Patch level.'),
       hint('<b>Piano roll selection:</b> <kbd>Shift</kbd> + drag or <kbd>right</kbd> + drag draws a selection rectangle; clicking a note selects it, <kbd>Shift</kbd> + click toggles it. Dragging a selected note moves / resizes the whole selection. <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> duplicates the selection, <kbd>Q</kbd> quantizes note starts (selection, else all). <kbd>Ctrl/Cmd</kbd> + <kbd>A</kbd> selects all notes, <kbd>Esc</kbd> clears the selection, and <kbd>Backspace</kbd> / <kbd>Delete</kbd> deletes it. <kbd>Alt</kbd> + drag a note (body or circle) moves a clone.'),
       hint('<b>Arrow keys:</b> in the piano roll, <kbd>Left</kbd> / <kbd>Right</kbd> transpose selected notes by one semitone; <kbd>Up</kbd> / <kbd>Down</kbd> move them earlier/later by one snap step. With <kbd>Shift</kbd>: an octave / a bar. The selection moves together and stops at time zero or the MIDI pitch limits.'),
-      hint('<b>Velocity:</b> the strip left of the piano roll shows every note\'s velocity (stick) and how it changes while the note sounds. Drag a note\'s dot to set its velocity (<kbd>Shift</kbd>-click adds it to the selection). The selected notes share one curve: <kbd>Double-click</kbd> inside them to add a point, drag points (time snaps, <kbd>Shift</kbd> = fine), and use the mouse wheel on a point to round it. Right-click the lane for the menu: <b>Snap velocity values</b> (1/16 increments, enabled by default, no grid) and, on a point, <b>Delete point</b>. The snap setting is saved with the project and only affects new edits. One selected note edits its own curve. Drag the bar ruler between the strip and the notes sideways to make the strip wider or narrower (the piano roll scales along; <kbd>Double-click</kbd> the ruler resets it).'),
+      hint('<b>Velocity:</b> the strip left of the piano roll shows every note\'s velocity (stick) and how it changes while the note sounds. Drag a note\'s dot to set its velocity (<kbd>Shift</kbd>-click adds it to the selection). With several notes selected, dragging the dot of one of them moves the start velocity of <b>all</b> selected notes by the same amount (<kbd>Alt</kbd> + drag moves only the curve point there). The selected notes share one curve: <kbd>Double-click</kbd> inside them to add a point, drag points (time snaps, <kbd>Shift</kbd> = fine), and use the mouse wheel on a point to round it. Right-click the lane for the menu: <b>Snap velocity values</b> (1/16 increments, enabled by default, no grid) and, on a point, <b>Delete point</b>. The snap setting is saved with the project and only affects new edits. One selected note edits its own curve. Drag the bar ruler between the strip and the notes sideways to make the strip wider or narrower (the piano roll scales along; <kbd>Double-click</kbd> the ruler resets it).'),
       hint('<b>Automation:</b> <kbd>Double right-click</kbd> the TimeLine to add an automation clip, then pick the module (<i>Send to</i>) and its <i>Controller</i> in the toolbar. In the automation lane <kbd>Double-click</kbd> inserts a point (snapped to the grid), drag moves it (<kbd>Shift</kbd> = fine), the mouse wheel on a point rounds the corner and right click deletes it. While playing, the clip drives the controller like an LFO; outside the clip (or when stopped) the controller has its own value again.'),
       hint('<b>Sequencer clipboard:</b> click the piano roll or TimeLine to focus it, then use <kbd>Ctrl/Cmd</kbd> + <kbd>X</kbd> / <kbd>C</kbd> / <kbd>V</kbd> to cut / copy / paste selected notes or the selected clip. Each view has its own in-app clipboard. Paste at the mouse pointer, snapped to the grid; note pitches and relative timing are preserved.'),
-      hint('<b>TimeLine selection &amp; clones:</b> drag on empty TimeLine space for a selection rectangle (<kbd>Ctrl/Cmd</kbd> adds), <kbd>Ctrl/Cmd</kbd> + click toggles a clip. Dragging moves the whole selection; <kbd>Alt</kbd> + drag copies it, <kbd>Shift</kbd> + drag makes <i>linked clones</i> that share their notes with the source (marked ⧉): editing one edits all. Clones are drawn with diagonal stripes and a dashed outline; a selected clone shows a dashed arrow to its source. Hold right-click on a clip for cut / copy / paste / delete / duplicate / clone / detach (turns a clone into a standalone clip) / go to source / <i>Consolidate</i> (two or more selected clips on one lane become one clip spanning them; module and name come from the first clip) / <i>Split at playhead</i> (cuts the selected clips under the playhead in two) / <i>Save Clip…</i> (writes the selected clips to a <b>.clip</b> file). Right-click empty TimeLine space → <i>Load Clip…</i> places the clips of a .clip file there. File dialogs remember their folder per kind: projects opened, projects saved, clips and modules (.synth) each start where you last were. <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> clones, <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd> duplicates.'),
+      hint('<b>TimeLine selection &amp; clones:</b> drag on empty TimeLine space for a selection rectangle (<kbd>Ctrl/Cmd</kbd> adds), <kbd>Ctrl/Cmd</kbd> + click toggles a clip. Dragging moves the whole selection; <kbd>Alt</kbd> + drag copies it, <kbd>Shift</kbd> + drag makes <i>linked clones</i> that share their notes with the source (marked ⧉): editing one edits all. Clones are drawn with diagonal stripes and a dashed outline; a selected clone shows a dashed arrow to its source. Hold right-click on a clip for cut / copy / paste / delete / duplicate / clone / detach (turns a clone into a standalone clip) / go to source / <i>Consolidate</i> (two or more selected clips on one lane become one clip spanning them; module and name come from the first clip) / <i>Split at playhead</i> (cuts the selected clips under the playhead in two) / <i>Save Clip…</i> (writes the selected clips to a <b>.clip</b> file). Right-click empty TimeLine space → <i>Load Clip…</i> places the clips of a .clip file there. File dialogs remember their folder per kind: projects opened, projects saved, clips and modules (.phmod) each start where you last were. <kbd>Ctrl/Cmd</kbd> + <kbd>D</kbd> clones, <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd> duplicates.'),
       hint('<b>Undo / redo:</b> <kbd>Ctrl/Cmd</kbd> + <kbd>Z</kbd> undoes edits in the patcher and sequencer, <kbd>Ctrl/Cmd</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd> (or <kbd>Ctrl</kbd> + <kbd>Y</kbd>) redoes.'),
       hint('<b>Loop region:</b> click the TimeLine ruler (the signature row too, where dragging scrubs) to set the play position, drag along it to select a loop region (snapped to the grid, shown in blue). Song playback then loops inside the region and starts at its beginning. Right-click the region in the ruler to remove it; playback goes back to looping the whole song.'),
       hint('<b>TimeLine lanes:</b> clips sit on numbered lanes (the numbers left of the clips), one clip high; dragging up / down snaps to them. Scroll left past the bright zero line to park clips before the song start: they are not played (<kbd>/</kbd> still auditions them), which suits source clips whose clones make up the song. The mouse wheel scrolls sideways over time, <kbd>Shift</kbd> + wheel scrolls the lanes, middle-drag pans and <kbd>Ctrl/Cmd</kbd> + wheel zooms. Dragging a clip close to an edge auto-scrolls the TimeLine, so a clip can be moved anywhere in one drag. The <b>M</b> button left of a lane number mutes that lane, the <b>S</b> button solos it (lit when on): while any lane is soloed only the soloed lanes play, and mute wins over solo. Drag over a column of M or S buttons to switch many lanes in one go. A silenced clip is silent everywhere, also with <kbd>/</kbd>, and its piano roll / automation editor shows a big M.'),
@@ -1063,7 +1092,7 @@ function select(s) {
       hint('<b>Playback:</b> <kbd>/</kbd> loops the time range of the selected clip from its start, with every other clip playing in that range (muted lanes stay silent, the selected clip too when its lane is muted). <kbd>\'</kbd> stops playback; pressing <kbd>\'</kbd> again is a panic (all notes off, echo / reverb tails cut, all audio state reset). <kbd>.</kbd> plays/resumes the full song, and <kbd>,</kbd> restarts the song at zero. <kbd>Space</kbd> toggles play/stop; with the pointer over the piano-roll note grid, playback starts at its snapped time and continues through the song beyond the selected clip. Only <kbd>/</kbd> loops the selected clip. Stopping with <kbd>Space</kbd> (or the ■ button) moves the playhead to the start of the selected clip; outside the note grid, the next <kbd>Space</kbd> resumes from the parked playhead. Shortcuts are inactive while typing in a field. Note chasing: starting or jumping into the middle of a note plays it for the rest of its length.'),
       hint('<b>Controls:</b> scroll a dropdown to change its selection. Number fields have permanent up/down buttons and also support scrolling; <kbd>Double-click</kbd> a number (or use <kbd>Tab</kbd>) to type. Mouse adjustments leave keyboard focus in the editor so <kbd>Space</kbd> still plays.'),
       hint('<b>Toolbar:</b> controls stay on one row. When space is tight, move the pointer across the toolbar to continuously reveal its controls: left shows the beginning, the middle shows the middle, and right shows the end. Scrolling follows the pointer position and stops when the pointer stops. Clicking, typing or using the wheel pauses motion; the wheel still changes control values. <kbd>Tab</kbd> also reveals focused controls.'),
-      hint(`<b>Main menu:</b> click the logo / <b>PHILSYNTH</b> (always in the top-right corner of the window) for <b>New</b> (<kbd>${shortcut('N')}</kbd>), <b>Open…</b> (<kbd>${shortcut('O')}</kbd>), <b>Save</b> (<kbd>${shortcut('S')}</kbd>), <b>Save As…</b> (<kbd>${shortcut('⇧S')}</kbd>) <b>Export Audio…</b> and <b>MIDI Input…</b> (pick the MIDI controller to play; <i>Auto</i> uses every input except Linux\'s <i>Midi Through</i> port, <b>Re-scan</b> looks for newly plugged-in devices; remembered on this computer). Projects are <b>.mds</b> files (older .json projects open too; Save then asks for a new .mds file). The file name is shown in the status bar (bottom right) and the window title, with <b>•</b> while there are unsaved changes; New and Open ask whether to save them first (Yes / No / Cancel). Independently, every change is autosaved, so the app always starts with your latest project, its file name and unsaved state.`),
+      hint(`<b>Main menu:</b> click the logo / <b>PHILSYNTH</b> (always in the top-right corner of the window) for <b>New</b> (<kbd>${shortcut('N')}</kbd>), <b>Open…</b> (<kbd>${shortcut('O')}</kbd>), <b>Save</b> (<kbd>${shortcut('S')}</kbd>), <b>Save As…</b> (<kbd>${shortcut('⇧S')}</kbd>) <b>Export Audio…</b> and <b>MIDI Input…</b> (pick the MIDI controller to play; <i>Auto</i> uses every input except Linux\'s <i>Midi Through</i> port, <b>Re-scan</b> looks for newly plugged-in devices; remembered on this computer). Projects are <b>.phproject</b> files (older .mds / .json projects open too; Save then asks for a new .phproject file). The file name is shown in the status bar (bottom right) and the window title, with <b>•</b> while there are unsaved changes; New and Open ask whether to save them first (Yes / No / Cancel). Independently, every change is autosaved, so the app always starts with your latest project, its file name and unsaved state.`),
       hint(`<b>Export Audio…</b> (main menu or <kbd>${shortcut('E')}</kbd>): choose where to save, then the song renders offline (much faster than real time) from its start to the end of the last clip, or just the loop region when one is set, plus the sound tail (releases, echoes, reverb; at most 10 s). The file is a 24-bit stereo WAV at the audio device's sample rate. The status bar warns when the mix clips.`),
       hint('<b>Layout:</b> piano roll, patcher and TimeLine are stacked top to bottom. The main menu button stays in the top-right corner, on top of everything. Play/stop, clip and snap controls sit on the upper divider (it can be dragged up to the window edge, under the menu button) and remain visible even when the piano roll is hidden. The patch path (<b>Main</b> / …, click a level to go up) sits at the left of the lower divider. Drag the exposed divider grip or empty space up/down to resize (left/right resizes the controller panel); the widgets do not drag the divider. When the patcher closes, the dragged divider pushes the other one. Drag to an edge to hide a pane and back to reopen it. Positions are saved with the project. The piano keyboard stays at the bottom of the roll; selected notes are filled blue.'),
       hint('The piano roll fits all <b>128 MIDI notes (0–127)</b> across its width and rescales with the window width. A thin wooden frame surrounds all four edges of the window. Horizontal zoom is automatic; <kbd>Alt</kbd> + scroll no longer changes key width. Each mouse-wheel step scrolls exactly one snap step (the selected snap); scroll upward to reveal the 128px blank margin above beat zero. <kbd>Ctrl/Cmd</kbd> + scroll still zooms time.'),
@@ -1242,8 +1271,8 @@ engine.onDrive = (entry) => {
 };
 
 // ---- main menu: New / Open / Save / Save As / Export Audio ----
-// Project files are .mds (PHILSYNTH project: JSON text inside). Older .json projects still open;
-// Save then asks for a new .mds file instead of overwriting them.
+// Project files are .phproject (PHILSYNTH project: JSON text inside). Older .mds / .json projects
+// still open; Save then asks for a new .phproject file instead of overwriting them.
 let fileBusy = false;
 async function fileCommand(label, fn) {
   if (fileBusy) return;
@@ -1379,7 +1408,7 @@ window.addEventListener('keydown', (e) => {
 let exporting = false;
 async function exportAudio() {
   if (exporting) return;
-  const suggestedName = `${projectFile.name.replace(/\.(mds|json)$/i, '') || 'modsynth-song'}.wav`;
+  const suggestedName = `${projectFile.name.replace(/\.(phproject|mds|json)$/i, '') || 'modsynth-song'}.wav`;
   let handle = null;
   if (typeof window.showSaveFilePicker === 'function') {
     try {
@@ -1432,7 +1461,7 @@ async function exportAudio() {
 }
 function emptyProject() {
   const values = Object.fromEntries(getModule('OUT').params.map((p) => [p.id, p.default]));
-  return { format: 'modsynth', version: 1, patch: { modules: [{ id: 0, type: 'OUT', x: 560, y: 180, values }], cables: [] } };
+  return { format: PROJECT_FORMAT, version: 1, patch: { modules: [{ id: 0, type: 'OUT', x: 560, y: 180, values }], cables: [] } };
 }
 
 // ---- boot ----

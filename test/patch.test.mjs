@@ -1305,4 +1305,98 @@ const set = (e, x) => { hold(e, x); render(1); };
   r2.destroy();
 }
 
+// ---- passing MIDI and modulation out of a Patch through its Output ----
+{
+  const r = await PatchRuntime.create(engine, dsp.destination);
+  const capture = (e) => { const log = []; e.inst.node.port.postMessage = (m) => log.push(m); return log; };
+  const flush = () => new Promise((res) => setTimeout(res, 20)); // MULTIMIDI schedules on the audio clock
+  const pm = await r.addModule('PATCH');
+  const ip = pm.inst.patch;
+  const osc = await r.addModule('OSC');
+  const flt = await r.addModule('FILTER');
+  const ko = kernel(osc.inst.node);
+  const log = capture(osc);
+
+  // top level: no outside, a MULTIMIDI cannot go into the Output; a Patch sending nothing out cannot
+  // feed a MIDI-only module
+  const topMM = await r.addModule('MULTIMIDI');
+  assert.equal(r.connect(topMM.id, 0), false, 'top-level Output takes no MIDI');
+  assert.equal(r.connect(pm.id, osc.id), false, 'Patch without notes / modulation inside: no cable to an OSC');
+
+  // MIDI: MULTIMIDI -> Output inside; the Patch module plays the OSC outside
+  const imm = await ip.addModule('MULTIMIDI', { values: { transpose: 12 } });
+  assert.ok(ip.connect(imm.id, 0), 'MULTIMIDI -> Output inside a Patch');
+  assert.ok(pm.inst.outSignals().midi && !pm.inst.outSignals().mod);
+  assert.ok(r.connect(pm.id, osc.id), 'Patch -> OSC carries the notes');
+  assert.ok(r.signals(pm, osc).midi && !r.signals(pm, osc).audio);
+  assert.ok(r.hasMidiInput(osc.id), 'the OSC is now fed by a MIDI cable');
+  pm.inst.noteOn(900, 60, 0.8);
+  await flush();
+  const on = log.find((m) => m.type === 'noteOn');
+  assert.ok(on, 'note passed out of the Patch');
+  assert.equal(on.pitch, 72, 'through the inner MULTIMIDI (transpose +12)');
+  pm.inst.noteOff(900);
+  await flush();
+  assert.ok(log.some((m) => m.type === 'noteOff' && m.id === on.id), 'its noteOff follows');
+  // removing the outer cable ends notes still sounding through it
+  pm.inst.noteOn(901, 62, 0.8);
+  await flush();
+  const on2 = log.filter((m) => m.type === 'noteOn').at(-1);
+  r.disconnect(r.cables.find((c) => c.from === pm.id && c.to === osc.id));
+  assert.ok(log.some((m) => m.type === 'noteOff' && m.id === on2.id), 'disconnect releases the passed-out note');
+  pm.inst.noteOff(901);
+  // DELAY -> Output stays an audio cable
+  const idl = await ip.addModule('DELAY');
+  assert.ok(ip.connect(idl.id, 0));
+  assert.equal(ip.signals(idl, ip.modules.get(0)).midi, false, 'DELAY into the Output: audio only');
+  ip.removeModule(idl.id);
+  ip.removeModule(imm.id);
+  assert.equal(pm.inst.outSignals().midi, false);
+
+  // modulation: LFO -> Output inside drives Out Controller of the modules outside
+  const ilfo = await ip.addModule('LFO');
+  assert.ok(ip.connect(ilfo.id, 0), 'LFO -> Output inside a Patch');
+  assert.ok(pm.inst.outSignals().mod);
+  assert.ok(r.connect(pm.id, osc.id), 'Patch -> OSC is now a control cable');
+  assert.ok(r.signals(pm, osc).mod);
+  const oc = () => ilfo.inst.params().find((p) => p.id === 'outController');
+  assert.equal(oc().max, 7, 'inner Out Controller lists the outer OSC controllers');
+  assert.match(oc().format(6), /Gain/);
+  ip.setParam(ilfo.id, 'outController', 6); // OSC gain
+  ip.setParam(ilfo.id, 'outMin', 20);
+  ip.setParam(ilfo.id, 'outMax', 60);
+  set(ilfo, 0.5);
+  assert.equal(ko.p.gain, 0.4, 'outer OSC gain driven by the inner LFO (Out Min / Max applied)');
+  assert.equal(osc.values.gain, 0.4, 'reported back as the outer controller value');
+  assert.ok(r.isDriven(osc.id, 'gain'), 'the outer patch counts the controller as driven');
+  assert.equal(ip.modules.get(0).values.volume, 0.8, 'the inner Output volume is not modulated');
+  // a second outer target (Patch -> FILTER carries audio and modulation)
+  assert.ok(r.connect(pm.id, flt.id));
+  assert.ok(r.signals(pm, flt).audio && r.signals(pm, flt).mod);
+  assert.match(oc().format(6), /\//, 'names of both outer modules');
+  // disconnecting the inner cable gives the controller back
+  ip.disconnect(ip.cables.find((c) => c.from === ilfo.id && c.to === 0));
+  assert.equal(pm.inst.outSignals().mod, false);
+  assert.equal(r.isDriven(osc.id, 'gain'), false);
+  set(ilfo, 1);
+  assert.equal(ko.p.gain, 0.4, 'no longer modulated: the gain keeps its last driven value');
+
+  // nested: LFO -> Output in an inner Patch -> that Patch -> Output -> outer modules
+  const inner = await ip.addModule('PATCH');
+  const ilfo2 = await inner.inst.patch.addModule('LFO', { values: { outController: 6 } });
+  assert.ok(inner.inst.patch.connect(ilfo2.id, 0));
+  assert.ok(ip.connect(inner.id, 0), 'inner Patch -> Output passes its modulation on');
+  assert.deepEqual([...ip.passOutControllers()], [6]);
+  set(ilfo2, 1);
+  assert.equal(ko.p.gain, 1, 'two levels down still drives the outer OSC');
+  assert.ok(r.isDriven(osc.id, 'gain'));
+
+  // saved and loaded: cables restored after the insides
+  const copy = await PatchRuntime.create(engine, dsp.destination);
+  await copy.load(r.toJSON());
+  assert.equal(copy.cables.length, r.cables.length, 'all cables come back');
+  copy.destroy();
+  r.destroy();
+}
+
 console.log('all patch tests passed');

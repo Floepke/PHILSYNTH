@@ -1356,9 +1356,11 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(clip.notes.length, 2, 'the dragged note was selected');
   const a = clip.notes.find((n) => n.start === 0); // 0..1, velocity 0.3
   const b = clip.notes.find((n) => n.start === 2); // 2..4, velocity 0.5
-  // select both (one curve, two points as they differ), move the first point to 0.5: flat
+  // select both (one curve, two points as they differ), Alt + drag the first point to 0.5: flat
+  // (without Alt a selected note's handle moves every selected start velocity, see below)
   key(cv, 'a', { ctrlKey: true });
-  drag(cv, vx(0.3), ny(0), vx(0.5), ny(0));
+  drag(cv, vx(0.3), ny(0), vx(0.5), ny(0), { altKey: true });
+  assert.equal(b.vel, 0.5, 'Alt: only the curve point there');
   assert.ok(Math.abs(a.vel - 0.5) < 1e-9);
   // double-click inside the selection adds a point at the snapped time; drag it to 1
   dbl(cv, vx(0.5), ny(3.05));
@@ -1369,7 +1371,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(b.vel, 0.5, 'the shared point at t=2 keeps the start of the second note');
   assert.equal('vels' in a, false, 'flat before t=2: the first note stays constant');
   // move the t=2 point up to t=0.5 (it stays after the first point): now the first note ramps too
-  drag(cv, vx(0.5), ny(2), vx(0.5), ny(0.5));
+  drag(cv, vx(0.5), ny(2), vx(0.5), ny(0.5), { altKey: true });
   assert.equal(a.vel, 0.5);
   assert.deepEqual(a.vels?.map((p) => p.t), [0.5, 1], 'first note follows the line until its end');
   assert.ok(b.vel > 0.5 && b.vel < 1, 'second note starts on the line');
@@ -1384,6 +1386,35 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   pick(menus, 'Delete point');
   assert.equal('vels' in b, false);
   assert.ok(changes() > 4);
+}
+
+// Several selected notes: dragging one selected note's start handle moves every selected start
+// velocity by the same amount (each clamped); unselected notes and the curves after the start stay.
+{
+  const { clip, roll, changes } = setup();
+  const cv = roll.surface.cv;
+  const vx = (v) => 7 + v * 70;
+  const a = note(60, 0, 1, 0.5);
+  const b = note(62, 2, 2, 0.3);
+  const c = note(64, 4, 1, 0.9);
+  const other = note(65, 6, 1, 0.4);
+  b.vels = [{ t: 1, v: 0.8, r: 0 }];
+  clip.notes.push(a, b, c, other);
+  flush();
+  click(cv, vx(0.5), ny(0));
+  click(cv, vx(0.3), ny(2), { shiftKey: true });
+  click(cv, vx(0.9), ny(4), { shiftKey: true });
+  const c0 = changes();
+  drag(cv, vx(0.3), ny(2), vx(0.5), ny(2.4)); // grab the middle note: +0.2, vertical motion ignored
+  assert.deepEqual([a, b, c].map((n) => Math.round(n.vel * 1e9) / 1e9), [0.7, 0.5, 1], 'all moved, clamped at 1');
+  assert.equal(other.vel, 0.4, 'unselected note unchanged');
+  assert.deepEqual(b.vels, [{ t: 1, v: 0.8, r: 0 }], 'the curve after the start stays');
+  assert.equal(changes(), c0 + 1, 'one undo step');
+  // dragging back down: notes keep their distance (the clamped one restarts from its value)
+  drag(cv, vx(0.5), ny(2), vx(0.1), ny(2));
+  assert.deepEqual([a, b, c].map((n) => Math.round(n.vel * 1e9) / 1e9), [0.3, 0.1, 0.6]);
+  key(cv, 'Backspace');
+  assert.deepEqual(clip.notes, [other], 'the selection was kept');
 }
 
 // Velocity snapping: all sixteen intervals, including both endpoints, without a drawn grid.

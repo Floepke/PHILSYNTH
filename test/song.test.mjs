@@ -442,5 +442,8 @@ console.log('song tests passed');
   assert.throws(() => parseClipFile('{"format":"modsynth-module","modules":[]}'), /not a PHILSYNTH \.clip file/);
   assert.throws(() => parseClipFile(JSON.stringify({ format: CLIP_FORMAT, clips: [null] })), /no clips/);
   assert.throws(() => parseClipFile('nope'));
+  assert.equal(CLIP_FORMAT, 'philsynth-clip');
+  // clip files saved before the PHILSYNTH rename still load
+  assert.equal(parseClipFile(text.replace(CLIP_FORMAT, 'modsynth-clip')).length, clips.length);
 }
 console.log('link tests passed');

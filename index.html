@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <input id="file" type="file" accept=".mds,.json" hidden>
+  <input id="file" type="file" accept=".phproject,.mds,.json" hidden>
   <button id="brand" class="brand" type="button" aria-haspopup="menu" aria-expanded="false" title="Main menu: New, Open, Save, Export Audio, MIDI Input…"><span class="logo"></span>PHILSYNTH</button>
   <div id="workspace">
     <section id="seq" aria-label="Piano roll">
@@ -60,7 +60,7 @@
       <h3>Insert module</h3>
       <div id="module-list" class="listbox" role="listbox" tabindex="0" aria-label="Module type" autofocus></div>
       <menu>
-        <button type="button" id="load-synth" class="menu-left" title="Insert a module saved as a .synth file (right-click hold a module: Save module…)">Load .synth…</button>
+        <button type="button" id="load-synth" class="menu-left" title="Insert a module saved as a .phmod file (right-click hold a module: Save module…)">Load module…</button>
         <button value="cancel">Cancel</button>
         <button value="ok" class="primary">OK</button>
       </menu>

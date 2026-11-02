@@ -1,13 +1,16 @@
-// Save / open dialogs for small text files (.clip, .synth) that start in the folder last used for
+// Save / open dialogs for small text files (.clip, .phmod) that start in the folder last used for
 // that kind of file. `kind` names the remembered location:
 //   Electron              native dialogs in the main process (electron/projectfiles.mjs), the
 //                         folders are stored per kind in the app's user data
 //   Chromium browsers     showSaveFilePicker / showOpenFilePicker with `id: kind`: the browser
 //                         remembers the folder per id (per site, across restarts)
 //   other browsers        a download / a file input (the browser decides where)
+import { CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS } from './fileformat.js';
+
+// ext: saved files; open: extensions the open dialog offers (older ones included)
 export const KINDS = {
-  clip: { description: 'PHILSYNTH clip', ext: '.clip' },
-  synth: { description: 'PHILSYNTH module', ext: '.synth' },
+  clip: { description: 'PHILSYNTH clip', ext: CLIP_EXT, open: [CLIP_EXT] },
+  module: { description: 'PHILSYNTH module', ext: MODULE_EXT, open: MODULE_OPEN_EXTS },
 };
 
 const cancelled = (err) => err?.name === 'AbortError';
@@ -37,12 +40,12 @@ export async function saveTextFile(kind, suggestedName, text, win = window) {
 
 // -> { name, text } when a file was picked, null when cancelled
 export async function openTextFile(kind, win = window) {
-  const { description, ext } = KINDS[kind];
+  const { description, open } = KINDS[kind];
   if (win.modsynthFiles?.openFile) return win.modsynthFiles.openFile(kind);
   if (typeof win.showOpenFilePicker === 'function') {
     let handle;
     try {
-      [handle] = await win.showOpenFilePicker({ id: kind, multiple: false, types: [{ description, accept: { 'application/octet-stream': [ext] } }] });
+      [handle] = await win.showOpenFilePicker({ id: kind, multiple: false, types: [{ description, accept: { 'application/octet-stream': open } }] });
     } catch (err) {
       if (cancelled(err)) return null;
       throw err;
@@ -51,7 +54,7 @@ export async function openTextFile(kind, win = window) {
     return { name: file.name, text: await file.text() };
   }
   return new Promise((resolve, reject) => {
-    const input = Object.assign(win.document.createElement('input'), { type: 'file', accept: ext });
+    const input = Object.assign(win.document.createElement('input'), { type: 'file', accept: open.join(',') });
     input.addEventListener('change', async () => {
       const file = input.files[0];
       if (!file) return resolve(null);

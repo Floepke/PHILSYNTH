@@ -107,8 +107,8 @@ function createWindow(url) {
       item.setSaveDialogOptions({ title: 'Export Audio', filters: [{ name: 'WAV audio', extensions: ['wav'] }] });
       return;
     }
-    if (!item.getFilename().endsWith('.mds')) return;
-    item.setSaveDialogOptions({ title: 'Save PHILSYNTH project', filters: [{ name: 'PHILSYNTH project', extensions: ['mds'] }] });
+    if (!item.getFilename().endsWith('.phproject')) return;
+    item.setSaveDialogOptions({ title: 'Save PHILSYNTH project', filters: [{ name: 'PHILSYNTH project', extensions: ['phproject'] }] });
   });
   win.on('closed', () => (win = null));
   // Windows sends the mouse back button as an app command: the page uses it to go up a patch

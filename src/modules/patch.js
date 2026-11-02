@@ -13,6 +13,11 @@
 // Instances). It shows and sets that inner controller's value (saved inside, every instance
 // follows), and LFOs / automation clips on it drive the inner controller for real (on the audio
 // thread, every instance). A nested Patch's own mapped controllers can be mapped again one level up.
+//
+// Passing out (see passesMod in src/patch.js): notes cabled into the inner Output (MULTIMIDI,
+// STRUM) go out over this module's cables to MIDI modules, and modulators cabled into the inner
+// Output (LFO, ADSR, ENVELOPE, ...) drive controller Out Controller of the modules this module is
+// cabled to. A Patch can so be a custom MIDI or modulation module built from stock modules.
 import { paramsOf } from '../params.js';
 
 const RELEASE_KEEP_MS = 10000;
@@ -75,6 +80,34 @@ export default {
     const inGain = host.dsp.create('bus');
     const outGain = host.dsp.create('bus');
     const patch = await host.createPatch(outGain);
+    let inst = null; // this module (its getMidiTargets is set by the parent patch)
+    // ---- what the inner Output passes out (rt.outer of every instance's runtime) ----
+    const outNotes = new Map(); // note id -> target modules it was sent to (its mod / off follow it)
+    const outer = {
+      // modules our control cables reach (an Output there passes on up)
+      targets: () => (owner && entry
+        ? owner.cables.filter((c) => c.from === entry.id).map((c) => owner.modules.get(c.to))
+          .filter((t) => t && owner.signals(entry, t).mod).flatMap((t) => owner.controlTargets(t))
+        : []),
+      noteOn(id, ...args) {
+        const ts = inst?.getMidiTargets?.() ?? [];
+        outNotes.set(id, ts);
+        ts.forEach((t) => t.noteOn(id, ...args));
+      },
+      noteMod(id, ...args) {
+        outNotes.get(id)?.forEach((t) => t.noteMod(id, ...args));
+      },
+      noteOff(id) {
+        const ts = outNotes.get(id);
+        outNotes.delete(id);
+        ts?.forEach((t) => t.noteOff(id));
+      },
+      allOff() {
+        for (const [id, ts] of outNotes) ts.forEach((t) => t.noteOff(id));
+        outNotes.clear();
+      },
+    };
+    patch.outer = outer;
     let target = 0;
     let instances = 1;
     let maps = []; // state.maps
@@ -115,6 +148,7 @@ export default {
           const c = clones[k];
           if (c && c.sig === sig) { applyValues(c.rt, data); continue; }
           const rt = await host.createPatch(outGain, k + 1);
+          rt.outer = outer;
           await rt.load(data);
           if (destroyed || pending) { rt.destroy(); break; } // changed meanwhile: start over
           c?.rt.destroy();
@@ -206,10 +240,29 @@ export default {
       }
     };
 
-    return {
+    inst = {
       node: outGain,
       input: inGain,
       patch,
+      // what our cables carry besides audio: notes / modulation cabled into the inner Output
+      // (audio: some module inside cables sound into the Output; only used for the cable's look)
+      outSignals: () => {
+        const o = patch.modules.get(0);
+        return {
+          audio: patch.cables.some((c) => c.to === 0 && patch.signals(patch.modules.get(c.from), o).audio),
+          midi: patch.hasMidiInput(0),
+          mod: patch.passOutControllers().size > 0,
+        };
+      },
+      // a MIDI cable of ours was removed: end the notes we sent over it
+      releaseTarget(t) {
+        for (const [id, ts] of outNotes) {
+          const i = ts.indexOf(t);
+          if (i < 0) continue;
+          ts.splice(i, 1);
+          t.noteOff(id);
+        }
+      },
       get clones() { return clones.map((c) => c.rt); },
       sync,
       // slider range follows the highest module id inside; mapped controllers follow
@@ -273,11 +326,13 @@ export default {
       },
       destroy() {
         destroyed = true;
+        outer.allOff();
         clones.splice(0).forEach((c) => c.rt.destroy());
         patch.destroy();
         inGain.destroy();
         outGain.destroy();
       },
     };
+    return inst;
   },
 };

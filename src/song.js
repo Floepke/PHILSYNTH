@@ -27,6 +27,7 @@
 // when the source is deleted or detached, the earliest remaining clip becomes the source.
 // The project file stores every clip's notes; loading re-shares them.
 import { curvePolyline, sampleAt } from './curve.js';
+import { CLIP_FORMAT, isFormat } from './fileformat.js';
 
 export const SNAP_BASES = [1, 2, 4, 8, 16, 32, 64, 128]; // whole, half, quarter, eighth, 16th, ... note
 export const SNAP_NAMES = { 1: 'Whole', 2: 'Half', 4: 'Quarter', 8: 'Eighth', 16: '16th', 32: '32nd', 64: '64th', 128: '128th' };
@@ -361,10 +362,10 @@ export function duplicateClip(song, clip) {
 }
 
 // ---- .clip files: clips saved to disk (TimeLine menu "Save Clip…" / "Load Clip…") ----
-// JSON text: { format: 'modsynth-clip', version, clips }. The clips are standalone copies (no link)
+// JSON text: { format: 'philsynth-clip', version, clips }. The clips are standalone copies (no link)
 // placed relative to the earliest / top one; targetType is the type of the module a clip played
 // (module numbers differ per project) so loading can pick a module of the same type.
-export const CLIP_FORMAT = 'modsynth-clip';
+export { CLIP_FORMAT };
 export function clipFileText(clips, typeOf = () => null) {
   const t0 = Math.min(...clips.map((c) => c.start));
   const y0 = Math.min(...clips.map((c) => c.y));
@@ -383,7 +384,7 @@ export function clipFileText(clips, typeOf = () => null) {
 // -> validated clips (ids are placeholders: add them with duplicateClip), each with its targetType
 export function parseClipFile(text) {
   const data = JSON.parse(text);
-  if (data?.format !== CLIP_FORMAT || !Array.isArray(data.clips)) throw new Error('not a PHILSYNTH .clip file');
+  if (!isFormat(data?.format, CLIP_FORMAT) || !Array.isArray(data.clips)) throw new Error('not a PHILSYNTH .clip file');
   const raw = data.clips.filter((c) => c && typeof c === 'object');
   if (!raw.length) throw new Error('the file has no clips');
   const clips = normalizeSong({ clips: raw.map(({ link, ...c }) => c) }).clips;

@@ -1,6 +1,7 @@
 // Autosave: every change is written to localStorage (always) and to the dev server's
 // projects/autosave.json (when served by server.mjs). On boot the newest copy wins.
 // Static hosts (GitHub Pages) have no API: only responses marked by server.mjs count as a disk.
+import { isProject } from './fileformat.js';
 const LS_KEY = 'modsynth:autosave';
 // relative: the app may live in a subfolder (https://user.github.io/REPO/)
 const API = 'api/autosave';
@@ -68,7 +69,7 @@ export function createPersistence({ getState, onSaved }) {
         disk = false;
       }
       const copies = [{ state: server, source: 'disk' }, { state: local, source: 'browser' }]
-        .filter((c) => c.state?.format === 'modsynth')
+        .filter((c) => isProject(c.state))
         .sort((a, b) => (b.state.savedAt ?? 0) - (a.state.savedAt ?? 0));
       return { copies, disk: disk === true };
     },

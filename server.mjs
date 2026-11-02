@@ -10,6 +10,7 @@ import { watch } from 'node:fs';
 import { readFile, writeFile, rename, mkdir, copyFile, stat } from 'node:fs/promises';
 import { dirname, extname, join, normalize, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isProject } from './src/fileformat.js';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PROJECTS = process.env.MODSYNTH_PROJECTS || join(ROOT, 'projects');
@@ -67,7 +68,7 @@ async function handleAutosave(req, res) {
     let data;
     try {
       data = JSON.parse(await readBody(req));
-      if (data?.format !== 'modsynth') throw new Error('Not a modsynth project');
+      if (!isProject(data)) throw new Error('Not a PHILSYNTH project');
     } catch (err) {
       send(res, 400, err.message);
       return;

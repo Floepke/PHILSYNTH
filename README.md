@@ -115,17 +115,42 @@ MULTIMIDI into it). Shift + drag from it to a module to modulate that module.
   - *Notes ON/OFF Loop Forward/Backwards*: like the loop, but the playhead runs
     forward and then back (ping-pong).
 
+## Custom MIDI and modulation modules (Patch)
+
+A Patch can pass notes and modulation out through its Output, so stock modules can be
+combined into your own MIDI processor or modulator:
+
+- **MIDI**: inside a Patch, cable a MULTIMIDI or STRUM (or a Patch that sends notes) into
+  the Output. Cable the Patch module to OSC, SAMPLER, ADSR, … outside: they get the notes.
+  A DELAY cabled into the Output stays an audio cable.
+- **Modulation**: inside a Patch, cable an LFO, ADSR, ENVELOPE, VELOCITY2CTL or SOUND2CTL
+  into the Output. Cable the Patch module to any module outside. The inner modulator's
+  **Out Controller** picks which controller of those modules it drives (its list shows their
+  names); **Out Min** / **Out Max** trim the range.
+- This also works through several nested Patches (Output → Patch → Output → …).
+- A Patch cable carries what the inside sends out: audio to modules with an audio input,
+  notes to MIDI modules, modulation to controllers. It is drawn as a control (dashed) or
+  MIDI cable when the inside sends no sound.
+- At the top level the Output has no outside: a modulator cabled into it modulates the
+  Output's own controllers (Master volume, BPM, …), and it takes no MIDI. A MULTICTL into an
+  Output always drives that Output's controllers.
+
 ## Clip files
 
 Right-click a clip in the TimeLine and choose **Save Clip…** to store the selected
-clips as a `.clip` file (JSON: `{ "format": "modsynth-clip", "version": 1, "clips": [...] }`).
+clips as a `.clip` file (JSON: `{ "format": "philsynth-clip", "version": 1, "clips": [...] }`).
 Right-click empty TimeLine space and choose **Load Clip…** to place them there again,
 also in another project. A clip plays the same module when it still exists, otherwise
 the first module of the same type, otherwise the default MIDI module.
 
 The file dialogs remember the last folder per kind: opening projects, saving projects,
-clips and modules (`.synth`). The desktop app stores these folders in `dialog-dirs.json`
+clips and modules (`.phmod`). The desktop app stores these folders in `dialog-dirs.json`
 in its user data folder. Chromium browsers remember them per site.
+
+On Linux the desktop app sends KDE's "folder changed" signal (`org.kde.KDirNotify.FilesAdded`
+via `dbus-send`) for the start folder before each dialog opens and after each save. KDE's
+dialog would otherwise show a cached listing on folders without change notifications (FUSE
+mounts such as pCloud), and new files would only appear after F5.
 
 ## Development
 

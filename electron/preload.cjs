@@ -14,7 +14,7 @@ contextBridge.exposeInMainWorld('modsynthFiles', {
   open: () => ipcRenderer.invoke('project:open'),
   save: (ref, text) => ipcRenderer.invoke('project:save', ref, text),
   saveAs: (name, text) => ipcRenderer.invoke('project:saveAs', name, text),
-  // clips / modules (see src/filedialog.js); kind: 'clip' | 'synth'
+  // clips / modules (see src/filedialog.js); kind: 'clip' | 'module'
   saveFile: (kind, name, text) => ipcRenderer.invoke('file:save', kind, name, text),
   openFile: (kind) => ipcRenderer.invoke('file:open', kind),
 });

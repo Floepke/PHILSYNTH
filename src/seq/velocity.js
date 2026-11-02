@@ -6,6 +6,8 @@
 // By default that curve is a single value. Edits are written back into every selected note
 // (applyVelCurve), so each note follows the shared line during its own time.
 //   drag a note's handle (start dot)   select that note and set its velocity (Shift: add to selection)
+//   drag a selected note's handle      with several notes selected: moves the start velocity of every
+//                                       selected note by the same amount (Alt: only the curve point there)
 //   drag a curve point                 change velocity (sideways) and time (snapped, between neighbours)
 //                                       the first point stays at the start of the selection
 //   Shift + drag                       fine velocity
@@ -130,7 +132,7 @@ export function createVelocityStrip(o) {
         // handle
         g.globalAlpha = 1;
         g.beginPath();
-        g.arc(xv(n.vel), y, hover?.note === n ? 4 : 3, 0, Math.PI * 2);
+        g.arc(xv(n.vel), y, hover?.note === n || drag?.note === n ? 4 : 3, 0, Math.PI * 2);
         g.fillStyle = on ? SELECT : color;
         g.fill();
       }
@@ -182,7 +184,7 @@ export function createVelocityStrip(o) {
     g.textBaseline = 'middle';
     g.textAlign = 'center';
     const p = drag ? group?.points[drag.i] : hover?.kind === 'point' ? group?.points[hover.i] : null;
-    const v = p ? p.v : hover?.kind === 'note' ? hover.note.vel : null;
+    const v = drag?.note ? drag.note.vel : p ? p.v : hover?.kind === 'note' ? hover.note.vel : null;
     g.fillText(v === null ? 'VELOCITY' : `VEL ${Math.round(v * 127)}`, W() / 2, bottom + (h - bottom) / 2);
     g.strokeStyle = '#34363e';
     g.lineWidth = 2;
@@ -217,6 +219,37 @@ export function createVelocityStrip(o) {
       o.redraw();
     });
   }
+
+  // several selected notes: every start velocity moves by the same amount (each clamped to 0..1;
+  // velocity snapping snaps the grabbed note, the others keep their distance to it)
+  function dragNotes(e, note, x, y) {
+    const notes = group.notes;
+    const v0 = notes.map((n) => n.vel);
+    const grabbed = note.vel;
+    drag = { note, moved: false };
+    capture(o.cv, e, (ev) => {
+      const q = o.local(ev);
+      if (!drag.moved && Math.hypot(q.x - x, q.y - y) < 2) return;
+      drag.moved = true;
+      presses.reset();
+      const target = snapVelocity(clamp(grabbed + ((q.x - x) * (ev.shiftKey ? 0.1 : 1)) / (W() - 2 * PAD), 0, 1));
+      const d = target - grabbed;
+      notes.forEach((n, i) => { n.vel = clamp(v0[i] + d, 0, 1); });
+      o.redraw();
+    }, (ev) => {
+      if (ev.type === 'pointercancel') notes.forEach((n, i) => { n.vel = v0[i]; });
+      const moved = drag.moved;
+      drag = null;
+      if (moved) o.changed();
+      o.redraw();
+    });
+  }
+  // the selected note whose handle is under (x, y) when several notes are selected (else null)
+  const groupHandleAt = (x, y, e = null) => {
+    if (e?.altKey || !group || group.notes.length < 2) return null;
+    const n = noteAt(x, y);
+    return n && o.selected().has(n) ? n : null;
+  };
 
   // a curve point at the snapped time under y (an existing one there takes the value): its index,
   // or -1 outside the selection
@@ -265,6 +298,8 @@ export function createVelocityStrip(o) {
       }
       if (e.button !== 0) return true;
       const second = presses.press(e);
+      const many = groupHandleAt(x, y, e);
+      if (many) { dragNotes(e, many, x, y); return true; }
       const i = pointAt(x, y);
       if (i >= 0) { dragPoint(e, i, x, y); return true; }
       if (second && group) { // down-up-DOWN: insert a point and drag it at once
@@ -307,6 +342,12 @@ export function createVelocityStrip(o) {
         return null;
       }
       sync();
+      const many = groupHandleAt(x, y);
+      if (many) {
+        hover = { kind: 'note', note: many };
+        o.redraw();
+        return { cursor: 'ew-resize', title: `Velocity ${Math.round(many.vel * 127)} — drag to change all ${group.notes.length} selected notes (Alt: only this curve point)` };
+      }
       const i = pointAt(x, y);
       const n = i < 0 ? noteAt(x, y) : null;
       hover = i >= 0 ? { kind: 'point', i } : n ? { kind: 'note', note: n } : null;

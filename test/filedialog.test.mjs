@@ -15,16 +15,16 @@ const abort = () => Object.assign(new Error('cancelled'), { name: 'AbortError' }
     },
     async showOpenFilePicker(opts) {
       calls.push(['open', opts]);
-      return [{ getFile: async () => ({ name: 'Lead.synth', text: async () => '{"x":1}' }) }];
+      return [{ getFile: async () => ({ name: 'Lead.phmod', text: async () => '{"x":1}' }) }];
     },
   };
   assert.deepEqual(await saveTextFile('clip', 'Riff.clip', 'clip data', win), { name: 'Riff.clip' });
   assert.equal(written, 'clip data');
-  assert.deepEqual(await openTextFile('synth', win), { name: 'Lead.synth', text: '{"x":1}' });
-  await saveTextFile('synth', 'Lead.synth', '', win);
+  assert.deepEqual(await openTextFile('module', win), { name: 'Lead.phmod', text: '{"x":1}' });
+  await saveTextFile('module', 'Lead.phmod', '', win);
   await openTextFile('clip', win);
-  assert.deepEqual(calls.map(([k, o]) => [k, o.id, Object.values(o.types[0].accept)[0][0]]), [
-    ['save', 'clip', '.clip'], ['open', 'synth', '.synth'], ['save', 'synth', '.synth'], ['open', 'clip', '.clip'],
+  assert.deepEqual(calls.map(([k, o]) => [k, o.id, ...Object.values(o.types[0].accept)[0]]), [
+    ['save', 'clip', '.clip'], ['open', 'module', '.phmod', '.synth'], ['save', 'module', '.phmod'], ['open', 'clip', '.clip'],
   ]);
   assert.equal(calls[0][1].suggestedName, 'Riff.clip');
 
@@ -41,13 +41,13 @@ const abort = () => Object.assign(new Error('cancelled'), { name: 'AbortError' }
   const win = {
     modsynthFiles: {
       saveFile: async (...args) => { calls.push(['save', ...args]); return { name: 'x.clip' }; },
-      openFile: async (...args) => { calls.push(['open', ...args]); return { name: 'y.synth', text: 't' }; },
+      openFile: async (...args) => { calls.push(['open', ...args]); return { name: 'y.phmod', text: 't' }; },
     },
     showSaveFilePicker() { throw new Error('not used'); },
   };
   assert.deepEqual(await saveTextFile('clip', 'x.clip', 'data', win), { name: 'x.clip' });
-  assert.deepEqual(await openTextFile('synth', win), { name: 'y.synth', text: 't' });
-  assert.deepEqual(calls, [['save', 'clip', 'x.clip', 'data'], ['open', 'synth']]);
+  assert.deepEqual(await openTextFile('module', win), { name: 'y.phmod', text: 't' });
+  assert.deepEqual(calls, [['save', 'clip', 'x.clip', 'data'], ['open', 'module']]);
 }
 
 // Projects: opening and saving remember their own folders.
@@ -56,16 +56,16 @@ const abort = () => Object.assign(new Error('cancelled'), { name: 'AbortError' }
   const win = {
     async showOpenFilePicker(opts) {
       ids.push(opts.id);
-      return [{ getFile: async () => ({ name: 'a.mds', text: async () => '{}' }) }];
+      return [{ getFile: async () => ({ name: 'a.phproject', text: async () => '{}' }) }];
     },
     async showSaveFilePicker(opts) {
       ids.push(opts.id);
-      return { name: 'b.mds', async createWritable() { return { write: async () => {}, close: async () => {} }; } };
+      return { name: 'b.phproject', async createWritable() { return { write: async () => {}, close: async () => {} }; } };
     },
   };
   const backend = fsaBackend(win);
-  assert.equal((await backend.open()).name, 'a.mds');
-  assert.equal((await backend.saveAs('b.mds', '{}')).name, 'b.mds');
+  assert.equal((await backend.open()).name, 'a.phproject');
+  assert.equal((await backend.saveAs('b.phproject', '{}')).name, 'b.phproject');
   assert.deepEqual(ids, ['project-open', 'project-save']);
 }
 

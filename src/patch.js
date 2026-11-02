@@ -26,6 +26,15 @@ export const cableSignals = (a, b) => ({
   midi: !!(a.midiOut && b.acceptsMidi),
 });
 
+// Passing out of a Patch: inside a Patch, MIDI cables (MULTIMIDI, STRUM, a Patch that sends notes;
+// not DELAY, whose cable to the Output stays audio) and control cables (modulators with an Out
+// Controller) may go into the Output. The Patch module outside then sends those notes / that
+// modulation over its own cables, like a MULTIMIDI / LFO would: the inner modulator's Out
+// Controller, Out Min and Out Max pick the controller of the modules the Patch is cabled to.
+// At the top level the Output has no outside: a modulator there drives the Output's controllers.
+// A MULTICTL (it picks controllers per module) also keeps driving the Output's own controllers.
+const passesMod = (m) => !!m.def.modulator && !m.def.routeParams;
+
 export class PatchRuntime {
   constructor(engine, sink, salt = 0) {
     this.engine = engine;
@@ -39,6 +48,7 @@ export class PatchRuntime {
     this.reserved = new Set(); // ids claimed by inserts still being created
     this.listeners = new Set(); // called whenever modules/cables change
     this.midiLock = null; // module number live MIDI is locked onto in this layer (saved), or null
+    this.outer = null; // set by the Patch module this runtime is inside of: what its Output passes out to
     this._song = null;
   }
 
@@ -119,11 +129,13 @@ export class PatchRuntime {
     inst.setBpm?.(this.bpm);
     if (def.modulator) {
       entry.modTargets = new Map(); // `${target id} ${controller id}` -> [target id, controller id] driven
-      inst.getTargets = () => this.cables.filter((c) => c.from === id).map((c) => this.modules.get(c.to)).filter(Boolean);
+      // (an Output that passes modulation out counts as the modules outside it, see controlTargets)
+      inst.getTargets = () => this.cables.filter((c) => c.from === id).map((c) => this.modules.get(c.to)).filter(Boolean)
+        .flatMap((t) => this.controlTargets(t, entry));
     }
-    if (def.midiOut) {
+    if (def.midiOut || inst.outSignals) {
       inst.getMidiTargets = () => this.cables.filter((c) => c.from === id)
-        .map((c) => this.modules.get(c.to)).filter((t) => t && cableSignals(def, t.def).midi).map((t) => t.inst);
+        .map((c) => this.modules.get(c.to)).filter((t) => t && this.signals(entry, t).midi).map((t) => t.inst);
     }
     if (inst.patch) inst.patch.watchers.add(() => { inst.mirror?.(); this.changed(); });
     if (def.isOutput) inst.input.connect(this.sink);
@@ -254,7 +266,69 @@ export class PatchRuntime {
   // thread (Out Min/Out Max/Amplitude mapping, see src/dsp/graph.js) and reports it back; here we
   // keep those lists in sync with the cables and Out Controller.
   refreshRoutes() {
-    for (const m of this.modules.values()) if (m.def.modulator) this.updateRoutes(m);
+    for (const m of this.modules.values()) {
+      if (m.def.modulator) this.updateRoutes(m);
+      else if (m.inst.patch) {
+        // the modulators inside drive modules of this patch: their routes follow our cables
+        for (const rt of [m.inst.patch, ...(m.inst.clones ?? [])]) rt.refreshRoutes();
+        this.updatePassOut(m);
+      }
+    }
+  }
+
+  // Whether this patch's Output passes notes / modulation out (it is inside a Patch module).
+  get passesOut() {
+    return !!this.outer;
+  }
+
+  // What a cable from module `a` to module `b` carries: { audio, midi, mod }. A Patch module
+  // carries what its inside sends into its Output (see passesMod above).
+  signals(a, b) {
+    const s = cableSignals(a.def, b.def);
+    const out = a.inst.outSignals?.();
+    const passing = b.def.isOutput && this.passesOut;
+    const midiOut = (a.def.midiOut && !a.def.audioMidi) || out?.midi;
+    return {
+      audio: s.audio,
+      midi: s.midi || !!(midiOut && (b.def.acceptsMidi || passing)),
+      mod: a.def.modulator ? paramsOf(b).length > 0 : !!(out?.mod && (paramsOf(b).length > 0 || passing)),
+    };
+  }
+
+  // The modules a control cable from modulator `m` into module `t` drives: `t` itself, or inside a
+  // Patch for the Output, the modules the Patch module is cabled to outside (and so on up).
+  controlTargets(t, m) {
+    if (!t.def.isOutput || !this.passesOut || (m && !passesMod(m))) return [t];
+    return this.outer.targets();
+  }
+
+  // the Out Controller numbers of the modulators that pass their modulation out of this patch
+  // (cabled into its Output, or into a Patch module inside that passes some out into it)
+  passOutControllers() {
+    const set = new Set();
+    if (!this.passesOut) return set;
+    for (const c of this.cables) {
+      if (c.to !== 0) continue;
+      const e = this.modules.get(c.from);
+      if (!e) continue;
+      if (passesMod(e)) set.add(e.values.outController | 0);
+      else if (e.inst.patch) e.inst.patch.passOutControllers().forEach((k) => set.add(k));
+    }
+    return set;
+  }
+
+  // a Patch module `e` drives the controllers its inside passes out (see modulated / isDriven)
+  updatePassOut(e) {
+    const ctrls = e.inst.patch.passOutControllers();
+    const driven = new Map();
+    for (const c of this.cables) {
+      if (c.from !== e.id || !ctrls.size) continue;
+      const t = this.modules.get(c.to);
+      if (!t || (t.def.isOutput && this.passesOut)) continue; // passed on up: driven out there
+      const params = paramsOf(t);
+      for (const k of ctrls) if (params[k]) driven.set(`${t.id} ${params[k].id}`, [t.id, params[k].id]);
+    }
+    e.modTargets = driven;
   }
 
   updateRoutes(m) {
@@ -266,6 +340,15 @@ export class PatchRuntime {
       if (c.from !== m.id) continue;
       const t = this.modules.get(c.to);
       if (!t?.ctl) continue;
+      const passed = this.controlTargets(t, m);
+      if (passed[0] !== t) {
+        // into the Output inside a Patch: drive the modules outside instead (they are driven there)
+        for (const o of passed) {
+          const p = paramsOf(o)[controller];
+          if (p) list.push(...this.routesOf(o, p));
+        }
+        continue;
+      }
       const params = paramsOf(t);
       // MULTICTL picks controllers per target (def.routeParams); others drive Out Controller
       const ps = m.def.routeParams
@@ -369,7 +452,7 @@ export class PatchRuntime {
   // true if a MIDI processor is cabled into this module
   hasMidiInput(id) {
     const target = this.modules.get(id);
-    return !!target && this.cables.some((c) => c.to === id && cableSignals(this.modules.get(c.from).def, target.def).midi);
+    return !!target && this.cables.some((c) => c.to === id && this.signals(this.modules.get(c.from), target).midi);
   }
 
   connect(fromId, toId) {
@@ -380,9 +463,9 @@ export class PatchRuntime {
     if (a.def.modulator) {
       if (!paramsOf(b).length) return false; // control cable: target only needs controllers
     } else {
-      const signals = cableSignals(a.def, b.def);
-      if (!signals.audio && !signals.midi) return false;
-      if (this.reaches(toId, fromId)) return false; // audio or notes would circle forever
+      const signals = this.signals(a, b);
+      if (!signals.audio && !signals.midi && !signals.mod) return false;
+      if ((signals.audio || signals.midi) && this.reaches(toId, fromId)) return false; // audio or notes would circle forever
       if (signals.audio) a.inst.node.connect(b.inst.input);
     }
     this.cables.push({ from: fromId, to: toId });
@@ -402,8 +485,8 @@ export class PatchRuntime {
       this.updateRoutes(a); // gives the controller back its own value
     }
     else {
-      const signals = cableSignals(a.def, b.def);
-      if (signals.midi) a.inst.releaseTarget?.(b.inst);
+      const signals = this.signals(a, b);
+      if (signals.midi || a.inst.outSignals) a.inst.releaseTarget?.(b.inst);
       if (signals.audio) a.inst.node.disconnect(b.inst.input);
     }
     if (notify) this.emit();

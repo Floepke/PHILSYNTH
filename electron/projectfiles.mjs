@@ -3,23 +3,28 @@
 import { app, dialog, ipcMain, BrowserWindow } from 'electron';
 import { readFile, writeFile, rename, rm, stat } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
+import { notifyFolderChanged } from './kdirnotify.mjs';
+import { PROJECT_EXT, PROJECT_OPEN_EXTS, CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS } from '../src/fileformat.js';
 
-const FILTERS = [{ name: 'PHILSYNTH project', extensions: ['mds'] }];
-const OPEN_FILTERS = [{ name: 'PHILSYNTH project', extensions: ['mds', 'json'] }, { name: 'All files', extensions: ['*'] }];
+const bare = (ext) => ext.replace(/^\./, '');
+const PROJECT = bare(PROJECT_EXT);
+const FILTERS = [{ name: 'PHILSYNTH project', extensions: [PROJECT] }];
+const OPEN_FILTERS = [{ name: 'PHILSYNTH project', extensions: PROJECT_OPEN_EXTS.map(bare) }, { name: 'All files', extensions: ['*'] }];
 // small files saved / opened through 'file:save' / 'file:open' (see src/filedialog.js)
+// ext: saved files; open: what the open dialog offers (older extensions included)
 export const FILE_KINDS = {
-  clip: { name: 'PHILSYNTH clip', ext: 'clip', max: 64 * 1024 * 1024 },
-  synth: { name: 'PHILSYNTH module', ext: 'synth', max: 512 * 1024 * 1024 },
+  clip: { name: 'PHILSYNTH clip', ext: bare(CLIP_EXT), open: [bare(CLIP_EXT)], max: 64 * 1024 * 1024 },
+  module: { name: 'PHILSYNTH module', ext: bare(MODULE_EXT), open: MODULE_OPEN_EXTS.map(bare), max: 512 * 1024 * 1024 },
 };
 const MAX_PATHS = 100;
 const MAX_BYTES = 512 * 1024 * 1024;
 
 // Ensures the extension (dialogs on some desktops do not add it).
-export function withExtension(path, ext = 'mds') {
+export function withExtension(path, ext = PROJECT) {
   return extname(path).toLowerCase() === `.${ext}` ? path : `${path}.${ext}`;
 }
 
-// The folder last used per kind of dialog ('project-open', 'project-save', 'clip', 'synth'),
+// The folder last used per kind of dialog ('project-open', 'project-save', 'clip', 'module'),
 // kept in a JSON file so the dialogs start there after a restart too.
 export function createDirMemory(file) {
   let dirs = null;
@@ -63,9 +68,12 @@ export function registerProjectFiles(isLocal) {
   const listFile = join(app.getPath('userData'), 'project-paths.json');
   let allowed = null; // paths chosen in the dialogs (most recent last), kept across restarts
   const dirs = createDirMemory(join(app.getPath('userData'), 'dialog-dirs.json'));
+  // called right before each dialog opens: KDE's dialog then lists the folder fresh (no F5 needed)
   const startDir = async (kind) => {
-    const dir = await dirs.get(kind);
-    return dir && await exists(dir) ? dir : app.getPath('documents');
+    const stored = await dirs.get(kind);
+    const dir = stored && await exists(stored) ? stored : app.getPath('documents');
+    await notifyFolderChanged(dir);
+    return dir;
   };
 
   async function load() {
@@ -113,7 +121,7 @@ export function registerProjectFiles(isLocal) {
   ipcMain.handle('project:saveAs', async (e, name, text) => {
     const win = check(e);
     textOf(text);
-    const file = basename(typeof name === 'string' && name ? name : 'Untitled.mds');
+    const file = basename(typeof name === 'string' && name ? name : `Untitled.${PROJECT}`);
     const r = await dialog.showSaveDialog(win, {
       title: 'Save PHILSYNTH project',
       defaultPath: join(await startDir('project-save'), withExtension(file)),
@@ -134,6 +142,7 @@ export function registerProjectFiles(isLocal) {
       if (response !== 0) return null;
     }
     await atomicWrite(path, text);
+    notifyFolderChanged(dirname(path));
     await allow(path);
     await dirs.remember('project-save', path);
     return { name: basename(path), ref: path };
@@ -145,11 +154,12 @@ export function registerProjectFiles(isLocal) {
     textOf(text);
     if (typeof ref !== 'string' || !(await load()).includes(ref)) return null;
     await atomicWrite(ref, text);
+    notifyFolderChanged(dirname(ref));
     return { name: basename(ref), ref };
   });
 
   const kindOf = (kind) => {
-    if (!Object.hasOwn(FILE_KINDS, kind)) throw new Error('Unknown file kind');
+    if (!Object.hasOwn(FILE_KINDS, kind)) throw new Error(`Unknown file kind "${kind}"`);
     return FILE_KINDS[kind];
   };
   const confirmReplace = async (win, path) => {
@@ -179,6 +189,7 @@ export function registerProjectFiles(isLocal) {
     const path = withExtension(r.filePath, k.ext);
     if (path !== r.filePath && await exists(path) && !(await confirmReplace(win, path))) return null;
     await atomicWrite(path, text);
+    notifyFolderChanged(dirname(path));
     await dirs.remember(kind, path);
     return { name: basename(path) };
   });
@@ -190,7 +201,7 @@ export function registerProjectFiles(isLocal) {
     const r = await dialog.showOpenDialog(win, {
       title: `Open ${k.name}`,
       defaultPath: await startDir(kind),
-      filters: [{ name: k.name, extensions: [k.ext] }, { name: 'All files', extensions: ['*'] }],
+      filters: [{ name: k.name, extensions: k.open }, { name: 'All files', extensions: ['*'] }],
       properties: ['openFile'],
     });
     if (r.canceled || !r.filePaths[0]) return null;

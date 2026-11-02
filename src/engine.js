@@ -3,6 +3,7 @@ import { DspHost } from './dsp/host.js';
 import { emptySong, normalizeSong } from './song.js';
 import { importSamples } from './samples.js';
 import { MicHub, MIC_SLOTS } from './mics.js';
+import { PROJECT_FORMAT, isProject } from './fileformat.js';
 
 // The C++ DSP kernels (src/dsp/modsynth.wasm, built from cpp/ by `npm run build:wasm`), compiled in
 // the worklet. `?dsp=js` in the URL or localStorage['modsynth.dsp'] = 'js' forces the JS kernels.
@@ -72,11 +73,11 @@ export class Engine {
   createPatch(sink) { return PatchRuntime.create(this, sink); }
 
   saveProject() {
-    return { format: 'modsynth', version: 1, patch: this.root.toJSON(), song: this.song };
+    return { format: PROJECT_FORMAT, version: 1, patch: this.root.toJSON(), song: this.song };
   }
 
   async loadProject(data) {
-    if (data?.format !== 'modsynth' || !Array.isArray(data.patch?.modules)) throw new Error('Not a modsynth project file');
+    if (!isProject(data) || !Array.isArray(data.patch?.modules)) throw new Error('Not a PHILSYNTH project file');
     importSamples(data.samples); // audio of SAMPLER / WAVETABLE modules (see src/samples.js)
     await this.root.load(data.patch);
     this.song = normalizeSong(data.song);

@@ -7,8 +7,10 @@
 //              save(ref, text) -> { name, ref } | null (null: no longer writable, use Save As) }
 // `ref` identifies the file for later saves (a string, so it survives in the autosave).
 
+import { PROJECT_EXT, PROJECT_OPEN_EXTS } from './fileformat.js';
+
 export const UNTITLED = 'Untitled';
-export const EXT = '.mds';
+export const EXT = PROJECT_EXT;
 
 // Fast 53-bit string hash (cyrb53), enough to notice changes.
 export function hashText(text) {
@@ -24,9 +26,9 @@ export function hashText(text) {
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
 }
 
-// Project file name for Save As: the document name with the .mds extension.
+// Project file name for Save As: the document name with the .phproject extension.
 export function suggestName(name) {
-  const base = String(name || UNTITLED).replace(/\.(mds|json)$/i, '');
+  const base = String(name || UNTITLED).replace(/\.(phproject|mds|json)$/i, '');
   return `${base || UNTITLED}${EXT}`;
 }
 
@@ -65,7 +67,7 @@ export function createProjectFile({ fingerprint, serialize, backend, onChange = 
       if (!file) return null;
       const data = JSON.parse(file.text);
       await load(data);
-      // older .json projects are not overwritten: Save asks for a new .mds file
+      // older .mds / .json projects are not overwritten: Save asks for a new .phproject file
       const ref = file.name.toLowerCase().endsWith(EXT) ? file.ref ?? null : null;
       set({ name: file.name, ref, savedHash: current() });
       return file.name;
@@ -106,8 +108,8 @@ export function electronBackend(files) {
   };
 }
 
-const TYPES = [{ description: 'PHILSYNTH project', accept: { 'application/x-modsynth': ['.mds'] } }];
-const OPEN_TYPES = [{ description: 'PHILSYNTH project', accept: { 'application/x-modsynth': ['.mds', '.json'] } }];
+const TYPES = [{ description: 'PHILSYNTH project', accept: { 'application/x-philsynth': [EXT] } }];
+const OPEN_TYPES = [{ description: 'PHILSYNTH project', accept: { 'application/x-philsynth': PROJECT_OPEN_EXTS } }];
 
 // Small IndexedDB store for file handles (they cannot go into JSON / localStorage).
 function handleStore(dbName = 'modsynth-files') {
