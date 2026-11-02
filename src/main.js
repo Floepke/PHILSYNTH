@@ -24,6 +24,7 @@ import { createProjectFile, pickBackend } from './projectfile.js';
 import { initStatusTips } from './statustips.js';
 import { saveTextFile, openTextFile } from './filedialog.js';
 import { PROJECT_FORMAT, MODULE_FORMAT, MODULE_EXT, isFormat } from './fileformat.js';
+import { moduleDocs } from './moduledocs.js';
 
 const engine = new Engine();
 let transport = null; // song playback (created after the engine)
@@ -1130,61 +1131,6 @@ function select(s) {
   const entry = s.entry;
   const header = panelHeader(entry.def.label, `#${entry.id}`, entry.def);
   panel.append(header);
-  const explanations = document.createDocumentFragment();
-  if (entry.def.type === 'SOUND2CTL') {
-    explanations.append(hint('Cable an audio source into this module, then cable this module to the module to control and select <kbd>Out Controller</kbd>. Voltage -1 = <kbd>Out Min</kbd>, +1 = <kbd>Out Max</kbd>; silence (0) is halfway. Stereo channels are averaged and voltage is clamped to -1..1. Direct voltage conversion, not an envelope follower: the last sample of each audio block controls the next block (128 samples).'));
-  }
-  if (entry.def.type === 'VELOCITY2CTL') {
-    explanations.append(hint('The velocity of the newest incoming note (and its velocity curve while it sounds) sets the controller: velocity 0 = <kbd>Out Min</kbd>, 127 = <kbd>Out Max</kbd>. When the note ends, <kbd>Noteoff Action</kbd> holds the value (Do Nothing) or moves it to <kbd>Out Min</kbd> (Control Down) or <kbd>Out Max</kbd> (Control Up).'));
-  }
-  if (entry.def.type === 'OSC') {
-    explanations.append(hint('<b>Half sine:</b> one positive sine bow followed by zero. <b>Duty Cycle</b> sets the bow length: 100% fills the period, 25% fills its first quarter, and 0% is silent. <b>Noise</b> (white, pink, brown, blue, violet: dark to bright) ignores the note pitch; every note gets its own noise, shaped by the envelope and velocity.'));
-  }
-  if (entry.def.type === 'SAMPLER') {
-    explanations.append(hint('<b>Load Sample</b> (or drop an audio file on the picture): WAV, AIFF, FLAC, MP3, OGG… up to 60 s, mono or stereo. The sample is spread over all notes: C4 (MIDI 60) plays it at its own pitch, every semitone up plays it faster. Use <b>Transpose</b> / <b>Finetune</b> to put the sample\'s pitch on C4. Each note plays the playback region set by <b>Selection Start</b> / <b>Selection Length</b> (modulate them to move the window), shaped by the ADSR. <b>Playhead Mode</b>: Forward plays the region once, Reverse plays it once backwards, Ping Pong bounces between its ends for as long as the note sounds, Forward Loop / Reverse Loop repeat the region forwards / backwards for as long as the note sounds. <b>Sample editor</b> (the picture): drag to select the region, drag its edges to trim them, double-click (or <kbd>Ctrl/Cmd</kbd> + <kbd>A</kbd>) selects everything, <kbd>Backspace</kbd> / <kbd>Delete</kbd> or a short right-click inside the region cuts the selected region out of the sample (undo with <kbd>Ctrl/Cmd</kbd> + <kbd>Z</kbd>). Hold the right button for 250 ms for the menu: <b>Normalize</b> (peak to full scale) and <b>Center</b> (removes the DC offset so the wave centers on 0 V), applied to the selected region. <b>Interpolation</b>: Off = nearest sample (gritty), Linear, Spline = smooth cubic (best). The audio is saved inside the project and .synth files.'));
-  }
-  if (entry.def.type === 'WAVETABLE') {
-    explanations.append(hint('A wavetable is a row of single-cycle waveforms (frames). <b>Wave Select</b> scans through them and crossfades between neighbouring frames: route an LFO or ADSR to it for movement. <b>Block Size</b> is the number of samples per frame; <i>Auto</i> reads it from the file (Serum / Vital WAVs: 2048, Surge .wt / WAV, WaveEdit: 256) or guesses it. Set it by hand for raw WAV tables. <b>Load Wavetable</b> (or drop a .wav / .wt on the picture) replaces the built-in table (sine → triangle → saw → square). High notes play band-limited copies of each frame, so they do not alias.'));
-  }
-  if (entry.def.type === 'INPUT') {
-    explanations.append(hint('Plays a microphone or other audio input of your computer. <b>Microphone</b> lists the inputs once access is granted (the browser or macOS asks the first time); <i>System default</i> follows the system setting. <b>Gain</b> trims the level (watch the meter: 0 dB is full scale), <b>Channels</b>: Stereo, Left or Right input on both sides, or Mono (L+R). Echo cancellation, noise suppression and auto gain are off. <b>Use headphones</b>: a microphone near the speakers feeds back. Microphones are not recorded in WAV exports.'));
-  }
-  if (entry.def.type === 'COMPRESSOR') {
-    explanations.append(hint('Above <b>Threshold</b> the level is reduced by <b>Slope</b> (1 - 1/ratio: 0.5 = 2:1, 0.75 = 4:1, 1 = limiter). <b>Knee</b> softens the bend around the threshold. <b>Attack</b> / <b>Release</b> set how fast the gain reduction starts and recovers. <b>Mode</b>: Peak follows the peaks with a 5 ms look-ahead (the audio is delayed 5 ms so transients are caught), RMS follows loudness (10 ms average), Peak Zero Latency follows the peaks without delay. Both channels are reduced together (stereo-linked). <b>Makeup Gain</b> raises the result, <b>Mix</b> blends in the dry signal (parallel compression).'));
-    explanations.append(hint('<b>Side Chain</b>: Off compresses the audio by its own level. Pick an input to use it as the key (e.g. a kick drum ducking a bass): that input is only listened to, all other inputs are compressed and played. Inputs are numbered in cable connection order. <b>Side Chain HPF</b> filters the lows out of the key, so bass does not pump the compressor.'));
-  }
-  if (entry.def.type === 'DELAY') {
-    explanations.append(hint('<b>Left Delay</b> delays left audio and each incoming MODMIDI message; <b>Right Delay</b> delays right audio only. No dry signal or feedback. Cables carry audio, MIDI, or both, according to the destination. Notes keep their pitch, velocity and start phase. Changing the delay affects new messages, not ones already queued; a release that overtakes its pending note cancels that note. MIDI delivery runs on the audio-clock reports (about every 5 ms).'));
-  }
-  if (entry.def.type === 'ECHO') {
-    explanations.append(hint('<b>STEREO</b> repeats left and right together, preserving their separation. <b>PINGPONG</b> averages the input into a left-first echo, then alternates sides. <b>Filter</b> processes the first echo and every feedback repeat; dry audio is unaffected. Feedback is limited to 99%. At 0 ms, the echo uses a one-sample delay.'));
-  }
-  if (entry.def.type === 'ENVELOPE') {
-    explanations.append(hint('Draw the envelope in the graph below: left to right is time over <b>Envelope Length</b> (0–10,000 ms), bottom = <kbd>Out Min</kbd>, top = <kbd>Out Max</kbd> of the controller picked with <kbd>Out Controller</kbd>. <b>Mode</b>: <i>Note ON Trigger</i> — every note restarts it from the left; at the end it holds the last point\'s value and note-off does not affect it. <i>Notes ON/OFF Loop</i> — the first note starts it and it repeats while any note is held; releasing the last note stops it where it is (the value holds) and the next note starts over. <i>Notes ON/OFF Loop Forward/Backwards</i> — the same, but the playhead runs forward and back (ping-pong).'));
-  }
-  if (entry.def.type === 'MODULATOR') {
-    explanations.append(hint('<b>Carrier</b> selects an audio input; all other audio inputs are summed as the modulator, separately for left and right. Inputs are numbered in cable connection order; changing cables can change their numbering. <b>Amp modulation</b> multiplies carrier by modulator (no modulator means silence). Add/Subtract and Min/Max combine those same two signals; Min/Max abs chooses by magnitude and keeps the chosen signal’s sign.'));
-    explanations.append(hint('<b>Phase modulation</b> is a variable delay: modulator -1 = 0 ms, 0 = 20 ms, +1 = 40 ms. <b>Absolute</b> uses the modulator’s magnitude: 0 = 0 ms, either -1 or +1 = 40 ms. Larger levels are clamped. Interpolation is Off (nearest sample), Linear or Spline (cubic). <b>Bitwise AND/XOR</b> clamps and quantizes each signal to signed 16-bit audio before combining the bits.'));
-  }
-  if (entry.def.type === 'DELAY' || entry.def.type === 'ECHO') {
-    explanations.append(hint('<b>Delay Unit:</b> ms gives 0–10,000 milliseconds. In 1/4, 1/8 or 1/16 mode, the same slider selects musical lengths from 1/4 to 64 of that note unit, synced to this patch’s Output BPM (including dotted and triplet lengths). Audio delay changes glide to avoid abrupt jumps.'));
-  }
-  if (entry.def.type === 'MULTIMIDI') {
-    explanations.append(hint('<kbd>Shift</kbd> + drag to an OSC, Patch or another MultiMIDI. Every note drifts on its own. Several MultiMIDIs can feed one synth in parallel (each plays its own voices); chained ones add up. <b>Velocity</b> scales every outgoing velocity (100 % = unchanged, lower = quieter). <b>Overtone</b> plays the note\'s n-th overtone of the harmonic series: n + 1 times the frequency (0 = fundamental, 1 = octave, 2 = octave + fifth, 3 = two octaves …, up to 128). <b>Route Mode</b>: <i>Sent to All</i> sends every note out of every MIDI cable; <i>Round Robin</i> sends each note out of the next cable in turn (in the order the cables were made); <i>Random</i> picks one random cable per note; <i>Random (no repeat)</i> does too but never the same cable twice in a row. <b>Random Phase</b> starts every note at its own random point of the OSC waveform cycle (0 % = all start at the beginning, 100 % = anywhere).'));
-    explanations.append(hint('<b>Random Delay</b> independently delays each incoming note by 0 to the selected maximum (0–5000 ms; default 0). Velocity changes and note-off use that same delay, preserving the note’s length. Chained MIDI processors add their delays. Stop ends input notes normally; Panic cancels pending notes.'));
-  }
-  if (entry.def.type === 'STRUM') {
-    explanations.append(hint('Send equal-start chord notes from the sequencer to STRUM, then MIDI-cable it to an OSC, Patch or another MIDI module. <b>Strum Type</b> orders notes lowest-to-highest, highest-to-lowest or randomly. Notes with different start times remain separate, even in the same delivery tick.'));
-    explanations.append(hint('<b>Strum Duration</b> (0–5000 ms) is the time from the first to the last chord note; single notes pass without strum delay. <b>Timing Humanize</b> adds bounded variation to the interior timing (0 % = evenly spaced), keeping the first/last endpoints and note order. Note-off and velocity changes follow each note’s delay, preserving lengths. Panic cancels pending strums.'));
-  }
-  if (entry.def.routeParams) {
-    explanations.append(hint('<kbd>Shift</kbd> + drag over the modules to control, then pick their controllers under <b>Routes</b>. <b>Value</b> sets all of them at once (inside <kbd>Out Min</kbd>..<kbd>Out Max</kbd> of each slider). A controller picked on one module is also routed on connected modules of the same type that have no route yet, and newly connected ones copy it.'));
-  } else if (entry.def.modulator) {
-    explanations.append(hint('<kbd>Shift</kbd> + drag to a module, then pick its controller number with <kbd>Out Controller</kbd>.'));
-    if (takesLiveMidi(entry.def)) explanations.append(hint('Notes trigger it: select it and play, send a clip to it, or <kbd>Shift</kbd> + drag a MultiMIDI into it.'));
-    else if (entry.def.acceptsMidi) explanations.append(hint('Notes trigger it: send a clip to it, or <kbd>Shift</kbd> + drag a MultiMIDI into it.'));
-  }
-
   // custom editor of the module's state (e.g. the WAVESHAPER curve), below the controllers
   const editor = entry.def.editor?.(entry, {
     color: entry.def.color,
@@ -1245,7 +1191,9 @@ function select(s) {
     }),
   }) ?? null;
   if (view) panel.append(view.el);
-  panel.append(explanations);
+  // structured reference: summary, every controller, usage notes (src/moduledocs.js)
+  const docs = moduleDocs(entry.def, paramsOf(entry));
+  if (docs) panel.append(docs);
   panelRefresh = refresh;
   refresh();
 }

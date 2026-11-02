@@ -1,4 +1,5 @@
-// Register stock modules here. Add a new file + one line to extend.
+// Register stock modules here. Add a new file + one line to extend, and describe the module and
+// every controller in src/moduledocs.js (test/moduledocs.test.mjs fails otherwise).
 import out from './out.js';
 import osc from './osc.js';
 import sampler from './sampler.js';

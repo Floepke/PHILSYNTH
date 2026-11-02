@@ -1,0 +1,403 @@
+// Module reference shown in the controller panel below the controllers / editors (see main.js
+// select()): per module type a short summary, one description per controller (what it does to
+// the module's output) and usage notes. Static HTML only (no user text).
+// test/moduledocs.test.mjs checks that every controller of every stock module is described.
+
+// ---- shared texts ----
+const OUT_CONTROLLER = 'Picks the controller (by number) of the modules this module is cabled to that it drives. The value shows the number and the controller name of the connected module(s).';
+const OUT_MIN = 'Lowest value the controlled controller reaches, in % of that controller\'s range.';
+const OUT_MAX = 'Highest value the controlled controller reaches, in % of that controller\'s range. Out Max below Out Min inverts the modulation.';
+const MOD_PARAMS = { outController: OUT_CONTROLLER, outMin: OUT_MIN, outMax: OUT_MAX };
+const MOD_CABLE = '<kbd>Shift</kbd> + drag from this module to the module to control (control cables are dashed). One modulator can drive several modules; each gets the same controller number.';
+const NOTES_IN = 'Notes trigger it: select it and play the MIDI keyboard, send a clip to it, or <kbd>Shift</kbd> + drag a MULTIMIDI into it.';
+
+const POLYPHONY = 'Number of voices (notes that can sound at once). A new note beyond this steals the oldest voice.';
+const VOICE_ENV = {
+  attack: 'Time for each note to rise from silence to full level.',
+  decay: 'Time to fall from full level to the Sustain level.',
+  sustain: 'Level held while the key is down, relative to the peak. At 0 the envelope is a pure decay and Decay / Release move together.',
+  release: 'Time to fade out after the key is released.',
+  gain: 'Output level of the module.',
+};
+const INTERPOLATION = 'How sample values between table points are read: Off = nearest sample (gritty, lo-fi), Linear, Spline = smooth cubic (cleanest).';
+const SYNC_UNIT = 'Time base of the delay: ms gives 0–10,000 milliseconds; 1/4, 1/8 or 1/16 turns the delay slider into musical lengths (1/4 up to 64 of that note value, dotted and triplet lengths included), synced to the BPM of this patch level\'s Output.';
+
+export const DOCS = {
+  OUT: {
+    summary: 'The Output of the patch level: every audio cable into it is summed and played (at the top level) or sent out of the Patch module (inside a Patch). It also holds the tempo and the global tuning of this level. It cannot be deleted.',
+    params: {
+      volume: 'Master volume: scales the summed audio before it leaves this level.',
+      bpm: 'Tempo of this patch level: the sequencer plays at it when this level is played, and synced LFOs, DELAY and ECHO times on this level follow it.',
+      transpose: 'Shifts every note entering this patch level by whole semitones (−48…+48).',
+      cents: 'Fine-tunes every note entering this patch level by up to ±100 cents.',
+    },
+    notes: [
+      'The text box below the controllers keeps notes about the song or patch; it is saved with the project.',
+      'Inside a Patch, MIDI cables (MULTIMIDI, STRUM) and modulator cables (LFO, ADSR, ENVELOPE, VELOCITY2CTL, SOUND2CTL) into the Output pass out over the Patch module\'s cables. At the top level a modulator cabled into the Output drives the Output\'s own controllers.',
+    ],
+  },
+
+  OSC: {
+    summary: 'Polyphonic oscillator synthesizer: every incoming note plays its own voice with the chosen waveform, shaped by a per-voice ADSR envelope and the note velocity.',
+    params: {
+      polyphony: POLYPHONY,
+      wave: 'Waveform of every voice: Sine, Tri/Saw (a triangle that morphs into a saw with Duty Cycle), Saw, Square, Half sine, or one of five noise colours (White, Pink, Brown, Blue, Violet: dark to bright). Noise ignores the note pitch.',
+      ...VOICE_ENV,
+      duty: 'Reshapes the waveform within each cycle (50 % = the classic shape): the pulse width of Square, the rise/fall balance of Tri/Saw, the bow length of Half sine (100 % fills the period, 0 % is silent). Hidden for noise.',
+    },
+    notes: [NOTES_IN, 'The waveform preview below the controllers shows one cycle of the current shape.'],
+  },
+
+  SAMPLER: {
+    summary: 'Polyphonic sample player: one loaded audio sample is spread over the keyboard. C4 (MIDI 60) plays it at its own pitch; every semitone up plays it faster and higher. Each note is shaped by an ADSR envelope.',
+    params: {
+      polyphony: POLYPHONY,
+      ...VOICE_ENV,
+      transpose: 'Shifts the sample\'s pitch in semitones; use it (with Finetune) to put the sample\'s own pitch on C4.',
+      finetune: 'Fine pitch correction of the sample, ±100 cents.',
+      interpolation: INTERPOLATION,
+      selStart: 'Start of the playback region, in % of the sample. Modulate it to move the window through the sample.',
+      selLength: 'Length of the playback region, in % of the sample.',
+      playMode: 'How each note plays the region: Forward (once), Reverse (once backwards), Ping Pong (back and forth while the note sounds), Forward Loop / Reverse Loop (repeat while the note sounds).',
+    },
+    notes: [
+      NOTES_IN,
+      '<b>Load Sample</b> (or drop an audio file on the picture): WAV, AIFF, FLAC, MP3, OGG… up to 60 s, mono or stereo. The audio is saved inside the project and .phmod files.',
+      '<b>Sample editor:</b> drag to select the region, drag its edges to trim; double-click (or <kbd>Ctrl/Cmd</kbd> + <kbd>A</kbd>) selects everything. <kbd>Backspace</kbd> / <kbd>Delete</kbd> or a short right-click inside the region cuts it out (undo with <kbd>Ctrl/Cmd</kbd> + <kbd>Z</kbd>). Hold the right button for 250 ms for <b>Normalize</b> (peak to full scale) and <b>Center</b> (removes DC offset) on the selected region.',
+    ],
+  },
+
+  WAVETABLE: {
+    summary: 'Polyphonic wavetable synthesizer: a wavetable is a row of single-cycle waveforms (frames). Every note plays the table at its pitch, crossfading between neighbouring frames, and is shaped by an ADSR envelope.',
+    params: {
+      polyphony: POLYPHONY,
+      ...VOICE_ENV,
+      position: 'Position in the table (0–100 %). Moves smoothly through the frames; route an LFO or ADSR to it for the typical wavetable movement.',
+      block: 'Samples per frame. Auto reads it from the file (Serum / Vital WAV: 2048, Surge .wt / WaveEdit: 256) or guesses it; set it by hand for raw WAV tables.',
+      interpolation: INTERPOLATION,
+    },
+    notes: [
+      NOTES_IN,
+      '<b>Load Wavetable</b> (or drop a .wav / .wt on the picture) replaces the built-in table (sine → triangle → saw → square). High notes play band-limited copies of each frame, so they do not alias.',
+    ],
+  },
+
+  INPUT: {
+    summary: 'Audio input of the computer (microphone, line in, audio interface) as a sound source in the patch.',
+    params: {
+      mic: 'Input device. The list appears once microphone access is granted; <i>System default</i> follows the system setting.',
+      gain: 'Input level trim, −24…+24 dB. Watch the meter: 0 dB is full scale.',
+      channel: 'Which input channels play: Stereo, Left or Right only (on both sides), or Mono (L + R summed).',
+    },
+    notes: [
+      'Echo cancellation, noise suppression and auto gain are off. Use headphones: a microphone near the speakers feeds back.',
+      'Inputs are silent in WAV exports.',
+    ],
+  },
+
+  MULTIMIDI: {
+    summary: 'MIDI note processor: transposes, detunes, drifts, scales and distributes incoming notes, and sends them through its MIDI cables to sound modules (OSC, SAMPLER, Patch, …) or other MIDI modules. It makes no sound itself.',
+    params: {
+      transpose: 'Shifts every outgoing note by whole semitones (−48…+48).',
+      finetune: 'Detunes every outgoing note by up to ±100 cents.',
+      drift: 'Depth of a slow random pitch wander per note, up to ±100 cents. Every note starts at its own random offset and keeps moving, so chords drift apart like analog voices.',
+      driftFreq: 'Speed of the pitch drift: how often (per second) it heads for a new random value. 0 holds each note\'s initial offset.',
+      velDrift: 'Depth of a random velocity (loudness) wander per note: reduces the velocity by up to this percentage.',
+      velDriftFreq: 'Speed of the velocity drift. 0 holds each note\'s initial offset.',
+      randomPhase: 'Starts every note at a random point of the waveform cycle: 0 % = all notes start at the cycle\'s beginning, 100 % = anywhere.',
+      randomDelay: 'Delays every note by a random time between 0 and this value (0–5000 ms). The note\'s velocity changes and note-off get the same delay, so its length is kept.',
+      velocity: 'Overall level: scales every outgoing velocity (100 % = unchanged, 0 % = silent).',
+      overtone: 'Plays the n-th overtone of the harmonic series instead of the note: (n + 1) × its frequency. 0 = the fundamental, 1 = octave, 2 = octave + fifth, 3 = two octaves … up to 128.',
+      routeMode: 'Which MIDI cables each note goes out of: <i>Sent to All</i> (every cable), <i>Round Robin</i> (the next cable in turn, in the order they were made), <i>Random</i> (one random cable), <i>Random (no repeat)</i> (random, never the same cable twice in a row).',
+    },
+    notes: [
+      'Notes arrive when it is selected and the MIDI keyboard is played, from a clip sent to it, or from another MULTIMIDI cabled into it. <kbd>Shift</kbd> + drag from it to an OSC, SAMPLER, Patch, ADSR or another MIDI module to send them on.',
+      'Several MULTIMIDIs can feed one synth in parallel (each plays its own copy of the note); chained MULTIMIDIs add up their transposition, delays and phases.',
+    ],
+  },
+
+  STRUM: {
+    summary: 'Chord strummer: notes that start at the same time (a chord) are spread out in time like a strummed guitar, then sent through its MIDI cables. Notes with different start times pass unchanged.',
+    params: {
+      strumType: 'Order of the strum: upwards (lowest note first), downwards (highest first) or random order.',
+      duration: 'Time from the first to the last note of the chord (0–5000 ms). A single note is not delayed.',
+      humanize: 'Random variation of the timing of the notes in between (0 % = evenly spaced); the first and last note and the order are kept.',
+    },
+    notes: [
+      'Send chord notes from a sequencer clip to STRUM, then <kbd>Shift</kbd> + drag it to an OSC, Patch or another MIDI module.',
+      'Note-off and velocity changes follow each note\'s delay, so note lengths are kept. Panic cancels pending strums.',
+    ],
+  },
+
+  FILTER: {
+    summary: 'Multi-mode filter that shapes the frequency content of the audio: state-variable filters (12–48 dB/oct), EQ bell and shelves, a Moog-style ladder, comb filters and a vowel formant filter, with a built-in LFO on the cutoff.',
+    params: {
+      type: 'Filter type: Low-pass, High-pass, Band-pass, Notch, Peak, All-pass, Bell (EQ), Low shelf, High shelf, Ladder LP 24 dB, Comb + / Comb − (resonant tones at the cutoff frequency and its harmonics), Formant (vowel sounds).',
+      slope: 'Steepness of the filter, 12–48 dB per octave. Only for Low-pass … All-pass.',
+      cutoff: 'Corner (or centre) frequency, 20 Hz–20 kHz. Hidden for Formant.',
+      vowel: 'Vowel of the Formant filter, sweeping A → E → I → O → U. Only for Formant.',
+      resonance: 'Emphasis at the cutoff frequency (Q): high values ring or whistle. For the comb filters it sets the feedback, i.e. how long the comb tones ring.',
+      gain: 'Boost or cut of the Bell and shelf types, ±24 dB. Only for the EQ types.',
+      drive: 'Soft saturation of the input before the filter: warms and thickens the sound (0 = clean).',
+      lfoShape: 'Waveform of the built-in cutoff LFO: Sine, Triangle, Saw, Square, Sample & hold or Random.',
+      lfoRate: 'Speed of the built-in LFO, 0.02–20 Hz.',
+      lfoDepth: 'How far the LFO moves the cutoff, in octaves (0 = LFO off).',
+      mix: 'Balance between the unfiltered (dry) and the filtered (wet) signal.',
+      level: 'Output level after the filter (0–2×).',
+    },
+    notes: [],
+  },
+
+  EQ: {
+    summary: '16-band graphic equalizer: boosts or cuts fixed frequency bands, 2/3 octave apart from 20 Hz to 20 kHz.',
+    params: Object.fromEntries([
+      ...['20 Hz', '32 Hz', '50 Hz', '80 Hz', '125 Hz', '200 Hz', '315 Hz', '500 Hz', '800 Hz', '1.25 kHz', '2 kHz', '3.15 kHz', '5 kHz', '8 kHz', '12.5 kHz', '20 kHz']
+        .map((f, i) => [`b${i}`, `Boost or cut around ${f}, ±12 dB.`]),
+      ['q', 'Bandwidth of all bands: low Q = wide, gentle bands; high Q = narrow, precise bands.'],
+      ['level', 'Output level after the equalizer, −24…+12 dB.'],
+    ]),
+    notes: ['The graph below the controllers shows the frequency response: drag a band up or down (or sweep across several), double-click a band to reset it to 0 dB.'],
+  },
+
+  WAVESHAPER: {
+    summary: 'Waveshaping distortion: every incoming sample is remapped along a curve you draw. The diagonal changes nothing; bends add harmonics, from soft saturation to hard clipping and wave folding.',
+    params: {
+      drive: 'Input gain before the curve (−12…+36 dB): pushes more of the wave into the outer part of the curve, for more distortion.',
+      range: 'Symmetric: the curve covers 0…max and is mirrored for the negative half (odd harmonics, the classic shaper). Full −/+: the curve spans −max…+max, so both halves can be shaped differently (adds even harmonics).',
+      oversample: 'Processes at 2× or 4× the sample rate to reduce aliasing (harsh, inharmonic tones) at the cost of CPU.',
+      mix: 'Balance between the clean (dry) and the shaped (wet) signal.',
+      level: 'Output level after shaping (0–2×).',
+    },
+    notes: ['<b>Curve editor</b> (below the controllers): the horizontal axis is the input level, the vertical axis the output level. The curve is saved with the project.'],
+  },
+
+  AMP: {
+    summary: 'Amplifier: sets the level, the stereo position and the polarity of the audio. Mono input is spread to both channels.',
+    params: {
+      amp: 'Gain, 0–4× (1× = unchanged).',
+      pan: 'Stereo balance: centre leaves both channels untouched; panning left fades the right channel out (and vice versa) without boosting the other side.',
+      inverse: 'Flips the polarity of the signal (multiplies it by −1). Useful to cancel or combine signals.',
+    },
+    notes: [],
+  },
+
+  COMPRESSOR: {
+    summary: 'Stereo-linked dynamics compressor with side chain: reduces the level of loud passages so the sound is more even and punchy, optionally keyed by another input (ducking).',
+    params: {
+      threshold: 'Level above which compression starts, −60…0 dB.',
+      slope: 'Amount of reduction above the threshold, as 1 − 1/ratio: 0.5 = 2:1, 0.75 = 4:1, 1 = limiter.',
+      attack: 'How fast the gain reduction reacts once the level exceeds the threshold (0.05–200 ms).',
+      release: 'How fast the gain recovers when the level drops (5–3000 ms).',
+      mode: 'Level detection: Peak follows the peaks with a 5 ms look-ahead (the audio is delayed 5 ms so transients are caught), RMS follows the loudness (10 ms average), Peak Zero Latency follows the peaks without delay.',
+      sidechain: 'Off compresses the audio by its own level. Pick an input to use it as the key (e.g. a kick drum ducking a bass): it is only listened to, not played. Inputs are numbered in cable connection order.',
+      knee: 'Softens the bend around the threshold over this many dB, for a gentler onset.',
+      makeup: 'Gain after compression, to restore the level (−12…+36 dB).',
+      mix: 'Blend of the dry signal with the compressed one (parallel compression): 100 % = fully compressed.',
+      scHpf: 'High-pass filter on the key signal, so bass does not pump the compressor (20–1000 Hz).',
+    },
+    notes: ['The graph below shows the static curve (input level → output level) and a live gain-reduction meter.'],
+  },
+
+  'DC BLOCKER': {
+    summary: 'Removes DC offset and sub-audio drift (below about 10 Hz) from the signal, recentring the waveform on zero. Use it after asymmetric distortion or modulation. It has no controllers.',
+    params: {},
+    notes: [],
+  },
+
+  DELAY: {
+    summary: 'Pure delay for audio and MIDI: delays the left and right audio channels and every passing note, with no dry signal and no feedback. Use it to shift timing, for Haas stereo widening or to delay notes into other modules.',
+    params: {
+      left: 'Delay of the left audio channel and of every MIDI message (0–10,000 ms, or a note length).',
+      right: 'Delay of the right audio channel (0–10,000 ms, or a note length). Not used for MIDI.',
+      unit: SYNC_UNIT,
+    },
+    notes: [
+      'Its cables carry audio, MIDI, or both, depending on the destination. Notes keep their pitch, velocity and start phase.',
+      'Changing the delay affects new messages, not those already queued; audio delay changes glide to avoid clicks.',
+    ],
+  },
+
+  ECHO: {
+    summary: 'Feedback echo: repeats the audio at a set delay, each repeat quieter, in stereo or ping-pong, with an optional filter in the feedback path.',
+    params: {
+      dry: 'Level of the original signal.',
+      wet: 'Level of the echoes.',
+      feedback: 'Amount of each echo fed back for the next repeat: more feedback = more, longer-lasting repeats (max 99 %).',
+      delay: 'Time between repeats (0–10,000 ms, or a note length).',
+      unit: SYNC_UNIT,
+      mode: 'STEREO repeats left and right together, keeping their separation. PINGPONG sums the input and bounces the repeats left, right, left …',
+      filter: 'Low-pass or high-pass filter (12–48 dB/oct) on the first echo and every repeat, so repeats get darker (LP) or thinner (HP). The dry signal is not filtered.',
+      cutoff: 'Cutoff frequency of the echo filter, 20 Hz–20 kHz.',
+    },
+    notes: [],
+  },
+
+  MODULATOR: {
+    summary: 'Combines audio signals: one input is the carrier, all other inputs together are the modulator. Ring / amplitude modulation, phase modulation, arithmetic and bitwise combinations.',
+    params: {
+      type: 'How carrier and modulator are combined: Amp modulation (multiply; no modulator = silence), Phase modulation (modulator −1…+1 delays the carrier 0…40 ms), Phase modulation absolute (uses the modulator\'s magnitude, 0…40 ms), Add, Subtract, Min, Max, Bitwise AND / XOR (on 16-bit samples), Min abs / Max abs (chosen by magnitude, keeping the sign).',
+      carrier: 'Which audio input is the carrier. Inputs are numbered in cable connection order; changing cables can renumber them.',
+      interpolation: 'Read quality of the phase-modulation delay: Off = nearest sample, Linear, Spline = smooth cubic.',
+    },
+    notes: ['Left and right are processed separately.'],
+  },
+
+  REVERB: {
+    summary: 'Algorithmic stereo reverb: simulates a room or hall with pre-delay, early reflections, diffusion and a 16-line feedback delay network.',
+    params: {
+      mix: 'Balance between the dry signal and the reverb.',
+      size: 'Room size: scales all reflection and delay lengths, from a small room to a large hall.',
+      decay: 'Reverb time (RT60): how long the tail takes to fade by 60 dB, 0.1–30 s.',
+      damp: 'How much faster the high frequencies die away than the lows: higher = darker, softer room.',
+      seed: 'Picks the room\'s delay lengths, reflection pattern and modulation: every seed is a different room.',
+      predelay: 'Gap between the dry sound and the start of the reverb (0–500 ms).',
+      early: 'Level of the early reflections (the first echoes off the walls).',
+      diffusion: 'How quickly the reflections smear into a dense tail: low = grainy echoes, high = smooth wash.',
+      mod: 'Slow movement of the delay lines, which avoids metallic ringing and adds a chorus-like shimmer.',
+      lowCut: 'Removes lows below this frequency from the reverb input (20–1000 Hz), so the tail does not get muddy.',
+      highCut: 'Removes highs above this frequency from the reverb input (1–20 kHz).',
+      width: 'Stereo width of the reverb: 0 % = mono, 100 % = full stereo.',
+      freeze: 'On: the current tail sustains forever and new input is ignored, for pads and drones.',
+      level: 'Output level (0–2×).',
+    },
+    notes: ['With Patch Instances, every instance gets its own room for the same Seed.'],
+  },
+
+  LFO: {
+    summary: 'Low-frequency oscillator: a repeating control wave that modulates one controller of every module it is cabled to (vibrato, tremolo, filter sweeps, …). It makes no sound.',
+    params: {
+      freq: 'Speed of the wave: 0.01–50 Hz, or (with a synced Freq Unit) a cycle length in note values.',
+      unit: 'Hz runs freely; 1/4, 1/8 or 1/16 syncs the cycle to note lengths at the BPM of this patch level\'s Output.',
+      wave: 'Shape of the wave: Sine, Triangle, Saw, Square, or Random (glides smoothly to a new random value every cycle).',
+      ...MOD_PARAMS,
+      amp: 'Depth of the wave around its centre: 100 % = full swing between Out Min and Out Max, 0 % = steady in the middle.',
+    },
+    notes: [MOD_CABLE],
+  },
+
+  ADSR: {
+    summary: 'Envelope generator triggered by notes: Attack, Decay, Sustain and Release shape a control curve that modulates one controller of every module it is cabled to (e.g. a filter sweep per note). It makes no sound.',
+    params: {
+      attack: 'Time to rise from Out Min to the peak after a note starts.',
+      decay: 'Time to fall from the peak to the Sustain level.',
+      sustain: 'Level held while notes are down, in % of the peak. At 0 Decay and Release move together.',
+      release: 'Time to fall back to Out Min after the last note ends.',
+      ...MOD_PARAMS,
+      trigger: 'Every note: each new note restarts the attack (from the current level, without jumps). Legato: only a note played when no other note is held restarts it.',
+      velocity: 'How much the note velocity scales the peak: 0 % = always full, 100 % = fully velocity dependent.',
+    },
+    notes: [MOD_CABLE, NOTES_IN, 'Example: MULTIMIDI → OSC and MULTIMIDI → ADSR → OSC, so every note also sweeps a controller of the synth.'],
+  },
+
+  ENVELOPE: {
+    summary: 'Drawn envelope triggered by notes: plays a freely drawn curve over a set time and uses it to modulate one controller of every module it is cabled to. It makes no sound.',
+    params: {
+      length: 'Duration of the whole curve, 0–10,000 ms (0 jumps straight to the end).',
+      ...MOD_PARAMS,
+      mode: '<i>Note ON Trigger</i>: every note plays the curve once from the start and then holds the last value; note-off is ignored. <i>Notes ON/OFF Loop</i>: the first note starts it, it repeats while any note is held, and releasing the last note stops it where it is; the next note starts over. <i>Notes ON/OFF Loop Forward/Backwards</i>: the same, but the curve plays forwards and backwards in turn (ping-pong).',
+    },
+    notes: [
+      '<b>Curve editor</b> (below the controllers): left to right is time over Envelope Length, bottom = Out Min, top = Out Max. While the envelope plays, a white dot follows the curve.',
+      MOD_CABLE, NOTES_IN,
+    ],
+  },
+
+  VELOCITY2CTL: {
+    summary: 'Turns the velocity of incoming notes into a controller value: the harder a note is played, the further it moves the controlled controller. It makes no sound.',
+    params: {
+      outController: OUT_CONTROLLER,
+      outMin: `${OUT_MIN} Velocity 0 gives this value.`,
+      outMax: `${OUT_MAX} Velocity 127 gives this value.`,
+      noteOffAction: 'What happens when the newest note ends: Do Nothing holds the value until the next note, Control Down moves it to Out Min, Control Up to Out Max.',
+    },
+    notes: [
+      MOD_CABLE,
+      'The newest note wins, including its velocity curve while it sounds. Notes come from clips sent to it or a MULTIMIDI cabled into it; the MIDI keyboard keeps playing the current synth.',
+    ],
+  },
+
+  SOUND2CTL: {
+    summary: 'Turns an audio signal into a controller value: the voltage of the incoming audio directly drives a controller, e.g. an audio-rate oscillator modulating a filter. It makes no sound.',
+    params: {
+      outController: OUT_CONTROLLER,
+      outMin: `${OUT_MIN} Audio voltage −1 gives this value.`,
+      outMax: `${OUT_MAX} Audio voltage +1 gives this value; silence (0) is halfway.`,
+    },
+    notes: [
+      'Cable an audio source into it, then <kbd>Shift</kbd> + drag it to the module to control.',
+      'Stereo is averaged and clamped to −1…+1. It is a direct voltage conversion, not an envelope follower: the last sample of every 128-sample block sets the next block.',
+    ],
+  },
+
+  MULTICTL: {
+    summary: 'One knob for many controllers: a single Value drives any number of controllers on the modules it is cabled to, e.g. the Decay of three OSCs at once. Automate or modulate it to move them all together.',
+    params: {
+      value: 'The shared value, 0–100 %, mapped onto Out Min…Out Max of every routed controller.',
+      outMin: 'Value of every routed controller when Value is 0 %, in % of its range.',
+      outMax: 'Value of every routed controller when Value is 100 %, in % of its range.',
+    },
+    notes: [
+      '<kbd>Shift</kbd> + drag over the modules to control, then pick their controllers under <b>Routes</b> (below the controllers).',
+      'A controller picked on one module is also routed on connected modules of the same type that have no route yet, and newly connected modules of that type copy it.',
+    ],
+  },
+
+  PATCH: {
+    summary: 'A folder holding a complete sub-patch with its own Output: it groups modules into one reusable module. Audio and notes go in, its inner Output comes out. It can also run several copies (Instances) and pass notes and modulation out, to act as a custom MIDI or modulation module.',
+    params: {
+      inputModule: 'The module inside that receives the audio/midi/modulation cabled into the Patch.',
+      instances: 'Number of copies of the contents (1–16). With more than one, and a MIDI-only Input Module (OSC, MULTIMIDI), incoming notes go round-robin over the copies, free copies first. Every copy has its own random generators.',
+    },
+    mapped: 'Mapped controller: sets this controller inside the Patch (every instance follows). It can be modulated and automated from outside like any other controller.',
+    notes: [
+      '<kbd>Double-click</kbd> the Patch (or select it and press <kbd>Enter</kbd>) to open it; the mouse <b>back</b> button or the patch path goes up again.',
+      '<b>Controllers…</b> maps controllers of modules inside to extra controllers of this module.',
+      'Inside, cable a MULTIMIDI or STRUM into the Output to send notes out, or an LFO, ADSR, ENVELOPE, VELOCITY2CTL or SOUND2CTL to send modulation out; the inner modulator\'s Out Controller then picks a controller of the modules this Patch is cabled to.',
+    ],
+  },
+};
+
+export const docsFor = (type) => DOCS[type] ?? null;
+
+// Description of controller `p` of a module of type `type` (null if none).
+export function paramDoc(type, p) {
+  const d = DOCS[type];
+  if (!d) return null;
+  return d.params[p.id] ?? (d.mapped && p.id.startsWith('map') ? d.mapped : null);
+}
+
+const el = (tag, cls, html) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (html != null) e.innerHTML = html; // static strings only
+  return e;
+};
+
+// The panel section: About (summary), Controllers (number, name, description), Usage (notes).
+export function moduleDocs(def, params) {
+  const d = DOCS[def.type];
+  if (!d) return null;
+  const root = el('section', 'module-docs');
+  root.append(el('h3', null, 'About'), el('p', 'md-summary', d.summary));
+  if (params.length) {
+    root.append(el('h3', null, 'Controllers'));
+    const list = el('dl', 'md-params');
+    params.forEach((p, i) => {
+      const dt = el('dt');
+      const num = el('span', 'ctl-num');
+      num.textContent = i;
+      const name = el('span', 'md-name');
+      name.textContent = p.label;
+      dt.append(num, name);
+      list.append(dt, el('dd', null, paramDoc(def.type, p) ?? ''));
+    });
+    root.append(list);
+  }
+  if (d.notes.length) {
+    root.append(el('h3', null, 'Usage'));
+    const ul = el('ul', 'md-notes');
+    for (const n of d.notes) ul.append(el('li', null, n));
+    root.append(ul);
+  }
+  return root;
+}

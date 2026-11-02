@@ -161,6 +161,10 @@ npm test
 ```
 
 Rebuilding the WASM DSP engine uses `npm run build:wasm`.
+
+Every module's panel ends with a reference (About, Controllers, Usage) from
+`src/moduledocs.js`. When adding a module or controller, describe it there;
+`npm test` checks that every controller is documented.
 macOS packaging uses `npm run build:mac` on macOS.
 
 ## GitHub Pages
