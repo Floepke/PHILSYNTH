@@ -17,6 +17,7 @@ import { CableScope } from './cablescope.js';
 import { openMapDialog, patchControllersView } from './mapdialog.js';
 import { MAX_NAME, runtimesAt, songLayers } from './patch.js';
 import { showMenu, closeMenu, shortcut } from './seq/menu.js';
+import { snapToGrid } from './grid.js';
 import { createHistory } from './history.js';
 import { renderSong, encodeWav } from './render.js';
 import { withSamples, importSamples } from './samples.js';
@@ -490,7 +491,7 @@ function createBox(entry) {
     if (e.altKey) {
       const copyable = group.filter((x) => !x.def.isOutput);
       if (!copyable.length) $('status').textContent = 'The Output module cannot be duplicated.';
-      else startDuplicate(e, copyable);
+      else startDuplicate(e, copyable, copyable.includes(entry) ? entry : copyable[0]);
       return;
     }
     const start = group.map((m) => ({ m, x: m.x, y: m.y }));
@@ -510,8 +511,8 @@ function createBox(entry) {
     undoHistory?.begin(); // the move and its cable toggles are one undo step
     const move = (ev) => {
       for (const { m, x, y } of start) {
-        m.x = Math.round(x + (ev.clientX - sx) / cam().z);
-        m.y = Math.round(y + (ev.clientY - sy) / cam().z);
+        m.x = snapToGrid(x + (ev.clientX - sx) / cam().z, snapGrid);
+        m.y = snapToGrid(y + (ev.clientY - sy) / cam().z, snapGrid);
         m.el.style.left = `${m.x}px`;
         m.el.style.top = `${m.y}px`;
       }
@@ -547,7 +548,8 @@ function createBox(entry) {
 
 // ---- Alt + drag: duplicate ----
 let suppressAltUp = false;
-function startDuplicate(e, entries) {
+// with Snap to Grid the grabbed module (anchor) lands on the grid; the others keep their offsets
+function startDuplicate(e, entries, anchor = entries[0]) {
   const patch = current();
   const ghosts = entries.map((m) => {
     const g = m.el.cloneNode(true);
@@ -559,8 +561,8 @@ function startDuplicate(e, entries) {
   let dx = 0;
   let dy = 0;
   const move = (ev) => {
-    dx = Math.round((ev.clientX - e.clientX) / cam().z);
-    dy = Math.round((ev.clientY - e.clientY) / cam().z);
+    dx = snapToGrid(anchor.x + (ev.clientX - e.clientX) / cam().z, snapGrid) - anchor.x;
+    dy = snapToGrid(anchor.y + (ev.clientY - e.clientY) / cam().z, snapGrid) - anchor.y;
     for (const { m, g } of ghosts) {
       g.style.left = `${m.x + dx}px`;
       g.style.top = `${m.y + dy}px`;
@@ -862,6 +864,17 @@ async function insertSynthFile(file, pos) {
   }
 }
 
+// Snap to Grid (patcher right-click menu): moved modules land on an invisible grid. A setting of
+// this computer, not of the project.
+const SNAP_GRID_KEY = 'philsynth:snapGrid';
+let snapGrid = false;
+try { snapGrid = localStorage.getItem(SNAP_GRID_KEY) === '1'; } catch { /* storage blocked */ }
+function setSnapGrid(on) {
+  snapGrid = on;
+  try { localStorage.setItem(SNAP_GRID_KEY, on ? '1' : '0'); } catch { /* storage blocked */ }
+  $('status').textContent = on ? 'Snap to Grid on: moved modules snap to the grid by their left edge.' : 'Snap to Grid off.';
+}
+
 // Right-click menu (right-click, or the keyboard menu key): on a module (it joins /
 // becomes the selection), a cable, or empty canvas.
 function openPatcherMenu(target, x, y) {
@@ -888,6 +901,7 @@ function openPatcherMenu(target, x, y) {
   }
   if (onModule) items.push({ label: 'Rename…', shortcut: 'F2', disabled: mods.length > 1, action: () => startRename(entry) });
   if (onModule && entry.name) items.push({ label: 'Reset name', action: () => { current().rename(entry.id, ''); showName(entry); drawCables(); } });
+  items.push('-', { label: 'Snap to Grid', checked: snapGrid, action: () => setSnapGrid(!snapGrid) });
   showMenu({ x, y, items });
 }
 // Right-click a module, cable or the canvas: menu.
@@ -1069,6 +1083,7 @@ function select(s) {
       hint('Drag a module so it overlaps another one: the dragged module gets connected to it (or disconnected when already connected). When dragging a selection, the module you grabbed triggers this for all selected modules, connecting each compatible source to the touched module in one undoable edit. Selected modules never trigger connections to each other. Pull the grabbed module off and back on to toggle again.'),
       hint('Drag on empty canvas to select several modules. <kbd>Ctrl</kbd> + click toggles a module, <kbd>Ctrl</kbd> + drag adds, <kbd>Ctrl</kbd> + <kbd>A</kbd> selects all.'),
       hint('<kbd>Alt</kbd> + drag a module to duplicate it (or the whole selection).'),
+      hint('<b>Snap to Grid</b> (right-click the patcher): while checked, dragged and Alt-duplicated modules snap with their left edge and top to an invisible grid one module high, the same step sideways. The setting is remembered on this computer.'),
       hint('<kbd>Backspace</kbd> deletes the selection.'),
       hint('<b>Context menus:</b> in the patcher, the TimeLine and the velocity lane a normal <kbd>right</kbd>-click opens the menu. In the piano roll hold the right mouse button still for <b>250 ms</b> (moving 5 px or more first cancels it); there a short right-click deletes a note (on empty space it deselects all notes). On the TimeLine ruler a right-click removes a time signature or the loop region.'),
       hint(`Right-click a module, cable or the canvas for <b>Cut / Copy / Paste / Delete</b> (or press the keyboard menu key; shortcuts <kbd>${shortcut('X')}</kbd> <kbd>${shortcut('C')}</kbd> <kbd>${shortcut('V')}</kbd>; paste lands at the mouse pointer). <b>Rename…</b> (or <kbd>F2</kbd>) gives a module its own name on its box; the controller panel keeps showing the module type.`),
