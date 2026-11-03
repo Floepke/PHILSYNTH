@@ -35,7 +35,7 @@
 // The bar ruler between them is a divider: drag it sideways to widen the strip (the note grid
 // scales to the rest), double-click it to reset. The width is saved with the project view.
 // Free timing bypasses time snapping; the visual grid (base note ÷ divider) stays visible.
-import { basePitch, centsOf, withCents, centsLabel, isBlack, inPiano, clipSilent, snapStep, pianoTimeStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, clean, meter, barLines, beatLines, barLength } from '../song.js';
+import { basePitch, centsOf, withCents, centsLabel, isBlack, inPiano, clipSilent, isIdea, snapStep, pianoTimeStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, clean, meter, barLines, beatLines, barLength } from '../song.js';
 import { createSurface, capture, startPan, onWheel, clamp, snapBands, mutedMark, edgeScroll, RIGHT_HOLD_MS, RIGHT_HOLD_SLOP } from './surface.js';
 import { createVelocityStrip, VEL_W } from './velocity.js';
 import { clipResizeBounds } from './clipplacement.js';
@@ -321,7 +321,7 @@ export function createPianoRoll(host, ctx) {
         head(g, headX(n), y, isBlack(n.pitch), n.start >= 0 && n.start < clip.length ? 1 : 0.4);
       }
       if (hover && !drag) head(g, xOf(hover.pitch) + kw / 2, yOf(hover.t), isBlack(hover.pitch), 0.55);
-      if (clipSilent(ctx.song(), clip)) mutedMark(g, gridX(), 0, w - gridX(), bottom);
+      if (!isIdea(clip) && clipSilent(ctx.song(), clip)) mutedMark(g, gridX(), 0, w - gridX(), bottom);
       // play position
       const t = playheadTime(clip);
       if (t !== null) {
@@ -489,6 +489,11 @@ export function createPianoRoll(host, ctx) {
     return !!clip && inGrid(x, y) && Math.abs(y - yOf(clip.length)) <= END_GRAB;
   };
 
+  // Whether a drag ended as a release: Firefox (macOS) can end a capture with lostpointercapture
+  // before / instead of the pointerup when the mouse still moves while released; once the drag
+  // moved that counts as a release. pointercancel, blur and Escape still cancel.
+  const released = (ev, moved) => ev.type === 'pointerup' || (moved && ev.type === 'lostpointercapture');
+
   // Drag the clip end: the length follows the pointer (snapped), never into the next clip on the
   // same TimeLine lane. The wheel or dragging past the top / bottom edge scrolls the view along.
   function resizeClip(e, clip) {
@@ -521,7 +526,7 @@ export function createPianoRoll(host, ctx) {
       auto.stop();
       cv.removeEventListener('blur', stop);
       window.removeEventListener('blur', stop);
-      if (ev.type !== 'pointerup') clip.length = orig;
+      if (!released(ev, moved)) clip.length = orig;
       drag = null;
       if (clip.length !== orig) ctx.changed();
       else if (moved) ctx.live?.();
@@ -591,8 +596,8 @@ export function createPianoRoll(host, ctx) {
     };
     s.redraw();
     const stop = capture(cv, e, update, (ev) => {
-      const cancelled = ev.type !== 'pointerup' || ctx.clip() !== clip;
-      if (!cancelled && !held) {
+      const cancelled = !released(ev, state.shown) || ctx.clip() !== clip;
+      if (!cancelled && !held && ev.type === 'pointerup') {
         update(ev);
         // A busy event loop can deliver release before the overdue timer callback.
         if (onHold && !state.shown && ev.timeStamp - e.timeStamp >= RIGHT_HOLD_MS) hold();
@@ -646,7 +651,7 @@ export function createPianoRoll(host, ctx) {
       cv.removeEventListener('blur', stop);
       window.removeEventListener('blur', stop);
       drag = null;
-      const cancelled = ev.type !== 'pointerup' || ctx.clip() !== clip;
+      const cancelled = !released(ev, state.moved) || ctx.clip() !== clip;
       if (state.moved && cancelled) {
         group.forEach((n, i) => { n.pitch = origs[i].pitch; });
         selected = base;

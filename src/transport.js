@@ -12,6 +12,8 @@
 // playhead leaves it or playback stops (the controller gets its own value back).
 // Clips on muted lanes (song.mutes) are silent, the auditioned clip too; while lanes are soloed
 // (song.solos) only those play. Muting / soloing while playing cuts silenced notes right away.
+// Idea clips (above the first lane, see song.js) never play, except an idea auditioned with /:
+// that one plays solo, every other clip (lanes, other layers, automation) stays silent.
 // Layers: every Patch has its own song (see PatchRuntime.song). Playback runs from one level (the
 // scope: getScope(), taken when playback starts, so navigating while playing changes nothing):
 // getSong(scope) / getBpm(scope) are that level's song and Output BPM, getLayers(scope) returns the
@@ -22,7 +24,7 @@
 // pitchOffset(scope): semitones added to every played note (that level's Output Global Transpose /
 // Cents Offset).
 import { newNoteId } from './modmidi.js';
-import { automationAt, barCeil, clipSilent, getClip, loopEnd, loopRegion, notesSounding, notesStarting, noteVelAt, songEnd } from './song.js';
+import { automationAt, barCeil, clipSilent, getClip, isIdea, loopEnd, loopRegion, notesSounding, notesStarting, noteVelAt, songEnd } from './song.js';
 
 const TICK_MS = 5;
 
@@ -152,8 +154,11 @@ export class Transport {
     this.onState?.(this);
   }
 
-  // whether a clip is heard: not on a muted lane, nor outside the soloed lanes
+  // whether a clip is heard: not on a muted lane, nor outside the soloed lanes; an auditioned
+  // idea plays solo (nothing else sounds, on any layer)
   audible(clip, song = this.getSong()) {
+    const looped = this.loopClip();
+    if (looped && isIdea(looped)) return clip.id === this.clipId && song === (this.clipSong ?? this.getSong());
     return !clipSilent(song, clip);
   }
 

@@ -569,3 +569,37 @@ function setup() {
 }
 
 console.log('transport mode tests passed');
+
+// Ideas (clips above the first lane) are never played by the song; / still auditions the idea itself
+// solo: the lane clips sounding at the same time stay silent.
+{
+  const { song, other, transport, events, run } = setup();
+  other.y = -2 * LANE_H; // pitch 80 on target 2, now in idea storage
+  transport.play({ fromStart: true });
+  run(3000); // 6 quarters at 120 BPM: past every clip
+  assert.ok(!events.some((e) => e.type === 'on' && e.target === 2), 'the song skips ideas');
+  assert.ok(events.some((e) => e.type === 'on' && e.target === 3), 'lane clips play');
+  transport.stop();
+  events.length = 0;
+  transport.playClip(other.id, song);
+  run(200);
+  assert.ok(events.some((e) => e.type === 'on' && e.pitch === 80), 'auditioning an idea plays it');
+  assert.ok(!events.some((e) => e.type === 'on' && e.target !== 2), 'solo: the lane clips around it stay silent');
+  transport.stop();
+  // a lane clip auditioned with / keeps its neighbours sounding
+  other.y = LANE_H;
+  events.length = 0;
+  transport.playClip(other.id, song);
+  run(200);
+  assert.ok(events.some((e) => e.type === 'on' && e.target === 1), 'lane clip audition: the others play along');
+  transport.stop();
+  other.y = -2 * LANE_H;
+  const twin = addClip(song, { start: 4.25, length: 1, target: 2, y: -4 * LANE_H });
+  twin.notes.push(note(90));
+  events.length = 0;
+  transport.playClip(other.id, song);
+  run(200);
+  assert.ok(!events.some((e) => e.pitch === 90), 'other ideas stay silent');
+  transport.stop();
+}
+console.log('idea transport tests passed');

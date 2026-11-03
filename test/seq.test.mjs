@@ -133,7 +133,7 @@ const labels = (menus) => menus.at(-1).items.filter((i) => i !== '-').map((i) =>
 const nx = (pitch) => 120 + pitch * 14 + 7;
 const ny = (start) => start * 48;
 const ax = (start) => 70 + start * 16;
-const ay = (y) => 50 + y + 17;
+const ay = (y) => 38 + y + 17; // below the 38 px ruler
 const assertNoOverlap = (song) => {
   for (let i = 0; i < song.clips.length; i++) {
     for (let j = i + 1; j < song.clips.length; j++) assert.equal(clipsOverlap(song.clips[i], song.clips[j]), false);
@@ -697,6 +697,18 @@ for (const how of ['wheel', 'edge']) {
   assert.equal(clip.notes.length, 0);
 }
 
+// Released while still moving, Firefox (macOS) can end the capture with lostpointercapture instead
+// of a pointerup: a drawn rectangle still selects; pointercancel restores the old selection.
+for (const end of ['lostpointercapture', 'pointercancel']) {
+  const { clip, roll } = setup();
+  const cv = roll.surface.cv;
+  clip.notes.push(note(60, 1), note(62, 2), note(70, 1));
+  drag(cv, nx(59), ny(0.5), nx(63), ny(3.5), { button: 2, buttons: 2 }, end);
+  point(cv, 'pointerup', nx(63), ny(3.5), { button: 2 });
+  key(cv, 'Delete');
+  assert.deepEqual(clip.notes.map((n) => n.pitch), end === 'pointercancel' ? [60, 62, 70] : [70], end);
+}
+
 // Micropitch: Shift + drag a circle sideways tunes it slowly (4 px per cent, 0.1 cent steps) and
 // shows a slider; the note stays on its key (halves round up); Esc restores; the selection tunes along.
 {
@@ -1011,15 +1023,90 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(changes(), c1 + 1);
 }
 
-// The overview map scrolls the TimeLine horizontally by click or drag.
+// The scrollbars below (time) and right (lanes) of the TimeLine pan it by track click or thumb drag.
 {
   const { arranger } = setup();
   const cv = arranger.surface.cv;
-  const mapY = 44;
-  click(cv, 450, mapY);
-  assert.ok(arranger.getView().sx > 0, 'clicking the map navigates toward later time');
-  drag(cv, 300, mapY, 100, mapY);
-  assert.ok(arranger.getView().sx < 0, 'dragging the map viewport navigates toward earlier time');
+  arranger.setView({ sx: 0, sy: 0 }); flush();
+  const hy = 400 - 16; // bottom scrollbar (32 px high, the canvas is 480 x 400)
+  click(cv, 440, hy);
+  const later = arranger.getView().sx;
+  assert.ok(later > 0, 'clicking the track toward the end scrolls toward later time');
+  assert.equal(arranger.getView().sy, 0, 'the time scrollbar leaves the lanes alone');
+  drag(cv, 440, hy, 80, hy);
+  assert.ok(arranger.getView().sx < 0, 'dragging the thumb back scrolls before time zero');
+  const vx = 480 - 16; // right scrollbar
+  click(cv, vx, 360);
+  assert.ok(arranger.getView().sy > 0, 'the lane scrollbar scrolls down even without clips down there');
+  click(cv, vx, 40);
+  assert.ok(arranger.getView().sy < 0, 'and up into idea storage');
+  const n = arranger.getView();
+  click(cv, 470, 390); // the corner between the scrollbars does nothing
+  assert.deepEqual(arranger.getView(), n);
+}
+
+// Free camera: pans anywhere, also far into empty space away from every clip; the scrollbars
+// follow it there and pan back.
+{
+  const { song, arranger } = setup();
+  const cv = arranger.surface.cv;
+  addClip(song, { start: 8, length: 4, y: 2 * 34 });
+  for (const [sx, sy] of [[5000, 3000], [-4000, -2500], [64 * 300, 34 * 200]]) {
+    arranger.setView({ sx, sy }); flush();
+    assert.deepEqual([arranger.getView().sx, arranger.getView().sy], [sx, sy], `no pan limit at ${sx}, ${sy}`);
+  }
+  // the scrollbars still work out there: the thumb sits at the far end, pressing the track
+  // at the start brings the camera back toward the content
+  click(cv, 80, 400 - 16);
+  assert.ok(arranger.getView().sx < 64 * 300, 'time scrollbar pans back');
+  click(cv, 480 - 16, 40);
+  assert.ok(arranger.getView().sy < 34 * 200, 'lane scrollbar pans back');
+  const before = arranger.getView();
+  arranger.setView({ sx: NaN, sy: Infinity }); flush();
+  assert.deepEqual([arranger.getView().sx, arranger.getView().sy], [before.sx, before.sy], 'broken numbers are ignored');
+  arranger.setView({ sx: 1e12, sy: -1e12 }); flush();
+  assert.deepEqual([arranger.getView().sx, arranger.getView().sy], [1e7, -1e7], 'only absurd distances are capped');
+}
+
+// Idea storage above the first lane: clips go there freely (no snapping, overlaps allowed) and
+// snap again when dragged back onto a lane.
+{
+  const { song, clip, arranger } = setup();
+  const cv = arranger.surface.cv;
+  clip.length = 4;
+  const other = addClip(song, { start: 8, length: 4, y: 0, target: 7 });
+  arranger.setView({ sx: 0, sy: -136, ppq: 16 }); flush();
+  const top = 38 + 136; // local y of the first lane
+  const texts = () => cv.drawing.filter(([op]) => op === 'fillText').map(([, t]) => t);
+  // the label text is free to change: find it by where it is drawn (time area, above lane 1)
+  const ideaLabel = cv.drawing.findLast(([op, t, x, y]) => op === 'fillText' && x > 70 && y === top - 6 && t !== 'Ideas')?.[1];
+  assert.ok(ideaLabel && texts().includes('Ideas'), 'the area is labelled');
+  const labelY = (t) => cv.drawing.findLast(([op, text]) => op === 'fillText' && text === t)[3];
+  assert.equal(labelY(ideaLabel), top - 6, 'just above the first lane');
+  assert.equal(labelY('Ideas'), top - 6, 'beside it in the lane column');
+  drag(cv, ax(1), top + 17, ax(3) + 5, 100);
+  assert.deepEqual([clip.start, clip.y], [2.3125, -91], 'dropped exactly where released');
+  drag(cv, ax(9), top + 17, ax(3) + 5, 100);
+  assert.deepEqual([other.start, other.y], [2.3125, -91], 'ideas may overlap');
+  const ideaMid = top - 91 + 17;
+  drag(cv, ax(3.3125), ideaMid, ax(3.3125), ideaMid + 70); // its middle still above the first lane
+  const lifted = other; // the later clip is on top
+  assert.deepEqual([lifted.start, lifted.y], [2.3125, -34], 'an idea lies wholly above the first lane');
+  assert.equal(clip.y, -91);
+  drag(cv, ax(lifted.start + 1), top - 17, ax(lifted.start + 1), top + 34 + 17);
+  assert.deepEqual([lifted.start, lifted.y], [2.25, 34], 'back on a lane it snaps to the (16th) grid and the lane');
+  // double-click in idea storage inserts an idea right there
+  point(cv, 'dblclick', ax(20) + 3, 80);
+  const made = song.clips.at(-1);
+  assert.deepEqual([made.start, made.y], [20.1875, 80 - top - 17], 'centred on the pointer, unsnapped');
+  // paste into idea storage: the copies stay ideas
+  arranger.setView({ sx: 0, sy: -136, ppq: 16 }); flush();
+  click(cv, ax(lifted.start + 1), top + 34 + 17);
+  key(cv, 'c', { ctrlKey: true });
+  point(cv, 'pointermove', ax(15), 60);
+  key(cv, 'v', { ctrlKey: true });
+  const pasted = song.clips.at(-1);
+  assert.ok(pasted.y < 0 && pasted.start === 15, `pasted as an idea (${pasted.start}, ${pasted.y})`);
 }
 
 // The mouse wheel scrolls the TimeLine sideways over time; Shift + wheel scrolls the lanes.
@@ -1117,6 +1204,13 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   rc.drawing.length = 0;
   roll.redraw(); flush();
   assert.ok(!rc.drawing.some((op) => op[0] === 'fill' && op[1] === '#000'), 'soloed: no M');
+  click(cv, 33, sy(0));
+  clip.y = -50; // an idea: silent in the song, but that is not a muted lane
+  rc.drawing.length = 0;
+  roll.redraw(); flush();
+  assert.ok(!rc.drawing.some((op) => op[0] === 'fill' && op[1] === '#000'), 'an idea shows no M');
+  clip.y = 0;
+  click(cv, 33, sy(0));
   assert.deepEqual(normalizeSong(JSON.parse(JSON.stringify(song))).solos, [0, 1, 2, 3]);
 }
 
@@ -1226,12 +1320,14 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
     mock.timers.tick(1000); flush();
     assert.equal(arranger.getView().sx, after, 'releasing stops the auto-scroll');
     assert.ok(changes() > 0);
-    const cx = 70 + (clip.start + 1) * 16 - after; // grab the clip where it now is
-    assert.ok(cx > 70 && cx < 480);
+    arranger.setView({ sx: after + 64 }); flush(); // the clip went under the scrollbar with the pointer
+    const shown = arranger.getView().sx;
+    const cx = 70 + (clip.start + 1) * 16 - shown; // grab the clip where it now is
+    assert.ok(cx > 70 && cx < 480 - 32);
     point(cv, 'pointerdown', cx, ay(0), { buttons: 1 }); // and leftwards
     point(cv, 'pointermove', 72, ay(0), { buttons: 1 });
     mock.timers.tick(300); flush();
-    assert.ok(arranger.getView().sx < after, 'the view scrolls back left');
+    assert.ok(arranger.getView().sx < shown, 'the view scrolls back left');
     point(cv, 'pointerup', 72, ay(0));
   } finally {
     mock.timers.reset();
@@ -1534,15 +1630,17 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(arranger.getView().sx, -12 * 16, 'scrolling before zero is allowed');
   arranger.setView({ sx: -100 * 16, sy: 0, ppq: 16 });
   flush();
-  assert.equal(arranger.getView().sx, -(4 + 16) * 16, 'down to 4 bars before the earliest clip');
+  assert.equal(arranger.getView().sx, -100 * 16, 'and on, far before the earliest clip (free camera)');
+  arranger.setView({ sx: -12 * 16, sy: 0, ppq: 16 });
+  flush();
   const texts = cv.drawing.filter(([op]) => op === 'fillText').map(([, t]) => t);
   assert.ok(texts.includes('1') && texts.includes('2') && texts.includes('3'), 'lane numbers');
-  assert.ok(texts.includes('before start · not played'));
+  assert.ok(texts.includes('Idea Storage'));
   assert.ok(texts.includes('-2') && texts.includes('0'), 'bars before zero are numbered 0, -1, -2, ...');
   // double-click inserts on the lane under the pointer
   arranger.setView({ sx: 0, sy: 0, ppq: 16 });
   flush();
-  point(cv, 'dblclick', ax(8), 50 + 34 * 2 + 3);
+  point(cv, 'dblclick', ax(8), 38 + 34 * 2 + 3);
   assert.equal(song.clips.at(-1).y, 68);
 }
 
@@ -1827,7 +1925,7 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
     mock.timers.tick(500);
     point(cv, 'pointerup', ax(1), ay(0), { button: 2 });
     assert.equal(menus.length, 1, 'holding / releasing adds nothing');
-    click(cv, ax(40), ay(100), { button: 2 });
+    click(cv, ax(20), ay(100), { button: 2 });
     assert.equal(menus.length, 2, 'empty space: menu too');
     assert.ok(labels(menus).includes('Insert automation clip'));
     assert.equal(song.clips.length, 1);

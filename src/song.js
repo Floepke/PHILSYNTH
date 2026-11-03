@@ -9,6 +9,8 @@
 //   clip = { id, name, start, length, y (lane * LANE_H, px), target (module number | null), notes }
 //   start may be negative: clips before time zero are parked there (never played by the song,
 //   the part of a clip that reaches past zero does play). Clips sit on lanes LANE_H px high.
+//   Idea storage: a clip with y < 0 (y <= -LANE_H) lies above the first lane, placed freely (any
+//   start, any y, overlaps allowed). Ideas are never played by the song (isIdea, clipSilent).
 //   note = { pitch (float MIDI note number, see modmidi.js), start, length, vel (0..1), vels? }
 //   Micropitch: the fraction is the tuning, 60.25 = C4 + 25 cents. A note belongs to the key its
 //   pitch rounds to (halves round up): 59.5 is C4 - 50 cents, 59.49 is B3 + 49 cents (basePitch,
@@ -185,7 +187,7 @@ export function normalizeSong(s) {
       name: typeof c.name === 'string' ? c.name : 'Clip',
       start: num(c.start, 0),
       length: Math.max(1e-3, num(c.length, BAR)),
-      y: laneY(num(c.y, 0)),
+      y: num(c.y, 0) < 0 ? ideaY(num(c.y, 0)) : laneY(num(c.y, 0)),
       target: Number.isInteger(c.target) ? c.target : null,
       notes: c.kind === 'auto' ? [] : (Array.isArray(c.notes) ? c.notes : [])
         .filter((n) => Number.isFinite(n?.pitch) && Number.isFinite(n.start) && n.length > 0)
@@ -219,6 +221,7 @@ export function normalizeSong(s) {
   // older projects placed clips freely: put every clip on a lane, moving it down when it would overlap
   const placed = [];
   for (const clip of song.clips) {
+    if (isIdea(clip)) continue;
     while (placed.some((c) => c.y === clip.y && c.start < clip.start + clip.length - 1e-9 && clip.start < c.start + c.length - 1e-9)) clip.y += LANE_H;
     placed.push(clip);
   }
@@ -239,7 +242,7 @@ export const laneSoloed = (song, lane) => laneFlag(song, 'solos', lane);
 export const clipMuted = (song, clip) => laneMuted(song, laneOf(clip));
 // a lane is heard unless it is muted, or other lanes are soloed and it is not
 export const laneSilent = (song, lane) => laneMuted(song, lane) || (song.solos?.length > 0 && !laneSoloed(song, lane));
-export const clipSilent = (song, clip) => laneSilent(song, laneOf(clip));
+export const clipSilent = (song, clip) => isIdea(clip) || laneSilent(song, laneOf(clip));
 // key: 'mutes' | 'solos'; returns true when the lane changed
 export function setLaneFlag(song, key, lane, on) {
   if (laneFlag(song, key, lane) === on) return false;
@@ -253,6 +256,9 @@ export const setLaneSolo = (song, lane, on) => setLaneFlag(song, 'solos', lane, 
 
 // The lane y (px) nearest to y.
 export const laneY = (y) => Math.max(0, Math.round(y / LANE_H)) * LANE_H;
+// Idea storage (above the first lane, see the header): free y, the whole clip above lane 0.
+export const isIdea = (clip) => clip.y < 0;
+export const ideaY = (y) => Math.min(-LANE_H, clean(y));
 
 export const getClip = (song, id) => song.clips.find((c) => c.id === id) ?? null;
 
@@ -472,7 +478,7 @@ export function trimClipStart(clip, newStart, original = clip) {
 // Clips that can be consolidated: two or more of one kind on one lane, with no other clip of that
 // lane inside their span.
 export function canConsolidate(song, clips) {
-  if (clips.length < 2 || clips.some((c) => c.y !== clips[0].y || isAuto(c) !== isAuto(clips[0]))) return false;
+  if (clips.length < 2 || clips.some((c) => isIdea(c) || c.y !== clips[0].y || isAuto(c) !== isAuto(clips[0]))) return false;
   const start = Math.min(...clips.map((c) => c.start));
   const end = Math.max(...clips.map((c) => c.start + c.length));
   return !song.clips.some((c) => !clips.includes(c) && c.y === clips[0].y && c.start < end - 1e-9 && start < c.start + c.length - 1e-9);
@@ -524,7 +530,7 @@ export function splitClip(song, clip, at) {
   return right;
 }
 
-export const songEnd = (song) => song.clips.reduce((m, c) => Math.max(m, c.start + c.length), 0);
+export const songEnd = (song) => song.clips.reduce((m, c) => (isIdea(c) ? m : Math.max(m, c.start + c.length)), 0);
 // Playback loops at the end of the last clip, rounded up to a whole bar.
 export const loopEnd = (song) => {
   const end = songEnd(song);

@@ -11,6 +11,9 @@
 //   Ctrl/Cmd + click a clip    add it to / remove it from the selection
 //   drag a clip                move it, or the whole selection (time snaps, vertical snaps to lanes)
 //   clips snap out of overlaps to the nearest free position; resizing stops at neighbours
+// Idea storage: the space above the first lane holds clips freely (no time or lane snapping,
+// overlaps allowed); they are never played by the song (see song.js). Drag an idea onto a lane to
+// play it there (it snaps like any clip); drag a clip above the first lane to store it.
 //   drag a clip's left/right edge  trim the start / set the length (snaps)
 //   click M / S left of a lane number  mute / solo the lane (toggle); drag over a column of buttons to set many
 //                              lanes alike. While any lane is soloed only soloed lanes play; mute wins over solo.
@@ -27,9 +30,11 @@
 //   Ctrl/Cmd + A, Escape       select all / clear the selection
 //   click the ruler            set the play position (the signature row too: click / drag scrubs)
 //   drag on the ruler          select a loop region (snapped); song playback loops inside it
-//   drag the overview map      scroll sideways over the time axis
 //   wheel / Shift + wheel      scroll sideways over the time axis / scroll the lanes
 //   middle-drag, Ctrl/Cmd + wheel  pan / zoom the time axis
+//   scrollbars (bottom, right) drag the thumb, or click the track to jump there
+// The camera pans freely until the content (clips, the song, the first 16 lanes / bars) would leave
+// the view: a margin of it always stays visible.
 //   right-click the region     remove it (the ruler, a short click)
 //   double-click the ruler     insert a time signature change at the nearest bar line (or edit it)
 //   right-click a signature    remove that change (the first one can only be edited)
@@ -37,16 +42,25 @@
 import {
   snapStep, snapFloor, snapRound, loopEnd, getClip, addClip, addAutoClip, isAuto, autoPolyline, duplicateClip, removeClip, trimClipStart, BAR, clean,
   meter, barLines, barRound, barLength, removeSig, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource, setLoop,
-  canConsolidate, consolidateClips, splitClip, laneMuted, laneSoloed, laneSilent, clipSilent, setLaneFlag,
+  canConsolidate, consolidateClips, splitClip, laneMuted, laneSoloed, laneSilent, clipSilent, setLaneFlag, laneY, isIdea, ideaY,
 } from '../song.js';
 import { createSurface, capture, startPan, onWheel, clamp, snapBands, rightHold, edgeScroll, MUTE_COLOR } from './surface.js';
 import { CLIP_H, findClipPosition, clipResizeBounds } from './clipplacement.js';
 import { showMenu, shortcut } from './menu.js';
 
 const SIG_H = 16; // time signature row on top of the ruler
-const MAP_Y = 38;
-const MAP_H = 12;
-const RULER = MAP_Y + MAP_H; // signature row, bar numbers and the timeline overview map
+const RULER = 38; // signature row and bar numbers
+const SB = 32; // scrollbars below and right of the time area, drawn like the controller panel's
+const SB_PAD = 8; // thumb inset
+const SB_MIN = 48; // shortest thumb
+const SB_TRACK = '#151517'; // --surface-2
+const SB_THUMB = ['#2a2a2e', '#4a4a52', '#5a5a64']; // --surface-4, hover, dragged
+const FAR = 1e7; // free camera: px it may go from time zero / the first lane
+const MIN_LANES = 16; // the lanes (and bars) that count as content even when empty
+const IDEA_BG = '#121016';
+const IDEA_EDGE = '#3a3346';
+const IDEA_TEXT = '#5e566e';
+const IDEA_LABEL = 'Playback of clips in this area is ignored except if you loop the clip.';
 const LABEL = 'TimeLine:';
 const EDGE = 6;
 const PLAYHEAD = '#ff5a36';
@@ -76,7 +90,8 @@ export function createArranger(host, ctx) {
   let pointer = null;
   let clipboard = null; // snapshots of the copied clips
   let dragging = false;
-  let mapDrag = null;
+  let sbHover = null; // scrollbar under the pointer / being dragged: 'h' | 'v' | null
+  let sbActive = null;
   let lastRight = null; // { time, x, y } of the last right-button press on empty space
   let sel = new Set(); // selected clip ids; song.selected (the clip in the piano roll) is one of them
   let rect = null; // selection rectangle in progress: { x0, y0, x1, y1, ids }
@@ -96,15 +111,21 @@ export function createArranger(host, ctx) {
 
   const s = createSurface(host, paint);
   const { cv } = s;
-  cv.title = 'Wheel or drag the overview map to scroll sideways; Shift + wheel scrolls lanes';
+  cv.title = 'Wheel scrolls sideways, Shift + wheel scrolls the lanes; middle-drag or the scrollbars pan';
   const xOf = (t) => x0 + t * view.ppq - view.sx;
   const yOf = (y) => RULER + y - view.sy;
   const timeAt = (x) => (x - x0 + view.sx) / view.ppq;
   const step = () => snapStep(ctx.song().snap);
   const laneAt = (y) => Math.max(0, Math.floor((y - RULER + view.sy) / CLIP_H)) * CLIP_H; // lane y under local y
+  const worldY = (y) => y - RULER + view.sy; // < 0: idea storage
+  const right = () => s.w - SB; // the time area ends at the scrollbars
+  const bottom = () => s.h - SB;
 
+  // ideas (y < 0) go exactly where asked, clips on lanes to the nearest free position
   function place(clip, position) {
-    Object.assign(clip, findClipPosition(ctx.song().clips, clip, position, view.ppq));
+    const y = position?.y ?? clip.y;
+    if (y < 0) Object.assign(clip, position, { y: ideaY(y) });
+    else Object.assign(clip, findClipPosition(ctx.song().clips, clip, position, view.ppq));
   }
 
   // Place several clips at targets[i] = { start, y }, each at the nearest free position. Clips are
@@ -116,19 +137,25 @@ export function createArranger(host, ctx) {
     const placed = new Set();
     const order = members.map((_, i) => i).sort((i, j) => targets[i].start - targets[j].start || targets[i].y - targets[j].y);
     for (const i of order) {
+      if (targets[i].y < 0) { Object.assign(members[i], { start: targets[i].start, y: ideaY(targets[i].y) }); continue; }
       const others = ctx.song().clips.filter((c) => !moving.has(c) || placed.has(c));
       Object.assign(members[i], findClipPosition(others, members[i], targets[i], view.ppq));
       placed.add(members[i]);
     }
   }
 
-  // Move clips from their original positions by dt quarters / dy px; the anchor's start snaps and
-  // the others follow by the same amount.
+  // Move clips from their original positions by dt quarters / dy px. On lanes the anchor's start
+  // snaps and the others follow by the same amount (a clip coming from idea storage snaps itself);
+  // a clip whose middle ends up above the first lane becomes an idea and moves freely.
   function moveGroup(members, origs, anchor, dt, dy) {
     const a = origs[anchor];
-    const delta = snapRound(a.start + dt, step()) - a.start;
-    const dyy = Math.max(Math.round(dy / CLIP_H) * CLIP_H, -Math.min(...origs.map((o) => o.y)));
-    placeAll(members, origs.map((o) => ({ start: clean(o.start + delta), y: o.y + dyy })));
+    const st = step();
+    const delta = snapRound(a.start + dt, st) - a.start;
+    placeAll(members, origs.map((o) => {
+      const y = o.y + dy;
+      if (y + CLIP_H / 2 < 0) return { start: clean(o.start + dt), y: ideaY(y) };
+      return { start: clean(o.y < 0 ? snapRound(o.start + dt, st) : o.start + delta), y: laneY(y) };
+    }));
   }
 
   // ---- selection ----
@@ -160,9 +187,9 @@ export function createArranger(host, ctx) {
     const c = getClip(ctx.song(), id);
     if (!c) return;
     const x = xOf(c.start);
-    if (x < x0 || x > s.w - 20) view.sx = c.start >= 0 ? Math.max(0, c.start * view.ppq - 20) : c.start * view.ppq - 20;
+    if (x < x0 || x > right() - 20) view.sx = c.start >= 0 ? Math.max(0, c.start * view.ppq - 20) : c.start * view.ppq - 20;
     const y = yOf(c.y);
-    if (y < RULER || y + CLIP_H > s.h) view.sy = Math.max(0, c.y - CLIP_H);
+    if (y < RULER || y + CLIP_H > bottom()) view.sy = c.y < 0 ? c.y - CLIP_H : Math.max(0, c.y - CLIP_H);
     s.redraw();
   }
 
@@ -172,39 +199,91 @@ export function createArranger(host, ctx) {
     place(clip);
   }
 
-  function limitScroll() {
+  // Free camera: the view pans anywhere, also into empty space far from every clip. The
+  // scrollbars span the content (the clips, time zero to the song end, the first MIN_LANES lanes /
+  // bars) with a page of empty room around it, widened to wherever the view is now.
+  // -> { x: [min, max] sx, y: [min, max] sy, vw, vh (time area size) }
+  function scrollRange() {
     const song = ctx.song();
-    const { first, end } = timeBounds();
-    // the end may scroll to the middle of the view, so there is always room to scroll sideways
-    view.sx = clamp(view.sx, first * view.ppq, Math.max(first * view.ppq, end * view.ppq - (s.w - x0) / 2));
-    const bottom = song.clips.reduce((m, c) => Math.max(m, c.y + CLIP_H), 0);
-    view.sy = clamp(view.sy, 0, Math.max(0, bottom + 2 * CLIP_H - (s.h - RULER)));
-  }
-
-  function timeBounds() {
-    const song = ctx.song();
+    const vw = Math.max(1, right() - x0);
+    const vh = Math.max(1, bottom() - RULER);
+    const first = Math.min(0, ...song.clips.map((c) => c.start)) * view.ppq;
+    const last = Math.max(loopEnd(song), MIN_LANES * BAR, song.sigs.at(-1).at, song.loop?.end ?? 0, ...song.clips.map((c) => c.start + c.length)) * view.ppq;
+    const top = Math.min(0, ...song.clips.map((c) => c.y));
+    const low = Math.max(MIN_LANES * CLIP_H, ...song.clips.map((c) => c.y + CLIP_H));
     return {
-      first: Math.min(0, ...song.clips.map((c) => c.start)) - 4 * BAR,
-      end: Math.max(loopEnd(song), BAR, song.sigs.at(-1).at, song.loop?.end ?? 0) + 4 * BAR,
+      x: [Math.min(first - vw, view.sx), Math.max(last, view.sx)],
+      y: [Math.min(top - vh, view.sy), Math.max(low, view.sy)],
+      vw, vh,
     };
   }
 
-  function mapGeometry() {
-    const { first, end } = timeBounds();
-    const width = Math.max(0, s.w - x0);
-    const duration = Math.max(1, end - first);
-    const left = x0 + ((timeAt(x0) - first) / duration) * width;
-    const visible = Math.min(width, ((s.w - x0) / view.ppq / duration) * width);
-    return { first, end, width, duration, left, visible };
+  // no pan limit; only keeps the camera a usable number (far out, floats lose the pixel grid)
+  function limitScroll() {
+    view.sx = Number.isFinite(view.sx) ? clamp(view.sx, -FAR, FAR) : 0;
+    view.sy = Number.isFinite(view.sy) ? clamp(view.sy, -FAR, FAR) : 0;
   }
 
-  function scrollFromMap(x, offset) {
-    const { first, width, duration } = mapGeometry();
-    if (width <= 0) return;
-    const left = first + clamp((x - x0 - offset) / width, 0, 1) * duration;
-    view.sx = left * view.ppq;
-    limitScroll();
-    s.redraw();
+  // scrollbar geometry: track from a over len px, thumb at pos (thumb px long), view range lo..hi
+  function scrollbars() {
+    const r = scrollRange();
+    const make = (vertical) => {
+      const [lo, hi] = vertical ? r.y : r.x;
+      const a = vertical ? RULER : x0;
+      const len = Math.max(0, (vertical ? bottom() : right()) - a);
+      const page = vertical ? r.vh : r.vw;
+      const thumb = Math.min(len, Math.max(SB_MIN, (len * page) / (hi - lo + page)));
+      const v = vertical ? view.sy : view.sx;
+      const pos = a + (hi > lo ? (clamp(v, lo, hi) - lo) / (hi - lo) : 0) * (len - thumb);
+      return { vertical, lo, hi, a, len, thumb, pos };
+    };
+    return { h: make(false), v: make(true) };
+  }
+  // 'h' / 'v': the scrollbar under local (x, y); 'corner' for the dead parts beside them
+  function barAt(x, y) {
+    const below = y >= bottom();
+    const beside = x >= right() && y >= RULER;
+    if (below && x >= x0 && x < right()) return 'h';
+    if (beside && !below) return 'v';
+    return below || beside ? 'corner' : null;
+  }
+  // drag a thumb (grabbed where pressed), or press the track: the thumb centres there and follows
+  function scrollbarDrag(e, which, p) {
+    e.preventDefault();
+    const b = scrollbars()[which];
+    const along = (q) => (b.vertical ? q.y : q.x);
+    const inside = along(p) >= b.pos && along(p) <= b.pos + b.thumb;
+    const offset = inside ? along(p) - b.pos : b.thumb / 2;
+    const scrollTo = (q) => {
+      const f = b.len > b.thumb ? clamp((along(q) - offset - b.a) / (b.len - b.thumb), 0, 1) : 0;
+      view[b.vertical ? 'sy' : 'sx'] = b.lo + f * (b.hi - b.lo);
+      s.redraw();
+    };
+    sbActive = which;
+    dragging = true;
+    scrollTo(p);
+    capture(cv, e, (ev) => scrollTo(s.local(ev)), () => { sbActive = null; dragging = false; s.redraw(); });
+  }
+  function paintScrollbars(g, w, h) {
+    g.fillStyle = SB_TRACK;
+    g.fillRect(0, h - SB, w, SB);
+    g.fillRect(w - SB, RULER, SB, h - SB - RULER);
+    g.strokeStyle = '#1e1e21';
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(0, h - SB + 0.5); g.lineTo(w, h - SB + 0.5);
+    g.moveTo(w - SB + 0.5, RULER); g.lineTo(w - SB + 0.5, h - SB);
+    g.stroke();
+    const bars = scrollbars();
+    for (const key of ['h', 'v']) {
+      const b = bars[key];
+      g.fillStyle = SB_THUMB[sbActive === key ? 2 : sbHover === key ? 1 : 0];
+      const th = SB - 2 * SB_PAD;
+      const tl = Math.max(th, b.thumb - 2 * SB_PAD);
+      if (b.vertical) roundRect(g, w - SB + SB_PAD, b.pos + SB_PAD, th, tl, th / 2);
+      else roundRect(g, b.pos + SB_PAD, h - SB + SB_PAD, tl, th, th / 2);
+      g.fill();
+    }
   }
 
   function paint(g, w, h) {
@@ -231,10 +310,17 @@ export function createArranger(host, ctx) {
     g.beginPath();
     for (let l = lane0; l <= lane1 + 1; l++) { const y = Math.round(yOf(l * CLIP_H)) + 0.5; g.moveTo(x0, y); g.lineTo(w, y); }
     g.stroke();
+    // idea storage above the first lane: no lanes, no grid
+    const iy = Math.round(yOf(0));
+    if (iy > RULER) {
+      g.fillStyle = IDEA_BG;
+      g.fillRect(x0, RULER, w - x0, iy - RULER);
+    }
+    const gy = Math.max(RULER, iy);
     g.fillStyle = 'rgba(255, 255, 255, 0.022)';
     snapBands(step(), view.ppq, t0, t1, (a, b) => {
       const xa = Math.round(xOf(a));
-      g.fillRect(xa, RULER, Math.round(xOf(b)) - xa, h);
+      g.fillRect(xa, gy, Math.round(xOf(b)) - xa, h);
     });
     const m = meter(song);
     const bars = barLines(null, t0, t1, m);
@@ -264,8 +350,20 @@ export function createArranger(host, ctx) {
         g.font = `500 10px ${FONT}`;
         g.textBaseline = 'bottom';
         g.textAlign = 'right';
-        g.fillText('before start · not played', zx - 8, h - 6);
+        g.fillText('Idea Storage', zx - 8, h - SB - 6);
         g.textAlign = 'left';
+      }
+    }
+
+    if (iy > RULER && iy < h) {
+      g.strokeStyle = IDEA_EDGE;
+      g.lineWidth = 2;
+      g.beginPath(); g.moveTo(x0, iy - 1); g.lineTo(w, iy - 1); g.stroke();
+      if (iy - RULER > 18) {
+        g.fillStyle = IDEA_TEXT;
+        g.font = `600 10px ${FONT}`;
+        g.textBaseline = 'bottom';
+        g.fillText(IDEA_LABEL, x0 + 8, iy - 6);
       }
     }
 
@@ -303,7 +401,7 @@ export function createArranger(host, ctx) {
       const color = ctx.color(clip);
       const selected = shown.has(clip.id);
       const primary = !rect && clip.id === song.selected;
-      g.globalAlpha = (selected ? 0.95 : clip.id === hoverId ? 0.8 : 0.68) * (clipSilent(song, clip) ? 0.4 : 1);
+      g.globalAlpha = (selected ? 0.95 : clip.id === hoverId ? 0.8 : 0.68) * (isIdea(clip) ? 0.85 : clipSilent(song, clip) ? 0.4 : 1);
       g.fillStyle = color;
       roundRect(g, x + 0.5, y + 0.5, Math.max(2, cw - 1), CLIP_H - 1, 4);
       g.fill();
@@ -409,6 +507,18 @@ export function createArranger(host, ctx) {
     for (let l = lane0; l <= lane1 + 1; l++) { const y = Math.round(yOf(l * CLIP_H)) + 0.5; g.moveTo(0, y); g.lineTo(x0, y); }
     g.moveTo(x0 - 0.5, RULER); g.lineTo(x0 - 0.5, h);
     g.stroke();
+    if (iy > RULER) { // the gutter beside idea storage
+      g.fillStyle = IDEA_BG;
+      g.fillRect(0, RULER, x0 - 1, iy - RULER);
+      g.fillStyle = IDEA_EDGE;
+      g.fillRect(0, iy - 2, x0, 2);
+      if (iy - RULER > 18 && iy < h) {
+        g.fillStyle = IDEA_TEXT;
+        g.font = `600 10px ${FONT}`;
+        g.textBaseline = 'bottom';
+        g.fillText('Ideas', 10, iy - 6);
+      }
+    }
 
     // ruler
     g.fillStyle = 'rgba(21, 21, 23, 0.92)';
@@ -466,27 +576,6 @@ export function createArranger(host, ctx) {
     g.fillStyle = '#6e6e76';
     g.font = `500 9.5px ${FONT}`;
     g.fillText('Time Sig.', 10, SIG_H / 2 + 0.5);
-    const map = mapGeometry();
-    g.fillStyle = '#111114';
-    g.fillRect(x0, MAP_Y, w - x0, MAP_H);
-    const lanes = Math.max(1, ...song.clips.map((c) => Math.round(c.y / CLIP_H) + 1));
-    for (const clip of song.clips) {
-      const left = x0 + ((clip.start - map.first) / map.duration) * map.width;
-      const right = x0 + ((clip.start + clip.length - map.first) / map.duration) * map.width;
-      const laneY = MAP_Y + 2 + (Math.round(clip.y / CLIP_H) / lanes) * (MAP_H - 4);
-      g.fillStyle = ctx.color(clip);
-      g.fillRect(left, laneY, Math.max(1, right - left), Math.max(1, (MAP_H - 4) / lanes));
-    }
-    g.fillStyle = 'rgba(255, 255, 255, 0.12)';
-    g.fillRect(map.left, MAP_Y, map.visible, MAP_H);
-    g.strokeStyle = '#e8e8ea';
-    g.lineWidth = 1;
-    g.strokeRect(Math.round(map.left) + 0.5, MAP_Y + 0.5, Math.max(1, map.visible - 1), MAP_H - 1);
-    g.strokeStyle = '#26262a';
-    g.beginPath();
-    g.moveTo(x0, MAP_Y + MAP_H - 0.5);
-    g.lineTo(w, MAP_Y + MAP_H - 0.5);
-    g.stroke();
     g.strokeStyle = '#26262a';
     g.lineWidth = 2;
     g.beginPath(); g.moveTo(0, RULER - 0.5); g.lineTo(w, RULER - 0.5); g.stroke();
@@ -497,6 +586,7 @@ export function createArranger(host, ctx) {
       g.lineWidth = 3;
       g.beginPath(); g.moveTo(x, 2); g.lineTo(x, h); g.stroke();
     }
+    paintScrollbars(g, w, h);
   }
 
   // diagonal stripes inside a linked clone (the source stays plain)
@@ -565,10 +655,10 @@ export function createArranger(host, ctx) {
 
   function insert(x, y, auto) {
     const song = ctx.song();
-    const start = snapFloor(timeAt(x), step());
+    const { start, y: row } = dropAt({ x, y });
     const opts = {
       start,
-      y: laneAt(y),
+      y: row,
       length: barLength(song, start),
     };
     const clip = auto ? addAutoClip(song, { ...opts, target: ctx.defaultAutoTarget() }) : addClip(song, { ...opts, target: ctx.defaultTarget() });
@@ -579,7 +669,7 @@ export function createArranger(host, ctx) {
   }
 
   function hit(x, y) {
-    if (y < RULER || x < x0) return null;
+    if (y < RULER || x < x0 || barAt(x, y)) return null;
     const clips = ctx.song().clips;
     for (let i = clips.length - 1; i >= 0; i--) {
       const c = clips[i];
@@ -595,7 +685,7 @@ export function createArranger(host, ctx) {
 
   // the lane button column (M or S) under local (x, y): { btn, lane }, or null
   function laneBtnAt(x, y) {
-    if (y < RULER || x >= x0) return null;
+    if (y < RULER || x >= x0 || y >= bottom() || worldY(y) < 0) return null;
     const [m, so] = LANE_BTNS;
     const btn = x < so.x - 1 ? m : x <= so.x + LANE_BTN_W + 1 ? so : null;
     return btn && { btn, lane: laneAt(y) / CLIP_H };
@@ -615,7 +705,7 @@ export function createArranger(host, ctx) {
     dragging = true;
     capture(cv, e, (ev) => {
       const p = s.local(ev);
-      const l = laneAt(clamp(p.y, RULER, s.h - 1)) / CLIP_H;
+      const l = laneAt(clamp(p.y, RULER, bottom() - 1)) / CLIP_H;
       // fill the lanes skipped by a fast move
       for (let i = Math.min(l, last); i <= Math.max(l, last); i++) changed = set(i) || changed;
       last = l;
@@ -628,9 +718,12 @@ export function createArranger(host, ctx) {
   }
 
   function hoverAt(x, y) {
+    const bar = barAt(x, y);
+    const sb = bar === 'h' || bar === 'v' ? bar : null;
+    if (sb !== sbHover) { sbHover = sb; s.redraw(); }
     const h = hit(x, y);
     const id = h?.clip.id ?? null;
-    cv.style.cursor = laneBtnAt(x, y) ? 'pointer' : !h ? (y < RULER && x >= x0 ? (sigAt(x, y) ? 'pointer' : 'text') : 'default') : h.part === 'body' ? 'grab' : 'ew-resize';
+    cv.style.cursor = bar ? 'default' : laneBtnAt(x, y) ? 'pointer' : !h ? (y < RULER && x >= x0 ? (sigAt(x, y) ? 'pointer' : 'text') : 'default') : h.part === 'body' ? 'grab' : 'ew-resize';
     if (id !== hoverId) { hoverId = id; s.redraw(); }
   }
 
@@ -644,17 +737,10 @@ export function createArranger(host, ctx) {
     if (dragging) return;
     cv.focus();
     pointer = s.local(e);
-    if (e.button === 0 && pointer.y >= MAP_Y && pointer.y < RULER && pointer.x >= x0) {
+    const bar = barAt(pointer.x, pointer.y);
+    if (bar && e.button !== 1) {
       e.preventDefault();
-      const map = mapGeometry();
-      const inside = pointer.x >= map.left && pointer.x <= map.left + map.visible;
-      mapDrag = { offset: inside ? pointer.x - map.left : map.visible / 2 };
-      dragging = true;
-      scrollFromMap(pointer.x, mapDrag.offset);
-      capture(cv, e, (ev) => scrollFromMap(s.local(ev).x, mapDrag.offset), () => {
-        mapDrag = null;
-        dragging = false;
-      });
+      if (e.button === 0 && bar !== 'corner') scrollbarDrag(e, bar, pointer);
       return;
     }
     if (e.button === 1) {
@@ -758,13 +844,14 @@ export function createArranger(host, ctx) {
     const linked = part === 'left' ? linkedClips(song, clip).map((c) => ({ c, start: c.start, length: c.length, bounds: clipResizeBounds(song.clips, c) })) : [];
     const tStart = timeAt(x);
     const yStart = y + view.sy;
+    const snapT = (t) => (isIdea(clip) ? clean(t) : snapRound(t, st)); // ideas resize freely
     let moved = false;
     dragging = true;
     cv.style.cursor = part === 'body' ? 'grabbing' : 'ew-resize';
     let last = null;
     // dragging near an edge of the time area scrolls it, so a clip can travel anywhere in one drag
     const auto = edgeScroll({
-      area: () => ({ left: x0, top: RULER, right: s.w, bottom: s.h }),
+      area: () => ({ left: x0, top: RULER, right: right(), bottom: bottom() }),
       vertical: part === 'body',
       scroll: (dx, dy) => { view.sx += dx; view.sy += dy; limitScroll(); },
       onScroll: () => { if (last) apply(last); },
@@ -776,11 +863,11 @@ export function createArranger(host, ctx) {
       if (part === 'body') {
         moveGroup(members, origs, anchor, dt, p.y + view.sy - yStart);
       } else if (part === 'right') {
-        setLength(clip, Math.max(st, clean(snapRound(orig.start + orig.length + dt, st) - clip.start)));
+        setLength(clip, Math.max(st, clean(snapT(orig.start + orig.length + dt) - clip.start)));
       } else {
         const lo = Math.max(...linked.map((l) => l.bounds.start - l.start));
         const hi = Math.min(...linked.map((l) => l.length - Math.min(st, l.length)));
-        const delta = clamp(snapRound(orig.start + dt, st) - orig.start, lo, hi);
+        const delta = clamp(snapT(orig.start + dt) - orig.start, lo, hi);
         trimClipStart(clip, clean(orig.start + delta), orig); // shifts the shared notes once
         for (const l of linked) if (l.c !== clip) { l.c.start = clean(l.start + delta); l.c.length = clean(l.length - delta); }
         place(clip);
@@ -817,8 +904,8 @@ export function createArranger(host, ctx) {
       const p = s.local(ev);
       if (!rect.shown && Math.hypot(p.x - x, p.y - y) < 3) return;
       rect.shown = true;
-      rect.x1 = clamp(p.x, x0, s.w);
-      rect.y1 = clamp(p.y, RULER, s.h);
+      rect.x1 = clamp(p.x, x0, right());
+      rect.y1 = clamp(p.y, RULER, bottom());
       const l = Math.min(x, rect.x1);
       const r = Math.max(x, rect.x1);
       const t = Math.min(y, rect.y1);
@@ -841,9 +928,21 @@ export function createArranger(host, ctx) {
   }
 
   // ---- commands (keyboard and context menu) ----
-  // where pasted / inserted clips go: the snapped time and row at local point p
-  const dropAt = (p) => ({ start: snapFloor(timeAt(p.x), step()), y: laneAt(p.y) });
-  const inTimeArea = (p) => !!p && p.x >= x0 && p.x <= s.w && p.y >= RULER && p.y <= s.h;
+  // where pasted / inserted clips go: the snapped time and lane at local point p; in idea storage
+  // exactly there (the clip's middle at the pointer)
+  const dropAt = (p) => (worldY(p.y) < 0
+    ? { start: clean(timeAt(p.x)), y: ideaY(worldY(p.y) - CLIP_H / 2) }
+    : { start: snapFloor(timeAt(p.x), step()), y: laneAt(p.y) });
+  const inTimeArea = (p) => !!p && p.x >= x0 && p.x <= right() && p.y >= RULER && p.y <= bottom();
+  // clips keep their formation from the drop point; dropped in idea storage they all stay there
+  function dropTargets(at, clips) {
+    const t0 = Math.min(...clips.map((c) => c.start));
+    const y0 = Math.min(...clips.map((c) => c.y));
+    const targets = clips.map((c) => ({ start: clean(at.start + c.start - t0), y: at.y + c.y - y0 }));
+    const over = at.y < 0 ? Math.max(...targets.map((t) => t.y)) + CLIP_H : 0;
+    if (over > 0) for (const t of targets) t.y -= over;
+    return targets;
+  }
 
   function copy() {
     const clips = selectedClips();
@@ -860,11 +959,8 @@ export function createArranger(host, ctx) {
   function paste(p) {
     if (!clipboard || !inTimeArea(p)) return;
     const song = ctx.song();
-    const at = dropAt(p);
-    const t0 = Math.min(...clipboard.map((c) => c.start));
-    const y0 = Math.min(...clipboard.map((c) => c.y));
     const copies = clipboard.map((c) => duplicateClip(song, c));
-    placeAll(copies, clipboard.map((c) => ({ start: clean(at.start + c.start - t0), y: at.y + c.y - y0 })));
+    placeAll(copies, dropTargets(dropAt(p), clipboard));
     setSelection(copies, copies[0]);
     ctx.changed();
   }
@@ -873,11 +969,8 @@ export function createArranger(host, ctx) {
     const loaded = await ctx.openClips?.();
     if (!loaded?.length) return;
     const song = ctx.song();
-    const at = dropAt(p);
-    const t0 = Math.min(...loaded.map((c) => c.start));
-    const y0 = Math.min(...loaded.map((c) => c.y));
     const copies = loaded.map((c) => duplicateClip(song, c));
-    placeAll(copies, loaded.map((c) => ({ start: clean(at.start + c.start - t0), y: at.y + c.y - y0 })));
+    placeAll(copies, dropTargets(dropAt(p), loaded));
     setSelection(copies, copies[0]);
     ctx.changed();
   }
@@ -965,8 +1058,7 @@ export function createArranger(host, ctx) {
 
   cv.addEventListener('dblclick', (e) => {
     const { x, y } = s.local(e);
-    if (y >= MAP_Y && y < RULER) return;
-    if (x < x0) return;
+    if (x < x0 || barAt(x, y)) return;
     const song = ctx.song();
     if (y < RULER) { // time signature change at the nearest bar line (or the one double-clicked)
       const box = sigAt(x, y);
@@ -981,13 +1073,12 @@ export function createArranger(host, ctx) {
     pointer = s.local(e);
     if (e.buttons) return;
     const { x, y } = s.local(e);
-    if (y >= MAP_Y && y < RULER && x >= x0) {
-      cv.style.cursor = 'ew-resize';
-      return;
-    }
     hoverAt(x, y);
   });
-  cv.addEventListener('pointerleave', () => { pointer = null; if (hoverId !== null) { hoverId = null; s.redraw(); } });
+  cv.addEventListener('pointerleave', () => {
+    pointer = null;
+    if (hoverId !== null || sbHover !== null) { hoverId = null; sbHover = null; s.redraw(); }
+  });
 
   cv.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();

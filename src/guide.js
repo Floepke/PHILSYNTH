@@ -152,6 +152,8 @@ export const GUIDE = [
           'Clips never overlap: a moved, pasted or new clip snaps to the nearest free position, and resizing stops at neighbours. Use separate lanes for clips that play together.',
           `${k('Alt')} + drag copies; ${k('Shift')} + drag makes <i>linked clones</i> (hatched, ⧉) that share their notes: editing one edits all. ${k(CMD, 'D')} clones the selection right after itself, ${k(CMD, 'Shift', 'D')} duplicates it.`,
           'Park clips left of the bright zero line: they are not played by the song (<kbd>/</kbd> still auditions them), handy for source clips whose clones make up the song.',
+          '<b>Idea storage</b>: scroll up above lane 1. Clips there sit wherever you drop them (no grid, no lanes, overlaps allowed) and are never played by the song; <kbd>/</kbd> loops an idea solo, without the lane clips around it. Drag an idea onto a lane to play it; it snaps like any clip.',
+          'Pan the TimeLine with the wheel (sideways), Shift + wheel (lanes), middle-drag or the scrollbars below and right of it; the camera pans freely, also into empty space, and the scrollbars bring you back to your clips.',
           'The <b>M</b> / <b>S</b> buttons left of a lane number mute / solo it; drag over a column of buttons to switch many lanes. Mute wins over solo; a silenced clip shows a big M in its editor.',
         ],
       },

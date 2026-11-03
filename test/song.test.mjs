@@ -6,7 +6,7 @@ import {
   addAutoClip, isAuto, autoValue, automationAt, pointIndex,
   notePoints, noteVelAt, groupVelCurve, applyVelCurve, canConsolidate, consolidateClips, splitClip,
   clipFileText, parseClipFile, CLIP_FORMAT,
-  basePitch, centsOf, withCents, centsLabel,
+  basePitch, centsOf, withCents, centsLabel, isIdea, ideaY, clipSilent, songEnd,
 } from '../src/song.js';
 import { Transport } from '../src/transport.js';
 
@@ -478,3 +478,22 @@ console.log('link tests passed');
   assert.deepEqual(file[0].notes.map((n) => n.pitch), [60.125, 64]);
 }
 console.log('micropitch tests passed');
+
+// ---- idea storage: clips above the first lane (y < 0), free, never played by the song ----
+{
+  const song = emptySong();
+  const lane = addClip(song, { start: 0, length: 4, y: LANE_H });
+  const idea = addClip(song, { start: 1.37, length: 16, y: -50 });
+  const twin = addClip(song, { start: 1.37, length: 16, y: -50 }); // ideas may overlap
+  assert.ok(isIdea(idea) && !isIdea(lane));
+  assert.equal(ideaY(-3), -LANE_H, 'an idea lies entirely above the first lane');
+  assert.equal(ideaY(-100.5), -100.5, 'at any height above it');
+  assert.ok(clipSilent(song, idea) && !clipSilent(song, lane));
+  assert.equal(songEnd(song), 4, 'ideas do not lengthen the song');
+  assert.equal(loopEnd(song), 4);
+  assert.equal(canConsolidate(song, [idea, twin]), false, 'ideas are not consolidated');
+  const back = normalizeSong(JSON.parse(JSON.stringify(song)));
+  assert.deepEqual(back.clips.map((c) => [c.start, c.y]), [[0, LANE_H], [1.37, -50], [1.37, -50]], 'saved ideas keep their free place');
+  assert.equal(normalizeSong({ clips: [{ start: 0, y: -10 }] }).clips[0].y, -LANE_H);
+}
+console.log('idea storage tests passed');
