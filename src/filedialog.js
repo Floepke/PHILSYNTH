@@ -1,11 +1,12 @@
 // Save / open dialogs for small text files (.clip, .phmod) that start in the folder last used for
 // that kind of file. `kind` names the remembered location:
-//   Electron              native dialogs in the main process (electron/projectfiles.mjs), the
-//                         folders are stored per kind in the app's user data
+//   Electron              the app's own file dialog (src/filepicker.js); the main process
+//                         (electron/projectfiles.mjs) stores the folders per kind in the app's user data
 //   Chromium browsers     showSaveFilePicker / showOpenFilePicker with `id: kind`: the browser
 //                         remembers the folder per id (per site, across restarts)
 //   other browsers        a download / a file input (the browser decides where)
 import { CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS } from './fileformat.js';
+import { pickFile } from './filepicker.js';
 
 // ext: saved files; open: extensions the open dialog offers (older ones included)
 export const KINDS = {
@@ -15,10 +16,14 @@ export const KINDS = {
 
 const cancelled = (err) => err?.name === 'AbortError';
 
-// -> { name } when saved, null when cancelled
-export async function saveTextFile(kind, suggestedName, text, win = window) {
+// -> { name } when saved, null when cancelled. pick: the desktop app's dialog (replaceable for tests)
+export async function saveTextFile(kind, suggestedName, text, win = window, pick = pickFile) {
   const { description, ext } = KINDS[kind];
-  if (win.modsynthFiles?.saveFile) return win.modsynthFiles.saveFile(kind, suggestedName, text);
+  const files = win.modsynthFiles;
+  if (files?.saveFile) {
+    const f = await pick(files, { mode: 'save', dialog: kind, title: `Save ${description}`, types: `${description}s (${ext})`, exts: [ext], saveExt: ext, suggestedName });
+    return f ? files.saveFile(kind, f.path, text) : null;
+  }
   if (typeof win.showSaveFilePicker === 'function') {
     try {
       const handle = await win.showSaveFilePicker({ id: kind, suggestedName, types: [{ description, accept: { 'application/octet-stream': [ext] } }] });
@@ -39,9 +44,13 @@ export async function saveTextFile(kind, suggestedName, text, win = window) {
 }
 
 // -> { name, text } when a file was picked, null when cancelled
-export async function openTextFile(kind, win = window) {
+export async function openTextFile(kind, win = window, pick = pickFile) {
   const { description, open } = KINDS[kind];
-  if (win.modsynthFiles?.openFile) return win.modsynthFiles.openFile(kind);
+  const files = win.modsynthFiles;
+  if (files?.openFile) {
+    const f = await pick(files, { mode: 'open', dialog: kind, title: `Open ${description}`, types: `${description}s (${open.join(', ')})`, exts: open });
+    return f ? files.openFile(kind, f.path) : null;
+  }
   if (typeof win.showOpenFilePicker === 'function') {
     let handle;
     try {

@@ -1028,6 +1028,105 @@ dialog button:focus-visible {
 }
 dialog .dialog-note { margin-top: 10px; font-size: 12px; }
 dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
+/* ---------- file dialog of the desktop app (src/filepicker.js) ---------- */
+#file-dialog { width: min(820px, 94vw); height: min(580px, calc(100vh - 32px)); }
+#file-dialog[open] { display: flex; flex-direction: column; }
+#file-dialog .fd-form { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+#file-dialog button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--wood-border);
+  border-radius: var(--radius-sm);
+  background-color: #6a4429;
+  background-image: linear-gradient(to bottom, rgba(255, 220, 170, 0.12), rgba(12, 6, 2, 0.4)), var(--wood-h);
+  color: var(--wood-ink);
+  box-shadow: inset 1px 1px 0 rgba(255, 220, 170, 0.25), inset -1px -1px 0 rgba(12, 6, 2, 0.7);
+  font: 13px var(--font);
+  cursor: pointer;
+}
+#file-dialog button:hover:not(:disabled) { filter: brightness(1.15); }
+#file-dialog menu button { min-width: 72px; }
+#file-dialog menu button.primary { border-color: var(--wood-ink); font-weight: 600; }
+#file-dialog button:disabled { opacity: 0.45; cursor: default; }
+.fd-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+#fd-up { width: 32px; padding: 0; font-size: 15px; }
+.fd-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+#file-dialog .fd-crumb {
+  flex: none;
+  min-height: 24px;
+  padding: 0 6px;
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+}
+#file-dialog .fd-crumb:last-child { border-color: var(--wood-border); background-color: rgba(12, 6, 2, 0.35); font-weight: 600; }
+#file-dialog .fd-crumb:hover { background-color: rgba(255, 220, 170, 0.12); }
+.fd-sep { opacity: 0.55; }
+.fd-main { display: flex; gap: 10px; flex: 1 1 auto; min-height: 0; }
+.fd-places { display: flex; flex-direction: column; gap: 4px; width: 150px; flex: none; overflow-y: auto; }
+#file-dialog .fd-place {
+  justify-content: flex-start;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#file-dialog .fd-place[aria-current='true'] { border-color: var(--wood-ink); font-weight: 600; }
+.fd-pane { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; }
+.fd-head, .fd-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 76px 150px;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px;
+}
+.fd-head { padding-bottom: 6px; font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; opacity: 0.7; }
+#file-dialog .fd-list { flex: 1 1 auto; max-height: none; min-height: 0; padding: 4px; }
+.fd-row { border-radius: 5px; cursor: default; user-select: none; font-size: 13px; }
+.fd-row:hover { background: rgba(255, 220, 170, 0.08); }
+.fd-row[aria-selected='true'] { background: rgba(255, 220, 170, 0.22); box-shadow: inset 3px 0 0 var(--wood-ink); }
+.fd-list:focus-visible .fd-row[aria-selected='true'] { outline: 1px dashed var(--wood-ink); outline-offset: -1px; }
+.fd-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fd-dir .fd-file { font-weight: 600; }
+.fd-size { text-align: right; font-family: var(--mono); font-size: 12px; opacity: 0.8; }
+.fd-date { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; opacity: 0.8; }
+/* file: a sheet with a folded corner; folder: a tab and body */
+.fd-icon { position: relative; width: 12px; height: 15px; justify-self: center; border: 1px solid currentColor; border-radius: 1px 5px 1px 1px; opacity: 0.75; }
+.fd-dir .fd-icon { width: 16px; height: 11px; border-radius: 1px; background: rgba(255, 220, 170, 0.25); }
+.fd-dir .fd-icon::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: -4px;
+  width: 7px;
+  height: 3px;
+  border: 1px solid currentColor;
+  border-bottom: none;
+  border-radius: 2px 2px 0 0;
+}
+.fd-empty { padding: 18px 10px; text-align: center; font-size: 13px; opacity: 0.7; }
+:root dialog .fd-new-name { height: 24px; padding: 0 6px; border: 1px solid var(--wood-ink); border-radius: 4px; font: 13px var(--font); }
+.fd-name-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 13px; }
+.fd-name-row[hidden] { display: none; }
+:root dialog .fd-name-row input {
+  flex: 1 1 auto;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--wood-border);
+  border-radius: var(--radius-sm);
+  font: 13px var(--font);
+}
+#file-dialog .fd-error { color: #ffb3a6; min-height: 0; }
+#file-dialog .fd-error:empty { display: none; }
 /* ---------- Set Color… dialog: preview box + three wooden R / G / B sliders ---------- */
 #color-dialog { width: 360px; }
 #color-dialog .color-ok { order: 1; }

@@ -133,6 +133,32 @@
     </form>
   </dialog>
 
+  <!-- the desktop app's Open / Save dialog (src/filepicker.js); browsers use their own -->
+  <dialog id="file-dialog">
+    <div class="fd-form">
+      <h3 id="fd-title">Open</h3>
+      <div class="fd-bar">
+        <button type="button" id="fd-up" title="Up one folder (Backspace)" aria-label="Up one folder">↑</button>
+        <nav id="fd-crumbs" class="fd-crumbs" aria-label="Folder"></nav>
+        <button type="button" id="fd-mkdir" title="Create a folder here">New folder</button>
+      </div>
+      <div class="fd-main">
+        <div id="fd-places" class="fd-places" aria-label="Places"></div>
+        <div class="fd-pane">
+          <div class="fd-head" aria-hidden="true"><span></span><span>Name</span><span class="fd-size">Size</span><span class="fd-date">Modified</span></div>
+          <div id="fd-list" class="listbox fd-list" role="listbox" tabindex="0" aria-label="Files"></div>
+        </div>
+      </div>
+      <label id="fd-name-row" class="fd-name-row"><span>Name</span><input id="fd-name" autocomplete="off" spellcheck="false"></label>
+      <p id="fd-types" class="dialog-note"></p>
+      <p id="fd-error" class="dialog-note fd-error" role="alert"></p>
+      <menu>
+        <button type="button" id="fd-cancel">Cancel</button>
+        <button type="button" id="fd-ok" class="primary">Open</button>
+      </menu>
+    </div>
+  </dialog>
+
   <script type="module" src="src/main.js"></script>
 </body>
 </html>

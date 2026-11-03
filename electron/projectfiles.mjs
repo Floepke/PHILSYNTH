@@ -1,15 +1,15 @@
-// Project files for the desktop app: native Open / Save As dialogs and writes to the chosen file.
-// The page (electron/preload.cjs) only gets files the user picked in one of these dialogs.
-import { app, dialog, ipcMain, BrowserWindow } from 'electron';
+// Files for the desktop app. The page shows its own file dialog (src/filepicker.js) and browses
+// folders through 'fs:*' (electron/fsbrowse.mjs); reads and writes only accept the app's own file
+// types: projects, clips, modules and exported WAV audio.
+import { app, ipcMain, BrowserWindow } from 'electron';
 import { readFile, writeFile, rename, rm, stat } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import { notifyFolderChanged } from './kdirnotify.mjs';
+import { checkPath, cleanExts, hasExt, listDir, makeDir, places, target } from './fsbrowse.mjs';
 import { PROJECT_EXT, PROJECT_OPEN_EXTS, CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS } from '../src/fileformat.js';
 
 const bare = (ext) => ext.replace(/^\./, '');
 const PROJECT = bare(PROJECT_EXT);
-const FILTERS = [{ name: 'PHILSYNTH project', extensions: [PROJECT] }];
-const OPEN_FILTERS = [{ name: 'PHILSYNTH project', extensions: PROJECT_OPEN_EXTS.map(bare) }, { name: 'All files', extensions: ['*'] }];
 // small files saved / opened through 'file:save' / 'file:open' (see src/filedialog.js)
 // ext: saved files; open: what the open dialog offers (older extensions included)
 export const FILE_KINDS = {
@@ -18,6 +18,11 @@ export const FILE_KINDS = {
 };
 const MAX_PATHS = 100;
 const MAX_BYTES = 512 * 1024 * 1024;
+const MAX_AUDIO = 2 * 1024 * 1024 * 1024;
+// remembered start folder per dialog
+const DIALOG_KINDS = new Set(['project-open', 'project-save', 'clip', 'module', 'audio']);
+// extensions a save dialog may add / check (fs:target)
+const SAVE_EXTS = new Set([PROJECT_EXT, CLIP_EXT, MODULE_EXT, '.wav']);
 
 // Ensures the extension (dialogs on some desktops do not add it).
 export function withExtension(path, ext = PROJECT) {
@@ -66,15 +71,8 @@ const exists = (path) => stat(path).then(() => true, () => false);
 
 export function registerProjectFiles(isLocal) {
   const listFile = join(app.getPath('userData'), 'project-paths.json');
-  let allowed = null; // paths chosen in the dialogs (most recent last), kept across restarts
+  let allowed = null; // paths opened / saved as projects (most recent last), kept across restarts
   const dirs = createDirMemory(join(app.getPath('userData'), 'dialog-dirs.json'));
-  // called right before each dialog opens: KDE's dialog then lists the folder fresh (no F5 needed)
-  const startDir = async (kind) => {
-    const stored = await dirs.get(kind);
-    const dir = stored && await exists(stored) ? stored : app.getPath('documents');
-    await notifyFolderChanged(dir);
-    return dir;
-  };
 
   async function load() {
     if (allowed) return allowed;
@@ -101,114 +99,101 @@ export function registerProjectFiles(isLocal) {
     if (typeof text !== 'string' || text.length > MAX_BYTES) throw new Error('Invalid project data');
     return text;
   };
+  const kindOf = (kind) => {
+    if (!Object.hasOwn(FILE_KINDS, kind)) throw new Error(`Unknown file kind "${kind}"`);
+    return FILE_KINDS[kind];
+  };
+  // a path picked in the dialog, with one of `exts`
+  const fileOf = (path, exts) => {
+    const p = checkPath(path);
+    if (!hasExt(p, exts)) throw new Error(`Not a ${exts.join(' / ')} file`);
+    return p;
+  };
+  const readSmall = async (path, max) => {
+    if ((await stat(path)).size > max) throw new Error('File too large');
+    return readFile(path, 'utf8');
+  };
+  const written = (path) => notifyFolderChanged(dirname(path));
 
-  ipcMain.handle('project:open', async (e) => {
-    const win = check(e);
-    const r = await dialog.showOpenDialog(win, {
-      title: 'Open PHILSYNTH project',
-      defaultPath: await startDir('project-open'),
-      filters: OPEN_FILTERS,
-      properties: ['openFile'],
-    });
-    if (r.canceled || !r.filePaths[0]) return null;
-    const path = r.filePaths[0];
-    const text = await readFile(path, 'utf8');
-    await allow(path);
-    await dirs.remember('project-open', path);
-    return { name: basename(path), ref: path, text };
+  // ---- the in-app file dialog ----
+  // -> { dir, places }: the folder last used for that dialog (else Documents) and the sidebar
+  ipcMain.handle('fs:start', async (e, kind) => {
+    check(e);
+    if (!DIALOG_KINDS.has(kind)) throw new Error(`Unknown dialog "${kind}"`);
+    const stored = await dirs.get(kind);
+    const dir = stored && await exists(stored) ? stored : app.getPath('documents');
+    const get = (name) => { try { return app.getPath(name); } catch { return null; } };
+    return { dir, places: await places({ home: get('home'), desktop: get('desktop'), documents: get('documents'), downloads: get('downloads'), music: get('music') }) };
+  });
+  ipcMain.handle('fs:list', (e, dir, exts) => { check(e); return listDir(dir, exts); });
+  ipcMain.handle('fs:target', (e, dir, name, ext) => {
+    check(e);
+    if (!SAVE_EXTS.has(ext)) throw new Error('Invalid extension');
+    return target(dir, name, ext);
+  });
+  ipcMain.handle('fs:mkdir', (e, dir, name) => { check(e); return makeDir(dir, name); });
+
+  // ---- projects ----
+  ipcMain.handle('project:open', async (e, path) => {
+    check(e);
+    const p = fileOf(path, cleanExts(PROJECT_OPEN_EXTS));
+    const text = await readSmall(p, MAX_BYTES);
+    await allow(p);
+    await dirs.remember('project-open', p);
+    return { name: basename(p), ref: p, text };
   });
 
-  ipcMain.handle('project:saveAs', async (e, name, text) => {
-    const win = check(e);
+  ipcMain.handle('project:saveAs', async (e, path, text) => {
+    check(e);
     textOf(text);
-    const file = basename(typeof name === 'string' && name ? name : `Untitled.${PROJECT}`);
-    const r = await dialog.showSaveDialog(win, {
-      title: 'Save PHILSYNTH project',
-      defaultPath: join(await startDir('project-save'), withExtension(file)),
-      filters: FILTERS,
-      properties: ['showOverwriteConfirmation', 'createDirectory'],
-    });
-    if (r.canceled || !r.filePath) return null;
-    const path = withExtension(r.filePath);
-    // the dialog only confirmed overwriting the name without the extension
-    if (path !== r.filePath && await exists(path)) {
-      const { response } = await dialog.showMessageBox(win, {
-        type: 'warning',
-        buttons: ['Replace', 'Cancel'],
-        defaultId: 1,
-        cancelId: 1,
-        message: `"${basename(path)}" already exists. Do you want to replace it?`,
-      });
-      if (response !== 0) return null;
-    }
-    await atomicWrite(path, text);
-    notifyFolderChanged(dirname(path));
-    await allow(path);
-    await dirs.remember('project-save', path);
-    return { name: basename(path), ref: path };
+    const p = fileOf(withExtension(checkPath(path)), [PROJECT_EXT]);
+    await atomicWrite(p, text);
+    written(p);
+    await allow(p);
+    await dirs.remember('project-save', p);
+    return { name: basename(p), ref: p };
   });
 
-  // Save to a file picked earlier; null makes the page ask with Save As.
+  // Save to a file opened / saved before; null makes the page ask with Save As.
   ipcMain.handle('project:save', async (e, ref, text) => {
     check(e);
     textOf(text);
     if (typeof ref !== 'string' || !(await load()).includes(ref)) return null;
     await atomicWrite(ref, text);
-    notifyFolderChanged(dirname(ref));
+    written(ref);
     return { name: basename(ref), ref };
   });
 
-  const kindOf = (kind) => {
-    if (!Object.hasOwn(FILE_KINDS, kind)) throw new Error(`Unknown file kind "${kind}"`);
-    return FILE_KINDS[kind];
-  };
-  const confirmReplace = async (win, path) => {
-    const { response } = await dialog.showMessageBox(win, {
-      type: 'warning',
-      buttons: ['Replace', 'Cancel'],
-      defaultId: 1,
-      cancelId: 1,
-      message: `"${basename(path)}" already exists. Do you want to replace it?`,
-    });
-    return response === 0;
-  };
-
-  // Clips and modules: a Save dialog in the folder last used for that kind -> { name } or null.
-  ipcMain.handle('file:save', async (e, kind, name, text) => {
-    const win = check(e);
+  // ---- clips and modules ----
+  ipcMain.handle('file:save', async (e, kind, path, text) => {
+    check(e);
     const k = kindOf(kind);
     if (typeof text !== 'string' || text.length > k.max) throw new Error('Invalid file data');
-    const file = basename(typeof name === 'string' && name ? name : `Untitled.${k.ext}`);
-    const r = await dialog.showSaveDialog(win, {
-      title: `Save ${k.name}`,
-      defaultPath: join(await startDir(kind), withExtension(file, k.ext)),
-      filters: [{ name: k.name, extensions: [k.ext] }],
-      properties: ['showOverwriteConfirmation', 'createDirectory'],
-    });
-    if (r.canceled || !r.filePath) return null;
-    const path = withExtension(r.filePath, k.ext);
-    if (path !== r.filePath && await exists(path) && !(await confirmReplace(win, path))) return null;
-    await atomicWrite(path, text);
-    notifyFolderChanged(dirname(path));
-    await dirs.remember(kind, path);
-    return { name: basename(path) };
+    const p = fileOf(withExtension(checkPath(path), k.ext), [`.${k.ext}`]);
+    await atomicWrite(p, text);
+    written(p);
+    await dirs.remember(kind, p);
+    return { name: basename(p) };
   });
 
-  // -> { name, text } or null; starts in the folder last used for that kind.
-  ipcMain.handle('file:open', async (e, kind) => {
-    const win = check(e);
+  ipcMain.handle('file:open', async (e, kind, path) => {
+    check(e);
     const k = kindOf(kind);
-    const r = await dialog.showOpenDialog(win, {
-      title: `Open ${k.name}`,
-      defaultPath: await startDir(kind),
-      filters: [{ name: k.name, extensions: k.open }, { name: 'All files', extensions: ['*'] }],
-      properties: ['openFile'],
-    });
-    if (r.canceled || !r.filePaths[0]) return null;
-    const path = r.filePaths[0];
-    if ((await stat(path)).size > k.max) throw new Error('File too large');
-    const text = await readFile(path, 'utf8');
-    await dirs.remember(kind, path);
-    return { name: basename(path), text };
+    const p = fileOf(path, k.open.map((x) => `.${x}`));
+    const text = await readSmall(p, k.max);
+    await dirs.remember(kind, p);
+    return { name: basename(p), text };
+  });
+
+  // ---- Export Audio: the WAV bytes ----
+  ipcMain.handle('audio:save', async (e, path, data) => {
+    check(e);
+    const p = fileOf(withExtension(checkPath(path), 'wav'), ['.wav']);
+    const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : null;
+    if (!bytes || bytes.byteLength > MAX_AUDIO) throw new Error('Invalid audio data');
+    await atomicWrite(p, bytes);
+    written(p);
+    await dirs.remember('audio', p);
+    return { name: basename(p) };
   });
 }

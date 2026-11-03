@@ -1,6 +1,6 @@
 // The current project document: its file name / location and whether it has unsaved changes.
 // Classic New / Open / Save / Save As on top of a storage backend:
-//   - desktop app: native dialogs + real files (electron/preload.cjs, window.modsynthFiles)
+//   - desktop app: the app's own file dialog (src/filepicker.js) + real files (window.modsynthFiles)
 //   - browsers with the File System Access API: file handles, kept in IndexedDB across reloads
 //   - other browsers: file input to open, download to save
 // A backend: { open() -> { name, ref, text } | null, saveAs(name, text) -> { name, ref } | null,
@@ -8,6 +8,7 @@
 // `ref` identifies the file for later saves (a string, so it survives in the autosave).
 
 import { PROJECT_EXT, PROJECT_OPEN_EXTS } from './fileformat.js';
+import { pickFile } from './filepicker.js';
 
 export const UNTITLED = 'Untitled';
 export const EXT = PROJECT_EXT;
@@ -99,12 +100,19 @@ export function createProjectFile({ fingerprint, serialize, backend, onChange = 
 
 // ---- backends ----
 
-// Desktop app: electron/preload.cjs exposes the native file dialogs.
-export function electronBackend(files) {
+// Desktop app: the app's own file dialog (src/filepicker.js) picks the path, the main process
+// (electron/preload.cjs) reads / writes it. `pick` is replaceable for tests.
+export function electronBackend(files, pick = pickFile) {
   return {
-    open: () => files.open(),
+    async open() {
+      const f = await pick(files, { mode: 'open', dialog: 'project-open', title: 'Open PHILSYNTH project', types: `PHILSYNTH projects (${PROJECT_OPEN_EXTS.join(', ')})`, exts: PROJECT_OPEN_EXTS });
+      return f ? files.open(f.path) : null;
+    },
     save: (ref, text) => files.save(ref, text),
-    saveAs: (name, text) => files.saveAs(name, text),
+    async saveAs(name, text) {
+      const f = await pick(files, { mode: 'save', dialog: 'project-save', title: 'Save PHILSYNTH project', types: `PHILSYNTH projects (${EXT})`, exts: [EXT], saveExt: EXT, suggestedName: name });
+      return f ? files.saveAs(f.path, text) : null;
+    },
   };
 }
 

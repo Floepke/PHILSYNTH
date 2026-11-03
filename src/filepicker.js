@@ -1,0 +1,353 @@
+// The app's own Open / Save dialog for the desktop app (Electron), in the wooden dialog style.
+// Browsers keep their own pickers (src/projectfile.js, src/filedialog.js). Folders are browsed
+// through window.modsynthFiles (electron/preload.cjs -> electron/fsbrowse.mjs), which only lists
+// folders and files with the app's own extensions.
+//
+//   pickFile(files, { mode: 'open' | 'save', dialog, title, types, exts, saveExt, suggestedName })
+//     -> { path, name } of the chosen file, or null when cancelled.
+//   dialog: which remembered start folder ('project-open', 'project-save', 'clip', 'module', 'audio')
+//   types: label of the listed file types; exts: listed extensions; saveExt: added when saving
+//
+// Mouse: click selects, double-click opens a folder / picks a file. Keys in the list: arrows,
+// Home / End, PageUp / PageDown, Enter, Backspace (up a folder), letters jump to a name.
+// Saving over an existing file asks first.
+import { confirmDialog } from './dialogs.js';
+
+// folders first, then by name (case-insensitive, numbers in natural order)
+export function sortEntries(entries) {
+  return [...entries].sort((a, b) => (b.dir - a.dir) || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }));
+}
+
+export function formatSize(bytes) {
+  if (!(bytes >= 0)) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let v = bytes / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
+}
+
+export function formatDate(ms) {
+  if (!Number.isFinite(ms)) return '';
+  return new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+// type-ahead: index of the next entry after `from` whose name starts with `prefix`, or -1
+export function findPrefix(entries, prefix, from = -1) {
+  const p = prefix.toLowerCase();
+  const n = entries.length;
+  for (let k = 1; k <= n; k++) {
+    const i = (from + k + n) % n;
+    if (entries[i].name.toLowerCase().startsWith(p)) return i;
+  }
+  return -1;
+}
+
+// the file name without its extension, for preselecting in the name field
+export const baseLength = (name) => {
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? dot : name.length;
+};
+
+// message of an error from ipcRenderer.invoke, without Electron's prefix
+export const errorText = (err) => String(err?.message ?? err).replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '');
+
+export async function pickFile(files, opts, doc = document) {
+  const { mode = 'open', dialog, title = mode === 'save' ? 'Save' : 'Open', types = '', exts = [], suggestedName = '' } = opts;
+  const saveExt = opts.saveExt ?? exts[0];
+  const save = mode === 'save';
+  const $ = (id) => doc.getElementById(id);
+  const dlg = $('file-dialog');
+  const list = $('fd-list');
+  const nameInput = $('fd-name');
+  const okBtn = $('fd-ok');
+  const start = await files.start(dialog);
+
+  let dir = null;
+  let parent = null;
+  let entries = [];
+  let sel = -1;
+  let token = 0;
+  let editing = null; // new-folder input while it is shown
+  let typed = '';
+  let typedAt = 0;
+  let result = null;
+  const ac = new AbortController();
+  const on = (el, type, fn) => el.addEventListener(type, fn, { signal: ac.signal });
+
+  $('fd-title').textContent = title;
+  $('fd-types').textContent = types;
+  $('fd-name-row').hidden = !save;
+  okBtn.textContent = save ? 'Save' : 'Open';
+  nameInput.value = save ? suggestedName : '';
+  error('');
+
+  function error(text) {
+    $('fd-error').textContent = text;
+  }
+
+  function renderPlaces() {
+    const box = $('fd-places');
+    box.replaceChildren(...start.places.map((p) => {
+      const b = doc.createElement('button');
+      b.type = 'button';
+      b.className = 'fd-place';
+      b.textContent = p.name;
+      b.title = p.path;
+      b.setAttribute('aria-current', String(p.path === dir));
+      b.onclick = () => go(p.path);
+      return b;
+    }));
+  }
+
+  function renderCrumbs(crumbs) {
+    const nav = $('fd-crumbs');
+    const parts = [];
+    crumbs.forEach((c, i) => {
+      if (i > 0) {
+        const s = doc.createElement('span');
+        s.className = 'fd-sep';
+        s.textContent = '›';
+        parts.push(s);
+      }
+      const b = doc.createElement('button');
+      b.type = 'button';
+      b.className = 'fd-crumb';
+      b.textContent = c.name;
+      b.title = c.path;
+      b.onclick = () => go(c.path);
+      parts.push(b);
+    });
+    nav.replaceChildren(...parts);
+    nav.scrollLeft = nav.scrollWidth; // the current folder stays in sight
+  }
+
+  function renderList() {
+    const rows = entries.map((e, i) => {
+      const row = doc.createElement('div');
+      row.className = `fd-row${e.dir ? ' fd-dir' : ''}`;
+      row.setAttribute('role', 'option');
+      row.dataset.i = i;
+      row.setAttribute('aria-selected', String(i === sel));
+      const icon = doc.createElement('span');
+      icon.className = 'fd-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      const name = doc.createElement('span');
+      name.className = 'fd-file';
+      name.textContent = e.name;
+      name.title = e.name;
+      const size = doc.createElement('span');
+      size.className = 'fd-size';
+      size.textContent = e.dir ? '' : formatSize(e.size);
+      const date = doc.createElement('span');
+      date.className = 'fd-date';
+      date.textContent = formatDate(e.mtime);
+      row.append(icon, name, size, date);
+      return row;
+    });
+    if (!rows.length) {
+      const empty = doc.createElement('div');
+      empty.className = 'fd-empty';
+      empty.textContent = 'No matching files in this folder';
+      rows.push(empty);
+    }
+    list.replaceChildren(...rows);
+    $('fd-up').disabled = !parent;
+    updateOk();
+  }
+
+  function updateOk() {
+    okBtn.disabled = !save && !(entries[sel]);
+  }
+
+  function select(i, { scroll = true } = {}) {
+    if (!entries.length) return;
+    sel = Math.max(0, Math.min(entries.length - 1, i));
+    for (const row of list.querySelectorAll('.fd-row')) row.setAttribute('aria-selected', String(+row.dataset.i === sel));
+    if (scroll) list.querySelector(`.fd-row[data-i="${sel}"]`)?.scrollIntoView({ block: 'nearest' });
+    const e = entries[sel];
+    if (save && e && !e.dir) nameInput.value = e.name;
+    updateOk();
+  }
+
+  async function go(path, selectName = null) {
+    const my = ++token;
+    try {
+      const r = await files.list(path, exts);
+      if (my !== token) return false;
+      dir = r.dir;
+      parent = r.parent;
+      entries = sortEntries(r.entries);
+      sel = -1;
+      error('');
+      renderCrumbs(r.crumbs);
+      renderPlaces();
+      renderList();
+      list.scrollTop = 0;
+      if (selectName !== null) {
+        const i = entries.findIndex((e) => e.name === selectName);
+        if (i >= 0) select(i);
+      }
+      return true;
+    } catch (err) {
+      if (my !== token) return false;
+      error(`Cannot open "${path}": ${errorText(err)}`);
+      return false;
+    }
+  }
+
+  function up() {
+    if (!parent) return;
+    const from = dir.split(/[\\/]/).filter(Boolean).pop() ?? null;
+    go(parent, from);
+  }
+
+  function finish(path, name) {
+    result = { path, name };
+    dlg.close();
+  }
+
+  // Enter / double-click / OK on entry i (or the OK button without a selection)
+  async function activate(i) {
+    const e = entries[i];
+    if (e?.dir) return go(e.path);
+    if (e && !save) return finish(e.path, e.name);
+    if (!save) return error('Choose a file.');
+    if (e) nameInput.value = e.name;
+    return accept();
+  }
+
+  async function accept() {
+    if (!save) return activate(sel);
+    const name = nameInput.value.trim();
+    if (!name) {
+      error('Type a file name.');
+      nameInput.focus();
+      return;
+    }
+    if (!dir) return;
+    let t;
+    try {
+      t = await files.target(dir, name, saveExt);
+    } catch (err) {
+      error(errorText(err) === 'Invalid name' ? 'A file name cannot contain / or \\.' : errorText(err));
+      return;
+    }
+    if (t.dir) {
+      // a folder name was typed: open it, keep the suggested name
+      if (await go(t.path)) nameInput.value = suggestedName;
+      return;
+    }
+    if (t.exists && !(await confirmDialog(`"${t.name}" already exists in this folder. Do you want to replace it?`, { title: 'Replace file?', ok: 'Replace' }))) {
+      nameInput.focus();
+      return;
+    }
+    finish(t.path, t.name);
+  }
+
+  function newFolder() {
+    if (editing || !dir) return;
+    const row = doc.createElement('div');
+    row.className = 'fd-row fd-dir fd-new';
+    const icon = doc.createElement('span');
+    icon.className = 'fd-icon';
+    const input = doc.createElement('input');
+    input.className = 'fd-new-name';
+    input.value = 'New folder';
+    input.spellcheck = false;
+    input.setAttribute('aria-label', 'New folder name');
+    row.append(icon, input);
+    list.prepend(row);
+    list.scrollTop = 0;
+    editing = input;
+    input.focus();
+    input.select();
+    const close = () => {
+      editing = null;
+      row.remove();
+    };
+    input.addEventListener('keydown', async (e) => {
+      e.stopPropagation();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        close();
+        list.focus();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const name = input.value.trim();
+        if (!name) return close();
+        try {
+          await files.mkdir(dir, name);
+          close();
+          await go(dir, name);
+          list.focus();
+        } catch (err) {
+          error(`Cannot create the folder: ${errorText(err)}`);
+          input.focus();
+        }
+      }
+    });
+    input.addEventListener('blur', () => { if (editing === input) setTimeout(() => { if (editing === input && doc.activeElement !== input) close(); }); });
+  }
+
+  on(list, 'click', (e) => {
+    const row = e.target.closest('.fd-row[data-i]');
+    if (row) select(+row.dataset.i, { scroll: false });
+  });
+  on(list, 'dblclick', (e) => {
+    const row = e.target.closest('.fd-row[data-i]');
+    if (row) activate(+row.dataset.i);
+  });
+  on(list, 'keydown', (e) => {
+    if (e.target !== list) return;
+    const page = Math.max(1, Math.floor(list.clientHeight / (list.querySelector('.fd-row')?.offsetHeight || 24)) - 1);
+    const moves = { ArrowDown: sel + 1, ArrowUp: sel < 0 ? 0 : sel - 1, Home: 0, End: entries.length - 1, PageDown: sel + page, PageUp: sel - page };
+    if (e.key in moves && !(e.altKey && e.key === 'ArrowUp')) {
+      e.preventDefault();
+      select(moves[e.key]);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (sel >= 0) activate(sel);
+      else accept();
+    } else if (e.key === 'Backspace' || (e.altKey && e.key === 'ArrowUp')) {
+      e.preventDefault();
+      up();
+    } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey && e.key !== ' ') {
+      e.preventDefault();
+      const now = e.timeStamp;
+      typed = now - typedAt < 800 ? typed + e.key : e.key;
+      typedAt = now;
+      const i = findPrefix(entries, typed, typed.length > 1 ? sel - 1 : sel);
+      if (i >= 0) select(i);
+    }
+  });
+  on(nameInput, 'keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      accept();
+    }
+  });
+  on($('fd-up'), 'click', up);
+  on($('fd-mkdir'), 'click', newFolder);
+  on(okBtn, 'click', () => (save ? accept() : activate(sel)));
+  on($('fd-cancel'), 'click', () => dlg.close());
+  // Escape closes the dialog, except while a new folder is being named
+  on(dlg, 'cancel', (e) => { if (editing) e.preventDefault(); });
+
+  const closed = new Promise((resolve) => {
+    on(dlg, 'close', () => {
+      ac.abort();
+      editing = null;
+      resolve(result);
+    });
+  });
+  dlg.returnValue = '';
+  dlg.showModal();
+  if (!(await go(start.dir)) && start.places[0]) await go(start.places[0].path);
+  if (save) {
+    nameInput.focus();
+    nameInput.setSelectionRange(0, baseLength(nameInput.value));
+  } else list.focus();
+  return closed;
+}

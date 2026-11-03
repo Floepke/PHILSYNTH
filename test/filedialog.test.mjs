@@ -35,9 +35,11 @@ const abort = () => Object.assign(new Error('cancelled'), { name: 'AbortError' }
   assert.equal(await openTextFile('clip', win), null);
 }
 
-// Desktop app: the main process shows the dialogs (and stores the folders per kind).
+// Desktop app: the app's own dialog picks the path (start folder per kind), the main process
+// reads / writes it.
 {
   const calls = [];
+  const picks = [];
   const win = {
     modsynthFiles: {
       saveFile: async (...args) => { calls.push(['save', ...args]); return { name: 'x.clip' }; },
@@ -45,9 +47,50 @@ const abort = () => Object.assign(new Error('cancelled'), { name: 'AbortError' }
     },
     showSaveFilePicker() { throw new Error('not used'); },
   };
-  assert.deepEqual(await saveTextFile('clip', 'x.clip', 'data', win), { name: 'x.clip' });
-  assert.deepEqual(await openTextFile('module', win), { name: 'y.phmod', text: 't' });
-  assert.deepEqual(calls, [['save', 'clip', 'x.clip', 'data'], ['open', 'module']]);
+  let chosen = { path: '/music/x.clip', name: 'x.clip' };
+  const pick = async (files, opts) => {
+    assert.equal(files, win.modsynthFiles);
+    picks.push(opts);
+    return chosen;
+  };
+  assert.deepEqual(await saveTextFile('clip', 'x.clip', 'data', win, pick), { name: 'x.clip' });
+  chosen = { path: '/music/y.phmod', name: 'y.phmod' };
+  assert.deepEqual(await openTextFile('module', win, pick), { name: 'y.phmod', text: 't' });
+  assert.deepEqual(calls, [['save', 'clip', '/music/x.clip', 'data'], ['open', 'module', '/music/y.phmod']]);
+  assert.deepEqual(picks.map((o) => [o.mode, o.dialog, o.exts, o.saveExt]), [
+    ['save', 'clip', ['.clip'], '.clip'], ['open', 'module', ['.phmod', '.synth'], undefined],
+  ]);
+  assert.equal(picks[0].suggestedName, 'x.clip');
+  // cancelled in the dialog: nothing is read or written
+  chosen = null;
+  assert.equal(await saveTextFile('clip', 'x.clip', 'data', win, pick), null);
+  assert.equal(await openTextFile('module', win, pick), null);
+  assert.equal(calls.length, 2);
+}
+
+// Desktop app projects: the dialog's path goes to the main process; Save writes without a dialog.
+{
+  const { electronBackend } = await import('../src/projectfile.js');
+  const calls = [];
+  const files = {
+    open: async (path) => { calls.push(['open', path]); return { name: 'a.phproject', ref: path, text: '{}' }; },
+    save: async (ref, text) => { calls.push(['save', ref, text]); return { name: 'a.phproject', ref }; },
+    saveAs: async (path, text) => { calls.push(['saveAs', path, text]); return { name: 'b.phproject', ref: path }; },
+  };
+  const picks = [];
+  let chosen = { path: '/p/a.phproject', name: 'a.phproject' };
+  const b = electronBackend(files, async (_f, opts) => { picks.push(opts); return chosen; });
+  assert.equal((await b.open()).ref, '/p/a.phproject');
+  chosen = { path: '/p/b.phproject', name: 'b.phproject' };
+  assert.equal((await b.saveAs('Song.phproject', 'T')).ref, '/p/b.phproject');
+  await b.save('/p/b.phproject', 'U');
+  assert.deepEqual(calls, [['open', '/p/a.phproject'], ['saveAs', '/p/b.phproject', 'T'], ['save', '/p/b.phproject', 'U']]);
+  assert.deepEqual(picks.map((o) => [o.mode, o.dialog, o.suggestedName]), [['open', 'project-open', undefined], ['save', 'project-save', 'Song.phproject']]);
+  assert.ok(picks[0].exts.includes('.mds'), 'older projects open too');
+  chosen = null;
+  assert.equal(await b.open(), null);
+  assert.equal(await b.saveAs('x', 'y'), null);
+  assert.equal(calls.length, 3);
 }
 
 // Projects: opening and saving remember their own folders.

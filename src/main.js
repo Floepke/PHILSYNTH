@@ -29,6 +29,7 @@ import { withSamples, importSamples } from './samples.js';
 import { createProjectFile, pickBackend } from './projectfile.js';
 import { initStatusTips } from './statustips.js';
 import { saveTextFile, openTextFile } from './filedialog.js';
+import { pickFile } from './filepicker.js';
 import { PROJECT_FORMAT, MODULE_FORMAT, MODULE_EXT, isFormat } from './fileformat.js';
 import { moduleDocs } from './moduledocs.js';
 
@@ -1366,14 +1367,20 @@ window.addEventListener('keydown', (e) => {
 
 // ---- Export Audio ----
 // The save dialog comes first (it needs the click's user activation), then the song renders
-// offline (src/render.js) and is written there. Without the File System Access API the file is
-// downloaded instead (the desktop app shows a save dialog for it, see electron/main.mjs).
+// offline (src/render.js) and is written there. The desktop app uses its own dialog
+// (src/filepicker.js) and the main process writes the file. Without the File System Access API
+// the file is downloaded instead.
 let exporting = false;
 async function exportAudio() {
   if (exporting) return;
   const suggestedName = `${projectFile.name.replace(/\.(phproject|mds|json)$/i, '') || 'modsynth-song'}.wav`;
   let handle = null;
-  if (typeof window.showSaveFilePicker === 'function') {
+  let desktop = null; // { path, name } chosen in the desktop app's dialog
+  const files = window.modsynthFiles;
+  if (files?.saveAudio) {
+    desktop = await pickFile(files, { mode: 'save', dialog: 'audio', title: 'Export Audio', types: 'WAV audio (.wav)', exts: ['.wav'], saveExt: '.wav', suggestedName });
+    if (!desktop) return;
+  } else if (typeof window.showSaveFilePicker === 'function') {
     try {
       handle = await window.showSaveFilePicker({ suggestedName, types: [{ description: 'WAV audio', accept: { 'audio/wav': ['.wav'] } }] });
     } catch (err) {
@@ -1393,14 +1400,18 @@ async function exportAudio() {
       wasm,
       onProgress: (f) => { status.textContent = `Rendering audio… ${Math.round(f * 100)}%`; },
     });
-    const blob = new Blob([encodeWav(out.left, out.right, sampleRate)], { type: 'audio/wav' });
-    const name = handle?.name ?? suggestedName;
+    const wav = encodeWav(out.left, out.right, sampleRate);
+    const blob = new Blob([wav], { type: 'audio/wav' });
+    const name = desktop?.name ?? handle?.name ?? suggestedName;
     const download = () => {
       const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name });
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 10000);
     };
-    if (handle) {
+    if (desktop) {
+      status.textContent = `Writing ${name}…`;
+      await files.saveAudio(desktop.path, wav);
+    } else if (handle) {
       try {
         const writable = await handle.createWritable();
         await writable.write(blob);
