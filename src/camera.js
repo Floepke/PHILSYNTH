@@ -24,6 +24,21 @@ export function zoomAt(cam, sx, sy, factor) {
   return { x: sx - w.x * z, y: sy - w.y * z, z };
 }
 
+// Pan limit: the world rectangle `box` ({l, t, r, b}, all the modules) may move almost out of the
+// w × h view, but `keep` px of it always stay inside on each axis: panning down stops when the
+// bottom edge of the lowest module is `keep` px below the top of the view, and so on for the other
+// sides. Everything in between pans freely. Zoom is kept.
+export function clampCam(cam, box, w, h, keep = 40) {
+  if (!box || !(w > 0 && h > 0)) return cam;
+  const axis = (pos, lo, hi, size) => {
+    const k = Math.min(keep, size / 2);
+    const min = k - hi * cam.z; // far edge of the box k px past the view's near edge
+    const max = size - k - lo * cam.z; // near edge of the box k px before the view's far edge
+    return Math.min(max, Math.max(min, pos));
+  };
+  return { x: axis(cam.x, box.l, box.r, w), y: axis(cam.y, box.t, box.b, h), z: cam.z };
+}
+
 // Camera that shows the world rectangle `box` ({l, t, r, b}) centred in a w × h view,
 // never zooming in beyond `maxZoom`.
 export function fitBox(box, w, h, { margin = 60, maxZoom = 1 } = {}) {

@@ -12,7 +12,7 @@ import { Transport } from './transport.js';
 import { unsavedDialog } from './dialogs.js';
 import { exitToOS } from './exit.js';
 import { createSequencer } from './seq/index.js';
-import { defaultCam, validCam, toWorld, zoomAt, fitBox, ZOOM_STEP } from './camera.js';
+import { defaultCam, validCam, toWorld, zoomAt, fitBox, clampCam, ZOOM_STEP } from './camera.js';
 import { initWidgets } from './widgets.js';
 import { emptySong, getClip, snapStep } from './song.js';
 import { CableScope } from './cablescope.js';
@@ -124,22 +124,29 @@ function applyCam() {
   noiseBg.draw({ x, y, z }); // the background noise lives in world space too
   $('zoom').textContent = `${Math.round(z * 100)}%`;
 }
-function setCam(c) {
-  if (![c.x, c.y, c.z].every(Number.isFinite)) return; // a bad wheel event must not break the view
-  path[path.length - 1].cam = validCam(c);
-  applyCam();
-  persist.schedule();
-}
-function fitAll() {
-  const mods = [...current().modules.values()];
-  if (!mods.length) return setCam(defaultCam());
-  const box = { l: Infinity, t: Infinity, r: -Infinity, b: -Infinity };
-  for (const m of mods) {
+// World box around the modules of the current level that have a box on screen, or null.
+function modulesBox() {
+  let box = null;
+  for (const m of current().modules.values()) {
+    if (!m.el?.isConnected) continue;
+    box ??= { l: Infinity, t: Infinity, r: -Infinity, b: -Infinity };
     box.l = Math.min(box.l, m.x);
     box.t = Math.min(box.t, m.y);
     box.r = Math.max(box.r, m.x + m.el.offsetWidth);
     box.b = Math.max(box.b, m.y + m.el.offsetHeight);
   }
+  return box;
+}
+// Panning and zooming stop just before the outermost modules would leave the view, so they can't get lost.
+function setCam(c) {
+  if (![c.x, c.y, c.z].every(Number.isFinite)) return; // a bad wheel event must not break the view
+  path[path.length - 1].cam = clampCam(validCam(c), modulesBox(), canvas.clientWidth, canvas.clientHeight);
+  applyCam();
+  persist.schedule();
+}
+function fitAll() {
+  const box = modulesBox();
+  if (!box) return setCam(defaultCam());
   setCam(fitBox(box, canvas.clientWidth, canvas.clientHeight));
 }
 $('zoom').onclick = fitAll;
@@ -360,6 +367,11 @@ function render() {
   applyCam();
   for (const entry of current().modules.values()) createBox(entry);
   if (fit && canvas.clientWidth > 0 && canvas.clientHeight > 0) fitAll();
+  else if (!fit && canvas.clientWidth > 0) { // a saved view with the modules out of sight comes back
+    const c = cam();
+    const k = clampCam(c, modulesBox(), canvas.clientWidth, canvas.clientHeight);
+    if (k.x !== c.x || k.y !== c.y) setCam(k);
+  }
   drawCables();
   renderCrumbs();
   seq?.setLayer(); // the TimeLine of this level
