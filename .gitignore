@@ -33,3 +33,7 @@ Thumbs.db
 # Environment
 .env
 .env.*
+
+# Vscode
+.vscode/
+.VSCodeCounter/
