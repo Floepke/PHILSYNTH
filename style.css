@@ -1224,6 +1224,13 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
   background: var(--surface-3); color: var(--text); font: 12px var(--font);
 }
 .mc-select.mc-add { color: var(--text-dim); }
+/* a route: its controller (narrow), then its own Min / Max controllers, which take the rest of
+   the panel's width; all as tall as the other controllers */
+.mc-route { display: grid; grid-template-columns: 120px minmax(0, 1fr) minmax(0, 1fr); gap: 4px; align-items: center; }
+.mc-target .mc-select { height: 44px; }
+.ctl.mc-mini { margin: 0; padding: 0 8px; gap: 5px; }
+.ctl.mc-mini .ctl-label { flex: none; }
+.ctl.mc-mini .ctl-value { margin-left: auto; }
 .map-view { margin-top: 8px; }
 .map-view .map-open { width: 100%; margin-bottom: 8px; }
 #map-dialog { width: min(860px, 94vw); }

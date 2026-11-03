@@ -126,6 +126,7 @@ export class PatchRuntime {
     if (def.defaultState) {
       entry.state = state ? def.normalizeState?.(state) ?? structuredClone(state) : def.defaultState();
       inst.setState?.(entry.state);
+      inst.restoreValues?.(values); // controllers that follow the state (MULTICTL route ranges)
     }
     inst.setBpm?.(this.bpm);
     if (def.modulator) {
@@ -370,7 +371,9 @@ export class PatchRuntime {
       for (const p of ps) {
         if (!p) continue;
         driven.set(`${t.id} ${p.id}`, [t.id, p.id]);
-        list.push(...this.routesOf(t, p));
+        // MULTICTL: each route maps through its own range controllers too (lo / hi ids)
+        const range = m.def.routeRange?.(m, t, p.id);
+        list.push(...this.routesOf(t, p).map((r) => (range ? { ...r, ...range } : r)));
       }
     }
     const sig = JSON.stringify(list);

@@ -425,6 +425,7 @@ export const DOCS = {
     notes: [
       '<kbd>Shift</kbd> + drag over the modules to control, then pick their controllers under <b>Routes</b> (below the controllers).',
       'A controller picked on one module is also routed on connected modules of the same type that have no route yet, and newly connected modules of that type copy it.',
+      'Each route has its own tiny <b>Min</b> / <b>Max</b> controllers next to its controller: Out Min…Out Max is mapped once more onto that part of the routed controller\'s range (Min above Max turns it around). They are numbered after Out Max, in route order, so automation clips and LFOs can drive them too.',
     ],
   },
 
@@ -469,6 +470,7 @@ export function moduleDocs(def, params) {
     root.append(el('h3', null, 'Controllers'));
     const list = el('dl', 'md-params');
     params.forEach((p, i) => {
+      if (p.panel === false) return; // documented with its module's notes (MULTICTL route ranges)
       const dt = el('dt');
       const num = el('span', 'ctl-num');
       num.textContent = i;

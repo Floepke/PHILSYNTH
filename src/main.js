@@ -1169,6 +1169,7 @@ function select(s) {
 
   const controllers = document.createDocumentFragment();
   paramsOf(entry).forEach((p, index) => {
+    if (p.panel === false) return; // shown by the module's own view (MULTICTL route ranges)
     const format = (v) => (p.format ? p.format(v, entry.values) : p.options ? p.options[v] : String(+v.toFixed(3)));
     const ctl = createController(p, {
       index,

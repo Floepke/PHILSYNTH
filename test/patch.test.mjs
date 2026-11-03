@@ -1055,16 +1055,82 @@ const set = (e, x) => { hold(e, x); render(1); };
   render(1);
   assert.ok(Math.abs(r2.modules.get(o2.id).values.decay - 5) < 0.01, 'and drive it after loading');
   const [mc2, o2b] = await r.duplicateMany([mc.id, o2.id], 10, 10);
-  assert.deepEqual(mc2.state.routes, [{ to: o2b.id, param: 'decay' }], 'routes inside the copied group follow the copies');
+  assert.deepEqual(mc2.state.routes.map(({ to, param }) => ({ to, param })), [{ to: o2b.id, param: 'decay' }], 'routes inside the copied group follow the copies');
   const pasted = await r.pasteMany(r.copyMany([mc.id, o2.id]), { x: 0, y: 0 });
-  assert.deepEqual(pasted[0].state.routes, [{ to: pasted[1].id, param: 'decay' }]);
+  assert.deepEqual(pasted[0].state.routes.map(({ to, param }) => ({ to, param })), [{ to: pasted[1].id, param: 'decay' }]);
   assert.ok(r.cables.some((c) => c.from === pasted[0].id && c.to === pasted[1].id));
 
   // invalid state is cleaned up; deleting the MULTICTL keeps the values it set
-  assert.deepEqual(mc.def.normalizeState({ routes: [{ to: 'x', param: 1 }, { to: 2, param: 'gain' }, { to: 2, param: 'gain' }] }), { routes: [{ to: 2, param: 'gain' }] });
+  assert.deepEqual(mc.def.normalizeState({ routes: [{ to: 'x', param: 1 }, { to: 2, param: 'gain' }, { to: 2, param: 'gain' }] }), { routes: [{ to: 2, param: 'gain', key: 1 }] });
   r.removeModule(mc.id);
   assert.ok(!r.isDriven(o2.id, 'decay') && !r.isDriven(o3.id, 'decay'));
   assert.ok(Math.abs(o3.values.decay - 5) < 0.01);
+}
+
+// ---- MULTICTL route ranges: every route has its own Min / Max controllers, automatable ----
+{
+  const r = await PatchRuntime.create(engine, dsp.destination);
+  const mc = await r.addModule('MULTICTL');
+  const o1 = await r.addModule('OSC');
+  const o2 = await r.addModule('OSC');
+  r.connect(mc.id, o1.id); r.connect(mc.id, o2.id);
+  r.setState(mc.id, { routes: [{ to: o1.id, param: 'decay' }, { to: o2.id, param: 'decay' }] });
+  assert.deepEqual(mc.state.routes.map((x) => x.key), [1, 2], 'routes without a key get one');
+  const ps = mc.inst.params();
+  assert.deepEqual(ps.map((p) => p.id), ['value', 'outMin', 'outMax', 'r1Min', 'r1Max', 'r2Min', 'r2Max'], 'numbered after Out Max, in route order');
+  assert.equal(ps[4].label, `#${o1.id} Decay (s) Max`);
+  assert.ok(ps.slice(3).every((p) => p.panel === false), 'the Routes view shows them, not the controller list');
+  assert.equal(mc.values.r1Min, 0); assert.equal(mc.values.r1Max, 100);
+
+  r.setParam(mc.id, 'value', 100);
+  r.setParam(mc.id, 'r1Max', 50);
+  render(1);
+  assert.ok(Math.abs(o1.values.decay - 5) < 0.01, 'route 1 stops at its own Max');
+  assert.equal(o2.values.decay, 10, 'route 2 keeps the full range');
+  r.setParam(mc.id, 'outMax', 50);
+  render(1);
+  assert.ok(Math.abs(o1.values.decay - 2.5) < 0.01, 'inside Out Min..Out Max');
+  assert.ok(Math.abs(o2.values.decay - 5) < 0.01);
+  r.setParam(mc.id, 'outMax', 100);
+  r.setParam(mc.id, 'r2Min', 100); r.setParam(mc.id, 'r2Max', 0);
+  render(1);
+  assert.equal(o2.values.decay, 0.001, 'Min above Max turns the route around');
+  assert.match(mc.inst.params()[0].format(100, mc.values), /Decay \(s\) ×2/, 'own ranges: no single value shown');
+
+  // automation clips drive them by their number
+  assert.ok(r.automate('a', mc.id, 4, 0.2));
+  render(1);
+  assert.equal(mc.values.r1Max, 20);
+  assert.ok(Math.abs(o1.values.decay - 2) < 0.01, 'automated range applies on the audio thread');
+  // and an LFO on it (Out Controller = its number) drives it like any controller
+  const lfo = await r.addModule('LFO', { values: { outController: 4 } });
+  r.connect(lfo.id, mc.id);
+  assert.ok(r.isDriven(mc.id, 'r1Max'), 'LFO drives the route range');
+
+  // saved and restored with their values; old projects (routes without key) still load
+  const saved = JSON.parse(JSON.stringify(r.toJSON()));
+  const r2 = await PatchRuntime.create(engine, dsp.destination);
+  await r2.load(saved);
+  const mcb = r2.modules.get(mc.id);
+  assert.deepEqual([mcb.values.r2Min, mcb.values.r2Max], [100, 0]);
+  r2.setParam(mc.id, 'value', 100);
+  render(1);
+  assert.equal(r2.modules.get(o2.id).values.decay, 0.001, 'restored range reaches the DSP');
+
+  // a new OSC copies the routes with their ranges
+  const o3 = await r.addModule('OSC');
+  r.connect(mc.id, o3.id);
+  const copied = mc.state.routes.find((x) => x.to === o3.id);
+  assert.ok(copied && copied.key === 3);
+  assert.deepEqual([mc.values.r3Min, mc.values.r3Max], [0, mc.values.r1Max], 'copied from the first OSC route');
+
+  // removed routes take their controllers along; a new route never reuses an old range
+  r.disconnect(r.cables.find((c) => c.from === mc.id && c.to === o2.id));
+  assert.ok(!('r2Min' in mc.values) && !('r2Max' in mc.values));
+  r.setState(mc.id, { routes: [...mc.state.routes, { to: o2.id, param: 'release', key: 9 }] });
+  assert.deepEqual([mc.values.r9Min, mc.values.r9Max], [0, 100]);
+  const { nextRouteKey } = await import('../src/modules/multictl.js');
+  assert.equal(nextRouteKey([{ key: 2 }], { r7Max: 3 }), 8, 'stale range values count');
 }
 
 // ---- WAVESHAPER: curve state is saved, duplicated and mirrored to Patch instances ----

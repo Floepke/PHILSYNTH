@@ -41,6 +41,9 @@ export const SCOPE_PTS = BLOCK / SCOPE_DECIM;
 export const SCOPE_QUIET = 8192;
 const SCOPE_MAX = SCOPE_PTS * 32; // points kept between two reports (older ones are dropped)
 
+// controller `id` of a modulator node is one of its mapping controllers (kept in node.depth)
+const isDepth = (node, id) => node.modulator && (id in node.depth || !!node.depthIds?.test(id));
+
 export class Graph {
   constructor({ kernels = null, heap = null, native = true } = {}) {
     this.kernels = kernels ? { ...KERNELS, ...kernels } : KERNELS;
@@ -97,8 +100,9 @@ export class Graph {
       sumPtr: 0,
       rec: 0, // native: the node's GNode record
       silent: true,
-      routes: [], // modulators: [{ node, id, min, max, scale, step, last }]
+      routes: [], // modulators: [{ node, id, min, max, scale, step, lo, hi, last }]
       depth: { outMin: 0, outMax: 100, amp: 100 }, // modulators: mapping controllers
+      depthIds: K.depthIds ?? null, // more mapping controllers (MULTICTL route ranges: lo / hi of a route)
     };
     if (this.heap) node.outPtr = this.heap.alloc(2 * BLOCK * 4);
     node.outs = this.stereo(node.outPtr);
@@ -168,7 +172,7 @@ export class Graph {
     if (!node) return;
     node.k.message(m);
     if (m.type !== 'param') return;
-    if (node.modulator && m.id in node.depth) node.depth[m.id] = m.value;
+    if (isDepth(node, m.id)) node.depth[m.id] = m.value;
     // a controller set by hand while modulated: re-apply the modulation on the next block
     for (const mod of this.mods) for (const r of mod.routes) if (r.node === node && r.id === m.id) r.last = NaN;
   }
@@ -189,7 +193,7 @@ export class Graph {
     if (!node) return;
     for (const r of node.routes) this.pending.delete(r);
     node.routes = list
-      .map((r) => ({ node: this.nodes.get(r.to), id: r.id, min: r.min, max: r.max, scale: r.scale, step: r.step, last: NaN }))
+      .map((r) => ({ node: this.nodes.get(r.to), id: r.id, min: r.min, max: r.max, scale: r.scale, step: r.step, lo: r.lo ?? null, hi: r.hi ?? null, last: NaN }))
       .filter((r) => r.node);
     if (node.audioInput) this.dirty = true;
   }
@@ -246,11 +250,17 @@ export class Graph {
     const y = 0.5 + (x - 0.5) * (amp / 100);
     const pos = (outMin + (outMax - outMin) * y) / 100;
     for (const r of m.routes) {
-      const v = fromNorm(r, pos);
+      // a route with its own range (MULTICTL): Out Min..Out Max is mapped once more onto lo..hi
+      let at = pos;
+      if (r.lo !== null) {
+        const lo = m.depth[r.lo] ?? 0;
+        at = (lo + ((m.depth[r.hi] ?? 100) - lo) * pos) / 100;
+      }
+      const v = fromNorm(r, at);
       if (v === r.last) continue;
       r.last = v;
       r.node.k.param(r.id, v);
-      if (r.node.modulator && r.id in r.node.depth) r.node.depth[r.id] = v; // LFO -> LFO depth
+      if (isDepth(r.node, r.id)) r.node.depth[r.id] = v; // LFO -> LFO depth
       this.pending.add(r);
     }
   }
