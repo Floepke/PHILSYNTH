@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { setMaxListeners } from 'node:events';
-import { emptySong, addClip, addAutoClip, isAuto, cloneClip, normalizeSong, setLaneMute, snapStep, clipFileText, parseClipFile } from '../src/song.js';
+import { notePitchAt, emptySong, addClip, addAutoClip, isAuto, cloneClip, normalizeSong, setLaneMute, snapStep, clipFileText, parseClipFile } from '../src/song.js';
 import { createAutomationLane } from '../src/seq/automation.js';
 import { createPianoRoll, TOP_MARGIN } from '../src/seq/pianoroll.js';
 import { createArranger } from '../src/seq/arranger.js';
@@ -736,10 +736,10 @@ for (const end of ['lostpointercapture', 'pointercancel']) {
   assert.equal(playing, 0);
   assert.equal(changes(), 1);
   assert.equal(b.pitch, 64, 'other notes untouched');
-  // drawn on its key: the body in column 60, the circle leaning right
+  // the whole note shifts by the tuning: body and circle lean right together
   cv.drawing.length = 0;
   roll.redraw(); flush();
-  assert.ok(cv.drawing.some(([op, x, y]) => op === 'roundRect' && x === nx(60) - 7.5 && y === ny(1)), 'body stays in its key column');
+  assert.ok(cv.drawing.some(([op, x, y]) => op === 'roundRect' && Math.abs(x - (nx(60) - 7.5 + 0.499 * 14)) < 1e-9 && y === ny(1)), 'body shifts with the tuning');
   assert.ok(cv.drawing.some(([op, x]) => op === 'translate' && Math.abs(x - (nx(60) + 0.499 * 14)) < 1e-9), 'circle leans by the tuning');
   // the circle is still grabbed where it is drawn; down to -50 cents
   drag(cv, nx(60) + 7, ny(1) + 5, nx(60) + 7 - 4000, ny(1) + 5, { shiftKey: true });
@@ -775,8 +775,14 @@ for (const end of ['lostpointercapture', 'pointercancel']) {
   const cv = roll.surface.cv;
   clip.notes.push(note(59.5, 1), note(59.49, 3));
   roll.redraw(); flush();
-  assert.ok(cv.drawing.some(([op, x, y]) => op === 'roundRect' && x === nx(60) - 7.5 && y === ny(1)), '59.5 is C4');
-  assert.ok(cv.drawing.some(([op, x, y]) => op === 'roundRect' && x === nx(59) - 7.5 && y === ny(3)), '59.49 is B3');
+  // the bodies sit at their exact pitch (between the columns), the key still names and colours them
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  assert.ok(cv.drawing.some(([op, x, y]) => op === 'roundRect' && near(x, nx(59.5) - 7.5) && y === ny(1)), '59.5 drawn at its pitch');
+  assert.ok(cv.drawing.some(([op, x, y]) => op === 'roundRect' && near(x, nx(59.49) - 7.5) && y === ny(3)), '59.49 drawn at its pitch');
+  point(cv, 'pointermove', nx(59.5), ny(1.5));
+  assert.match(cv.title, /^C4 /, '59.5 is C4');
+  point(cv, 'pointermove', nx(59.49), ny(3.5));
+  assert.match(cv.title, /^B3 /, '59.49 is B3');
   // held keys (MIDI) light their base key blue
   const keyFill = (p) => cv.drawing.findLast(([op, x, y]) => op === 'fillRect' && x === nx(p) - 7 + 0.5 && y > 300)?.[5];
   ctx.heldKeys = () => new Set([61.6]);
@@ -1713,6 +1719,74 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   pick(menus, 'Delete point');
   assert.equal('vels' in b, false);
   assert.ok(changes() > 4);
+}
+
+// Pitch bend: double-click a selected note's body inserts a bend point that drags at once; points
+// move freely (pitch continuous, Shift whole semitones), the body follows the curve, wheel rounds,
+// right-click deletes, the menu resets; tuned notes shift whole (body included).
+{
+  const { clip, roll, changes, menus, previews } = setup();
+  const cv = roll.surface.cv;
+  const n = note(60, 0, 4);
+  clip.notes.push(n);
+  flush();
+  dbl(cv, nx(60), ny(2)); // first press selects, the second inserts
+  assert.deepEqual(n.bends, [{ t: 2, d: 0, r: 1 }], 'inserted at the pointer\'s time, the pitch under the pointer');
+  assert.equal(n.length, 4, 'the double-click did not resize the note');
+  const c0 = changes();
+  drag(cv, nx(60), ny(2), nx(62) + 7, ny(2.5));
+  assert.equal(n.bends[0].t, 2.5);
+  assert.ok(Math.abs(n.bends[0].d - 2.5) < 1e-9, `free pitch ${n.bends[0].d}`);
+  assert.ok(changes() > c0);
+  assert.equal(previews(), 0, 'the bend preview is released');
+  drag(cv, nx(62.5), ny(2.5), nx(63.4), ny(2.5), { shiftKey: true });
+  assert.equal(n.bends[0].d, 3, 'Shift snaps to whole semitones');
+  // time is free too: off the grid, both when dragging and when inserting
+  drag(cv, nx(63), ny(2.5), nx(63), ny(2.63));
+  assert.ok(Math.abs(n.bends[0].t - 2.63) < 1e-6, `dragged off the grid: ${n.bends[0].t}`);
+  n.bends = [];
+  delete n.bends;
+  flush();
+  dbl(cv, nx(60), ny(1.37));
+  assert.ok(n.bends?.length === 1 && Math.abs(n.bends[0].t - 1.37) < 1e-6, `inserted off the grid: ${n.bends?.[0]?.t}`);
+  n.bends = [{ t: 4, d: 12, r: 0 }];
+  flush();
+  // the body follows the curve: at t=2 it sits 6 semitones up, the straight column is empty there
+  point(cv, 'pointermove', nx(66), ny(2));
+  assert.match(cv.title, /^C4/, 'hovering the bent body shows the note');
+  point(cv, 'pointermove', nx(60), ny(3));
+  assert.doesNotMatch(cv.title, /^C4/, 'the column under the start pitch is free later on');
+  // transposing keeps the relative bend
+  key(cv, 'ArrowRight');
+  assert.equal(n.pitch, 61);
+  assert.equal(notePitchAt(n, 4), 73);
+  // wheel rounds a point
+  point(cv, 'wheel', nx(73), ny(4), { deltaY: -100 });
+  assert.equal(n.bends[0].r, 0.05);
+  // Escape while dragging restores; a fresh double-click insert cancelled removes the point again
+  point(cv, 'pointerdown', nx(73), ny(4), { buttons: 1 });
+  point(cv, 'pointermove', nx(50), ny(3), { buttons: 1 });
+  key(cv, 'Escape');
+  assert.deepEqual(n.bends, [{ t: 4, d: 12, r: 0.05 }]);
+  // menu on a point: Delete bend point; Reset bend straightens the note
+  holdRightClick(cv, nx(73), ny(4));
+  assert.ok(labels(menus).includes('Delete bend point'));
+  assert.ok(n.bends, 'holding for the menu does not delete');
+  pick(menus, 'Delete bend point');
+  assert.equal('bends' in n, false);
+  n.bends = [{ t: 1, d: -2, r: 0 }, { t: 3, d: 2, r: 0 }];
+  flush();
+  click(cv, nx(59), ny(1), { button: 2 }); // short right-click on a point deletes it
+  assert.deepEqual(n.bends, [{ t: 3, d: 2, r: 0 }]);
+  assert.ok(clip.notes.includes(n), 'and not the note');
+  holdRightClick(cv, nx(61), ny(0.5));
+  pick(menus, 'Reset bend');
+  assert.equal('bends' in n, false);
+  // micropitch shifts the whole note: the body column follows the cents
+  n.pitch = 60.5; // C#4 - 50 cents, half a column left of C#4
+  flush();
+  point(cv, 'pointermove', nx(60.5), ny(2));
+  assert.match(cv.title, /^C#4/, 'the tuned body sits between the columns');
 }
 
 // Several selected notes: dragging one selected note's start handle moves every selected start

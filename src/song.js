@@ -19,6 +19,10 @@
 //   optional note.vels = [{ t (quarters after the note start, > 0), v (0..1), r (0..1 rounding) }]
 //   continues the curve (same curve maths as automation). Playback sends the changes as MODMIDI
 //   noteMod. Treat vels as immutable: edits assign a new array (notes copied with {...n} share it).
+//   Pitch bends: the optional note.bends = [{ t (quarters after the note start, > 0), d (semitones
+//   relative to note.pitch), r (0..1 rounding) }] bend the pitch while the note sounds, from
+//   note.pitch at the start (same curve maths; notePitchAt). Relative, so moving / transposing /
+//   tuning a note carries its bend along. Immutable like vels. Playback sends it as noteMod.
 // Automation clips have kind: 'auto' and drive one controller of the target module instead of
 // playing notes (their notes array stays empty):
 //   clip.controller = controller number of the target (same numbering as the LFO Out Controller)
@@ -197,6 +201,7 @@ export function normalizeSong(s) {
           length: n.length,
           vel: Math.min(1, Math.max(0, num(n.vel, DEFAULT_VEL))),
           ...velsOf(n),
+          ...bendsOf(n),
         })),
     };
     if (c.kind === 'auto') {
@@ -291,6 +296,34 @@ export const notePoints = (note) => [{ t: 0, v: note.vel, r: 0 }, ...(note.vels 
 export function noteVelAt(note, t) {
   if (!note.vels?.length) return note.vel;
   return clamp01(sampleAt(curvePolyline(notePoints(note).map((p) => ({ x: p.t, y: p.v, r: p.r }))), t));
+}
+
+// ---- pitch bends ----
+export const BEND_MAX = 48; // semitones a bend point may lie away from the note's pitch
+export function normalizeBends(list) {
+  return (Array.isArray(list) ? list : [])
+    .filter((p) => Number.isFinite(p?.t) && p.t > 1e-9 && Number.isFinite(p.d))
+    .map((p) => ({ t: p.t, d: Math.min(BEND_MAX, Math.max(-BEND_MAX, p.d)), r: clamp01(+p.r || 0) }))
+    .sort((a, b) => a.t - b.t);
+}
+const bendsOf = (n) => {
+  const bends = normalizeBends(n.bends);
+  return bends.length ? { bends } : {};
+};
+
+// All points of a note's bend curve as { t, d, r }, the start point (offset 0) first.
+export const bendPoints = (note) => [{ t: 0, d: 0, r: 0 }, ...(note.bends ?? [])];
+
+// Dense polyline [t0, d0, t1, d1, ...] of a note's bend offset (null without bends).
+export function bendPolyline(note) {
+  if (!note.bends?.length) return null;
+  return curvePolyline(bendPoints(note).map((p) => ({ x: p.t, y: p.d, r: p.r })));
+}
+
+// Sounding pitch of a note t quarters after its start (0..PITCH_MAX).
+export function notePitchAt(note, t, poly = bendPolyline(note)) {
+  if (!poly) return note.pitch;
+  return Math.min(PITCH_MAX, Math.max(0, note.pitch + sampleAt(poly, t)));
 }
 
 // One shared curve (absolute clip times) through the velocity curves of several notes: every

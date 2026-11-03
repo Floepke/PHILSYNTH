@@ -7,6 +7,8 @@
 // that note is triggered right away and plays for the rest of its length.
 // Velocity curves (note.vels, see song.js): every tick each sounding note's velocity is
 // re-evaluated and changes are sent as noteMod, so edits while playing are heard right away too.
+// Pitch bends (note.bends) the same way: the bent pitch is sent as noteMod each tick it changes
+// (a chased note starts at its bent pitch).
 // Automation clips: while playing, setAuto(clipId, clip, value 0..1) is called every tick for each
 // automation clip under the playhead; setAuto(clipId, null, null) releases a clip when the
 // playhead leaves it or playback stops (the controller gets its own value back).
@@ -24,7 +26,7 @@
 // pitchOffset(scope): semitones added to every played note (that level's Output Global Transpose /
 // Cents Offset).
 import { newNoteId } from './modmidi.js';
-import { automationAt, barCeil, clipSilent, getClip, isIdea, loopEnd, loopRegion, notesSounding, notesStarting, noteVelAt, songEnd } from './song.js';
+import { automationAt, barCeil, clipSilent, getClip, isIdea, loopEnd, loopRegion, notesSounding, notesStarting, notePitchAt, noteVelAt, songEnd } from './song.js';
 
 const TICK_MS = 5;
 
@@ -209,16 +211,19 @@ export class Transport {
     if (to >= end) to = start + (to - start) % span;
     this.advance(this.from, to);
     this.pos = this.from = to;
-    this.followVelocity(to);
+    this.followNotes(to);
     this.automate(to);
   }
 
-  followVelocity(q) {
+  // velocity curves and pitch bends of the sounding notes
+  followNotes(q) {
     for (const n of this.active) {
       const v = noteVelAt(n.note, q - n.start);
-      if (Math.abs(v - n.vel) < 1e-4) continue;
+      const pitch = notePitchAt(n.note, q - n.start) + n.off;
+      if (Math.abs(v - n.vel) < 1e-4 && Math.abs(pitch - n.pitch) < 1e-4) continue;
       n.vel = v;
-      n.inst.noteMod?.(n.id, n.pitch, v);
+      n.pitch = pitch;
+      n.inst.noteMod?.(n.id, pitch, v);
     }
   }
 
@@ -259,9 +264,10 @@ export class Transport {
     const vel = noteVelAt(ev.note, at - ev.start);
     // Preserve distinct musical onsets even when one transport tick delivers several notes.
     const time = this.last / 1000 + (at - this.pos) * 60 / this.getBpm();
-    const pitch = ev.note.pitch + this.pitchOffset(this.scopeNow()); // kept for noteMod: a sounding note keeps its pitch
+    const off = this.pitchOffset(this.scopeNow()); // kept for noteMod: a sounding note keeps its offset
+    const pitch = notePitchAt(ev.note, at - ev.start) + off;
     inst.noteOn(id, pitch, vel, 0, time);
-    this.active.push({ id, inst, pitch, end: ev.end, note: ev.note, start: ev.start, vel, clip: ev.clip, song: layer.song });
+    this.active.push({ id, inst, pitch, off, end: ev.end, note: ev.note, start: ev.start, vel, clip: ev.clip, song: layer.song });
   }
 
   // note-offs due by `to`, then note-ons starting in [from, to)

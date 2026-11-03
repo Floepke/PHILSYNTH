@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  notePitchAt, bendPoints, BEND_MAX,
   snapStep, snapRound, snapFloor, normalizeSong, emptySong, addClip, duplicateClip, removeClip, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource, LANE_H,
   trimClipStart, loopEnd, notesStarting, isBlack, inPiano, formatPos, noteName, clean,
   meter, barLines, beatLines, barRound, barCeil, barLength, setSig, removeSig, normalizeSigs,
@@ -224,6 +225,25 @@ t.stop();
   a.start = 5; a.length = 3;
   trimClipStart(a, 5, orig);
   assert.deepEqual(a.points.map((p) => p.t), [0, 1, 2]);
+}
+
+// pitch bends: relative to the note pitch, same curve maths, saved and normalised
+{
+  const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
+  const n = { pitch: 60.25, start: 2, length: 4, vel: 0.5 };
+  assert.equal(notePitchAt(n, 3), 60.25, 'no bend: constant');
+  n.bends = [{ t: 2, d: 2, r: 0 }];
+  near(notePitchAt(n, 1), 61.25);
+  near(notePitchAt(n, 3), 62.25, 'holds after the last point');
+  assert.deepEqual(bendPoints(n)[0], { t: 0, d: 0, r: 0 });
+  n.bends = [{ t: 1, d: 200, r: 0 }];
+  assert.equal(notePitchAt({ ...n, pitch: 120 }, 2), 127, 'clamped to the MIDI range');
+  const song = emptySong();
+  const c = addClip(song, { length: 8 });
+  c.notes.push({ ...n, bends: [{ t: 3, d: -1, r: 0.5 }, { t: 0, d: 4 }, { t: 1, d: 99 }, { t: 'x', d: 1 }] }, { pitch: 62, start: 0, length: 1, vel: 0.3 });
+  const loaded = normalizeSong(JSON.parse(JSON.stringify(song))).clips[0].notes;
+  assert.deepEqual(loaded[0].bends, [{ t: 1, d: BEND_MAX, r: 0 }, { t: 3, d: -1, r: 0.5 }], 'sorted, clamped, t = 0 / invalid dropped');
+  assert.equal('bends' in loaded[1], false);
 }
 
 // velocity curves

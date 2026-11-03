@@ -531,6 +531,46 @@ function setup() {
   transport.stop();
 }
 
+// Pitch bends glide with noteMod (plus the pitch offset); chased notes start on the bent pitch.
+{
+  const song = emptySong();
+  const c = addClip(song, { start: 0, length: 8, target: 1 });
+  c.notes.push({ pitch: 60, start: 0, length: 4, vel: 0.5, bends: [{ t: 4, d: 4, r: 0 }] });
+  let now = 0;
+  const ev = [];
+  const inst = {
+    noteOn: (id, pitch, vel) => ev.push({ type: 'on', id, pitch, vel }),
+    noteMod: (id, pitch, vel) => ev.push({ type: 'mod', id, pitch, vel }),
+    noteOff: (id) => ev.push({ type: 'off', id }),
+  };
+  const transport = new Transport({
+    getSong: () => song, getBpm: () => 120, getTarget: () => inst, pitchOffset: () => 12,
+    now: () => now, ticker: () => ({ start() {}, stop() {} }),
+  });
+  const run = (ms) => { for (let left = ms; left > 0; left -= 5) { now += 5; transport.tick(); } };
+  transport.play({ fromStart: true });
+  run(1000); // 2 quarters
+  assert.equal(ev[0].pitch, 72);
+  const mods = ev.filter((e) => e.type === 'mod');
+  assert.ok(mods.length > 50 && mods.every((m) => m.vel === 0.5));
+  assert.ok(Math.abs(mods.at(-1).pitch - 74) < 0.02, `halfway ${mods.at(-1).pitch}`);
+  // removing the bend while it sounds returns the pitch on the next tick, then stays quiet
+  delete c.notes[0].bends;
+  run(5);
+  assert.equal(ev.at(-1).pitch, 72);
+  const count = ev.length;
+  run(50);
+  assert.equal(ev.length, count);
+  transport.stop();
+  c.notes[0].bends = [{ t: 4, d: 4, r: 0 }];
+  ev.length = 0;
+  transport.seek(3);
+  transport.play();
+  run(5);
+  assert.ok(Math.abs(ev[0].pitch - 75) < 0.02, `chased at ${ev[0].pitch}`);
+  transport.stop();
+}
+
 // Loop region: song playback starts in it and loops there; removing it loops the whole song again.
 {
   const { song, transport, events, run } = setup();

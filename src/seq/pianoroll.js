@@ -16,7 +16,16 @@
 //                                in 0.1 cent steps, slowly (MICRO_PX px per cent); a slider shows the
 //                                cents. A note stays in its key's column (halves round up, see
 //                                song.js basePitch); its circle leans sideways by the tuning
-//                                (±50 cents = half a column). Esc / pointer cancel restores it.
+//                                (±50 cents = half a column); the whole note (circle and coloured
+//                                body) shifts along. Esc / pointer cancel restores it.
+//   double-click a selected note's coloured body  pitch bend: inserts a bend point there (hold the
+//                                second press to drag it at once). The body becomes a thick line through
+//                                its bend points (bendPolyline in song.js), it is heard as noteMod glides.
+//   drag a bend point            anywhere: sideways is pitch (continuous, read it off the stave;
+//                                Shift snaps to whole semitones from the note), up / down its time
+//                                (free, off the grid too; between its neighbours, inside the note). Bend points
+//                                show on selected notes; wheel on one rounds its corner, right-click
+//                                deletes it, holding right opens the menu (Delete bend point, Reset bend).
 //   drag the thick end line      change the clip length (wheel-scroll or drag past the top / bottom edge to go further)
 //   Shift + drag / right drag    select notes with a rectangle (Shift: starting off a note's circle) (wheel-scroll or drag past the top / bottom edge to extend it across the clip)
 //   Shift + click a note         add it to / remove it from the selection
@@ -35,11 +44,13 @@
 // The bar ruler between them is a divider: drag it sideways to widen the strip (the note grid
 // scales to the rest), double-click it to reset. The width is saved with the project view.
 // Free timing bypasses time snapping; the visual grid (base note ÷ divider) stays visible.
-import { basePitch, centsOf, withCents, centsLabel, isBlack, inPiano, clipSilent, isIdea, snapStep, pianoTimeStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, clean, meter, barLines, beatLines, barLength } from '../song.js';
+import { basePitch, centsOf, bendPolyline, notePitchAt, BEND_MAX, withCents, centsLabel, isBlack, inPiano, clipSilent, isIdea, snapStep, pianoTimeStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, clean, meter, barLines, beatLines, barLength } from '../song.js';
 import { createSurface, capture, startPan, onWheel, clamp, snapBands, mutedMark, edgeScroll, RIGHT_HOLD_MS, RIGHT_HOLD_SLOP } from './surface.js';
 import { createVelocityStrip, VEL_W } from './velocity.js';
 import { clipResizeBounds } from './clipplacement.js';
 import { showMenu, shortcut } from './menu.js';
+import { doublePress } from '../doublepress.js';
+import { NEW_POINT_ROUND } from '../curve.js';
 
 const CENTRAL = [61, 63]; // C#4 and D#4, the black keys next to middle C
 const GRID_LOW = 22; // A#0 (American notation)
@@ -64,6 +75,8 @@ const BOUNDARY = STAVE;
 const TIME_EPSILON = 1e-7;
 const MICRO_PX = 4; // px of sideways Shift-drag per cent of micropitch
 const SLIDER_W = 160; // px, the micropitch slider (±50 cents)
+const BEND_HIT = 7; // px, grab radius of a bend point
+const ROUND_STEP = 0.05; // rounding change per wheel step on a bend point
 
 // ctx: { song(), clip(), color(clip), preview: { on(clip, pitch) -> handle, key(pitch) -> handle,
 //        bend?(handle, pitch) (micropitch drag), off(handle) }, changed(), transport,
@@ -80,6 +93,8 @@ export function createPianoRoll(host, ctx) {
   let selected = new Set();
   let clipboard = [];
   let lastLength = null; // length of the last drawn / resized note: new notes get it
+  let hoverBend = null; // { note, i }: the bend point under the pointer
+  const presses = doublePress(); // double-click a note body = down-up-DOWN: the new bend point drags at once
   const menu = (opts) => (ctx.menu ?? showMenu)(opts);
 
   const s = createSurface(host, paint);
@@ -93,8 +108,13 @@ export function createPianoRoll(host, ctx) {
   const xOf = (p) => gridX() + p * keyWidth();
   const yOf = (t) => t * view.ppq - view.sy;
   const keyX = (n) => xOf(basePitch(n.pitch)); // a note's column: the key its pitch belongs to
-  const headX = (n) => keyX(n) + keyWidth() / 2 + (centsOf(n.pitch) / 100) * keyWidth(); // leans by the tuning
+  // x of a (fractional) pitch: whole pitches sit in the middle of their column, cents lean sideways
+  const centerX = (p) => xOf(p) + keyWidth() / 2;
+  const headX = (n) => centerX(n.pitch); // leans by the tuning
+  const bodyX = (n, t) => centerX(notePitchAt(n, t)); // middle of the note body t quarters after its start
   const pitchAt = (x) => keyWidth() > 0 ? clamp(Math.floor((x - gridX()) / keyWidth()), 0, PITCH_MAX) : 0;
+  const pitchFromX = (x) => keyWidth() > 0 ? clamp((x - gridX()) / keyWidth() - 0.5, 0, PITCH_MAX) : 0; // continuous
+  const bendXY = (n, b) => ({ x: centerX(clamp(n.pitch + b.d, 0, PITCH_MAX)), y: yOf(n.start + b.t) });
   const timeAt = (y) => (y + view.sy) / view.ppq;
   const gridBottom = () => Math.max(0, s.h - KEYBOARD);
   const inGrid = (x, y) => x >= gridX() && x < s.w && y >= 0 && y < gridBottom();
@@ -186,9 +206,60 @@ export function createPianoRoll(host, ctx) {
     const t = playheadTime(clip);
     if (t === null) return out;
     for (const n of clip.notes) {
-      if (n.start >= 0 && n.start < clip.length && n.start <= t && t < n.start + n.length) out.add(basePitch(n.pitch));
+      if (n.start >= 0 && n.start < clip.length && n.start <= t && t < n.start + n.length) out.add(basePitch(notePitchAt(n, t - n.start)));
     }
     return out;
+  }
+
+  // a bent note body: a thick line through its pitch curve, round ends inside the note's time
+  function bentBody(g, n, poly, bw) {
+    const hh = n.length * view.ppq;
+    const r = Math.min(bw / 2, hh / 2);
+    const t0 = r / view.ppq;
+    const t1 = n.length - t0;
+    g.lineWidth = Math.min(bw, hh);
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
+    g.moveTo(bodyX(n, t0), yOf(n.start + t0));
+    for (let i = 0; i < poly.length; i += 2) {
+      if (poly[i] > t0 && poly[i] < t1) g.lineTo(bodyX(n, poly[i]), yOf(n.start + poly[i]));
+    }
+    g.lineTo(bodyX(n, Math.max(t0, t1)), yOf(n.start + Math.max(t0, t1)));
+    g.stroke();
+    g.lineCap = 'butt';
+    g.lineJoin = 'miter';
+  }
+
+  // bend points of the selected notes (velocity editor style), with a thin guide through them
+  function paintBends(g, clip) {
+    for (const n of clip.notes) {
+      if (!n.bends?.length || !selected.has(n)) continue;
+      g.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+      g.lineWidth = 1;
+      g.setLineDash([3, 3]);
+      g.beginPath();
+      g.moveTo(headX(n), yOf(n.start));
+      for (const b of n.bends) { const p = bendXY(n, b); g.lineTo(p.x, p.y); }
+      g.stroke();
+      g.setLineDash([]);
+      n.bends.forEach((b, i) => {
+        const { x, y } = bendXY(n, b);
+        const active = (drag?.kind === 'bend' && drag.note === n && drag.i === i) || (hoverBend?.note === n && hoverBend.i === i);
+        g.beginPath();
+        g.arc(x, y, active ? 5.5 : 4.5, 0, Math.PI * 2);
+        g.fillStyle = active ? '#fff' : SELECT;
+        g.fill();
+        g.lineWidth = 1.5;
+        g.strokeStyle = STAVE;
+        g.stroke();
+        if (b.r) {
+          g.beginPath();
+          g.arc(x, y, 7 + b.r * 5, -Math.PI / 2, -Math.PI / 2 + b.r * Math.PI * 2);
+          g.strokeStyle = SELECT;
+          g.stroke();
+        }
+      });
+    }
   }
 
   function paint(g, w, h) {
@@ -234,7 +305,7 @@ export function createPianoRoll(host, ctx) {
           // Compare musical time, not rounded pixels; starts and ends can drift at triplet boundaries.
           const gaps = clip.notes
             .filter((n) => n.start <= t + TIME_EPSILON && n.start + n.length >= t - TIME_EPSILON)
-            .map((n) => [keyX(n) - overlap() - kw / 2, keyX(n) + kw + overlap() + kw / 2])
+            .map((n) => { const cx = bodyX(n, t - n.start); return [cx - kw - overlap(), cx + kw + overlap()]; })
             .sort((a, b) => a[0] - b[0]);
           for (const [start, end] of gaps) {
             if (end <= left || start >= gridRight) continue;
@@ -273,16 +344,21 @@ export function createPianoRoll(host, ctx) {
         const y = yOf(n.start);
         const hh = n.length * view.ppq;
         if (y > bottom || y + hh < 0) continue;
-        const x = keyX(n);
-        if (x > w || x + kw < gridX()) continue;
+        const poly = bendPolyline(n);
+        const x = headX(n) - kw / 2;
+        if (!poly && (x > w || x + kw < gridX())) continue;
         g.globalAlpha = n.start >= 0 && n.start < clip.length ? 1 : 0.35;
-        g.fillStyle = selected.has(n)
+        g.fillStyle = g.strokeStyle = selected.has(n)
           ? (isBlack(n.pitch) ? blackSelected : SELECT)
           : (isBlack(n.pitch) ? blackColor : color);
         g.beginPath();
         const edge = overlap();
-        g.roundRect(x - edge, y, kw + 2 * edge, hh, Math.min((kw + 2 * edge) / 2, hh / 2));
-        g.fill();
+        const bw = kw + 2 * edge;
+        if (poly) bentBody(g, n, poly, bw);
+        else {
+          g.roundRect(x - edge, y, bw, hh, Math.min(bw / 2, hh / 2));
+          g.fill();
+        }
         g.globalAlpha = 1;
       }
     }
@@ -321,6 +397,7 @@ export function createPianoRoll(host, ctx) {
         head(g, headX(n), y, isBlack(n.pitch), n.start >= 0 && n.start < clip.length ? 1 : 0.4);
       }
       if (hover && !drag) head(g, xOf(hover.pitch) + kw / 2, yOf(hover.t), isBlack(hover.pitch), 0.55);
+      paintBends(g, clip);
       if (!isIdea(clip) && clipSilent(ctx.song(), clip)) mutedMark(g, gridX(), 0, w - gridX(), bottom);
       // play position
       const t = playheadTime(clip);
@@ -447,31 +524,55 @@ export function createPianoRoll(host, ctx) {
     }
     for (let i = clip.notes.length - 1; i >= 0; i--) {
       const n = clip.notes[i];
-      const nx = keyX(n);
       const ny = yOf(n.start);
-      if (x >= nx - overlap() && x < nx + keyWidth() + overlap() && y >= ny && y <= ny + n.length * view.ppq) return { note: n, part: 'body' };
+      if (y < ny || y > ny + n.length * view.ppq) continue;
+      if (Math.abs(x - bodyX(n, timeAt(y) - n.start)) <= keyWidth() / 2 + overlap()) return { note: n, part: 'body' };
     }
     return null;
   }
 
+  // the bend point of a selected note under (x, y): { note, i } or null (the nearest wins)
+  function bendAt(x, y) {
+    const clip = ctx.clip();
+    if (!clip || !inGrid(x, y)) return null;
+    let best = null;
+    let bd = BEND_HIT;
+    for (const n of clip.notes) {
+      if (!n.bends?.length || !selected.has(n)) continue;
+      n.bends.forEach((b, i) => {
+        const p = bendXY(n, b);
+        const d = Math.hypot(p.x - x, p.y - y);
+        if (d <= bd) { bd = d; best = { note: n, i }; }
+      });
+    }
+    return best;
+  }
+
   function updateHover(x, y) {
     const inside = ctx.clip() && inGrid(x, y) && timeAt(y) >= 0;
-    const h = inside ? hit(x, y) : null;
+    syncSelection();
+    hoverBend = ctx.clip() ? bendAt(x, y) : null;
+    const h = inside && !hoverBend ? hit(x, y) : null;
     endHover = !h && onClipEnd(x, y);
     hoverPitch = x >= gridX() ? pitchAt(x) : null;
-    hover = inside && !h ? { pitch: pitchAt(x), t: Math.max(0, snapFloor(timeAt(y), step())) } : null;
+    hover = inside && !h && !hoverBend ? { pitch: pitchAt(x), t: Math.max(0, snapFloor(timeAt(y), step())) } : null;
     const keyboard = keysPlay() && inKeyboard(x, y);
     cv.style.cursor = keyboard ? 'pointer' : h?.part === 'head' ? 'move' : h ? 'ns-resize' : inside ? 'crosshair' : 'default';
     const menuTip = 'hold the right mouse button 250 ms for the menu';
     cv.title = keyboard ? `${noteName(pitchAt(x))} - click to audition`
-      : h ? `${noteName(h.note.pitch)}${centsOf(h.note.pitch) ? ` ${centsLabel(centsOf(h.note.pitch))}` : ''}  start ${+h.note.start.toFixed(4)}  length ${+h.note.length.toFixed(4)} (quarters) — Shift + drag sideways tunes it (micropitch), right-click deletes, ${menuTip}`
+      : hoverBend ? `Bend point: ${pitchLabel(hoverBend.note.pitch + hoverBend.note.bends[hoverBend.i].d)} (${bendLabel(hoverBend.note.bends[hoverBend.i].d)}) — drag to move it (Shift: whole semitones), wheel rounds it, right-click deletes, ${menuTip}`
+      : h ? `${pitchLabel(h.note.pitch)}  start ${+h.note.start.toFixed(4)}  length ${+h.note.length.toFixed(4)} (quarters) — Shift + drag sideways tunes it (micropitch), double-click the body of a selected note to bend it, right-click deletes, ${menuTip}`
         : inside ? `Click to add a note — ${menuTip}` : '';
     const v = ctx.clip() ? vel.hover(x, y) : null;
+    if (hoverBend) cv.style.cursor = 'move';
     if (endHover) { cv.style.cursor = 'row-resize'; cv.title = `Clip end at ${+ctx.clip().length.toFixed(4)} quarters — drag to lengthen or shorten the clip`; }
     if (v) { cv.style.cursor = v.cursor; cv.title = `${v.title} — right-click for the menu`; }
     if (inRuler(x, y)) { cv.style.cursor = 'col-resize'; cv.title = 'Drag the bar ruler sideways to resize the velocity editor (the piano roll scales along) — double-click resets'; }
     s.redraw();
   }
+
+  const pitchLabel = (p) => `${noteName(p)}${centsOf(p) ? ` ${centsLabel(centsOf(p))}` : ''}`;
+  const bendLabel = (d) => `${d >= 0 ? '+' : '−'}${Math.abs(Math.round(d * 100)) / 100} st`;
 
   function remove(note) {
     const clip = ctx.clip();
@@ -671,6 +772,90 @@ export function createPianoRoll(host, ctx) {
     s.redraw();
   }
 
+  // Insert a bend point into the note at the pointer (its exact time inside the note, no grid; the
+  // pitch under the pointer; a point already at that time takes it) and drag it at once.
+  function insertBend(e, clip, note, x, y) {
+    const before = note.bends;
+    const t = clean(clamp(timeAt(y) - note.start, 0, note.length));
+    if (t <= 1e-9) return false;
+    const d = clamp(pitchFromX(x) - note.pitch, -BEND_MAX, BEND_MAX);
+    const pts = [...(before ?? [])];
+    let i = 0;
+    while (i < pts.length && pts[i].t < t - 1e-9) i++;
+    if (pts[i] && Math.abs(pts[i].t - t) <= 1e-9) pts[i] = { ...pts[i], d };
+    else pts.splice(i, 0, { t, d, r: NEW_POINT_ROUND });
+    note.bends = pts;
+    dragBend(e, clip, note, i, x, y, before);
+    return true;
+  }
+
+  // drag bend point i of the note: sideways = pitch (free, Shift: whole semitones from the note),
+  // up / down = time (free, no grid; between its neighbours, inside the note); before = the bends to
+  // restore on cancel (when the point was just inserted), changed() on release
+  function dragBend(e, clip, note, i, x, y, before = note.bends) {
+    const orig = note.bends;
+    const p0 = orig[i];
+    const x0 = bendXY(note, p0).x;
+    const lo = i > 0 ? orig[i - 1].t : 0;
+    const hi = i < orig.length - 1 ? orig[i + 1].t : Math.max(note.length, p0.t);
+    const inserted = before !== orig;
+    const state = { kind: 'bend', note, i, moved: false, stop: null };
+    let pv = null;
+    drag = state;
+    hover = null;
+    const stop = capture(cv, e, (ev) => {
+      const q = s.local(ev);
+      pointer = q;
+      if (!state.moved && Math.hypot(q.x - x, q.y - y) < 2) return;
+      state.moved = true;
+      presses.reset();
+      let d = clamp(pitchFromX(x0 + q.x - x) - note.pitch, -BEND_MAX, BEND_MAX);
+      if (ev.shiftKey) d = clamp(Math.round(d), Math.ceil(-note.pitch), Math.floor(PITCH_MAX - note.pitch));
+      let t = clean(clamp(p0.t + (q.y - y) / view.ppq, lo, hi));
+      if (t <= 1e-9) t = Math.min(hi, 1 / view.ppq); // just after the note's start
+      note.bends = orig.map((b, j) => (j === i ? { t, d, r: b.r } : b));
+      const pitch = clamp(note.pitch + d, 0, PITCH_MAX);
+      if (!pv) pv = ctx.preview.on(clip, pitch);
+      else ctx.preview.bend?.(pv, pitch);
+      hoverPitch = basePitch(pitch);
+      s.redraw();
+    }, (ev) => {
+      ctx.preview.off(pv);
+      cv.removeEventListener('blur', stop);
+      window.removeEventListener('blur', stop);
+      drag = null;
+      const cancelled = !released(ev, state.moved) || ctx.clip() !== clip;
+      if (cancelled) {
+        if (inserted || state.moved) note.bends = before;
+        if (!note.bends?.length) delete note.bends;
+      } else if (inserted || state.moved) ctx.changed();
+      const p = s.local(ev);
+      updateHover(p.x, p.y);
+      s.redraw();
+    });
+    state.stop = stop;
+    cv.addEventListener('blur', stop);
+    window.addEventListener('blur', stop);
+    s.redraw();
+  }
+
+  function deleteBend(note, i) {
+    if (!note.bends?.[i]) return;
+    const bends = note.bends.filter((_, j) => j !== i);
+    if (bends.length) note.bends = bends; else delete note.bends;
+    hoverBend = null;
+    ctx.changed();
+    s.redraw();
+  }
+  // straight notes again: the bends of the selected notes are removed
+  function resetBends() {
+    const notes = selectedNotes().filter((n) => n.bends);
+    if (!notes.length) return;
+    for (const n of notes) delete n.bends;
+    ctx.changed();
+    s.redraw();
+  }
+
   // the micropitch slider above the note being tuned: ±50 cents, the tuning filled from the centre
   function paintSlider(g) {
     const n = drag.note;
@@ -794,8 +979,14 @@ export function createPianoRoll(host, ctx) {
     if (!clip || !inGrid(x, y)) return;
     if (e.button === 2) {
       e.preventDefault();
-      const note = hit(x, y)?.note;
+      presses.reset();
+      const bend = bendAt(x, y);
+      const note = bend ? null : hit(x, y)?.note;
       selectRect(e, x, y, () => {
+        if (bend) { // short right-click on a bend point deletes the point
+          if (clip.notes.includes(bend.note)) deleteBend(bend.note, bend.i);
+          return;
+        }
         if (!note) { // short right-click on empty space: deselect all
           if (selected.size) { selected = new Set(); s.redraw(); }
           return;
@@ -808,6 +999,16 @@ export function createPianoRoll(host, ctx) {
     }
     if (e.button !== 0) return;
     e.preventDefault();
+    const second = !e.shiftKey && !e.altKey && presses.press(e);
+    const bend = !e.altKey && bendAt(x, y);
+    if (bend) { presses.reset(); dragBend(e, clip, bend.note, bend.i, x, y); return; }
+    if (second) { // double-click a selected note's body: a new bend point, dragged at once
+      const b = hit(x, y);
+      if (b?.part === 'body' && selected.has(b.note)) {
+        presses.reset();
+        if (insertBend(e, clip, b.note, x, y)) return;
+      }
+    }
     if (e.shiftKey && hit(x, y)?.part === 'head') { tune(e, clip, hit(x, y).note, x); return; }
     if (e.shiftKey) { // Shift + drag: rectangle; Shift + click: toggle a note in the selection
       const base = selected;
@@ -855,6 +1056,7 @@ export function createPianoRoll(host, ctx) {
       pointer = p;
       if (h && !moved && Math.hypot(p.x - x, p.y - y) < dragThreshold()) return;
       moved = true;
+      presses.reset();
       if (dup && !cloned) {
         group = group.map((n) => ({ ...n }));
         clip.notes.push(...group);
@@ -977,7 +1179,8 @@ export function createPianoRoll(host, ctx) {
 
   function openMenu(x, y, cx, cy) {
     syncSelection();
-    const h = hit(x, y);
+    const bend = bendAt(x, y);
+    const h = bend ? { note: bend.note } : hit(x, y);
     if (h && !selected.has(h.note)) selected = new Set([h.note]);
     s.redraw();
     const has = selected.size > 0;
@@ -996,6 +1199,8 @@ export function createPianoRoll(host, ctx) {
         { label: 'Octave up', shortcut: '⇧→', disabled: !has, action: () => shift(12, 0) },
         { label: 'Octave down', shortcut: '⇧←', disabled: !has, action: () => shift(-12, 0) },
         { label: 'Reset tuning', disabled: !selectedNotes().some((n) => centsOf(n.pitch)), action: resetTuning },
+        { label: 'Reset bend', disabled: !selectedNotes().some((n) => n.bends), action: resetBends },
+        ...(bend ? [{ label: 'Delete bend point', action: () => deleteBend(bend.note, bend.i) }] : []),
         '-',
         { label: 'Select all', shortcut: shortcut('A'), disabled: !ctx.clip()?.notes.length, action: selectAll },
       ],
@@ -1048,11 +1253,27 @@ export function createPianoRoll(host, ctx) {
     else deleteSelected();
   });
 
+  // wheel on a bend point rounds its corner; true when handled
+  function bendWheel(e, x, y) {
+    if (drag) return false;
+    syncSelection();
+    const b = bendAt(x, y);
+    if (!b) return false;
+    const n = b.note;
+    const r = clamp(Math.round((n.bends[b.i].r + (e.deltaY < 0 ? ROUND_STEP : -ROUND_STEP)) * 100) / 100, 0, 1);
+    if (r !== n.bends[b.i].r) {
+      n.bends = n.bends.map((p, j) => (j === b.i ? { ...p, r } : p));
+      ctx.changed();
+    }
+    s.redraw();
+    return true;
+  }
+
   // wheel on a velocity point rounds it (before the scroll / zoom handler)
   cv.addEventListener('wheel', (e) => {
     if (e.ctrlKey || e.metaKey) return;
     const { x, y } = s.local(e);
-    if (!vel.wheel(e, x, y)) return;
+    if (!vel.wheel(e, x, y) && !bendWheel(e, x, y)) return;
     e.preventDefault();
     e.stopImmediatePropagation();
   }, { passive: false });
