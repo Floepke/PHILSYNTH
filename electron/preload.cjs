@@ -13,7 +13,8 @@ contextBridge.exposeInMainWorld('modsynthExit', {
 // Files go through the app's own file dialog (src/filepicker.js): it browses with list/target/
 // mkdir and passes the chosen path to the open / save calls (electron/projectfiles.mjs).
 contextBridge.exposeInMainWorld('modsynthFiles', {
-  // dialog: 'project-open' | 'project-save' | 'clip' | 'module' | 'audio' -> { dir, places }
+  // dialog: 'project-open' | 'project-save' | 'clip' | 'module' | 'scala' | 'audio' | 'sample' |
+  // 'wavetable' | 'image' -> { dir, places }
   start: (dialog) => ipcRenderer.invoke('fs:start', dialog),
   list: (dir, exts) => ipcRenderer.invoke('fs:list', dir, exts),
   target: (dir, name, ext) => ipcRenderer.invoke('fs:target', dir, name, ext),
@@ -22,9 +23,11 @@ contextBridge.exposeInMainWorld('modsynthFiles', {
   open: (path) => ipcRenderer.invoke('project:open', path),
   save: (ref, text) => ipcRenderer.invoke('project:save', ref, text),
   saveAs: (path, text) => ipcRenderer.invoke('project:saveAs', path, text),
-  // clips / modules (see src/filedialog.js); kind: 'clip' | 'module'
+  // clips / modules / Scala tunings (see src/filedialog.js); kind: 'clip' | 'module' | 'scala'
   saveFile: (kind, path, text) => ipcRenderer.invoke('file:save', kind, path, text),
   openFile: (kind, path) => ipcRenderer.invoke('file:open', kind, path),
+  // audio / pictures modules load; kind: 'sample' | 'wavetable' | 'image' -> { name, data }
+  openBinary: (kind, path) => ipcRenderer.invoke('file:openBinary', kind, path),
   // Export Audio: WAV bytes (ArrayBuffer)
   saveAudio: (path, data) => ipcRenderer.invoke('audio:save', path, data),
 });

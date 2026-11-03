@@ -12,6 +12,8 @@
 import { addSample, decodeAudioFile, getSample, sampleFromFile, tableFromFile, MAX_SECONDS, onSample } from '../samples.js';
 import { BLOCK_SIZES, DEFAULT_FRAME, builtinTable } from './wavetable.dsp.js';
 import { rightHold } from '../seq/surface.js';
+import { hasMediaDialog, openMediaFile } from '../filedialog.js';
+import { errorText } from '../filepicker.js';
 import { showMenu } from '../seq/menu.js';
 
 const EDGE_PX = 6; // grab distance of a region edge
@@ -387,7 +389,16 @@ export function createSampleView(entry, api, { table = false } = {}) {
     });
   }
 
-  button.onclick = () => input.click();
+  // desktop app: the app's own file dialog; browsers: their file chooser
+  button.onclick = async () => {
+    if (!hasMediaDialog()) { input.click(); return; }
+    try {
+      load(await openMediaFile(table ? 'wavetable' : 'sample'));
+    } catch (err) {
+      info.textContent = errorText(err);
+      info.classList.add('error');
+    }
+  };
   input.onchange = () => { load(input.files[0]); input.value = ''; };
   el.addEventListener('dragover', (e) => { if (e.dataTransfer?.types.includes('Files')) { e.preventDefault(); el.classList.add('drop'); } });
   el.addEventListener('dragleave', () => el.classList.remove('drop'));

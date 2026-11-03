@@ -11,13 +11,18 @@
 // ring on a stalk beyond the Width handle: drag it around the centre to turn the oval); a
 // double-click on one resets its controller.
 // The arrow marks where every cycle ends (Line / Propellor: it starts at the other end; Oval: the
-// direction the scan runs round). The Propellor spins on the
+// direction the scan runs round). Small dots mark the Resolution's points (up to POINT_DOTS, when
+// they are apart enough to see). The Propellor spins on the
 // photo at Propellor Speed (this picture's own clock: same speed, not the voices' exact angle).
 // Modulated controllers (LFO, ADSR, automation) move the scanner live. Dropping a picture on the
 // photo loads it too.
 import { addImage, getImage, onSample, MAX_IMAGE } from '../samples.js';
 import { createAdsrView, stepValue } from './adsrview.js';
-import { SCAN, scanCenter, scanEnds, angleTo, diagonal, ovalAxes, ovalPoint, wrapDeg } from './imagescan.js';
+import { hasMediaDialog, openMediaFile } from '../filedialog.js';
+import { errorText } from '../filepicker.js';
+import { SCAN, scanCenter, scanEnds, angleTo, diagonal, ovalAxes, ovalPoint, wrapDeg, resPoints } from './imagescan.js';
+
+const POINT_DOTS = 128;
 
 const HIT = 10; // px
 const KNOB = 18; // px from the Width handle to the oval's rotation knob
@@ -244,6 +249,7 @@ export function createImageView(entry, api) {
     };
     line(4, 'rgba(0, 0, 0, 0.6)');
     line(2, '#fff');
+    points((u) => ({ x: G.a.x + (G.b.x - G.a.x) * u, y: G.a.y + (G.b.y - G.a.y) * u }), Math.hypot(G.b.x - G.a.x, G.b.y - G.a.y));
     // arrow at the end of a cycle
     const dx = G.b.x - G.a.x;
     const dy = G.b.y - G.a.y;
@@ -288,6 +294,22 @@ export function createImageView(entry, api) {
     g.fill();
     g.stroke();
   };
+  // the Resolution's points along the scanner (at(u): canvas point at progress u, span: its length)
+  const points = (at, span) => {
+    const n = resPoints(values.resolution);
+    if (n > POINT_DOTS || span / n < 4) return;
+    g.fillStyle = api.color;
+    g.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+    g.lineWidth = 1;
+    g.beginPath();
+    for (let j = 0; j < n; j++) {
+      const q = at(j / n);
+      g.moveTo(q.x + 2.5, q.y);
+      g.arc(q.x, q.y, 2.5, 0, 2 * Math.PI);
+    }
+    g.fill();
+    g.stroke();
+  };
   const drawOval = (G) => {
     const O = G.oval;
     const ring = (width, color) => {
@@ -308,6 +330,7 @@ export function createImageView(entry, api) {
     g.setLineDash([]);
     ring(4, 'rgba(0, 0, 0, 0.6)');
     ring(2, '#fff');
+    points(O.at, Math.PI * (O.a + O.b));
     g.strokeStyle = 'rgba(0, 0, 0, 0.6)';
     g.lineWidth = 3;
     g.beginPath(); g.moveTo(O.stalk.x, O.stalk.y); g.lineTo(O.knob.x, O.knob.y); g.stroke();
@@ -472,7 +495,16 @@ export function createImageView(entry, api) {
     api.endEdit?.();
   });
 
-  button.onclick = () => input.click();
+  // desktop app: the app's own file dialog; browsers: their file chooser
+  button.onclick = async () => {
+    if (!hasMediaDialog()) { input.click(); return; }
+    try {
+      load(await openMediaFile('image'));
+    } catch (err) {
+      info.textContent = errorText(err);
+      info.classList.add('error');
+    }
+  };
   input.onchange = () => { load(input.files[0]); input.value = ''; };
   el.addEventListener('dragover', (e) => { if (e.dataTransfer?.types.includes('Files')) { e.preventDefault(); el.classList.add('drop'); } });
   el.addEventListener('dragleave', () => el.classList.remove('drop'));

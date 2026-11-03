@@ -1,12 +1,13 @@
 // Files for the desktop app. The page shows its own file dialog (src/filepicker.js) and browses
 // folders through 'fs:*' (electron/fsbrowse.mjs); reads and writes only accept the app's own file
-// types: projects, clips, modules and exported WAV audio.
+// types: projects, clips, modules, Scala tunings (open only), exported WAV audio and the audio /
+// pictures modules load (open only).
 import { app, ipcMain, BrowserWindow } from 'electron';
 import { readFile, writeFile, rename, rm, stat } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import { notifyFolderChanged } from './kdirnotify.mjs';
 import { checkPath, cleanExts, hasExt, listDir, makeDir, places, target } from './fsbrowse.mjs';
-import { PROJECT_EXT, PROJECT_OPEN_EXTS, CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS } from '../src/fileformat.js';
+import { PROJECT_EXT, PROJECT_OPEN_EXTS, CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS, AUDIO_OPEN_EXTS, WAVETABLE_OPEN_EXTS, IMAGE_OPEN_EXTS } from '../src/fileformat.js';
 
 const bare = (ext) => ext.replace(/^\./, '');
 const PROJECT = bare(PROJECT_EXT);
@@ -15,12 +16,20 @@ const PROJECT = bare(PROJECT_EXT);
 export const FILE_KINDS = {
   clip: { name: 'PHILSYNTH clip', ext: bare(CLIP_EXT), open: [bare(CLIP_EXT)], max: 64 * 1024 * 1024 },
   module: { name: 'PHILSYNTH module', ext: bare(MODULE_EXT), open: MODULE_OPEN_EXTS.map(bare), max: 512 * 1024 * 1024 },
+  // Scala tunings for the TUNING module: opened only (same limit as src/modules/tuning.js MAX_SCALA)
+  scala: { name: 'Scala tuning', ext: 'scl', open: ['scl', 'scala', 'txt'], max: 256 * 1024, openOnly: true },
+};
+// audio / pictures the modules load ('file:openBinary'; see src/filedialog.js openMediaFile)
+export const MEDIA_KINDS = {
+  sample: { open: AUDIO_OPEN_EXTS, max: 512 * 1024 * 1024 },
+  wavetable: { open: WAVETABLE_OPEN_EXTS, max: 256 * 1024 * 1024 },
+  image: { open: IMAGE_OPEN_EXTS, max: 64 * 1024 * 1024 },
 };
 const MAX_PATHS = 100;
 const MAX_BYTES = 512 * 1024 * 1024;
 const MAX_AUDIO = 2 * 1024 * 1024 * 1024;
 // remembered start folder per dialog
-const DIALOG_KINDS = new Set(['project-open', 'project-save', 'clip', 'module', 'audio']);
+const DIALOG_KINDS = new Set(['project-open', 'project-save', 'clip', 'module', 'scala', 'audio', 'sample', 'wavetable', 'image']);
 // extensions a save dialog may add / check (fs:target)
 const SAVE_EXTS = new Set([PROJECT_EXT, CLIP_EXT, MODULE_EXT, '.wav']);
 
@@ -168,6 +177,7 @@ export function registerProjectFiles(isLocal) {
   ipcMain.handle('file:save', async (e, kind, path, text) => {
     check(e);
     const k = kindOf(kind);
+    if (k.openOnly) throw new Error(`${k.name} files cannot be saved`);
     if (typeof text !== 'string' || text.length > k.max) throw new Error('Invalid file data');
     const p = fileOf(withExtension(checkPath(path), k.ext), [`.${k.ext}`]);
     await atomicWrite(p, text);
@@ -183,6 +193,18 @@ export function registerProjectFiles(isLocal) {
     const text = await readSmall(p, k.max);
     await dirs.remember(kind, p);
     return { name: basename(p), text };
+  });
+
+  // ---- audio / pictures for SAMPLER, WAVETABLE, IMAGE SAMPLER: -> { name, data } (the bytes) ----
+  ipcMain.handle('file:openBinary', async (e, kind, path) => {
+    check(e);
+    if (!Object.hasOwn(MEDIA_KINDS, kind)) throw new Error(`Unknown file kind "${kind}"`);
+    const k = MEDIA_KINDS[kind];
+    const p = fileOf(path, k.open);
+    if ((await stat(p)).size > k.max) throw new Error('File too large');
+    const data = await readFile(p);
+    await dirs.remember(kind, p);
+    return { name: basename(p), data };
   });
 
   // ---- Export Audio: the WAV bytes ----

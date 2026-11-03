@@ -2,8 +2,8 @@
 import assert from 'node:assert/strict';
 import { loadKernel } from './kernelproc.mjs';
 import def from '../src/modules/imagesampler.js';
-import { pyramid } from '../src/modules/imagesampler.dsp.js';
-import { SCAN, SCAN_TYPES, scanCenter, scanEnds, unit, colorWeights, ovalAxes, ovalPoint, ovalPerimeter } from '../src/modules/imagescan.js';
+import { pyramid, tableLevels } from '../src/modules/imagesampler.dsp.js';
+import { SCAN, SCAN_TYPES, scanCenter, scanEnds, unit, colorWeights, ovalAxes, ovalPoint, ovalPerimeter, resPoints } from '../src/modules/imagescan.js';
 import { fitImage, dragEnd, dragCenter, dragOval } from '../src/modules/imageview.js';
 import { curveEnv, curveStart, curveTick, curveRelease } from '../src/modules/poly.dsp.js';
 import { attackLevel, decayLevel, releaseLevel } from '../src/modules/adsrcurve.js';
@@ -15,8 +15,8 @@ const Proc = await loadKernel('imagesampler.dsp.js', SR);
 
 // ---- controllers: scanner, colour mix, envelope, gain last ----
 assert.deepEqual(def.params.map((p) => p.id), [
-  'polyphony', 'scanType', 'x', 'y', 'length', 'rotation', 'speed', 'ovalWidth', 'ovalHeight', 'ovalRotation',
-  'redLevel', 'greenLevel', 'blueLevel', 'redPan', 'greenPan', 'bluePan',
+  'polyphony', 'scanType', 'x', 'y', 'length', 'rotation', 'speed', 'ovalWidth', 'ovalHeight', 'ovalRotation', 'resolution',
+  'redLeft', 'greenLeft', 'blueLeft', 'redRight', 'greenRight', 'blueRight',
   'attack', 'decay', 'sustain', 'release', 'atkCurve', 'decCurve', 'relCurve', 'gain',
 ]);
 assert.deepEqual(SCAN_TYPES, ['Line', 'Propellor', 'Oval']);
@@ -63,12 +63,13 @@ assert.deepEqual(def.normalizeState({ imageId: 3 }), { imageId: null, name: '' }
   const w = colorWeights(dflt);
   // the defaults: red left, green centre, blue right; each side scaled to 1 (1 + 0.5 = 1.5)
   [[w.L, [2 / 3, 1 / 3, 0]], [w.R, [0, 1 / 3, 2 / 3]]].forEach(([got, want]) => got.forEach((v, i) => close(v, want[i], 1e-9, 'default weights')));
-  const one = colorWeights({ ...dflt, greenLevel: 0, blueLevel: 0, redLevel: 50 });
-  close(one.L[0], 0.5, 1e-9, 'a single colour keeps its level as volume');
-  const all = colorWeights({ redPan: -100, greenPan: -100, bluePan: -100, redLevel: 100, greenLevel: 100, blueLevel: -100 });
+  const one = colorWeights({ redLeft: 50 });
+  close(one.L[0], 0.5, 1e-9, 'a single colour keeps its amount as volume');
+  assert.ok(one.R.every((v) => v === 0), 'nothing on the right');
+  const all = colorWeights({ redLeft: 100, greenLeft: 100, blueLeft: -100, redRight: -100 });
   close(Math.abs(all.L[0]) + Math.abs(all.L[1]) + Math.abs(all.L[2]), 1, 1e-9, 'all on one side: scaled to 1 (no clipping)');
-  assert.ok(all.L[2] < 0, 'negative level inverts');
-  assert.ok(all.R.every((v) => v === 0), 'nothing on the right');
+  assert.ok(all.L[2] < 0, 'negative amount inverts');
+  assert.deepEqual(all.R, [-1, 0, 0], 'each speaker on its own: red inverted on the right');
 }
 
 // ---- image pyramid: each copy is the average of four pixels ----
@@ -164,7 +165,8 @@ const pitch = (hz) => 69 + 12 * Math.log2(hz / 440);
   const cyc = L.slice(128 * 10, 128 * 11);
   const rises = cyc.slice(1).filter((v, i) => v > cyc[i]).length;
   assert.ok(rises > 120, `rising saw (${rises} of 127 steps up)`);
-  const wraps = L.slice(128 * 5).filter((v, i, a) => i && a[i - 1] - v > 0.2).length;
+  // the wrap back to the start: the only fall through zero (band-limited, so over a few samples)
+  const wraps = L.slice(128 * 5).filter((v, i, a) => i && a[i - 1] > 0 && v <= 0).length;
   assert.ok(wraps >= 14 && wraps <= 15, `one cycle per 128 samples (the wrap back to the start): ${wraps}`);
   const mean = cyc.reduce((a, b) => a + b, 0) / cyc.length;
   assert.ok(Math.abs(mean) < 0.01, `no DC: ${mean}`);
@@ -201,31 +203,31 @@ const pitch = (hz) => 69 + 12 * Math.log2(hz / 440);
   assert.ok(Math.max(...L.map(Math.abs)) < 1e-4, 'no red: left silent');
   assert.ok(Math.max(...R.map(Math.abs)) > 0.1, 'blue: right plays');
 }
-{ // pans move colours: red to the right
-  const { k, m } = make({ redPan: 100, bluePan: -100 });
+{ // each speaker its own colours: red on the right, blue on the left
+  const { k, m } = make({ redLeft: 0, redRight: 100, blueLeft: 100, blueRight: 0 });
   m({ type: 'noteOn', id: 1, pitch: 60, velocity: 1 });
   const { L, R } = render(k, 10);
   assert.ok(Math.max(...L.slice(256).map(Math.abs)) < 1e-4, 'blue (flat) left: silent');
   assert.ok(Math.max(...R.map(Math.abs)) > 0.1, 'red ramp right: plays');
 }
-{ // levels: red - green on a grey ramp (equal r = g) cancels
+{ // amounts: red - green on a grey ramp (equal r = g) cancels
   const rgb = new Uint8Array(W * H * 3);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) rgb.fill(Math.round((x / (W - 1)) * 255), (y * W + x) * 3, (y * W + x) * 3 + 3);
-  const { k, m } = make({ greenLevel: -100, greenPan: -100, blueLevel: 0 }, rgb);
+  const { k, m } = make({ greenLeft: -100, greenRight: 0, blueRight: 0 }, rgb);
   m({ type: 'noteOn', id: 1, pitch: 60, velocity: 1 });
   const { L, R } = render(k, 10);
   assert.ok(Math.max(...L.slice(256).map(Math.abs)) < 1e-4, 'red - green of grey = silence');
   assert.ok(Math.max(...R.map(Math.abs)) < 1e-4, 'nothing on the right');
-  // changing a level while playing glides (no jump)
+  // changing an amount while playing glides (no jump)
   const g = make({}, rgb);
   g.m({ type: 'noteOn', id: 1, pitch: 60, velocity: 1 });
   const a = render(g.k, 10).L;
-  g.m({ type: 'param', id: 'redLevel', value: -100 });
+  g.m({ type: 'param', id: 'redLeft', value: -100 });
   const b = render(g.k, 10).L;
   const all = [...a, ...b];
   const step = Math.max(...all.slice(1).map((v, i) => Math.abs(v - all[i])));
   const wrap = Math.max(...a.slice(1).map((v, i) => Math.abs(v - a[i])));
-  assert.ok(step <= wrap + 1e-6, `level change: no bigger jump than the cycle wrap (${step} vs ${wrap})`);
+  assert.ok(step <= wrap + 1e-6, `amount change: no bigger jump than the cycle wrap (${step} vs ${wrap})`);
 }
 { // polyphony up to 32, release ends the voices
   const { k, m } = make({ polyphony: 32, release: 0.01 });
@@ -251,7 +253,7 @@ const pitch = (hz) => 69 + 12 * Math.log2(hz / 440);
 { // Oval: once around per cycle, no jump at the wrap (a Line over the same ramp is a sawtooth)
   const hz = 187.5; // 256 samples per cycle
   const run = (params) => {
-    const { k, m } = make({ redPan: -100, blueLevel: 0, ...params });
+    const { k, m } = make({ blueRight: 0, ...params });
     m({ type: 'noteOn', id: 1, pitch: pitch(hz), velocity: 1 });
     const { L } = render(k, 24);
     const s = L.slice(1024);
@@ -272,6 +274,71 @@ const pitch = (hz) => 69 + 12 * Math.log2(hz / 440);
   // rotated 90° with no height: the oval is a vertical line on one column of the ramp -> quiet
   const flat = run({ scanType: SCAN.OVAL, ovalWidth: 20, ovalHeight: 0, ovalRotation: 90 });
   assert.ok(flat.pp < oval.pp * 0.1, `oval along a constant column: quiet (${flat.pp})`);
+}
+
+// ---- Resolution: points along the scanner, straight lines between them ----
+{
+  assert.deepEqual([resPoints(1), resPoints(2.4), resPoints(5000), resPoints(NaN)], [2, 2, 2048, 2048]);
+  assert.deepEqual([P.resolution.min, P.resolution.max, P.resolution.default, P.resolution.scale], [2, 2048, 2048, 'log']);
+  // halved table copies: [1 2 1] / 4 per pair, periodic
+  const T = { buf: new Float32Array(64 * 3), off: new Int32Array(16), len: new Int32Array(16), count: 0 };
+  [0, 4, 8, 4].forEach((v, j) => { T.buf[j * 3] = v; });
+  T.len[0] = 4;
+  tableLevels(T);
+  assert.equal(T.count, 2);
+  assert.deepEqual([T.off[1], T.len[1]], [4, 2]);
+  assert.deepEqual([T.buf[4 * 3], T.buf[5 * 3]], [(4 + 0 + 4) / 4, (4 + 16 + 4) / 4]);
+
+  const hz = 187.5; // 256 samples per cycle
+  const cycle = (params) => {
+    const { k, m } = make({ blueRight: 0, ...params });
+    m({ type: 'noteOn', id: 1, pitch: pitch(hz), velocity: 1 });
+    return { k, c: render(k, 12).L.slice(1024, 1280) };
+  };
+  // 2 points on the ramp: the start and the middle -> a triangle (up half a cycle, down the other)
+  const two = cycle({ resolution: 2 }).c;
+  const ups = two.slice(1).filter((v, i) => v > two[i]).length;
+  close(ups, 128, 4, 'two points: rises half the cycle');
+  const steps = two.slice(1).map((v, i) => Math.abs(v - two[i]));
+  const pp2 = Math.max(...two) - Math.min(...two);
+  assert.ok(Math.max(...steps) < pp2 * 0.05, 'two points: no jump (the lines join up)');
+  // 4 points: straight lines between them, so the slope is constant within each quarter
+  const four = cycle({ resolution: 4 }).c;
+  const d = four.slice(1).map((v, i) => v - four[i]);
+  close(d[20], d[40], 1e-6, 'four points: a straight line inside a quarter');
+  // the full resolution keeps the ramp's detail: a saw, not a triangle
+  const full = cycle({}).c;
+  assert.ok(full.slice(1).filter((v, i) => v > full[i]).length > 240, 'full resolution: a saw');
+
+  // the table is built once while the scanner stands still, every block while it moves
+  const still = cycle({});
+  assert.equal(still.k.rebuilds, 1, 'still scanner: one table');
+  const spin = make({ scanType: SCAN.PROPELLOR, speed: 1 });
+  spin.m({ type: 'noteOn', id: 1, pitch: 60, velocity: 1 });
+  render(spin.k, 10);
+  assert.equal(spin.k.rebuilds, 10, 'propellor: a table per block');
+  // nothing sounding: no tables
+  const idle = make({ scanType: SCAN.PROPELLOR, speed: 1 });
+  render(idle.k, 10);
+  assert.equal(idle.k.rebuilds, 0, 'silent: no tables');
+
+  // moving the scanner while playing crossfades the tables: no bigger jump than the cycle wrap
+  for (const resolution of [2048, 16]) {
+    const mv = make({ blueRight: 0, resolution, length: 20 });
+    mv.m({ type: 'noteOn', id: 1, pitch: 40, velocity: 1 });
+    const a = render(mv.k, 40).L.slice(128 * 4);
+    mv.m({ type: 'param', id: 'length', value: 90 });
+    mv.m({ type: 'param', id: 'resolution', value: 3 });
+    const b = render(mv.k, 40).L;
+    const pp = (x) => Math.max(...x) - Math.min(...x);
+    assert.ok(pp(b.slice(-2000)) > pp(a) * 2, 'the longer scanner plays louder');
+    const all = [...a, ...b];
+    const jump = (x) => Math.max(...x.slice(1).map((v, i) => Math.abs(v - x[i])));
+    // the biggest step stays one of the waveform's own (the new wrap), not a click at the change
+    const at = jump(all.slice(a.length - 1, a.length + 512));
+    const own = Math.max(jump(a), jump(b.slice(-2000)));
+    assert.ok(at <= own + 1e-6, `${resolution} points: scanner / resolution change is smooth (${at} vs ${own})`);
+  }
 }
 
 // ---- image pool: saved with the project ----

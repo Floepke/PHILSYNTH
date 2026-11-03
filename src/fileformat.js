@@ -15,3 +15,7 @@ export const CLIP_EXT = '.clip';
 // older extensions that still open (a project opened from one is saved as a new .phproject)
 export const PROJECT_OPEN_EXTS = [PROJECT_EXT, '.mds', '.json'];
 export const MODULE_OPEN_EXTS = [MODULE_EXT, '.synth'];
+// media the modules load (SAMPLER / WAVETABLE / IMAGE SAMPLER): what the desktop app's dialog lists
+export const AUDIO_OPEN_EXTS = ['.wav', '.aif', '.aiff', '.flac', '.ogg', '.oga', '.opus', '.mp3', '.m4a', '.aac', '.webm'];
+export const WAVETABLE_OPEN_EXTS = ['.wav', '.wt', ...AUDIO_OPEN_EXTS.slice(1)];
+export const IMAGE_OPEN_EXTS = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.avif'];

@@ -1,17 +1,18 @@
-// Save / open dialogs for small text files (.clip, .phmod) that start in the folder last used for
-// that kind of file. `kind` names the remembered location:
+// Save / open dialogs for small text files (.clip, .phmod, .scl) that start in the folder last used
+// for that kind of file, and (desktop app only) the open dialog for the audio / pictures modules load. `kind` names the remembered location:
 //   Electron              the app's own file dialog (src/filepicker.js); the main process
 //                         (electron/projectfiles.mjs) stores the folders per kind in the app's user data
 //   Chromium browsers     showSaveFilePicker / showOpenFilePicker with `id: kind`: the browser
 //                         remembers the folder per id (per site, across restarts)
 //   other browsers        a download / a file input (the browser decides where)
-import { CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS } from './fileformat.js';
+import { CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS, AUDIO_OPEN_EXTS, WAVETABLE_OPEN_EXTS, IMAGE_OPEN_EXTS } from './fileformat.js';
 import { pickFile } from './filepicker.js';
 
 // ext: saved files; open: extensions the open dialog offers (older ones included)
 export const KINDS = {
   clip: { description: 'PHILSYNTH clip', ext: CLIP_EXT, open: [CLIP_EXT] },
   module: { description: 'PHILSYNTH module', ext: MODULE_EXT, open: MODULE_OPEN_EXTS },
+  scala: { description: 'Scala tuning', ext: '.scl', open: ['.scl', '.scala', '.txt'] },
 };
 
 const cancelled = (err) => err?.name === 'AbortError';
@@ -72,4 +73,30 @@ export async function openTextFile(kind, win = window, pick = pickFile) {
     input.addEventListener('cancel', () => resolve(null));
     input.click();
   });
+}
+
+// Audio / pictures for SAMPLER, WAVETABLE and IMAGE SAMPLER: in the desktop app through its own
+// dialog (browsers keep the modules' file inputs, see hasMediaDialog).
+export const MEDIA_KINDS = {
+  sample: { description: 'Audio file', open: AUDIO_OPEN_EXTS },
+  wavetable: { description: 'Wavetable', open: WAVETABLE_OPEN_EXTS },
+  image: { description: 'Picture', open: IMAGE_OPEN_EXTS },
+};
+const MIME = {
+  '.wav': 'audio/wav', '.aif': 'audio/aiff', '.aiff': 'audio/aiff', '.flac': 'audio/flac', '.ogg': 'audio/ogg', '.oga': 'audio/ogg',
+  '.opus': 'audio/ogg', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.webm': 'audio/webm',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp', '.avif': 'image/avif',
+};
+const mimeOf = (name) => MIME[/\.[^.]+$/.exec(name)?.[0].toLowerCase()] ?? '';
+
+export const hasMediaDialog = (win = window) => typeof win.modsynthFiles?.openBinary === 'function';
+
+// -> a File (name + bytes, as from a file input), null when cancelled. Desktop app only.
+export async function openMediaFile(kind, win = window, pick = pickFile) {
+  const { description, open } = MEDIA_KINDS[kind];
+  const files = win.modsynthFiles;
+  const f = await pick(files, { mode: 'open', dialog: kind, title: `Open ${description}`, types: `${description}s (${open.join(', ')})`, exts: open });
+  if (!f) return null;
+  const { name, data } = await files.openBinary(kind, f.path);
+  return new win.File([data], name, { type: mimeOf(name) });
 }

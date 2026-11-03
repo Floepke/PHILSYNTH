@@ -44,30 +44,30 @@ export function ovalPoint(cx, cy, a, b, deg, u) {
 // Perimeter of an ellipse (Ramanujan), for the anti-aliasing (pixels per cycle)
 export const ovalPerimeter = (a, b) => Math.PI * (3 * (a + b) - Math.sqrt(Math.max(0, (3 * a + b) * (a + 3 * b))));
 
+// Resolution: the number of points read along the scanner per cycle (the waveform is the straight
+// lines between them). Point j sits at progress j / points.
+export const RES_MIN = 2;
+export const RES_MAX = 2048;
+export const resPoints = (v) => Math.min(RES_MAX, Math.max(RES_MIN, Math.round(Number(v) || RES_MAX)));
+
 // Colour byte (0..255) -> -1..1
 export const unit = (c) => c / 127.5 - 1;
 
-// Colour channels -> speakers. Every channel (red, green, blue) has a Pan (-100 = left .. +100 =
-// right, equal-gain: (1 -/+ pan) / 2 to each side) and a Level (-100..+100 %, negative inverts it).
-// Each speaker plays the sum of what it gets, divided by the total weight it gets when that is
-// above 1, so even all three channels at full level on one side stay within -1..1, while a single
-// channel keeps its level as volume. Returns { L: [r, g, b], R: [r, g, b] } weights.
+// Colour channels -> speakers. Each speaker has its own amount of red, green and blue
+// (-100..+100 %: + plays the colour as it is, - inverted, 0 = not on that speaker), e.g. red +100 %
+// left and -100 % right. Each speaker plays the sum, divided by its total amount when that is above
+// 1, so even all three channels at full on one side stay within -1..1, while a single channel keeps
+// its amount as volume. Returns { L: [r, g, b], R: [r, g, b] } weights.
 export const COLORS = ['red', 'green', 'blue'];
 export function colorWeights(p) {
-  const L = [0, 0, 0];
-  const R = [0, 0, 0];
-  COLORS.forEach((c, i) => {
-    const pan = Math.min(100, Math.max(-100, Number(p[`${c}Pan`]) || 0)) / 100;
-    const lvl = Math.min(100, Math.max(-100, Number(p[`${c}Level`]) || 0)) / 100;
-    L[i] = lvl * (1 - pan) / 2;
-    R[i] = lvl * (1 + pan) / 2;
-  });
-  const norm = (w) => {
+  const amount = (id) => Math.min(100, Math.max(-100, Number(p[id]) || 0)) / 100;
+  const side = (s) => {
+    const w = COLORS.map((c) => amount(`${c}${s}`));
     const sum = Math.abs(w[0]) + Math.abs(w[1]) + Math.abs(w[2]);
     if (sum > 1) for (let i = 0; i < 3; i++) w[i] /= sum;
     return w;
   };
-  return { L: norm(L), R: norm(R) };
+  return { L: side('Left'), R: side('Right') };
 }
 
 // Angle of the scanner (degrees) from the start point to a dragged point, for the Rotation controller

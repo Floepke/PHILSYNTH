@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { saveTextFile, openTextFile } from '../src/filedialog.js';
+import { saveTextFile, openTextFile, openMediaFile, hasMediaDialog } from '../src/filedialog.js';
 import { fsaBackend } from '../src/projectfile.js';
 
 const abort = () => Object.assign(new Error('cancelled'), { name: 'AbortError' });
@@ -66,6 +66,11 @@ const abort = () => Object.assign(new Error('cancelled'), { name: 'AbortError' }
   assert.equal(await saveTextFile('clip', 'x.clip', 'data', win, pick), null);
   assert.equal(await openTextFile('module', win, pick), null);
   assert.equal(calls.length, 2);
+  // TUNING's Load Tuning: Scala files through the same dialog
+  chosen = { path: '/scales/a.scl', name: 'a.scl' };
+  await openTextFile('scala', win, pick);
+  assert.deepEqual(calls.at(-1), ['open', 'scala', '/scales/a.scl']);
+  assert.deepEqual([picks.at(-1).dialog, picks.at(-1).exts], ['scala', ['.scl', '.scala', '.txt']]);
 }
 
 // Desktop app projects: the dialog's path goes to the main process; Save writes without a dialog.
@@ -113,3 +118,29 @@ const abort = () => Object.assign(new Error('cancelled'), { name: 'AbortError' }
 }
 
 console.log('filedialog tests passed');
+
+// Desktop app: SAMPLER / WAVETABLE / IMAGE SAMPLER load audio / pictures through the app's dialog
+{
+  const calls = [];
+  const picks = [];
+  const win = {
+    File,
+    modsynthFiles: { openBinary: async (...args) => { calls.push(args); return { name: 'Kick.WAV', data: new Uint8Array([1, 2, 3]) }; } },
+  };
+  assert.ok(hasMediaDialog(win));
+  assert.ok(!hasMediaDialog({ modsynthFiles: { openFile() {} } }), 'older desktop builds / browsers: the file input');
+  let chosen = { path: '/samples/Kick.WAV', name: 'Kick.WAV' };
+  const pick = async (_files, opts) => { picks.push(opts); return chosen; };
+  const f = await openMediaFile('sample', win, pick);
+  assert.deepEqual([f.name, f.type, [...new Uint8Array(await f.arrayBuffer())]], ['Kick.WAV', 'audio/wav', [1, 2, 3]]);
+  assert.deepEqual(calls, [['sample', '/samples/Kick.WAV']]);
+  assert.equal(picks[0].dialog, 'sample');
+  assert.ok(picks[0].exts.includes('.flac') && !picks[0].exts.includes('.wt'));
+  await openMediaFile('wavetable', win, pick);
+  assert.ok(picks[1].exts.includes('.wt'));
+  await openMediaFile('image', win, pick);
+  assert.deepEqual([picks[2].dialog, picks[2].exts.slice(0, 3)], ['image', ['.png', '.jpg', '.jpeg']]);
+  chosen = null;
+  assert.equal(await openMediaFile('image', win, pick), null, 'cancelled: nothing read');
+  assert.equal(calls.length, 3);
+}

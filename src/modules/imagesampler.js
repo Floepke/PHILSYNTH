@@ -1,28 +1,30 @@
 // IMAGE SAMPLER: a polyphonic synth that plays an image. A scanner (a line on the photo below the
 // controllers) is read once per cycle of every note: the colours along it are the waveform, red
-// mixed onto the speakers by a Pan and a Level per colour (DSP: imagesampler.dsp.js, maths:
+// mixed onto each speaker by its own + / − amount of every colour (DSP: imagesampler.dsp.js, maths:
 // imagescan.js). Scanner Type picks the scanner; X / Y are shared by every type (Length by Line and
 // Propellor), the controllers of one type only (Rotation, Propellor Speed, the Oval's Width /
 // Height / Rotation) follow them and show for that type (fixed numbers, hidden when another type
-// is chosen). Then the colour Levels and Pans, the envelope with its curves, and Gain last.
+// is chosen). Resolution: how many points along the scanner make the waveform (2..2048, the
+// straight lines between them; few = coarse and jumpy). Then the colour amounts per speaker (Left, then Right), the envelope with its curves, and Gain last.
 // Load Image (or drop a picture on the photo): it is scaled to 256 px at most and saved with the
 // project (sample pool, src/samples.js). ADSR with stage curves and the ADSR editor as OSC.
 import { linkDecayRelease } from './envlink.js';
 import { curveParams } from './adsrcurve.js';
-import { SCAN, SCAN_TYPES } from './imagescan.js';
+import { SCAN, SCAN_TYPES, RES_MIN, RES_MAX, resPoints } from './imagescan.js';
 import { createImageView } from './imageview.js';
 import { sampleFeeder, noteMessages } from './sampler.js';
 
 const percent = (v) => `${v.toFixed(1)} %`;
-const panText = (v) => (Math.abs(v) < 0.5 ? 'Centre' : `${Math.abs(v).toFixed(0)} % ${v < 0 ? 'L' : 'R'}`);
-const levelText = (v) => `${v > 0 ? '+' : ''}${v.toFixed(0)} %${v < 0 ? ' (inverted)' : ''}`;
+const amountText = (v) => (Math.abs(v) < 0.5 ? 'Off' : `${v > 0 ? '+' : '−'}${Math.abs(v).toFixed(0)} %${v < 0 ? ' (inverted)' : ''}`);
+// how much of each colour each speaker plays (+ as it is, − inverted); default red left, green
+// on both, blue right
 const colorParams = () => [
-  { id: 'redLevel', label: 'Red Level', min: -100, max: 100, default: 100, step: 1, format: levelText },
-  { id: 'greenLevel', label: 'Green Level', min: -100, max: 100, default: 100, step: 1, format: levelText },
-  { id: 'blueLevel', label: 'Blue Level', min: -100, max: 100, default: 100, step: 1, format: levelText },
-  { id: 'redPan', label: 'Red Pan', min: -100, max: 100, default: -100, step: 1, format: panText },
-  { id: 'greenPan', label: 'Green Pan', min: -100, max: 100, default: 0, step: 1, format: panText },
-  { id: 'bluePan', label: 'Blue Pan', min: -100, max: 100, default: 100, step: 1, format: panText },
+  { id: 'redLeft', label: 'Red ± Left', min: -100, max: 100, default: 100, step: 1, format: amountText },
+  { id: 'greenLeft', label: 'Green ± Left', min: -100, max: 100, default: 50, step: 1, format: amountText },
+  { id: 'blueLeft', label: 'Blue ± Left', min: -100, max: 100, default: 0, step: 1, format: amountText },
+  { id: 'redRight', label: 'Red ± Right', min: -100, max: 100, default: 0, step: 1, format: amountText },
+  { id: 'greenRight', label: 'Green ± Right', min: -100, max: 100, default: 50, step: 1, format: amountText },
+  { id: 'blueRight', label: 'Blue ± Right', min: -100, max: 100, default: 100, step: 1, format: amountText },
 ];
 
 export const imageState = (s) => ({ imageId: typeof s?.imageId === 'string' ? s.imageId : null, name: String(s?.name ?? '') });
@@ -46,6 +48,8 @@ export default {
     { id: 'ovalWidth', label: 'Width', min: 0, max: 100, default: 60, step: 0.1, format: percent, visible: (v) => (v.scanType | 0) === SCAN.OVAL },
     { id: 'ovalHeight', label: 'Height', min: 0, max: 100, default: 60, step: 0.1, format: percent, visible: (v) => (v.scanType | 0) === SCAN.OVAL },
     { id: 'ovalRotation', label: 'Rotation', min: -180, max: 180, default: 0, step: 0.1, format: (v) => `${+v.toFixed(1)}°`, visible: (v) => (v.scanType | 0) === SCAN.OVAL },
+    // points read along the scanner per cycle (the waveform is the lines between them)
+    { id: 'resolution', label: 'Resolution', min: RES_MIN, max: RES_MAX, default: RES_MAX, step: 1, scale: 'log', format: (v) => `${resPoints(v)} points` },
     ...colorParams(),
     { id: 'attack', label: 'Attack (s)', min: 0.001, max: 10, default: 0.01, step: 0.001 },
     { id: 'decay', label: 'Decay (s)', min: 0.001, max: 10, default: 0.2, step: 0.001 },

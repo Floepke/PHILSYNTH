@@ -7,6 +7,8 @@
 import { createMidiScheduler } from '../midischedule.js';
 import { parseScala, tunePitch, TWELVE_TET, ROOT_KEY } from '../scala.js';
 import { LIBRARY, libraryGroups } from '../scalalib.js';
+import { openTextFile } from '../filedialog.js';
+import { errorText } from '../filepicker.js';
 
 export const MAX_SCALA = 256 * 1024;
 export const normalizeTuning = (state) => ({
@@ -80,7 +82,17 @@ export default {
       e.stopPropagation();
       text.blur();
     });
-    button.addEventListener('click', () => input.click());
+    // desktop app: the app's own file dialog; browsers: their file chooser
+    button.addEventListener('click', async () => {
+      if (!window.modsynthFiles?.openFile) { input.click(); return; }
+      try {
+        const f = await openTextFile('scala');
+        if (f) load(f.text, f.name);
+      } catch (err) {
+        info.textContent = errorText(err);
+        info.classList.add('error');
+      }
+    });
     const load = (newText, newName) => {
       text.value = newText;
       name = newName;
