@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { midpoint, arrowPath, arrowPoints, linePath, samplePoints, edgePoint, visibleSegment, centerOf } from '../src/cable.js';
-import { Ring, displace, scopePath, AMP, crossings, period, lockAge } from '../src/cablescope.js';
+import { Ring, displace, scopePath, AMP, crossings, period, lockAge, glowLevel, GLOW_DB } from '../src/cablescope.js';
 
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 const tipOf = (d) => d.match(/^M([-\d.]+),([-\d.]+)/).slice(1).map(Number);
@@ -141,3 +141,19 @@ assert.equal(linePath({ x: 0, y: 0 }, { x: 10, y: 10 }), 'M0,0 L10,10', 'a strai
 }
 
 console.log('cable tests passed');
+
+// glow follows the peak level of the shown points in dB: 0 dB = 1, -GLOW_DB and silence = 0
+{
+  const ring = new Ring(64);
+  assert.equal(glowLevel(ring, 0, 20), 0, 'silence: no glow');
+  for (let i = 0; i < 64; i++) ring.push(Math.sin(i / 3));
+  assert.ok(glowLevel(ring, 0, 32) > 0.99, 'full scale');
+  const quiet = new Ring(64);
+  for (let i = 0; i < 64; i++) quiet.push(0.0316 * Math.sin(i / 3)); // about -30 dB
+  const g = glowLevel(quiet, 0, 32);
+  assert.ok(Math.abs(g - (1 - 30 / GLOW_DB)) < 0.03, `-30 dB glows partly (${g})`);
+  const tiny = new Ring(64);
+  for (let i = 0; i < 64; i++) tiny.push(1e-4);
+  assert.equal(glowLevel(tiny, 0, 32), 0, 'below the range: none');
+}
+console.log('cable glow tests passed');

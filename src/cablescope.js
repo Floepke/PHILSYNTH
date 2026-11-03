@@ -6,13 +6,17 @@
 // window locks onto a rising zero crossing of the stream (hysteresis, sub-point accurate): a
 // periodic wave stands still and drifts slowly (DRIFT px/s) from the source towards the
 // destination. Without a stable period (noise, very slow signals, silence) the live stream shows.
+// Glow: two wide translucent strokes under the wave (no CSS filter: a blur re-rasterised every frame
+// costs too much) whose width and opacity follow the signal level (--glow 0..1 on the cable).
 import { samplePoints } from './cable.js';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 export const RING = 8192; // points kept per node (~0.7 s; the graph sends SCOPE_QUIET zeros after the sound stops)
 export const STEP = 3; // world px between two points on a cable
 export const AMP = 16; // max displacement in world px
-export const DRIFT = 45; // world px per second the locked wave travels along the cable
+export const DRIFT = 45;
+export const GLOW_DB = 48; // level range of the glow: -48 dB .. 0 dB peak -> 0..1
+const GLOW_RELEASE = 2.5; // glow falls by this much per second (rises at once) // world px per second the locked wave travels along the cable
 const EDGE = 10; // points over which the wave fades in/out at the ports
 const LOOK = 2048; // points searched for zero crossings beyond the longest cable (periods up to ~170 ms)
 const HYST = 0.25; // a rising crossing counts after the wave went below -HYST × its peak
@@ -103,6 +107,14 @@ export function lockAge(xs, P, prev, advanced, drift, n, size = RING) {
   return a;
 }
 
+// Glow level 0..1 of the points shown (ages start..start+n): peak in dB over GLOW_DB.
+export function glowLevel(ring, start, n) {
+  let peak = 0;
+  for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(ring.lerp(start + i)));
+  if (!(peak > 0)) return 0;
+  return Math.max(0, Math.min(1, 1 + (20 * Math.log10(peak)) / GLOW_DB));
+}
+
 // SVG path along the cable points displaced by the ring values from age `start` on.
 export function scopePath(pts, ring, start = 0) {
   const { n, x, y, nx, ny } = pts;
@@ -131,11 +143,16 @@ export class CableScope {
   // cable redraw; the engine is only told when the set of watched nodes changes.
   setCables(list) {
     this.cables = list.map(({ g, h, from, to }) => {
-      const path = document.createElementNS(SVGNS, 'path');
-      path.classList.add('scope');
-      g.insertBefore(path, g.querySelector('.arrow'));
+      const mk = (cls) => {
+        const e = document.createElementNS(SVGNS, 'path');
+        e.classList.add(cls);
+        g.insertBefore(e, g.querySelector('.arrow'));
+        return e;
+      };
+      const glows = [mk('glow'), mk('glow-core')];
+      const path = mk('scope');
       const ring = this.rings.get(h);
-      return { g, path, h, pts: samplePoints(from, to, STEP), shown: false, a: 0, seen: ring?.count ?? 0 };
+      return { g, path, glows, h, pts: samplePoints(from, to, STEP), shown: false, a: 0, seen: ring?.count ?? 0, glow: 0, glowShown: -1 };
     });
     const hs = [...new Set(list.map((c) => c.h))].sort((a, b) => a - b);
     for (const h of hs) if (!this.rings.has(h)) this.rings.set(h, new Ring());
@@ -179,8 +196,23 @@ export class CableScope {
         c.seen = ring.count;
         live = ring.quiet <= c.a + n;
       }
-      if (live) c.path.setAttribute('d', scopePath(c.pts, ring, c.a));
-      else if (c.shown) c.path.removeAttribute('d');
+      const level = live ? glowLevel(ring, c.a, n) : 0;
+      c.glow = Math.max(level, c.glow - GLOW_RELEASE * dt);
+      if (live) {
+        const d = scopePath(c.pts, ring, c.a);
+        c.path.setAttribute('d', d);
+        for (const e of c.glows) e.setAttribute('d', d);
+      } else if (c.shown) {
+        c.path.removeAttribute('d');
+        for (const e of c.glows) e.removeAttribute('d');
+        c.glow = 0;
+      }
+      // only when it visibly changed: a new value restyles the cable
+      const shownGlow = Math.round(c.glow * 50) / 50;
+      if (shownGlow !== c.glowShown) {
+        c.glowShown = shownGlow;
+        c.g.style.setProperty('--glow', shownGlow);
+      }
       if (live !== c.shown) c.g.classList.toggle('live', live);
       c.shown = live;
     }
