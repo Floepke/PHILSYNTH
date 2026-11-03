@@ -1,19 +1,17 @@
 // PITCH2CTL: turns the pitch of incoming notes into a controller value of every module it is
 // cabled to (control cable, like VELOCITY2CTL). Notes come from a clip sent to it or a MULTIMIDI
 // cabled into it (Shift+drag); never directly from the MIDI keyboard (liveMidi: false).
-//   Low Key / High Key: the key range that sweeps the controller: Low Key gives Out Min, High Key
-//   Out Max, in a straight line per semitone (cents count). Outside the range the value stays at
-//   the nearest end; Low Key above High Key flips it (high notes give low values).
+//   Key map (module state, saved with the project): one value per MIDI key (128), 0 = Out Min ..
+//   1 = Out Max, drawn in the panel editor (pitch2ctlview.js). Default: a straight line over the
+//   88-key piano (A0 = Out Min .. C8 = Out Max). Between two keys (cents, glides) the value moves
+//   in a straight line from one key's value to the next.
 //   Out Controller / Out Min / Out Max: see modtarget.js. Noteoff Action / Smooth: as VELOCITY2CTL.
-//   The panel shows a keyboard of all 128 MIDI keys to drag the range on (pitch2ctlview.js).
 // DSP: pitch2ctl.dsp.js (no audio; the engine graph maps the value onto the controllers).
 import { modulatorParams, outParams } from './modtarget.js';
 import { SMOOTH_MAX_MS } from './velocity2ctl.dsp.js';
-import { KEY_MAX } from './pitch2ctl.dsp.js';
-import { noteName, PIANO_LOW, PIANO_HIGH } from '../song.js';
-import { createPitchRangeView } from './pitch2ctlview.js';
+import { defaultMap, normalizeMap } from './pitch2ctl.dsp.js';
+import { createKeyMapView } from './pitch2ctlview.js';
 
-export const keyLabel = (v) => `${noteName(Math.round(v))} (${Math.round(v)})`;
 const smoothLabel = (v) => (v < 0.5 ? 'Off (jump)' : v < 1000 ? `${Math.round(v)} ms` : `${(v / 1000).toFixed(2)} s`);
 
 export default {
@@ -27,13 +25,13 @@ export default {
   modulator: true,
   params: [
     ...outParams(),
-    { id: 'lowKey', label: 'Low Key', min: 0, max: KEY_MAX, default: PIANO_LOW, step: 1, format: keyLabel },
-    { id: 'highKey', label: 'High Key', min: 0, max: KEY_MAX, default: PIANO_HIGH, step: 1, format: keyLabel },
     { id: 'noteOffAction', label: 'Noteoff Action', min: 0, max: 2, default: 0, step: 1, options: ['Do Nothing', 'Control Down', 'Control Up'] },
     { id: 'smooth', label: 'Smooth', min: 0, max: SMOOTH_MAX_MS, default: 0, step: 1, format: smoothLabel },
   ],
+  defaultState: () => ({ map: defaultMap() }),
+  normalizeState: (st) => ({ map: normalizeMap(st?.map) }),
   view(entry, api) {
-    return createPitchRangeView({ ...api, values: entry.values, params: entry.def.params, playing: () => entry.inst?.playing ?? null });
+    return createKeyMapView({ ...api, getMap: () => entry.state.map, playing: () => entry.inst?.playing ?? null });
   },
   create(_ctx, def, host) {
     const node = host.dsp.create('pitch2ctl');
@@ -45,6 +43,7 @@ export default {
       getTargets: () => [], // set by the patch: modules this module is cabled to
       params: () => modulatorParams(inst, def),
       setParam: (id, v) => node.param(id, v),
+      setState: (st) => send({ type: 'map', map: st.map }),
       noteOn(id, pitch) { inst.playing = { id, pitch }; send({ type: 'noteOn', id, pitch }); },
       noteMod(id, pitch, velocity) {
         if (inst.playing?.id === id) inst.playing = { id, pitch };

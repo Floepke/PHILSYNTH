@@ -381,20 +381,21 @@ export const DOCS = {
   },
 
   PITCH2CTL: {
-    summary: 'Turns the pitch of incoming notes into a controller value: the higher the note within its key range, the further it moves the controlled controller (e.g. a filter that opens up the keyboard, or key tracking for any controller). It makes no sound.',
+    summary: 'Turns the pitch of incoming notes into a controller value through a key map you draw: every MIDI key gets its own value, so a filter can open up the keyboard, or an instrument can get a custom value per key (key tracking for any controller). It makes no sound.',
     params: {
       outController: OUT_CONTROLLER,
-      outMin: `${OUT_MIN} Notes at (or below) Low Key give this value.`,
-      outMax: `${OUT_MAX} Notes at (or above) High Key give this value.`,
-      lowKey: 'Bottom of the key range, as MIDI key 0–127 (C-1 … G9; middle C = C4 = 60): this note gives Out Min (default A0 = 21, the bottom of an 88-key piano). Lower notes stay at Out Min. Set it above High Key to flip the mapping, so higher notes give lower values.',
-      highKey: 'Top of the key range: this note gives Out Max (default C8 = 108, the top of an 88-key piano), higher notes stay at Out Max. In between the value moves in a straight line per semitone; cents (micro-pitch, pitch glides) count too. Low Key = High Key makes a switch: below that key Out Min, from it up Out Max.',
+      outMin: `${OUT_MIN} The bottom of the key map.`,
+      outMax: `${OUT_MAX} The top of the key map.`,
       noteOffAction: 'What happens when the newest note ends: Do Nothing holds the value until the next note, Control Down moves it to Out Min, Control Up to Out Max.',
       smooth: 'Glide time to every new value, 0–5000 ms: instead of jumping, the controller moves in a straight line from where it is to the new value in this time (like portamento for the controller). 0 (default, <i>Off</i>) jumps. The very first note jumps, as there is nothing to glide from.',
     },
     notes: [
-      '<b>Keyboard</b> (below the controllers): all 128 MIDI keys with the range tinted. Drag on the keys to move the nearest handle (a click jumps it there), double-click a handle to reset it. The newest sounding note lights up; the line below names the range or the hovered key.',
+      '<b>Key map</b> (below the controllers): one column per MIDI key, all 128 (C-1 … G9; middle C = C4 = 60), above a key strip. The height of a column is that key\'s value: bottom Out Min, top Out Max. Default: a straight line over the 88-key piano, A0 (21) = Out Min … C8 (108) = Out Max, flat outside it.',
+      '<b>Drag</b> to draw the keys freehand (a fast stroke fills every key it passes). <b>Shift+drag</b> draws a straight dashed line; on release the keys under it snap onto it. <b>Reset</b> brings back the default line, <b>Invert</b> flips the map upside down. Every stroke is one undoable edit; the map is saved with the project.',
+      '<b>Zoom</b> to set single keys precisely: <b>−</b> / <b>+</b> or <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + wheel over the map (down to one octave across). Scroll with <kbd>Shift</kbd> + wheel (or a sideways wheel) or by dragging the key strip; the bar under the octave names shows which part of the keys you see. Widening the controller panel gives every key more room too.',
+      'Between two keys (micro-pitch, pitch glides) the value moves in a straight line from one key\'s value to the next, along the line drawn through the columns. The newest sounding note is marked at its exact pitch; the line below the map names the hovered key and its value.',
       MOD_CABLE,
-      'The newest note wins, including its pitch curve while it sounds. Notes come from clips sent to it or a MULTIMIDI cabled into it; the MIDI keyboard keeps playing the current synth. Changing the key range moves a held value along.',
+      'The newest note wins, including its pitch curve while it sounds. Notes come from clips sent to it or a MULTIMIDI cabled into it; the MIDI keyboard keeps playing the current synth. Editing the map moves a held value along.',
     ],
   },
 

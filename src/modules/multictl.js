@@ -11,6 +11,7 @@
 import { outParams } from './modtarget.js';
 import { fromNorm, paramsOf, toNorm } from '../params.js';
 import { colorOf } from '../modcolor.js';
+import { moduleName as labelOf } from '../modname.js';
 
 const pct1 = (v) => `${(+v).toFixed(1)} %`;
 const OUT = outParams().filter((p) => p.id !== 'outController'); // Out Min, Out Max
@@ -44,7 +45,7 @@ export function routesOnConnect(state, entry, t, targets) {
   return { routes };
 }
 
-const labelOf = (m) => m.name || (m.def.isOutput ? 'Output' : m.def.type);
+
 
 const el = (tag, cls, text) => {
   const e = document.createElement(tag);

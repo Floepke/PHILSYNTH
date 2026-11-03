@@ -267,10 +267,13 @@ body.panel-collapsed #panel { visibility: hidden; }
 .adsr-view { margin-top: 6px; height: 84px; }
 .adsr-view canvas { touch-action: none; }
 .adsr-view.adsr-solo { margin-top: 10px; height: 96px; }
-/* PITCH2CTL: keyboard of all 128 MIDI keys with the Low Key / High Key range */
+/* PITCH2CTL: key map editor, one column per MIDI key */
 .p2c-view { margin-top: 10px; }
-.p2c-view canvas { display: block; width: 100%; height: 70px; touch-action: none; cursor: ew-resize; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+.p2c-view canvas { display: block; width: 100%; height: 200px; touch-action: none; cursor: crosshair; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
 .p2c-info { margin-top: 4px; font: 500 11px var(--mono); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p2c-tools { display: flex; gap: 6px; margin-top: 6px; }
+.p2c-tools button { flex: 1; }
+.p2c-tools button.p2c-zoom { flex: 0 0 34px; }
 .sample-view { margin-top: 10px; }
 .sample-view .sample-load { width: 100%; }
 .sample-view .sample-info { margin: 6px 0 0; font-size: 11px; color: var(--text-dim); overflow-wrap: anywhere; }

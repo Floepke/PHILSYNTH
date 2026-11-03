@@ -17,6 +17,7 @@ import { initWidgets } from './widgets.js';
 import { emptySong, getClip, snapStep } from './song.js';
 import { CableScope } from './cablescope.js';
 import { openMapDialog, patchControllersView } from './mapdialog.js';
+import { defaultName } from './modname.js';
 import { MAX_NAME, runtimesAt, songLayers } from './patch.js';
 import { showMenu, closeMenu, shortcut } from './seq/menu.js';
 import { snapToGrid } from './grid.js';
@@ -389,8 +390,6 @@ function setColor(el, color) {
   else el.style.removeProperty('--mod-color');
 }
 
-// Name on a module box: its custom name (see rename) or the default from its type.
-const defaultName = (def) => (def.isOutput ? 'Output' : def.type === 'PATCH' ? 'Patch' : def.type);
 function showName(entry, el = entry.el?.querySelector('.module-name')) {
   if (!el) return;
   el.textContent = entry.name ?? defaultName(entry.def);

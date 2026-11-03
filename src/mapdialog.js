@@ -6,6 +6,7 @@
 import { paramsOf } from './params.js';
 import { colorOf } from './modcolor.js';
 import { nextMapKey } from './modules/patch.js';
+import { moduleName } from './modname.js';
 
 const el = (tag, cls, text) => {
   const e = document.createElement(tag);
@@ -13,7 +14,6 @@ const el = (tag, cls, text) => {
   if (text !== undefined) e.textContent = text;
   return e;
 };
-const moduleName = (m) => (m.def.isOutput ? 'Output' : m.def.label);
 const valueText = (m, p) => {
   const v = m.values[p.id];
   if (v === undefined) return '';
@@ -94,7 +94,7 @@ export function openMapDialog(entry, { setState }) {
     const list = maps();
     inside.replaceChildren();
     for (const m of [...patch.modules.values()].sort((a, b) => a.id - b.id)) {
-      const name = `#${m.id} ${moduleName(m)} ${m.def.type}`.toLowerCase();
+      const name = `#${m.id} ${moduleName(m)} ${m.def.type} ${m.def.label}`.toLowerCase();
       const params = paramsOf(m).filter((p) => !q || name.includes(q) || p.label.toLowerCase().includes(q));
       if (!params.length) continue;
       const group = el('div', 'map-group');
