@@ -21,6 +21,7 @@ import { defaultName } from './modname.js';
 import { MAX_NAME, runtimesAt, songLayers } from './patch.js';
 import { showMenu, closeMenu, shortcut } from './seq/menu.js';
 import { snapToGrid } from './grid.js';
+import { createNoiseBackground } from './noisebg.js';
 import { renderGuide } from './guide.js';
 import { createHistory } from './history.js';
 import { renderSong, encodeWav } from './render.js';
@@ -38,6 +39,7 @@ let undoHistory = null;
 let scope = null; // live audio drawn on the cables (created after the engine)
 const $ = (id) => document.getElementById(id);
 const canvas = $('canvas');
+const noiseBg = createNoiseBackground(canvas);
 const svg = $('cables');
 const world = $('world');
 const panel = $('panel-content');
@@ -119,8 +121,7 @@ function clientToWorld(cx, cy) {
 function applyCam() {
   const { x, y, z } = cam();
   world.style.transform = `translate(${x}px, ${y}px) scale(${z})`;
-  canvas.style.backgroundSize = `${22 * z}px ${22 * z}px`;
-  canvas.style.backgroundPosition = `${x}px ${y}px`;
+  noiseBg.draw({ x, y, z }); // the background noise lives in world space too
   $('zoom').textContent = `${Math.round(z * 100)}%`;
 }
 function setCam(c) {
