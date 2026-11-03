@@ -368,7 +368,8 @@ for (const reverse of [false, true]) {
   const { clip, roll } = setup();
   const cv = roll.surface.cv;
   clip.notes.push(note(60, 1), note(64, 1));
-  drag(cv, nx(60), ny(1) + 5, nx(65), ny(2), { shiftKey: true });
+  // (Shift + drag on a circle tunes the note, so the rectangle starts there with the right button)
+  drag(cv, nx(60), ny(1) + 5, nx(65), ny(2), { button: 2, buttons: 2 });
   assert.equal(key(cv, 'Escape').defaultPrevented, true, 'Escape clears the note selection first');
   assert.equal(key(cv, 'Escape').defaultPrevented, false, 'next Escape reaches the global exit shortcut');
   key(cv, 'Delete');
@@ -694,6 +695,83 @@ for (const how of ['wheel', 'edge']) {
   click(cv, nx(70), ny(1) + 5, { shiftKey: true });
   key(cv, 'Delete');
   assert.equal(clip.notes.length, 0);
+}
+
+// Micropitch: Shift + drag a circle sideways tunes it slowly (4 px per cent, 0.1 cent steps) and
+// shows a slider; the note stays on its key (halves round up); Esc restores; the selection tunes along.
+{
+  const { clip, roll, ctx, changes, menus } = setup();
+  const cv = roll.surface.cv;
+  const bends = [];
+  let playing = 0;
+  ctx.preview = { on() { playing++; return { id: 1 }; }, bend(h, p) { bends.push(p); }, off(h) { if (h) playing--; } };
+  const a = note(60, 1);
+  const b = note(64, 1);
+  const c = note(67, 3);
+  clip.notes.push(a, b, c);
+  // +10 cents
+  point(cv, 'pointerdown', nx(60), ny(1) + 5, { buttons: 1, shiftKey: true });
+  point(cv, 'pointermove', nx(60) + 40, ny(1) + 5, { buttons: 1, shiftKey: true });
+  assert.equal(a.pitch, 60.1);
+  assert.equal(playing, 1, 'the note sounds while it is tuned');
+  assert.deepEqual(bends, [60.1], 'and glides along');
+  assert.ok(cv.drawing.some(([op, t]) => op === 'fillText' && t === 'C4 +10 ct'), 'slider shows the key and cents');
+  point(cv, 'pointermove', nx(60) + 2, ny(1) + 5, { buttons: 1, shiftKey: true });
+  assert.equal(a.pitch, 60.005, 'fine: half a cent');
+  point(cv, 'pointermove', nx(60) + 2000, ny(1) + 5, { buttons: 1, shiftKey: true });
+  assert.equal(a.pitch, 60.499, 'up to +49.9 cents (+50 belongs to the next key)');
+  point(cv, 'pointerup', nx(60) + 2000, ny(1) + 5, { shiftKey: true });
+  assert.equal(playing, 0);
+  assert.equal(changes(), 1);
+  assert.equal(b.pitch, 64, 'other notes untouched');
+  // drawn on its key: the body in column 60, the circle leaning right
+  cv.drawing.length = 0;
+  roll.redraw(); flush();
+  assert.ok(cv.drawing.some(([op, x, y]) => op === 'roundRect' && x === nx(60) - 7.5 && y === ny(1)), 'body stays in its key column');
+  assert.ok(cv.drawing.some(([op, x]) => op === 'translate' && Math.abs(x - (nx(60) + 0.499 * 14)) < 1e-9), 'circle leans by the tuning');
+  // the circle is still grabbed where it is drawn; down to -50 cents
+  drag(cv, nx(60) + 7, ny(1) + 5, nx(60) + 7 - 4000, ny(1) + 5, { shiftKey: true });
+  assert.equal(a.pitch, 59.5, '-50 cents: still C4');
+  assert.equal(changes(), 2);
+  // Escape restores
+  point(cv, 'pointerdown', nx(60) - 7, ny(1) + 5, { buttons: 1, shiftKey: true });
+  point(cv, 'pointermove', nx(60) + 100, ny(1) + 5, { buttons: 1, shiftKey: true });
+  assert.notEqual(a.pitch, 59.5);
+  key(cv, 'Escape');
+  assert.equal(a.pitch, 59.5, 'Escape restores the tuning');
+  assert.equal(changes(), 2);
+  // a selection tunes along, every note by the same cents, each kept on its key
+  a.pitch = 60;
+  key(cv, 'a', { ctrlKey: true });
+  drag(cv, nx(64), ny(1) + 5, nx(64) - 80, ny(1) + 5, { shiftKey: true });
+  assert.deepEqual([a.pitch, b.pitch, c.pitch], [59.8, 63.8, 66.8]);
+  // transposing keeps the tuning; Reset tuning puts every selected note back on its key
+  key(cv, 'ArrowRight');
+  assert.deepEqual([a.pitch, b.pitch, c.pitch], [60.8, 64.8, 67.8]);
+  holdRightClick(cv, nx(80), ny(6));
+  pick(menus, 'Reset tuning');
+  assert.deepEqual([a.pitch, b.pitch, c.pitch], [61, 65, 68]);
+  // Shift + click (no drag) still toggles the note in the selection
+  click(cv, nx(61), ny(1) + 5, { shiftKey: true });
+  key(cv, 'Delete');
+  assert.deepEqual(clip.notes.map((n) => n.pitch), [61]);
+}
+
+// Micropitch notes belong to the key their pitch rounds to (halves up), in the roll and on its keyboard.
+{
+  const { clip, roll, ctx } = setup();
+  const cv = roll.surface.cv;
+  clip.notes.push(note(59.5, 1), note(59.49, 3));
+  roll.redraw(); flush();
+  assert.ok(cv.drawing.some(([op, x, y]) => op === 'roundRect' && x === nx(60) - 7.5 && y === ny(1)), '59.5 is C4');
+  assert.ok(cv.drawing.some(([op, x, y]) => op === 'roundRect' && x === nx(59) - 7.5 && y === ny(3)), '59.49 is B3');
+  // held keys (MIDI) light their base key blue
+  const keyFill = (p) => cv.drawing.findLast(([op, x, y]) => op === 'fillRect' && x === nx(p) - 7 + 0.5 && y > 300)?.[5];
+  ctx.heldKeys = () => new Set([61.6]);
+  roll.redraw(); flush();
+  assert.equal(keyFill(62), '#65b4ff', 'a tuned held pitch lights its base key');
+  assert.notEqual(keyFill(61), '#65b4ff');
+  assert.ok(keyFill(61), 'key rect found');
 }
 
 // Ctrl/Cmd + D duplicates the selection right after itself; Q quantizes; new notes get the last length.

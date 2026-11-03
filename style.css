@@ -693,6 +693,30 @@ body.panel-collapsed #panel { visibility: hidden; }
 #seq-target { box-shadow: inset 3px 0 0 var(--clip-color); }
 .seq-div { color: var(--beam-ink); font-size: 16px; line-height: 1; }
 #seq-bar .seq-div-input { width: 48px; }
+/* the toolbar's controls are carved from the divider's oak, a shade darker: the play button, dropdowns
+   and spin arrows are raised (the beam's rounded shading), the value fields are sunk into the wood */
+#seq-bar :is(.seq-play, select, .spin-buttons button) {
+  border-color: var(--wood-border);
+  background-color: #4a2e1a;
+  background-image:
+    linear-gradient(to bottom, rgba(255, 220, 170, 0.16) 0%, rgba(255, 215, 160, 0.04) 35%, rgba(0, 0, 0, 0) 55%, rgba(12, 6, 2, 0.35) 100%),
+    linear-gradient(rgba(12, 6, 2, 0.38), rgba(12, 6, 2, 0.38)),
+    var(--wood-h);
+  color: var(--wood-ink);
+  box-shadow: inset 0 1px 0 rgba(255, 220, 170, 0.22), inset 0 -1px 0 rgba(12, 6, 2, 0.7), 0 1px 2px rgba(0, 0, 0, 0.45);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7);
+}
+#seq-bar input:not([type='checkbox']) {
+  border-color: var(--wood-border);
+  background-color: #2e1c0f;
+  background-image: linear-gradient(rgba(12, 6, 2, 0.6), rgba(12, 6, 2, 0.6)), var(--wood-h);
+  color: var(--wood-ink);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(255, 220, 170, 0.14);
+}
+#seq-bar :is(.seq-play, select, .spin-buttons button):hover:not(:disabled) { filter: brightness(1.18); }
+#seq-bar .seq-play.playing { background: #ff5a36; border-color: #ff5a36; color: #0b0b0c; text-shadow: none; }
+#seq-bar #seq-target { box-shadow: inset 3px 0 0 var(--clip-color), inset 0 1px 0 rgba(255, 220, 170, 0.22), inset 0 -1px 0 rgba(12, 6, 2, 0.7), 0 1px 2px rgba(0, 0, 0, 0.45); }
+#seq-bar select::picker-icon { color: var(--wood-ink); }
 #workspace.roll-collapsed #roll,
 #workspace.patcher-collapsed #patcher,
 #workspace.arranger-collapsed #arranger { visibility: hidden; }

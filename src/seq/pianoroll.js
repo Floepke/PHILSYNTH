@@ -12,8 +12,13 @@
 //   drag a note's coloured body  set the duration: the end jumps to the pointer, snapped to the grid
 //                                (all selected notes change by the same amount when it is selected)
 //   drag a note's circle         change pitch (sideways) and start time (moves the whole selection)
+//   Shift + drag a note's circle sideways  micropitch: tune the note (or the selection it is in) up /
+//                                in 0.1 cent steps, slowly (MICRO_PX px per cent); a slider shows the
+//                                cents. A note stays in its key's column (halves round up, see
+//                                song.js basePitch); its circle leans sideways by the tuning
+//                                (±50 cents = half a column). Esc / pointer cancel restores it.
 //   drag the thick end line      change the clip length (wheel-scroll or drag past the top / bottom edge to go further)
-//   Shift + drag / right drag    select notes with a rectangle (wheel-scroll or drag past the top / bottom edge to extend it across the clip)
+//   Shift + drag / right drag    select notes with a rectangle (Shift: starting off a note's circle) (wheel-scroll or drag past the top / bottom edge to extend it across the clip)
 //   Shift + click a note         add it to / remove it from the selection
 //   Alt + drag a note           clone it (or the selection) and move the clones
 //   right click                 delete the note under the pointer on release
@@ -30,7 +35,7 @@
 // The bar ruler between them is a divider: drag it sideways to widen the strip (the note grid
 // scales to the rest), double-click it to reset. The width is saved with the project view.
 // Free timing bypasses time snapping; the visual grid (base note ÷ divider) stays visible.
-import { isBlack, inPiano, clipSilent, snapStep, pianoTimeStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, clean, meter, barLines, beatLines, barLength } from '../song.js';
+import { basePitch, centsOf, withCents, centsLabel, isBlack, inPiano, clipSilent, snapStep, pianoTimeStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, clean, meter, barLines, beatLines, barLength } from '../song.js';
 import { createSurface, capture, startPan, onWheel, clamp, snapBands, mutedMark, edgeScroll, RIGHT_HOLD_MS, RIGHT_HOLD_SLOP } from './surface.js';
 import { createVelocityStrip, VEL_W } from './velocity.js';
 import { clipResizeBounds } from './clipplacement.js';
@@ -57,8 +62,11 @@ const BEAT = STAVE;
 const BAR_LINE = STAVE;
 const BOUNDARY = STAVE;
 const TIME_EPSILON = 1e-7;
+const MICRO_PX = 4; // px of sideways Shift-drag per cent of micropitch
+const SLIDER_W = 160; // px, the micropitch slider (±50 cents)
 
-// ctx: { song(), clip(), color(clip), preview: { on(clip, pitch) -> handle, key(pitch) -> handle, off(handle) }, changed(), transport,
+// ctx: { song(), clip(), color(clip), preview: { on(clip, pitch) -> handle, key(pitch) -> handle,
+//        bend?(handle, pitch) (micropitch drag), off(handle) }, changed(), transport,
 //        menu?(opts) (context menu, default showMenu), heldKeys?() -> Set of pitches held on the live
 //        inputs (shown blue on the keyboard; call redraw() when it changes) }
 export function createPianoRoll(host, ctx) {
@@ -84,6 +92,8 @@ export function createPianoRoll(host, ctx) {
   const dragThreshold = () => Math.min(3, keyWidth() * 0.4);
   const xOf = (p) => gridX() + p * keyWidth();
   const yOf = (t) => t * view.ppq - view.sy;
+  const keyX = (n) => xOf(basePitch(n.pitch)); // a note's column: the key its pitch belongs to
+  const headX = (n) => keyX(n) + keyWidth() / 2 + (centsOf(n.pitch) / 100) * keyWidth(); // leans by the tuning
   const pitchAt = (x) => keyWidth() > 0 ? clamp(Math.floor((x - gridX()) / keyWidth()), 0, PITCH_MAX) : 0;
   const timeAt = (y) => (y + view.sy) / view.ppq;
   const gridBottom = () => Math.max(0, s.h - KEYBOARD);
@@ -176,7 +186,7 @@ export function createPianoRoll(host, ctx) {
     const t = playheadTime(clip);
     if (t === null) return out;
     for (const n of clip.notes) {
-      if (n.start >= 0 && n.start < clip.length && n.start <= t && t < n.start + n.length) out.add(n.pitch);
+      if (n.start >= 0 && n.start < clip.length && n.start <= t && t < n.start + n.length) out.add(basePitch(n.pitch));
     }
     return out;
   }
@@ -224,7 +234,7 @@ export function createPianoRoll(host, ctx) {
           // Compare musical time, not rounded pixels; starts and ends can drift at triplet boundaries.
           const gaps = clip.notes
             .filter((n) => n.start <= t + TIME_EPSILON && n.start + n.length >= t - TIME_EPSILON)
-            .map((n) => [xOf(n.pitch) - overlap() - kw / 2, xOf(n.pitch) + kw + overlap() + kw / 2])
+            .map((n) => [keyX(n) - overlap() - kw / 2, keyX(n) + kw + overlap() + kw / 2])
             .sort((a, b) => a[0] - b[0]);
           for (const [start, end] of gaps) {
             if (end <= left || start >= gridRight) continue;
@@ -263,7 +273,7 @@ export function createPianoRoll(host, ctx) {
         const y = yOf(n.start);
         const hh = n.length * view.ppq;
         if (y > bottom || y + hh < 0) continue;
-        const x = xOf(n.pitch);
+        const x = keyX(n);
         if (x > w || x + kw < gridX()) continue;
         g.globalAlpha = n.start >= 0 && n.start < clip.length ? 1 : 0.35;
         g.fillStyle = selected.has(n)
@@ -308,7 +318,7 @@ export function createPianoRoll(host, ctx) {
       for (const n of clip.notes) {
         const y = yOf(n.start);
         if (y < -2 * headSize().height || y > bottom) continue;
-        head(g, xOf(n.pitch) + kw / 2, y, isBlack(n.pitch), n.start >= 0 && n.start < clip.length ? 1 : 0.4);
+        head(g, headX(n), y, isBlack(n.pitch), n.start >= 0 && n.start < clip.length ? 1 : 0.4);
       }
       if (hover && !drag) head(g, xOf(hover.pitch) + kw / 2, yOf(hover.t), isBlack(hover.pitch), 0.55);
       if (clipSilent(ctx.song(), clip)) mutedMark(g, gridX(), 0, w - gridX(), bottom);
@@ -326,6 +336,7 @@ export function createPianoRoll(host, ctx) {
       g.textAlign = 'center';
       g.fillText('No clip selected. Double-click in the TimeLine below to create one.', gridX() + (w - gridX()) / 2, 40);
     }
+    if (drag?.kind === 'micro' && drag.moved && clip?.notes.includes(drag.note)) paintSlider(g);
     if (drag?.kind === 'select' && drag.shown) {
       const x = Math.min(drag.x0, drag.x1);
       const y = Math.min(drag.y0, drag.y1);
@@ -349,7 +360,8 @@ export function createPianoRoll(host, ctx) {
     g.font = '600 8px system-ui, sans-serif';
     g.textAlign = 'center';
     const keyGap = Math.min(1, kw * 0.1);
-    const live = ctx.heldKeys?.() ?? new Set(); // keys held on the MIDI device / computer keyboard
+    // keys held on the MIDI device / computer keyboard (a tuned pitch lights its base key)
+    const live = new Set([...(ctx.heldKeys?.() ?? [])].map(basePitch));
     const blackLive = `color-mix(in srgb, ${SELECT} 70%, #000)`;
     const sounding = soundingPitches(clip); // notes of this clip under the playhead while it plays
     const noteColor = clip ? `color-mix(in srgb, ${ctx.color(clip)} 75%, #fff)` : null;
@@ -427,7 +439,7 @@ export function createPianoRoll(host, ctx) {
     const tolerance = Math.min(1, keyWidth() * 0.1);
     for (let i = clip.notes.length - 1; i >= 0; i--) {
       const n = clip.notes[i];
-      const dx = x - (xOf(n.pitch) + keyWidth() / 2);
+      const dx = x - headX(n);
       const dy = (y - headY(yOf(n.start))) / HEAD_STRETCH;
       const u = dx * Math.cos(TILT) + dy * Math.sin(TILT);
       const v = -dx * Math.sin(TILT) + dy * Math.cos(TILT);
@@ -435,7 +447,7 @@ export function createPianoRoll(host, ctx) {
     }
     for (let i = clip.notes.length - 1; i >= 0; i--) {
       const n = clip.notes[i];
-      const nx = xOf(n.pitch);
+      const nx = keyX(n);
       const ny = yOf(n.start);
       if (x >= nx - overlap() && x < nx + keyWidth() + overlap() && y >= ny && y <= ny + n.length * view.ppq) return { note: n, part: 'body' };
     }
@@ -452,7 +464,7 @@ export function createPianoRoll(host, ctx) {
     cv.style.cursor = keyboard ? 'pointer' : h?.part === 'head' ? 'move' : h ? 'ns-resize' : inside ? 'crosshair' : 'default';
     const menuTip = 'hold the right mouse button 250 ms for the menu';
     cv.title = keyboard ? `${noteName(pitchAt(x))} - click to audition`
-      : h ? `${noteName(h.note.pitch)}  start ${+h.note.start.toFixed(4)}  length ${+h.note.length.toFixed(4)} (quarters) — right-click deletes, ${menuTip}`
+      : h ? `${noteName(h.note.pitch)}${centsOf(h.note.pitch) ? ` ${centsLabel(centsOf(h.note.pitch))}` : ''}  start ${+h.note.start.toFixed(4)}  length ${+h.note.length.toFixed(4)} (quarters) — Shift + drag sideways tunes it (micropitch), right-click deletes, ${menuTip}`
         : inside ? `Click to add a note — ${menuTip}` : '';
     const v = ctx.clip() ? vel.hover(x, y) : null;
     if (endHover) { cv.style.cursor = 'row-resize'; cv.title = `Clip end at ${+ctx.clip().length.toFixed(4)} quarters — drag to lengthen or shorten the clip`; }
@@ -557,7 +569,7 @@ export function createPianoRoll(host, ctx) {
       const top = Math.min(state.y0, state.y1);
       const bottom = Math.max(state.y0, state.y1);
       selected = new Set(clip.notes.filter((n) => {
-        const nx = xOf(n.pitch);
+        const nx = keyX(n);
         const ny = yOf(n.start);
         const height = Math.max(n.length * view.ppq, 2 * headSize().height);
         return nx + keyWidth() + overlap() >= left && nx - overlap() <= right && ny + height >= top && ny <= bottom;
@@ -599,6 +611,118 @@ export function createPianoRoll(host, ctx) {
     cv.addEventListener('blur', stop);
     window.addEventListener('blur', stop);
     if (onHold) timer = setTimeout(hold, RIGHT_HOLD_MS);
+  }
+
+  // Shift + drag a note's circle sideways: micropitch (the selection it is in tunes along, each
+  // note by the same number of cents, and stays on its key); Shift + click toggles it in the
+  // selection as before
+  function tune(e, clip, note, x0) {
+    const base = selected;
+    const group = selected.has(note) && selected.size > 1 ? selectedNotes() : [note];
+    const origs = group.map((n) => ({ key: basePitch(n.pitch), cents: centsOf(n.pitch), pitch: n.pitch }));
+    let pv = null;
+    const state = { kind: 'micro', note, moved: false, stop: null };
+    drag = state;
+    hover = null;
+    const apply = (p) => {
+      // 0.1 cent steps, MICRO_PX px per cent
+      const delta = Math.round(((p.x - x0) / MICRO_PX) * 10) / 10;
+      group.forEach((n, i) => { n.pitch = withCents(origs[i].key, origs[i].cents + delta); });
+      if (pv) ctx.preview.bend?.(pv, note.pitch);
+      s.redraw();
+    };
+    const stop = capture(cv, e, (ev) => {
+      const p = s.local(ev);
+      pointer = p;
+      if (!state.moved) {
+        if (Math.abs(p.x - x0) < dragThreshold()) return;
+        state.moved = true;
+        selected = new Set(group);
+        pv = ctx.preview.on(clip, note.pitch);
+      }
+      apply(p);
+    }, (ev) => {
+      ctx.preview.off(pv);
+      cv.removeEventListener('blur', stop);
+      window.removeEventListener('blur', stop);
+      drag = null;
+      const cancelled = ev.type !== 'pointerup' || ctx.clip() !== clip;
+      if (state.moved && cancelled) {
+        group.forEach((n, i) => { n.pitch = origs[i].pitch; });
+        selected = base;
+      } else if (state.moved) {
+        if (group.some((n, i) => n.pitch !== origs[i].pitch)) ctx.changed();
+      } else if (!cancelled) { // Shift + click: toggle the note in the selection
+        selected = new Set(base);
+        if (selected.has(note)) selected.delete(note); else selected.add(note);
+      }
+      const p = s.local(ev);
+      updateHover(p.x, p.y);
+      s.redraw();
+    });
+    state.stop = stop;
+    cv.addEventListener('blur', stop);
+    window.addEventListener('blur', stop);
+    s.redraw();
+  }
+
+  // the micropitch slider above the note being tuned: ±50 cents, the tuning filled from the centre
+  function paintSlider(g) {
+    const n = drag.note;
+    const kw = keyWidth();
+    const W = Math.min(SLIDER_W, Math.max(60, s.w - gridX() - 8));
+    const H = 34;
+    const hx = headX(n);
+    const left = clamp(hx - W / 2, gridX() + 4, s.w - W - 4);
+    const hy = headY(yOf(n.start));
+    const hh = headSize().height;
+    const above = hy - hh - H - 10;
+    // above the circle; flip below it when there is no room at the top of the view
+    const top = above >= 4 ? above : clamp(hy + hh + 10, 4, Math.max(4, gridBottom() - H - 4));
+    const below = top > hy;
+    const cents = centsOf(n.pitch);
+    const pad = 10;
+    const tx0 = left + pad;
+    const tx1 = left + W - pad;
+    const cx = (tx0 + tx1) / 2;
+    const xAt = (c) => cx + (c / 50) * (tx1 - cx);
+    const ty = top + H - 10;
+    g.save();
+    g.fillStyle = 'rgba(20, 21, 26, 0.92)';
+    g.strokeStyle = SELECT;
+    g.lineWidth = 1;
+    g.beginPath();
+    g.roundRect(left, top, W, H, 6);
+    g.fill();
+    g.stroke();
+    // track, ticks at -50 / -25 / 0 / +25 / +50
+    g.fillStyle = '#3a3c44';
+    g.fillRect(tx0, ty - 2, tx1 - tx0, 4);
+    g.fillStyle = '#8a8d96';
+    for (const c of [-50, -25, 0, 25, 50]) g.fillRect(Math.round(xAt(c)) - 0.5, ty - (c ? 4 : 6), 1, c ? 8 : 12);
+    g.fillStyle = SELECT;
+    const xv = xAt(cents);
+    g.fillRect(Math.min(cx, xv), ty - 2, Math.abs(xv - cx), 4);
+    g.beginPath();
+    g.arc(xv, ty, 5, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = '#fff';
+    g.lineWidth = 1.5;
+    g.stroke();
+    // label: key + cents
+    g.fillStyle = '#e8e9ee';
+    g.font = '600 11px ui-monospace, monospace';
+    g.textAlign = 'center';
+    g.textBaseline = 'alphabetic';
+    g.fillText(`${noteName(n.pitch)} ${centsLabel(cents)}`, cx, top + 13);
+    // a thin line down to the note's circle
+    g.strokeStyle = 'rgba(101, 180, 255, 0.6)';
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(clamp(hx, left + 4, left + W - 4), below ? top : top + H);
+    g.lineTo(hx, below ? hy + hh - Math.min(2, kw * 0.1) : hy - hh + Math.min(2, kw * 0.1));
+    g.stroke();
+    g.restore();
   }
 
   cv.addEventListener('pointerdown', (e) => {
@@ -679,6 +803,7 @@ export function createPianoRoll(host, ctx) {
     }
     if (e.button !== 0) return;
     e.preventDefault();
+    if (e.shiftKey && hit(x, y)?.part === 'head') { tune(e, clip, hit(x, y).note, x); return; }
     if (e.shiftKey) { // Shift + drag: rectangle; Shift + click: toggle a note in the selection
       const base = selected;
       selectRect(e, x, y, () => {
@@ -739,7 +864,8 @@ export function createPianoRoll(host, ctx) {
         const dl = Math.max(minLength, snapRound(timeAt(p.y), st) - a.start) - a.length;
         group.forEach((n, i) => { n.length = Math.max(minLength, clean(origs[i].length + dl)); });
       } else {
-        const dp = clamp(pitchAt(p.x) - drag.p0, -Math.min(...origs.map((o) => o.pitch)), PITCH_MAX - Math.max(...origs.map((o) => o.pitch)));
+        // whole semitones that keep every (tuned) pitch inside 0..PITCH_MAX
+        const dp = clamp(pitchAt(p.x) - drag.p0, Math.ceil(-Math.min(...origs.map((o) => o.pitch)) - 1e-9), Math.floor(PITCH_MAX - Math.max(...origs.map((o) => o.pitch)) + 1e-9));
         const dt = Math.max(snapRound(a.start + timeAt(p.y) - drag.t0, st) - a.start, -Math.min(...origs.map((o) => o.start)));
         const before = group[anchor].pitch;
         group.forEach((n, i) => { n.pitch = clean(origs[i].pitch + dp); n.start = clean(origs[i].start + dt); });
@@ -831,6 +957,14 @@ export function createPianoRoll(host, ctx) {
     ctx.changed();
     s.redraw();
   }
+  // micropitch back to 0 cents: every selected note snaps to its key
+  function resetTuning() {
+    const notes = selectedNotes().filter((n) => centsOf(n.pitch));
+    if (!notes.length) return;
+    for (const n of notes) n.pitch = basePitch(n.pitch);
+    ctx.changed();
+    s.redraw();
+  }
   function selectAll() {
     selected = new Set(ctx.clip()?.notes ?? []);
     s.redraw();
@@ -856,6 +990,7 @@ export function createPianoRoll(host, ctx) {
         { label: has ? 'Quantize selection' : 'Quantize all notes', shortcut: 'Q', disabled: !ctx.clip()?.notes.length, action: quantize },
         { label: 'Octave up', shortcut: '⇧→', disabled: !has, action: () => shift(12, 0) },
         { label: 'Octave down', shortcut: '⇧←', disabled: !has, action: () => shift(-12, 0) },
+        { label: 'Reset tuning', disabled: !selectedNotes().some((n) => centsOf(n.pitch)), action: resetTuning },
         '-',
         { label: 'Select all', shortcut: shortcut('A'), disabled: !ctx.clip()?.notes.length, action: selectAll },
       ],

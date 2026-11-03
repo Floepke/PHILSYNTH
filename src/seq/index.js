@@ -148,6 +148,8 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
         inst.noteOn(id, pitch + pitchOffset(), DEFAULT_VEL);
         return { inst, id };
       },
+      // micropitch drag: the sounding preview glides to the new pitch
+      bend(h, pitch) { h?.inst.noteMod?.(h.id, pitch + pitchOffset(), DEFAULT_VEL); },
       off(h) { h?.inst.noteOff(h.id); },
     },
   };

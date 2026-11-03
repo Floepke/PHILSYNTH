@@ -6,6 +6,7 @@ import {
   addAutoClip, isAuto, autoValue, automationAt, pointIndex,
   notePoints, noteVelAt, groupVelCurve, applyVelCurve, canConsolidate, consolidateClips, splitClip,
   clipFileText, parseClipFile, CLIP_FORMAT,
+  basePitch, centsOf, withCents, centsLabel,
 } from '../src/song.js';
 import { Transport } from '../src/transport.js';
 
@@ -447,3 +448,33 @@ console.log('song tests passed');
   assert.equal(parseClipFile(text.replace(CLIP_FORMAT, 'modsynth-clip')).length, clips.length);
 }
 console.log('link tests passed');
+
+// ---- micropitch: float pitches, the key is the pitch rounded (halves up) ----
+{
+  assert.equal(basePitch(59.5), 60, '59.5 = C4 - 50 cents');
+  assert.equal(basePitch(59.49), 59, '59.49 = B3 + 49 cents');
+  assert.equal(basePitch(60.5), 61);
+  assert.equal(centsOf(59.5), -50);
+  assert.equal(centsOf(59.49), 49);
+  assert.equal(centsOf(60.123), 12.3);
+  assert.equal(centsOf(60), 0);
+  assert.equal(noteName(59.5), 'C4');
+  assert.equal(noteName(59.49), 'B3');
+  assert.equal(isBlack(60.6), true, 'C#4 - 40 cents is a black key');
+  assert.equal(withCents(60, 12.5), 60.125);
+  assert.equal(withCents(60, 80), 60.499, 'cents stay below +50 (the key does not change)');
+  assert.equal(withCents(60, -80), 59.5);
+  assert.equal(withCents(0, -20), 0, 'not below pitch 0');
+  assert.equal(withCents(127, 20), 127, 'not above PITCH_MAX');
+  assert.deepEqual([centsLabel(12.34), centsLabel(-5), centsLabel(0)], ['+12.3 ct', '−5 ct', '±0 ct']);
+  // tuned pitches survive saving (project and clip file); whole-number pitches stay whole
+  const song = emptySong();
+  const clip = addClip(song, { length: 4 });
+  clip.notes.push({ pitch: 60.125, start: 0, length: 1, vel: 0.8 }, { pitch: 64, start: 1, length: 1, vel: 0.8 });
+  const back = normalizeSong(JSON.parse(JSON.stringify(song)));
+  assert.deepEqual(back.clips[0].notes.map((n) => n.pitch), [60.125, 64]);
+  assert.ok(Number.isInteger(back.clips[0].notes[1].pitch));
+  const file = parseClipFile(clipFileText([clip]));
+  assert.deepEqual(file[0].notes.map((n) => n.pitch), [60.125, 64]);
+}
+console.log('micropitch tests passed');

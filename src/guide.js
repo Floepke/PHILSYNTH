@@ -208,6 +208,7 @@ export const GUIDE = [
         items: [
           'Drag a note\'s coloured <b>body</b> to set its length (the end jumps to the snapped pointer); drag its <b>circle</b> to change pitch (sideways) and start time (up / down).',
           `${k('Alt')} + drag a note (body or circle) moves a clone of it.`,
+          `<b>Micropitch</b>: ${k('Shift')} + drag a note\'s circle sideways to tune it up or down (slowly, in 0.1 cent steps); a slider shows the cents while you drag and the note sounds along. With several notes selected, all of them change by the same amount. The note stays on its key (from −50 to just under +50 cents) and its circle leans sideways to show the tuning; menu → <b>Reset tuning</b> puts the selection back on its keys.`,
           `${k('Left')} / ${k('Right')} transpose the selection by a semitone, ${k('Up')} / ${k('Down')} move it by one grid step; with ${k('Shift')}: an octave / a bar.`,
           'A short right-click deletes the note under the pointer.',
         ],
@@ -215,7 +216,7 @@ export const GUIDE = [
       {
         title: 'Select notes',
         items: [
-          `Click a note to select it, ${k('Shift')} + click toggles it. ${k('Shift')} + drag or ${k('right')} + drag draws a selection rectangle; while dragging, scroll the wheel or move past the top / bottom edge to extend it over the whole clip.`,
+          `Click a note to select it, ${k('Shift')} + click toggles it. ${k('Shift')} + drag (starting off a note\'s circle) or ${k('right')} + drag draws a selection rectangle; while dragging, scroll the wheel or move past the top / bottom edge to extend it over the whole clip.`,
           `${k(CMD, 'A')} selects all notes, ${k('Esc')} or a short right-click on empty space clears the selection. Selected notes are filled blue.`,
           'Dragging any selected note moves or resizes the whole selection.',
         ],
@@ -238,7 +239,7 @@ export const GUIDE = [
       {
         title: 'Menu and clipboard',
         items: [
-          'Hold the right mouse button still for <b>250 ms</b> to open the menu (cut, copy, paste, delete, duplicate, quantize, octave); releasing after it opened never deletes a note.',
+          'Hold the right mouse button still for <b>250 ms</b> to open the menu (cut, copy, paste, delete, duplicate, quantize, octave, reset tuning); releasing after it opened never deletes a note.',
           `${k(CMD)} + ${k('X')} / ${k('C')} / ${k('V')} cut, copy and paste notes at the pointer\'s snapped time (pitches and timing are kept); ${k(CMD, 'D')} duplicates the selection right after itself; ${k('Q')} quantizes note starts (the selection, else all).`,
         ],
       },
@@ -254,6 +255,7 @@ export const GUIDE = [
       ['click / drag', 'insert a note / set its duration'],
       [`${k('Shift')} + drag, ${k('right')} + drag`, 'selection rectangle'],
       [`${k('Shift')} + click`, 'toggle a note in the selection'],
+      [`${k('Shift')} + drag a circle sideways`, 'micropitch: tune the note in cents'],
       [`${k('Alt')} + drag`, 'clone and move'],
       ['short right-click', 'delete the note (empty space: deselect)'],
       ['hold right 250 ms', 'menu'],

@@ -10,6 +10,9 @@
 //   start may be negative: clips before time zero are parked there (never played by the song,
 //   the part of a clip that reaches past zero does play). Clips sit on lanes LANE_H px high.
 //   note = { pitch (float MIDI note number, see modmidi.js), start, length, vel (0..1), vels? }
+//   Micropitch: the fraction is the tuning, 60.25 = C4 + 25 cents. A note belongs to the key its
+//   pitch rounds to (halves round up): 59.5 is C4 - 50 cents, 59.49 is B3 + 49 cents (basePitch,
+//   centsOf). Whole-number pitches (older projects) are plain keys and sound as before.
 //   Velocity can change while a note sounds: note.vel is the velocity at the note start and the
 //   optional note.vels = [{ t (quarters after the note start, > 0), v (0..1), r (0..1 rounding) }]
 //   continues the curve (same curve maths as automation). Playback sends the changes as MODMIDI
@@ -40,11 +43,28 @@ export const PIANO_HIGH = 108; // C8
 export const PITCH_MAX = 127;
 export const DEFAULT_VEL = 0.8;
 
+// Micropitch: the key a pitch belongs to (halves round up) and its tuning from that key in cents
+// (-50 .. < +50). The piano roll draws a note in its key's column and lights that key up.
+export const basePitch = (pitch) => Math.floor(pitch + 0.5);
+export const centsOf = (pitch) => Math.round((pitch - basePitch(pitch)) * 100 * 1e6) / 1e6;
+export const CENTS_MIN = -50;
+export const CENTS_MAX = 49.9; // +50 belongs to the next key (as its -50)
+// the pitch of `key` tuned by `cents` (clamped to CENTS_MIN..CENTS_MAX, and to 0..PITCH_MAX)
+export const withCents = (key, cents) => {
+  const c = Math.min(CENTS_MAX, Math.max(CENTS_MIN, cents));
+  return Math.min(PITCH_MAX, Math.max(0, Math.round((key + c / 100) * 1e9) / 1e9));
+};
+// "+12.5 ct" / "-3 ct" / "0 ct"
+export const centsLabel = (cents) => {
+  const c = Math.round(cents * 10) / 10;
+  return `${c > 0 ? '+' : c < 0 ? '−' : '±'}${Math.abs(c)} ct`;
+};
+
 const BLACK = [false, true, false, true, false, false, true, false, true, false, true, false];
-export const isBlack = (pitch) => BLACK[((Math.round(pitch) % 12) + 12) % 12];
+export const isBlack = (pitch) => BLACK[((basePitch(pitch) % 12) + 12) % 12];
 export const inPiano = (pitch) => pitch >= PIANO_LOW && pitch <= PIANO_HIGH;
 export const noteName = (pitch) => {
-  const p = Math.round(pitch);
+  const p = basePitch(pitch);
   return `${['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'][((p % 12) + 12) % 12]}${Math.floor(p / 12) - 1}`;
 };
 
