@@ -56,6 +56,7 @@ export const DOCS = {
       NOTES_IN,
       'The waveform preview below the controllers shows the current shape (two cycles).',
       `<b>ADSR editor</b> (below the waveform): ${ADSR_EDITOR}`,
+      'The Attack/Decay/Release Curves start at +100 % (analog RC shapes); set them to 0 for straight linear stages.',
     ],
   },
 

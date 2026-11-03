@@ -21,8 +21,8 @@ export default {
   hasOutput: true,
   params: [
     { id: 'mic', label: 'Microphone', min: 0, max: 0, default: 0, step: 1, format: (v) => (v ? `Microphone ${v}` : 'System default') },
-    { id: 'gain', label: 'Gain', min: -24, max: 24, default: 0, step: 0.1, format: (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)} dB` },
     { id: 'channel', label: 'Channels', min: 0, max: CHANNELS.length - 1, default: 0, step: 1, options: CHANNELS },
+    { id: 'gain', label: 'Gain', min: -24, max: 24, default: 0, step: 0.1, format: (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)} dB` },
   ],
   view(entry, api) {
     const inst = entry.inst;

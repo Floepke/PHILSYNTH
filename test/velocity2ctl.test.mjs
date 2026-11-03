@@ -10,7 +10,7 @@ const BLOCKS_PER_S = 48000 / 128; // 375
 const run = (k, n) => { for (let i = 0; i < n; i++) k.process(); };
 
 const def = getModule('VELOCITY2CTL');
-assert.deepEqual(def.params.map((p) => p.id).slice(0, 4), ['outController', 'outMin', 'outMax', 'noteOffAction'], 'controller numbers kept');
+assert.deepEqual(def.params.map((p) => p.id), ['noteOffAction', 'smooth', 'outController', 'outMin', 'outMax'], 'Out block last');
 const sp = def.params.find((p) => p.id === 'smooth');
 assert.equal(sp.default, 0, 'Smooth defaults to 0 (jump, as before)');
 assert.equal(sp.max, SMOOTH_MAX_MS);

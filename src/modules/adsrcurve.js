@@ -27,10 +27,10 @@ export function curveInv(y, k) {
   return Math.min(1, Math.max(0, -Math.log(1 - c * (1 - Math.exp(-k))) / k));
 }
 
-// The Attack/Decay/Release Curve controllers (OSC, ADSR)
+// The Attack/Decay/Release Curve controllers (OSC, ADSR, IMAGESAMPLER); `def` = their default (OSC: +100 analog)
 export const formatCurve = (v) => (v === 0 ? 'Linear' : `${v > 0 ? '+' : ''}${v} %${Math.abs(v) === 100 ? (v > 0 ? ' (analog)' : ' (inverse)') : ''}`);
-export const curveParams = () => [
-  { id: 'atkCurve', label: 'Attack Curve', min: -100, max: 100, default: 0, step: 1, format: formatCurve },
-  { id: 'decCurve', label: 'Decay Curve', min: -100, max: 100, default: 0, step: 1, format: formatCurve },
-  { id: 'relCurve', label: 'Release Curve', min: -100, max: 100, default: 0, step: 1, format: formatCurve },
+export const curveParams = (def = 0) => [
+  { id: 'atkCurve', label: 'Attack Curve', min: -100, max: 100, default: def, step: 1, format: formatCurve },
+  { id: 'decCurve', label: 'Decay Curve', min: -100, max: 100, default: def, step: 1, format: formatCurve },
+  { id: 'relCurve', label: 'Release Curve', min: -100, max: 100, default: def, step: 1, format: formatCurve },
 ];

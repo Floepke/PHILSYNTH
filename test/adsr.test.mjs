@@ -53,8 +53,9 @@ console.log('adsr tests passed');
 {
   const { attackLevel, decayLevel, releaseLevel, curveInv, curveAt } = await import('../src/modules/adsrcurve.js');
   const adsr = (await import('../src/modules/adsr.js')).default;
-  assert.deepEqual(adsr.params.slice(-3).map((p) => [p.id, p.min, p.max, p.default]),
-    [['atkCurve', -100, 100, 0], ['decCurve', -100, 100, 0], ['relCurve', -100, 100, 0]], 'curve controllers appended');
+  assert.deepEqual(adsr.params.map((p) => p.id), ['trigger', 'attack', 'decay', 'sustain', 'release', 'atkCurve', 'decCurve', 'relCurve', 'velocity', 'outController', 'outMin', 'outMax']);
+  assert.deepEqual(adsr.params.filter((p) => /Curve$/.test(p.id)).map((p) => [p.id, p.min, p.max, p.default]),
+    [['atkCurve', -100, 100, 0], ['decCurve', -100, 100, 0], ['relCurve', -100, 100, 0]], 'linear by default');
   const B = 128 / SR; // control rate: one step per render quantum
   const k = new Proc();
   const m = (data) => k.port.onmessage({ data });

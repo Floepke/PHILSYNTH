@@ -17,16 +17,16 @@ export default {
   hasInput: true,
   hasOutput: true,
   params: [
+    { id: 'mode', label: 'Mode', min: 0, max: MODES.length - 1, default: 0, step: 1, options: MODES },
+    { id: 'sidechain', label: 'Side Chain', min: 0, max: 0, default: 0, step: 1, format: (v) => (v ? `Input ${v}` : 'Off') },
+    { id: 'scHpf', label: 'Side Chain HPF', min: HPF_OFF, max: 1000, default: HPF_OFF, scale: 'log', format: (v) => (v <= HPF_OFF + 0.5 ? 'Off' : `${Math.round(v)} Hz`) },
     { id: 'threshold', label: 'Threshold', min: -60, max: 0, default: -18, step: 0.1, format: db },
+    { id: 'knee', label: 'Knee', min: 0, max: 24, default: 6, step: 0.1, format: (v) => (v ? `${v.toFixed(1)} dB` : 'Hard') },
     { id: 'slope', label: 'Slope', min: 0, max: 1, default: 0.75, step: 0.01, format: (v) => `${v.toFixed(2)} (${ratioText(v)})` },
     { id: 'attack', label: 'Attack', min: 0.05, max: 200, default: 10, scale: 'log', format: ms },
     { id: 'release', label: 'Release', min: 5, max: 3000, default: 150, scale: 'log', format: ms },
-    { id: 'mode', label: 'Mode', min: 0, max: MODES.length - 1, default: 0, step: 1, options: MODES },
-    { id: 'sidechain', label: 'Side Chain', min: 0, max: 0, default: 0, step: 1, format: (v) => (v ? `Input ${v}` : 'Off') },
-    { id: 'knee', label: 'Knee', min: 0, max: 24, default: 6, step: 0.1, format: (v) => (v ? `${v.toFixed(1)} dB` : 'Hard') },
     { id: 'makeup', label: 'Makeup Gain', min: -12, max: 36, default: 0, step: 0.1, format: db },
     { id: 'mix', label: 'Mix', min: 0, max: 100, default: 100, step: 1, format: (v) => `${v} % wet` },
-    { id: 'scHpf', label: 'Side Chain HPF', min: HPF_OFF, max: 1000, default: HPF_OFF, scale: 'log', format: (v) => (v <= HPF_OFF + 0.5 ? 'Off' : `${Math.round(v)} Hz`) },
   ],
   view(entry, api) {
     const el = document.createElement('div');

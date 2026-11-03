@@ -13,13 +13,12 @@ const SR = 48000;
 const close = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`);
 const Proc = await loadKernel('imagesampler.dsp.js', SR);
 
-// ---- controllers: shared ones first, then the ones of one scanner type (numbered by order) ----
+// ---- controllers: scanner, colour mix, envelope, gain last ----
 assert.deepEqual(def.params.map((p) => p.id), [
-  'polyphony', 'attack', 'decay', 'sustain', 'release', 'gain', 'atkCurve', 'decCurve', 'relCurve',
-  'redPan', 'greenPan', 'bluePan', 'redLevel', 'greenLevel', 'blueLevel',
-  'scanType', 'x', 'y', 'length', 'rotation', 'speed', 'ovalWidth', 'ovalHeight', 'ovalRotation',
+  'polyphony', 'scanType', 'x', 'y', 'length', 'rotation', 'speed', 'ovalWidth', 'ovalHeight', 'ovalRotation',
+  'redLevel', 'greenLevel', 'blueLevel', 'redPan', 'greenPan', 'bluePan',
+  'attack', 'decay', 'sustain', 'release', 'atkCurve', 'decCurve', 'relCurve', 'gain',
 ]);
-assert.equal(def.params.findIndex((p) => p.id === 'redPan'), 9, 'colour pans on 9, 10, 11');
 assert.deepEqual(SCAN_TYPES, ['Line', 'Propellor', 'Oval']);
 const P = Object.fromEntries(def.params.map((p) => [p.id, p]));
 assert.equal(P.polyphony.max, 32);
@@ -27,10 +26,10 @@ assert.ok(def.acceptsMidi && def.hasOutput && !def.hasInput);
 const shown = (type) => def.params.filter((p) => !p.visible || p.visible({ scanType: type })).map((p) => p.id);
 assert.ok(shown(0).includes('rotation') && !shown(0).includes('speed'), 'Line: Rotation');
 assert.ok(shown(1).includes('speed') && !shown(1).includes('rotation'), 'Propellor: Propellor Speed');
-assert.deepEqual(shown(2).slice(-5), ['x', 'y', 'ovalWidth', 'ovalHeight', 'ovalRotation'], 'Oval: Width / Height / Rotation, no Length');
+assert.deepEqual(shown(2).slice(2, 7), ['x', 'y', 'ovalWidth', 'ovalHeight', 'ovalRotation'], 'Oval: Width / Height / Rotation, no Length');
 assert.ok(shown(0).includes('length') && !shown(0).includes('ovalWidth'), 'Line: no oval controllers');
-const always = def.params.filter((p) => !p.visible).map((p) => p.id);
-assert.ok(def.params.findIndex((p) => p.visible) > def.params.findIndex((p) => p.id === always.at(-1)), 'type controllers below the shared ones');
+const typed = def.params.map((p, i) => (p.visible ? i : -1)).filter((i) => i >= 0);
+assert.deepEqual(typed, [4, 5, 6, 7, 8, 9], 'scanner type controllers grouped right after Scanner Type / X / Y');
 assert.deepEqual(def.normalizeState({ imageId: 3 }), { imageId: null, name: '' });
 
 // ---- geometry ----

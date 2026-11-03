@@ -85,20 +85,19 @@ export default {
   hasInput: false,
   hasOutput: true,
   params: [
+    { id: 'routeMode', label: 'Route Mode', min: 0, max: ROUTE_MODES.length - 1, default: 0, step: 1, options: ROUTE_MODES },
     { id: 'transpose', label: 'Transpose', min: -48, max: 48, default: 0, step: 1, format: st },
     { id: 'finetune', label: 'Finetune', min: -1, max: 1, default: 0, step: 0.01, format: cents },
+    { id: 'overtone', label: 'Overtone', min: 0, max: 128, default: 0, step: 1, format: overtoneLabel },
     { id: 'drift', label: 'Drift', min: 0, max: 1, default: 0, step: 0.01, format: (v) => `±${Math.round(v * 100)} ct` },
     { id: 'driftFreq', label: 'Drift Freq', min: 0, max: 20, default: 1, step: 0.01, format: hz },
+    { id: 'velSense', label: 'Velocity Sense', min: 0, max: 1, default: 1, step: 1, options: VEL_SENSE },
+    { id: 'velocity', label: 'Velocity', min: 0, max: 1, default: 1, step: 0.01, format: (v) => `${Math.round(v * 100)} %` },
     { id: 'velDrift', label: 'Velocity Drift', min: 0, max: 1, default: 0, step: 0.01, format: (v) => `-${Math.round(v * 100)} %` },
     { id: 'velDriftFreq', label: 'Velocity Drift Freq', min: 0, max: 20, default: 1, step: 0.01, format: hz },
+    { id: 'phase', label: 'Phase', min: 0, max: 1, default: 0, step: 0.01, format: (p) => `${Math.round(p * 100)} % (${Math.round(p * 360)}°)` },
     { id: 'randomPhase', label: 'Random Phase', min: 0, max: 1, default: 0, step: 0.01, format: (v) => `${Math.round(v * 100)} %` },
     { id: 'randomDelay', label: 'Random Delay', min: 0, max: 5000, default: 0, step: 1, format: (v) => `${Math.round(v)} ms` },
-    // appended last: Out Controller targets controllers by index, existing ones keep their number
-    { id: 'velocity', label: 'Velocity', min: 0, max: 1, default: 1, step: 0.01, format: (v) => `${Math.round(v * 100)} %` },
-    { id: 'overtone', label: 'Overtone', min: 0, max: 128, default: 0, step: 1, format: overtoneLabel },
-    { id: 'routeMode', label: 'Route Mode', min: 0, max: ROUTE_MODES.length - 1, default: 0, step: 1, options: ROUTE_MODES },
-    { id: 'velSense', label: 'Velocity Sense', min: 0, max: 1, default: 1, step: 1, options: VEL_SENSE },
-    { id: 'phase', label: 'Phase', min: 0, max: 1, default: 0, step: 0.01, format: (p) => `${Math.round(p * 100)} % (${Math.round(p * 360)}°)` },
   ],
   create(ctx, _def, host, { rand = Math.random } = {}) {
     // no DSP: its controllers live here; the node only receives modulation (LFO -> Transpose ...)

@@ -2,11 +2,11 @@
 //   Frequency + Freq Unit: Hz, or cycles per note value synced to the BPM of this patch's Output,
 //   or MIDI Pitch: runs at the frequency of the incoming note (Frequency ignored). Notes come from a
 //   clip sent to it or a MULTIMIDI cabled into it, never from the MIDI keyboard (liveMidi: false).
-//   Out Controller: controller number (0..) of the connected module(s) to modulate.
-//   Amplitude: depth of the wave around its centre (100 % = full swing, 0 % = steady at the middle).
-//   Out Min / Out Max: modulation range in % of that controller's slider range (applied after Amplitude).
 //   Phase: where in its cycle the wave starts, on project load, after a panic (' twice: stop, then
 //   panic) and on every incoming note (plus that note's MODMIDI phase, e.g. a MULTIMIDI's Phase).
+//   Amplitude: depth of the wave around its centre (100 % = full swing, 0 % = steady at the middle).
+//   Out Controller: controller number (0..) of the connected module(s) to modulate.
+//   Out Min / Out Max: modulation range in % of that controller's slider range (applied after Amplitude).
 import { modulatorParams, outParams, pct } from './modtarget.js';
 import { syncedPeriod, MIDI_UNIT } from './lfo.dsp.js';
 
@@ -36,13 +36,12 @@ export default {
   hasOutput: true,
   modulator: true, // its cables are control cables: they modulate a controller instead of carrying audio
   params: [
-    { id: 'freq', label: 'Frequency', min: 0.01, max: 50, default: 1, scale: 'log', format: formatFreq },
-    { id: 'unit', label: 'Freq Unit', min: 0, max: UNITS.length - 1, default: 0, step: 1, options: UNITS },
     { id: 'wave', label: 'Waveform', min: 0, max: 4, default: 0, step: 1, options: ['Sine', 'Triangle', 'Saw', 'Square', 'Random'] },
-    ...outParams(),
-    { id: 'amp', label: 'Amplitude', min: 0, max: 100, default: 100, step: 1, format: pct },
-    // appended last: controllers are targeted by index, existing ones keep their number
+    { id: 'unit', label: 'Freq Unit', min: 0, max: UNITS.length - 1, default: 0, step: 1, options: UNITS },
+    { id: 'freq', label: 'Frequency', min: 0.01, max: 50, default: 1, scale: 'log', format: formatFreq },
     { id: 'phase', label: 'Phase', min: 0, max: 1, default: 0, step: 0.01, format: phaseLabel },
+    { id: 'amp', label: 'Amplitude', min: 0, max: 100, default: 100, step: 1, format: pct },
+    ...outParams(),
   ],
   create(_ctx, def, host) {
     // DSP: lfo.dsp.js; the engine graph maps its value onto the controllers it is cabled to

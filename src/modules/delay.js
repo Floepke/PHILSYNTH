@@ -13,9 +13,9 @@ export default {
   hasInput: true,
   hasOutput: true,
   params: [
+    delayUnitParam(),
     delayParam('left', 'Left Delay'),
     delayParam('right', 'Right Delay'),
-    delayUnitParam(),
   ],
   create(ctx, _def, host) {
     const node = host.dsp.create('delay');

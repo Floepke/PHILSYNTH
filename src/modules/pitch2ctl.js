@@ -24,9 +24,9 @@ export default {
   hasOutput: true,
   modulator: true,
   params: [
-    ...outParams(),
     { id: 'noteOffAction', label: 'Noteoff Action', min: 0, max: 2, default: 0, step: 1, options: ['Do Nothing', 'Control Down', 'Control Up'] },
     { id: 'smooth', label: 'Smooth', min: 0, max: SMOOTH_MAX_MS, default: 0, step: 1, format: smoothLabel },
+    ...outParams(),
   ],
   defaultState: () => ({ map: defaultMap() }),
   normalizeState: (st) => ({ map: normalizeMap(st?.map) }),

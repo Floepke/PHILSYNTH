@@ -13,7 +13,7 @@ const near = (a, b, msg, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${msg}
 // ---- definition: the map is module state, not controllers ----
 const def = getModule('PITCH2CTL');
 assert.ok(def.modulator && def.acceptsMidi && !def.liveMidi && !def.hasInput && def.hasOutput);
-assert.deepEqual(def.params.map((p) => p.id), ['outController', 'outMin', 'outMax', 'noteOffAction', 'smooth']);
+assert.deepEqual(def.params.map((p) => p.id), ['noteOffAction', 'smooth', 'outController', 'outMin', 'outMax']);
 assert.equal(def.defaultState().map.length, 128);
 assert.deepEqual(def.normalizeState({ map: [2, -1, 'x'] }).map.slice(0, 4), [1, 0, 0, 0], 'clamped, missing keys from the default');
 
@@ -122,7 +122,7 @@ assert.equal(mapAt(rampMap(0, 127), -3), 0);
   assert.ok(r.connect(mm.id, p2c.id), 'MULTIMIDI -> PITCH2CTL (MIDI cable)');
   assert.ok(r.connect(p2c.id, osc.id), 'PITCH2CTL -> OSC (control cable)');
   assert.equal(r.connect(osc.id, p2c.id), false, 'no audio input');
-  r.setParam(p2c.id, 'outController', 7); // OSC duty 0..100
+  r.setParam(p2c.id, 'outController', 2); // OSC duty 0..100
   r.setState(p2c.id, { map: rampMap(48, 72) });
   r.setParam(osc.id, 'duty', 70);
   render(2);

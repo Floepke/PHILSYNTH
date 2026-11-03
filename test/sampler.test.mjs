@@ -25,9 +25,9 @@ function run(k, blocks) {
 }
 
 // ---- controllers (numbered by order: append new ones at the end) ----
-assert.deepEqual(sampler.params.map((p) => p.id), ['polyphony', 'attack', 'decay', 'sustain', 'release', 'gain', 'transpose', 'finetune', 'interpolation', 'selStart', 'selLength', 'playMode']);
+assert.deepEqual(sampler.params.map((p) => p.id), ['polyphony', 'selStart', 'selLength', 'playMode', 'transpose', 'finetune', 'interpolation', 'attack', 'decay', 'sustain', 'release', 'gain']);
 assert.deepEqual(sampler.params.find((p) => p.id === 'playMode').options, ['Forward', 'Reverse', 'Ping Pong', 'Forward Loop', 'Reverse Loop']);
-assert.deepEqual(wavetable.params.map((p) => p.id), ['polyphony', 'attack', 'decay', 'sustain', 'release', 'gain', 'position', 'block', 'interpolation']);
+assert.deepEqual(wavetable.params.map((p) => p.id), ['polyphony', 'block', 'position', 'interpolation', 'attack', 'decay', 'sustain', 'release', 'gain']);
 for (const def of [sampler, wavetable]) {
   const interp = def.params.find((p) => p.id === 'interpolation');
   assert.deepEqual(interp.options, ['Off', 'Linear', 'Spline']);

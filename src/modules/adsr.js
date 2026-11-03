@@ -4,9 +4,9 @@
 // controller, so every note also sweeps a controller of the synth.
 //   Trigger: Every note restarts the attack (from the current level, no jump); Legato only
 //   when no other note is held. Release starts when the last held note ends.
+//   Attack/Decay/Release Curve: the stage shapes, the same as the OSC envelope (adsrcurve.js).
 //   Velocity: how much the note velocity scales the envelope peak (0 % = always full).
 //   Out Controller / Out Min / Out Max: see modtarget.js (the envelope runs Out Min -> Out Max).
-//   Attack/Decay/Release Curve: the stage shapes, the same as the OSC envelope (adsrcurve.js).
 // The panel shows the ADSR editor of the OSC (adsrview.js).
 import { modulatorParams, outParams, pct } from './modtarget.js';
 import { linkDecayRelease } from './envlink.js';
@@ -24,14 +24,14 @@ export default {
   hasOutput: true,
   modulator: true,
   params: [
+    { id: 'trigger', label: 'Trigger', min: 0, max: 1, default: 0, step: 1, options: ['Every note', 'Legato'] },
     { id: 'attack', label: 'Attack', min: 0.001, max: 10, default: 0.01, scale: 'log', format: secs },
     { id: 'decay', label: 'Decay', min: 0.001, max: 10, default: 0.3, scale: 'log', format: secs },
     { id: 'sustain', label: 'Sustain', min: 0, max: 100, default: 50, step: 1, format: pct },
     { id: 'release', label: 'Release', min: 0.001, max: 20, default: 0.5, scale: 'log', format: secs },
-    ...outParams(),
-    { id: 'trigger', label: 'Trigger', min: 0, max: 1, default: 0, step: 1, options: ['Every note', 'Legato'] },
+    ...curveParams(),
     { id: 'velocity', label: 'Velocity', min: 0, max: 100, default: 0, step: 1, format: pct },
-    ...curveParams(), // appended: Out Controller routings to the ADSR's own controllers keep their numbers
+    ...outParams(),
   ],
   linked: linkDecayRelease, // Sustain at 0: Decay and Release (and their Curves) move together
   view(entry, api) {

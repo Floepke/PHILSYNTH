@@ -15,8 +15,8 @@ const mean = (a) => a.reduce((s, x) => s + x, 0) / a.length;
 const argmax = (a) => a.indexOf(Math.max(...a));
 const close = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`);
 
-// Append the waveform without renumbering saved wave selections or controller routings.
-assert.deepEqual(osc.params.map((p) => p.id), ['polyphony', 'wave', 'attack', 'decay', 'sustain', 'release', 'gain', 'duty', 'atkCurve', 'decCurve', 'relCurve']);
+assert.deepEqual(osc.params.map((p) => p.id), ['polyphony', 'wave', 'duty', 'attack', 'decay', 'sustain', 'release', 'atkCurve', 'decCurve', 'relCurve', 'gain']);
+assert.deepEqual(osc.params.filter((p) => /Curve$/.test(p.id)).map((p) => p.default), [100, 100, 100], 'analog envelope curves by default');
 const waveParam = osc.params[1];
 assert.deepEqual(waveParam.options, ['Sine', 'Tri/Saw', 'Saw', 'Square', 'Half sine',
   'White noise', 'Pink noise', 'Brown noise', 'Blue noise', 'Violet noise']);
@@ -26,7 +26,7 @@ assert.equal(waveParam.max, VIOLET);
 assert.equal(fromNorm(waveParam, 1), VIOLET);
 assert.equal(nudge(waveParam, SQUARE, 1), HALF_SINE);
 assert.equal(nudge(waveParam, HALF_SINE, 1), 5);
-const dutyParam = osc.params[7];
+const dutyParam = osc.params[2];
 assert.ok(dutyParam.visible({ wave: SAW }) && !dutyParam.visible({ wave: 6 }), 'Duty Cycle hidden for noise');
 
 // 50 % = the classic waveforms
@@ -333,7 +333,7 @@ console.log('osc tests passed');
   const P = (id) => osc.params.find((p) => p.id === id);
   for (const id of ['atkCurve', 'decCurve', 'relCurve']) {
     const p = P(id);
-    assert.deepEqual([p.min, p.max, p.default, p.step], [-100, 100, 0, 1], `${id} range`);
+    assert.deepEqual([p.min, p.max, p.default, p.step], [-100, 100, 100, 1], `${id} range, analog by default`);
   }
   assert.equal(formatCurve(0), 'Linear');
   assert.equal(formatCurve(35), '+35 %');

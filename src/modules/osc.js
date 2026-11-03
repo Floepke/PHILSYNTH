@@ -2,8 +2,12 @@
 //   type        unique id shown in the insert dialog
 //   label       display name
 //   params      slider definitions: { id, label, min, max, default, step, ...optional }
-//                 Controllers are numbered 0.. in this order (LFO "Out Controller" uses the number),
-//                 so append new params at the end to keep saved LFO routings valid.
+//                 Controllers are numbered 0.. in this order (Out Controller and automation clips use
+//                 the number). Shared ordering: setup/mode selectors first (Polyphony, Type, Mode,
+//                 units before the value they format), then the main controls in signal-flow order,
+//                 the envelope (A, D, S, R, then the Attack/Decay/Release Curves), secondary controls,
+//                 quality (Interpolation, Oversample), and the output block last: Mix/Dry/Wet,
+//                 then Level/Gain; modulators end with Out Controller, Out Min, Out Max.
 //                 options: [names]       stepped slider showing a name per value
 //                 scale: 'log'           exponential slider (e.g. Hz); needs min > 0
 //                 format: (v, values) => string  custom value display (values = all controllers)
@@ -54,16 +58,16 @@ export default {
   params: [
     { id: 'polyphony', label: 'Polyphony', min: 1, max: 32, default: 8, step: 1 },
     { id: 'wave', label: 'Waveform', min: 0, max: WAVE_NAMES.length - 1, default: 2, step: 1, options: WAVE_NAMES },
+    // shapes every waveform (see oscshape.js shape()); half sine uses duty as its bow length;
+    // the noise colours are unpitched and have no duty cycle
+    { id: 'duty', label: 'Duty Cycle', min: 0, max: 100, default: 50, step: 0.1, format: (v) => `${v.toFixed(1)} %`, visible: (v) => !isNoise(v.wave) },
     { id: 'attack', label: 'Attack (s)', min: 0.001, max: 10, default: 0.001, step: 0.001 },
     { id: 'decay', label: 'Decay (s)', min: 0.001, max: 10, default: 0.001, step: 0.001 },
     { id: 'sustain', label: 'Sustain', min: 0, max: 1, default: 1, step: 0.01 },
     { id: 'release', label: 'Release (s)', min: 0.001, max: 10, default: 0.001, step: 0.001 },
-    { id: 'gain', label: 'Gain', min: 0, max: 1, default: 0.5, step: 0.01 },
-    // shapes every waveform (see oscshape.js shape()); half sine uses duty as its bow length;
-    // the noise colours are unpitched and have no duty cycle
-    { id: 'duty', label: 'Duty Cycle', min: 0, max: 100, default: 50, step: 0.1, format: (v) => `${v.toFixed(1)} %`, visible: (v) => !isNoise(v.wave) },
     // envelope stage shapes (adsrcurve.js): 0 = linear, +100 = analog RC, negative = mirrored
-    ...curveParams(),
+    ...curveParams(100),
+    { id: 'gain', label: 'Gain', min: 0, max: 1, default: 0.5, step: 0.01 },
   ],
   linked: linkDecayRelease, // Sustain at 0: Decay and Release move together
   // waveform preview + ADSR editor (drags the Attack/Decay/Sustain/Release and Curve controllers)

@@ -35,10 +35,9 @@ export default {
   hasOutput: true,
   modulator: true,
   params: [
+    { id: 'mode', label: 'Mode', min: 0, max: 2, default: 0, step: 1, options: MODES },
     { id: 'length', label: 'Envelope Length', min: 0, max: 10000, default: 1000, step: 1, format: ms },
     ...outParams(),
-    // after the Out controllers: modulators aimed at this module keep their controller numbers
-    { id: 'mode', label: 'Mode', min: 0, max: 2, default: 0, step: 1, options: MODES },
   ],
   defaultState: defaultEnvelope,
   normalizeState: normalizeCurve,

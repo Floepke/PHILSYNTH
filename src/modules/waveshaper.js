@@ -18,8 +18,8 @@ export default {
   hasInput: true,
   hasOutput: true,
   params: [
-    { id: 'drive', label: 'Drive', min: -12, max: 36, default: 0, step: 0.1, format: db },
     { id: 'range', label: 'Range', min: 0, max: 1, default: 0, step: 1, options: ['Symmetric', 'Full −/+'] },
+    { id: 'drive', label: 'Drive', min: -12, max: 36, default: 0, step: 0.1, format: db },
     { id: 'oversample', label: 'Oversample', min: 0, max: 2, default: 1, step: 1, options: ['Off', '2×', '4×'] },
     { id: 'mix', label: 'Dry/Wet', min: 0, max: 100, default: 100, step: 1, format: (v) => `${Math.round(v)} % wet` },
     { id: 'level', label: 'Output level', min: 0, max: 2, default: 1, step: 0.01, format: (v) => `${v.toFixed(2)} ×` },

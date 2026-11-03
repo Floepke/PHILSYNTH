@@ -14,9 +14,9 @@ const stereo = (l = 0, r = l) => [new Float32Array(N).fill(l), new Float32Array(
 const dB = (x) => 20 * Math.log10(x);
 
 // ---- controllers (numbered by order: append new ones at the end) ----
-assert.deepEqual(compressor.params.map((p) => p.id), ['threshold', 'slope', 'attack', 'release', 'mode', 'sidechain', 'knee', 'makeup', 'mix', 'scHpf']);
+assert.deepEqual(compressor.params.map((p) => p.id), ['mode', 'sidechain', 'scHpf', 'threshold', 'knee', 'slope', 'attack', 'release', 'makeup', 'mix']);
 assert.deepEqual(MODES, ['Peak', 'RMS', 'Peak Zero Latency']);
-assert.deepEqual(input.params.map((p) => p.id), ['mic', 'gain', 'channel']);
+assert.deepEqual(input.params.map((p) => p.id), ['mic', 'channel', 'gain']);
 
 // ---- static curve ----
 assert.equal(gainReduction(-30, -20, 0.75, 0), 0, 'below threshold: no reduction');

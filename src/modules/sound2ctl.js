@@ -18,10 +18,9 @@ export default {
   hasOutput: true,
   modulator: true,
   params: [
-    ...outParams(),
-    // appended last: Out Controller targets controllers by index, existing ones keep their number
     { id: 'rate', label: 'Audio Rate (Hz)', min: 0.01, max: RATE_MAX, default: RATE_MAX, scale: 'log', format: rateLabel },
     { id: 'smooth', label: 'Smooth', min: 0, max: 100, default: 0, step: 1, format: (v) => `${Math.round(v)} %` },
+    ...outParams(),
   ],
   create(_ctx, def, host) {
     const node = host.dsp.create('sound2ctl');

@@ -12,12 +12,12 @@ export default {
   hasInput: true,
   hasOutput: true,
   params: [
+    { id: 'inverse', label: 'Inverse', min: 0, max: 1, default: 0, step: 1, options: ['Off', 'On'] },
     { id: 'amp', label: 'Amplification', min: 0, max: 4, default: 1, step: 0.01, format: (v) => `${v.toFixed(2)} ×` },
     {
       id: 'pan', label: 'Panning', min: -1, max: 1, default: 0, step: 0.01,
       format: (v) => (Math.abs(v) < 0.005 ? 'Center' : `${Math.round(Math.abs(v) * 100)} % ${v < 0 ? 'L' : 'R'}`),
     },
-    { id: 'inverse', label: 'Inverse', min: 0, max: 1, default: 0, step: 1, options: ['Off', 'On'] },
   ],
   create(_ctx, _def, host) {
     const node = host.dsp.create('amp'); // DSP: amp.dsp.js

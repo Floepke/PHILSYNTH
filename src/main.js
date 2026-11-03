@@ -464,7 +464,7 @@ function createBox(entry) {
     const badge = document.createElement('button');
     badge.type = 'button';
     badge.className = 'midi-badge';
-    badge.textContent = 'LOCK';
+    badge.textContent = 'MIDI';
     badge.addEventListener('pointerdown', (e) => e.stopPropagation()); // no drag / selection change
     badge.addEventListener('dblclick', (e) => e.stopPropagation()); // don't open a Patch
     badge.addEventListener('click', (e) => {
