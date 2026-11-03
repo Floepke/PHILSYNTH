@@ -133,7 +133,7 @@ combined into your own MIDI processor or modulator:
 - **MIDI**: inside a Patch, cable a MULTIMIDI or STRUM (or a Patch that sends notes) into
   the Output. Cable the Patch module to OSC, SAMPLER, ADSR, … outside: they get the notes.
   A DELAY cabled into the Output stays an audio cable.
-- **Modulation**: inside a Patch, cable an LFO, ADSR, ENVELOPE, VELOCITY2CTL or SOUND2CTL
+- **Modulation**: inside a Patch, cable an LFO, ADSR, ENVELOPE, VELOCITY2CTL, PITCH2CTL or SOUND2CTL
   into the Output. Cable the Patch module to any module outside. The inner modulator's
   **Out Controller** picks which controller of those modules it drives (its list shows their
   names); **Out Min** / **Out Max** trim the range.

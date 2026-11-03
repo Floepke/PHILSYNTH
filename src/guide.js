@@ -15,8 +15,8 @@ export const GUIDE = [
       {
         title: 'Insert modules',
         items: [
-          `${k('Double-click')} empty canvas to open the insert dialog; the module appears where you clicked.`,
-          '<b>Load module…</b> (in the insert dialog, or right-click empty canvas) places a saved <b>.phmod</b> file at that spot.',
+          `${k('Double-click')} empty canvas (or right-click it → <b>Load module…</b>) to open the insert dialog; the module appears where you clicked.`,
+          '<b>Load module…</b> in the insert dialog places a saved <b>.phmod</b> file at that spot.',
           'The module number on each box is how clips (<i>Send to</i>), Patches (<i>Input Module</i>) and modulators (<i>Out Controller</i>) refer to it.',
         ],
       },
@@ -25,7 +25,7 @@ export const GUIDE = [
         items: [
           `${k('Shift')} + drag from a module to another to cable them. Keep moving over more modules: each one you touch is connected (or disconnected when already connected), so one source can feed many in one sweep.`,
           'Or drag a module so it overlaps another one: the dragged module is connected to it (or disconnected). Pull it off and back on to toggle again. With a selection, the grabbed module does this for every selected module in one undo step; selected modules never connect to each other.',
-          'Cable styles: <b>solid</b> = audio (with a live waveform: the audio drifts slowly from the source to the destination, and a longer cable shows a longer stretch of it, so stretch a cable to read low notes), <b>dash-dot</b> = MIDI notes, <b>dotted</b> = modulation. An arrow shows the direction; two arrows point at each other on a two-way connection.',
+          'Cable styles: <b>solid</b> = audio (with a live waveform: the audio drifts slowly from the source to the destination, and a longer cable shows a longer stretch of it, so stretch a cable to read low notes), <b>dash-dot</b> = MIDI notes, <b>dotted</b> = modulation. An arrow shows the direction; two arrows point at each other on a two-way connection, each line ending at its own arrow so the two meet in the middle.',
           `Click a cable to see what it carries; ${k('Backspace')} removes it.`,
         ],
       },
@@ -40,7 +40,7 @@ export const GUIDE = [
         title: 'Move and arrange',
         items: [
           'Drag a module (or any module of a selection) to move it or the whole selection.',
-          '<b>Snap to Grid</b> (right-click menu, a checkbox): moved and duplicated modules snap with their left edge and top to an invisible grid one module high, the same step sideways. Remembered on this computer.',
+          '<b>Snap to Grid</b> (right-click menu, a checkbox): moved and duplicated modules snap with their left edge and top to an invisible 20 px grid (half a module high), the same step sideways. Remembered on this computer.',
           `${k('Middle mouse')} + drag pans the canvas, the wheel zooms; click the zoom % (bottom right) to fit all modules. ${k('S')} maximizes the patcher, ${k('S')} again restores the piano roll and TimeLine.`,
         ],
       },
@@ -57,6 +57,7 @@ export const GUIDE = [
         title: 'Name, save and load',
         items: [
           `${k('F2')} (or right-click → <b>Rename…</b>) gives a module its own name on its box; <b>Reset name</b> brings the type name back. The controller panel keeps showing the module type.`,
+          'Right-click → <b>Set Color…</b> gives the selected modules their own colour: three R / G / B sliders with a preview of the box. <b>Reset color</b> brings back the stock colour of the module type. Cables, the controller panel and the clips sent to the module take the colour too; it is saved with the project.',
           '<b>Save module…</b> (right-click a module) writes it, or the whole selection with its cables and Patch contents, to a <b>.phmod</b> file (older .synth files load too).',
         ],
       },
@@ -64,7 +65,7 @@ export const GUIDE = [
         title: 'Set controllers',
         items: [
           `Drag a controller, scroll it, or ${k('Double-click')} the number to type a value (${k('Tab')} moves on). Scroll a dropdown to change it. The keyboard focus stays where it was, so ${k('Space')} still plays.`,
-          'Modulators (LFO, ADSR, ENVELOPE, VELOCITY2CTL, SOUND2CTL) drive a controller of the modules they are cabled to: pick it with <b>Out Controller</b>, trim the range with <b>Out Min</b> / <b>Out Max</b>. A MULTICTL picks its controllers under <b>Routes</b>.',
+          'Modulators (LFO, ADSR, ENVELOPE, VELOCITY2CTL, PITCH2CTL, SOUND2CTL) drive a controller of the modules they are cabled to: pick it with <b>Out Controller</b>, trim the range with <b>Out Min</b> / <b>Out Max</b>. A MULTICTL picks its controllers under <b>Routes</b>.',
           'OSC / ADSR: with <b>Sustain</b> at 0, <b>Decay</b> and <b>Release</b> are linked (their Curves too).',
           'OSC / ADSR: <b>Attack/Decay/Release Curve</b> bend each stage (0 = linear, +100 % = analog). Or drag the handles of the ADSR graph in the panel: the peak, the decay corner, the release end and the round curve dots.',
         ],
@@ -174,6 +175,8 @@ export const GUIDE = [
         items: [
           `${k('Space')} plays / stops (over the piano-roll grid: from the pointer's time). Stopping parks the playhead at the start of the selected clip.`,
           `${k('.')} plays / resumes the song, ${k(',')} restarts it at zero, ${k('/')} loops the time range of the selected clip with everything else that plays there, ${k("'")} stops (pressed again: panic, all notes and tails off).`,
+          'The lower divider, left of the clock, has matching buttons: bar + play starts from the beginning, play resumes from the playhead, play + c loops the selected clip, and the square stops playback (press again for panic).',
+          'While looping a clip, select another clip to switch to it when the current clip finishes. The selection at the loop boundary is the one that plays next.',
           'Starting in the middle of a note plays it for the rest of its length.',
         ],
       },
@@ -293,7 +296,7 @@ export const GUIDE = [
         title: 'Layout',
         items: [
           'Piano roll, patcher and TimeLine are stacked top to bottom. Drag a divider up / down to resize the panes (to an edge hides a pane), left / right to resize this controller panel. Arrow keys, Home and End move a focused divider. Positions are saved with the project.',
-          'The upper divider holds play, the clip name, <i>Send to</i>, the Grid and Free timing; when it is too narrow, move the pointer along it to reveal its controls. The lower divider shows the patch path and the clock.',
+          'The upper divider holds the clip name, <i>Send to</i>, the Grid and Free timing; when it is too narrow, move the pointer along it to reveal its controls. The lower divider shows the patch path on the left and the TimeLine transport buttons and play position immediately left of the clock on the right.',
         ],
       },
     ],

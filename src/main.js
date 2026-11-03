@@ -5,7 +5,9 @@ import { createPersistence, connectLiveReload } from './persist.js';
 import { paramsOf, wheelNotches } from './params.js';
 import { initCpuMeter } from './cpumeter.js';
 import { createController } from './controller.js';
-import { linePath, arrowPath, centerOf, visibleSegment } from './cable.js';
+import { linePath, arrowPath, arrowPoints, centerOf, visibleSegment } from './cable.js';
+import { colorOf, stockColor } from './modcolor.js';
+import { openColorDialog } from './colordialog.js';
 import { Transport } from './transport.js';
 import { unsavedDialog } from './dialogs.js';
 import { exitToOS } from './exit.js';
@@ -50,7 +52,7 @@ const selectEntries = (entries) => select(entries.length > 1 ? { kind: 'group', 
 // MIDI goes to the last selected MIDI-capable module. Selecting an audio-only module (Filter, Output),
 // a cable or empty canvas never changes it. If that module is deleted, MIDI falls back to the
 // previously used MIDI module that still exists.
-// Modules with liveMidi: false (VELOCITY2CTL) only get notes from clips and MIDI cables.
+// Modules with liveMidi: false (VELOCITY2CTL, PITCH2CTL) only get notes from clips and MIDI cables.
 const takesLiveMidi = (def) => !!def?.acceptsMidi && def.liveMidi !== false;
 // Every patch level (layer: the main patch, a Patch's inside) has its own MIDI module: the one
 // followed there (view state) or the one locked there (MIDI badge, saved with that layer as
@@ -322,13 +324,17 @@ moduleList.addEventListener('keydown', (e) => {
 // ---- insert dialog ----
 canvas.addEventListener('dblclick', (e) => {
   if (e.target !== canvas) return;
-  const w = clientToWorld(e.clientX, e.clientY);
+  openInsertDialog(e.clientX, e.clientY);
+});
+
+function openInsertDialog(clientX, clientY) {
+  const w = clientToWorld(clientX, clientY);
   dropPos = { x: Math.round(w.x), y: Math.round(w.y) };
   dialog.returnValue = '';
   chooseType(insertType); // the last inserted type stays selected
   dialog.showModal();
   moduleList.focus();
-});
+}
 
 $('load-synth').onclick = () => {
   dialog.close('cancel');
@@ -376,9 +382,11 @@ function renderCrumbs() {
   });
 }
 
-// Type colour (def.color) as the --mod-color CSS variable; modules without one stay grey.
-function setColor(el, def) {
-  if (def?.color && !def.isOutput) el.style.setProperty('--mod-color', def.color);
+// Module colour (its custom colour, else its type's; see modcolor.js) as the --mod-color CSS
+// variable; without one (the Output) it stays grey.
+function setColor(el, color) {
+  if (color) el.style.setProperty('--mod-color', color);
+  else el.style.removeProperty('--mod-color');
 }
 
 // Name on a module box: its custom name (see rename) or the default from its type.
@@ -442,7 +450,7 @@ function createBox(entry) {
   const el = document.createElement('div');
   el.className = 'module' + (def.type === 'PATCH' ? ' patch' : '');
   el.dataset.id = entry.id;
-  setColor(el, def);
+  setColor(el, colorOf(entry));
   el.style.left = `${entry.x}px`;
   el.style.top = `${entry.y}px`;
   const name = document.createElement('span');
@@ -627,15 +635,19 @@ function drawCables() {
     g.classList.toggle('selected', sel?.cable === cable);
     g.classList.toggle('mod', isMod);
     g.classList.toggle('midi', !isMod && signals.midi && !soundy);
-    setColor(g, a.def);
+    setColor(g, colorOf(a));
     const wire = document.createElementNS(SVGNS, 'path');
     wire.classList.add('wire');
-    wire.setAttribute('d', linePath(centerOf(ra), centerOf(rb)));
+    // two-way connection: shift both arrows back so they point towards each other, and end each
+    // line at its own arrow (the wire inside the arrowhead, the live wave at its tip) so the two
+    // cables meet in the middle instead of overlapping
+    const twoWay = patch.cables.some((c) => c.from === cable.to && c.to === cable.from);
+    const back = twoWay ? 9 : 0;
+    const head = twoWay ? arrowPoints(from, to, 7, back) : null;
+    wire.setAttribute('d', linePath(centerOf(ra), head ? head.centre : centerOf(rb)));
     const arrow = document.createElementNS(SVGNS, 'path');
     arrow.classList.add('arrow');
-    // two-way connection: shift both arrows back so they point towards each other instead of overlapping
-    const twoWay = patch.cables.some((c) => c.from === cable.to && c.to === cable.from);
-    arrow.setAttribute('d', arrowPath(from, to, 7, twoWay ? 9 : 0));
+    arrow.setAttribute('d', arrowPath(from, to, 7, back));
     g.append(wire, arrow);
     g.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
@@ -645,7 +657,7 @@ function drawCables() {
     svg.append(g);
     // control cables (Out Controller modules) stay a plain dashed line, no value wave
     const h = soundy && !isMod ? a.inst?.node?.h : undefined;
-    if (h !== undefined) live.push({ g, h, from, to });
+    if (h !== undefined) live.push({ g, h, from, to: head ? head.tip : to });
   }
   scope?.setCables(live);
 }
@@ -876,6 +888,23 @@ function setSnapGrid(on) {
   $('status').textContent = on ? 'Snap to Grid on: moved modules snap to the grid by their left edge.' : 'Snap to Grid off.';
 }
 
+// Set Color… (right-click menu): one colour for every selected module, previewed on the one
+// right-clicked. A module whose new colour is its type's stock colour stores null (see modcolor.js).
+async function setModuleColor(entry, mods) {
+  const patch = current();
+  const list = mods.includes(entry) ? mods : [entry];
+  const color = await openColorDialog(entry, { name: entry.name ?? defaultName(entry.def), count: list.length });
+  if (color === undefined || patch !== current()) return;
+  const apply = () => {
+    for (const m of list) patch.recolor(m.id, color && !m.def.isOutput && color === stockColor(m.def) ? null : color);
+  };
+  if (undoHistory) await undoHistory.group(apply); else apply();
+  for (const m of list) if (m.el) setColor(m.el, colorOf(m));
+  drawCables();
+  if (sel) select(sel); // the panel header and controllers take the new colour
+  $('status').textContent = color ? `Color ${color} set on ${list.length === 1 ? `#${entry.id}` : `${list.length} modules`}.` : 'Stock color restored.';
+}
+
 // Right-click menu (right-click, or the keyboard menu key): on a module (it joins /
 // becomes the selection), a cable, or empty canvas.
 function openPatcherMenu(target, x, y) {
@@ -896,12 +925,10 @@ function openPatcherMenu(target, x, y) {
   ];
   if (onModule && entry.inst.patch) items.push('-', { label: 'Open patch', shortcut: '↵', disabled: mods.length > 1, action: () => openPatch(entry) });
   if (onModule) items.push('-', { label: mods.length > 1 ? 'Save modules…' : 'Save module…', disabled: !copyable, action: saveModules });
-  else {
-    const w = clientToWorld(x, y);
-    items.push('-', { label: 'Load module…', action: () => loadModuleFile({ x: Math.round(w.x), y: Math.round(w.y) }) });
-  }
+  else items.push('-', { label: 'Load module…', action: () => openInsertDialog(x, y) });
   if (onModule) items.push({ label: 'Rename…', shortcut: 'F2', disabled: mods.length > 1, action: () => startRename(entry) });
   if (onModule && entry.name) items.push({ label: 'Reset name', action: () => { current().rename(entry.id, ''); showName(entry); drawCables(); } });
+  if (onModule) items.push({ label: 'Set Color…', action: () => setModuleColor(entry, mods) });
   items.push('-', { label: 'Snap to Grid', checked: snapGrid, action: () => setSnapGrid(!snapGrid) });
   showMenu({ x, y, items });
 }
@@ -994,10 +1021,10 @@ window.addEventListener('keydown', (e) => {
 });
 
 // ---- controller panel ----
-function panelHeader(title, sub, def) {
+function panelHeader(title, sub, color) {
   const h = document.createElement('div');
   h.className = 'panel-header';
-  setColor(h, def);
+  setColor(h, color);
   const t = document.createElement('h2');
   t.textContent = title;
   const s = document.createElement('span');
@@ -1090,7 +1117,7 @@ function select(s) {
       num.className = 'ctl-num';
       num.textContent = m.id;
       li.append(num, m.def.isOutput ? 'Output' : m.def.label);
-      setColor(li, m.def);
+      setColor(li, colorOf(m));
       li.onclick = () => select({ kind: 'module', entry: m });
       list.append(li);
     }
@@ -1105,11 +1132,11 @@ function select(s) {
   }
 
   const entry = s.entry;
-  const header = panelHeader(entry.def.label, `#${entry.id}`, entry.def);
+  const header = panelHeader(entry.def.label, `#${entry.id}`, colorOf(entry));
   panel.append(header);
   // custom editor of the module's state (e.g. the WAVESHAPER curve), below the controllers
   const editor = entry.def.editor?.(entry, {
-    color: entry.def.color,
+    color: colorOf(entry) ?? entry.def.color,
     setState: (st) => current().setState(entry.id, st),
     beginEdit: () => undoHistory?.begin(),
     endEdit: () => undoHistory?.end(),
@@ -1141,7 +1168,7 @@ function select(s) {
         refresh();
       },
     });
-    setColor(ctl.el, entry.def);
+    setColor(ctl.el, colorOf(entry));
     const row = ctl.el;
     controllers.appendChild(row);
     rows.push({ p, row, show: ctl.show });
@@ -1150,7 +1177,7 @@ function select(s) {
 
   // display below the controllers (e.g. the OSC waveform preview)
   view = entry.def.view?.(entry, {
-    color: entry.def.color,
+    color: colorOf(entry) ?? entry.def.color,
     setParam: (id, v) => { current().setParam(entry.id, id, v); refresh(); }, // e.g. dragging an EQ band
     setState: (st) => current().setState(entry.id, st), // e.g. the Output's comments
     beginEdit: () => undoHistory?.begin(),

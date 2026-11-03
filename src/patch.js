@@ -1,6 +1,7 @@
 import { getModule } from './modules/index.js';
 import { fromNorm, paramsOf } from './params.js';
 import { normalizeSong } from './song.js';
+import { cleanColor } from './modcolor.js';
 
 // One patch = one "folder": modules, cables and a sink (where its Output module plays to).
 // Module ids are unique per patch; id 0 is always the Output module.
@@ -98,7 +99,7 @@ export class PatchRuntime {
     return id;
   }
 
-  async addModule(type, { id, x = 0, y = 0, values, state, name } = {}) {
+  async addModule(type, { id, x = 0, y = 0, values, state, name, color } = {}) {
     const def = getModule(type);
     if (!def) throw new Error(`Unknown module type: ${type}`);
     if (id === undefined) id = this.lowestFreeId();
@@ -110,7 +111,7 @@ export class PatchRuntime {
     } finally {
       this.reserved.delete(id);
     }
-    const entry = { id, def, inst, x, y, values: {} };
+    const entry = { id, def, inst, x, y, values: {}, color: cleanColor(color) }; // color: null = stock (see modcolor.js)
     const label = cleanName(name);
     if (label) entry.name = label; // custom name shown on the module box (the panel keeps the type)
     inst.attach?.(entry, this); // e.g. a Patch mirrors its mapped inner controllers into entry.values
@@ -149,7 +150,7 @@ export class PatchRuntime {
   async duplicate(id, { x, y } = {}) {
     const src = this.modules.get(id);
     if (!src || src.def.isOutput) return null;
-    const copy = await this.addModule(src.def.type, { x: x ?? src.x + 30, y: y ?? src.y + 30, values: { ...src.values }, state: src.state, name: src.name });
+    const copy = await this.addModule(src.def.type, { x: x ?? src.x + 30, y: y ?? src.y + 30, values: { ...src.values }, state: src.state, name: src.name, color: src.color });
     if (src.inst.patch && copy.inst.patch) await copy.inst.patch.load(src.inst.patch.toJSON());
     return copy;
   }
@@ -192,6 +193,18 @@ export class PatchRuntime {
     return true;
   }
 
+  // Custom colour of a module ('#rrggbb'); null / invalid restores its stock colour. Saved.
+  // emit(): the TimeLine redraws its clips (they take the colour of the module they play).
+  recolor(id, color) {
+    const e = this.modules.get(id);
+    if (!e) return false;
+    const c = cleanColor(color);
+    if (e.color === c) return true;
+    e.color = c;
+    this.emit();
+    return true;
+  }
+
   // ---- clipboard (patcher cut / copy / paste) ----
   // Plain data of a group of modules (the Output module is skipped): their settings, nested
   // patches and the cables between them. Independent of this patch, so it pastes into any level.
@@ -216,7 +229,7 @@ export class PatchRuntime {
     const map = new Map(); // copied id -> new module
     for (const m of [...data.modules].sort((a, b) => a.id - b.id)) {
       if (!getModule(m.type) || getModule(m.type).isOutput) continue;
-      const e = await this.addModule(m.type, { x: Math.round(m.x + dx), y: Math.round(m.y + dy), values: m.values, state: m.state, name: m.name });
+      const e = await this.addModule(m.type, { x: Math.round(m.x + dx), y: Math.round(m.y + dy), values: m.values, state: m.state, name: m.name, color: m.color });
       if (m.patch && e.inst.patch) await e.inst.patch.load(m.patch);
       map.set(m.id, e);
     }
@@ -506,6 +519,7 @@ export class PatchRuntime {
     return {
       modules: [...this.modules.values()].map((e) => ({
         id: e.id, type: e.def.type, x: e.x, y: e.y, values: { ...e.values },
+        color: e.color ?? null,
         ...(e.name ? { name: e.name } : {}),
         ...(e.state ? { state: structuredClone(e.state) } : {}),
         ...(e.inst.patch ? { patch: e.inst.patch.toJSON() } : {}),
@@ -525,6 +539,7 @@ export class PatchRuntime {
         const out = this.modules.get(0);
         out.x = m.x; out.y = m.y;
         if (cleanName(m.name)) out.name = cleanName(m.name); else delete out.name;
+        out.color = cleanColor(m.color);
         if (out.def.defaultState) out.state = m.state ? out.def.normalizeState?.(m.state) ?? structuredClone(m.state) : out.def.defaultState();
         for (const [k, v] of Object.entries(m.values ?? {})) this.setParam(0, k, v);
         continue;

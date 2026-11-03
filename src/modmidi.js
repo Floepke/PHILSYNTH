@@ -4,7 +4,8 @@
 //   pitch     float in MIDI note numbers: 60 = middle C, 60.5 = middle C + 50 cents
 //   velocity  float 0..1
 //   phase     float 0..1: where in its waveform cycle the oscillator starts the note (0 = start
-//             of the cycle, 0.5 = halfway). Optional, default 0; only OSC uses it (noise ignores it)
+//             of the cycle, 0.5 = halfway). Optional, default 0; used by OSC (noise ignores it)
+//             and LFO (restarts its wave there, plus its own Phase)
 //   time      optional logical onset in seconds: equal values identify simultaneous notes.
 //             Sequencer/device inputs preserve original onsets even in batched delivery;
 //             MIDI delay processors add their per-note delay, Patch modules pass it through.

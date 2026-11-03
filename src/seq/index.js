@@ -10,6 +10,7 @@ import { createPianoRoll } from './pianoroll.js';
 import { createArranger } from './arranger.js';
 import { createAutomationLane } from './automation.js';
 import { paramsOf, fromNorm } from '../params.js';
+import { colorOf } from '../modcolor.js';
 
 // controller value as the panel shows it
 const formatValue = (e, p, v) => (p.format ? p.format(v, e.values) : p.options ? p.options[v] : String(+v.toFixed(3)));
@@ -27,7 +28,8 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
   const $ = (id) => document.getElementById(id);
   const seq = $('seq');
   const ui = {
-    play: $('seq-play'), pos: $('seq-pos'), name: $('seq-name'), target: $('seq-target'),
+    restart: $('seq-restart'), play: $('seq-play'), loop: $('seq-loop'), stop: $('seq-stop'),
+    pos: $('seq-pos'), name: $('seq-name'), target: $('seq-target'),
     base: $('seq-snap-base'), div: $('seq-snap-div'), free: $('seq-free-time'),
     ctl: $('seq-ctl'), ctlField: $('seq-ctl-field'), targetField: $('seq-target-field'),
   };
@@ -42,7 +44,7 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
     song,
     clip,
     transport,
-    color: (c) => entryOf(c.target)?.def.color ?? NO_COLOR,
+    color: (c) => colorOf(entryOf(c.target)) ?? NO_COLOR,
     targetLabel(c) {
       if (c.target === null) return '→ none';
       const e = entryOf(c.target);
@@ -320,8 +322,10 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
   $('seq-bar').addEventListener('keydown', onUndoKey);
 
   // ---- transport ----
-  ui.play.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus (Space) where it is
-  ui.play.onclick = () => togglePlay();
+  for (const [button, key] of [[ui.restart, ','], [ui.play, '.'], [ui.loop, '/'], [ui.stop, "'"]]) {
+    button.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus (Space) where it is
+    button.onclick = () => transportAction(key);
+  }
   function togglePlay(fromPointer = false) {
     engine.resume();
     if (transport.playing) {
@@ -342,6 +346,19 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
     }
   }
   let stopArmed = false; // the last transport shortcut was ' (stop): pressing it again is a panic
+  function transportAction(key) {
+    const panic = key === "'" && stopArmed && !transport.playing;
+    stopArmed = key === "'";
+    if (key === ' ') togglePlay(true);
+    else if (panic) {
+      engine.panic();
+      $('status').textContent = 'Panic: all notes off, echo / reverb tails and other DSP state cleared.';
+    } else if (key === "'") transport.stop();
+    else if (key === '/') {
+      engine.resume();
+      if (!transport.playClip(song().selected, song())) $('status').textContent = 'Select a clip in the TimeLine to loop it.';
+    } else playSong(key === ',');
+  }
   window.addEventListener('keydown', (e) => {
     if ((e.key === 's' || e.key === 'S') && !e.repeat && !e.defaultPrevented && !e.ctrlKey && !e.metaKey && !e.altKey
       && !e.target.closest?.('input, select, textarea, dialog, [contenteditable]:not([contenteditable="false"])')) {
@@ -353,17 +370,7 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
     if (e.target.closest?.('input, select, textarea, dialog, [contenteditable]:not([contenteditable="false"])')) return;
     if (e.key === ' ' && e.target.closest?.('button')) return;
     e.preventDefault();
-    const panic = e.key === "'" && stopArmed && !transport.playing;
-    stopArmed = e.key === "'";
-    if (e.key === ' ') togglePlay(true);
-    else if (panic) {
-      engine.panic();
-      $('status').textContent = 'Panic: all notes off, echo / reverb tails and other DSP state cleared.';
-    } else if (e.key === "'") transport.stop();
-    else if (e.key === '/') {
-      engine.resume();
-      if (!transport.playClip(song().selected, song())) $('status').textContent = 'Select a clip in the TimeLine to loop it.';
-    } else playSong(e.key === ',');
+    transportAction(e.key);
   });
   let frame = 0;
   const loop = () => {
@@ -374,11 +381,8 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
     arranger.redraw();
   };
   transport.onState = () => {
-    ui.play.classList.toggle('playing', transport.playing);
-    ui.play.textContent = transport.playing ? '■' : '▶';
-    ui.play.title = transport.playing
-      ? `${transport.clipId === null ? 'Stop' : 'Stop clip loop'} and go to the selected clip's start (Space)`
-      : 'Play song (.) / toggle from the piano-roll pointer (Space)';
+    ui.play.classList.toggle('playing', transport.playing && transport.clipId === null);
+    ui.loop.classList.toggle('playing', transport.playing && transport.clipId !== null);
     if (!frame) loop();
   };
   function showPos() {

@@ -4,6 +4,7 @@
 //   right: the mapped controllers in order (their controller numbers), rename, reorder, remove
 // Changes apply immediately; Done (or Esc) closes.
 import { paramsOf } from './params.js';
+import { colorOf } from './modcolor.js';
 import { nextMapKey } from './modules/patch.js';
 
 const el = (tag, cls, text) => {
@@ -97,7 +98,7 @@ export function openMapDialog(entry, { setState }) {
       const params = paramsOf(m).filter((p) => !q || name.includes(q) || p.label.toLowerCase().includes(q));
       if (!params.length) continue;
       const group = el('div', 'map-group');
-      group.style.setProperty('--c', m.def.color ?? '#888');
+      group.style.setProperty('--c', colorOf(m) ?? '#888');
       const head = el('div', 'map-group-head');
       head.append(el('span', 'swatch'), el('b', null, `#${m.id}`), el('span', null, moduleName(m)));
       group.append(head);
@@ -127,7 +128,7 @@ export function openMapDialog(entry, { setState }) {
       const m = patch.modules.get(mp.module);
       const p = m && paramsOf(m).find((x) => x.id === mp.param);
       const row = el('div', 'map-item');
-      row.style.setProperty('--c', m?.def.color ?? '#666');
+      row.style.setProperty('--c', colorOf(m) ?? '#666');
       row.classList.toggle('missing', !p);
       const num = el('span', 'map-badge', p ? String(numberOf(mp.key)) : '!');
       num.title = p ? `Controller ${numberOf(mp.key)} of Patch #${entry.id}` : 'Its module or controller no longer exists';

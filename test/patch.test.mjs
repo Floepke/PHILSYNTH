@@ -416,6 +416,32 @@ const set = (e, x) => { hold(e, x); render(1); };
     ol.length = 0;
     mm2.inst.noteOn(9000, 60, 1, 0.65);
     assert.equal(ol.find((m) => m.type === 'noteOn').phase, 0.65, 'chained MULTIMIDIs pass it on');
+    // Phase: the start phase every note gets, Random Phase on top, wrapped
+    const phaseDef = mm.def.params.at(-1);
+    assert.deepEqual([phaseDef.id, phaseDef.label, phaseDef.min, phaseDef.max, phaseDef.default], ['phase', 'Phase', 0, 1, 0], 'Phase appended last');
+    assert.equal(phaseDef.format(0.25), '25 % (90°)');
+    pr.setParam(mm.id, 'phase', 0.25);
+    ol.length = 0;
+    mm.inst.noteOn(9100, 60, 1, 0);
+    assert.equal(ol.find((m) => m.type === 'noteOn').phase, 0.25, 'Phase sent');
+    ol.length = 0;
+    mm.inst.noteOn(9101, 60, 1, 0.9);
+    assert.ok(Math.abs(ol.find((m) => m.type === 'noteOn').phase - 0.15) < 1e-9, 'added to the incoming phase, wrapped');
+    pr.setParam(mm.id, 'randomPhase', 0.5);
+    ol.length = 0;
+    for (let n = 0; n < 100; n++) mm.inst.noteOn(9200 + n, 60, 1, 0);
+    const offs = ol.filter((m) => m.type === 'noteOn').map((m) => m.phase);
+    assert.ok(offs.every((ph) => ph >= 0.25 && ph < 0.75 + 1e-9), 'random offset on top of Phase');
+    // MULTIMIDI -> LFO: the note's phase reaches the LFO
+    const lfo = await pr.addModule('LFO');
+    const ll = capture(lfo);
+    pr.connect(mm2.id, lfo.id);
+    ll.length = 0;
+    mm2.inst.noteOn(9400, 60, 1, 0);
+    assert.equal(ll.find((m) => m.type === 'noteOn')?.phase, 0, 'LFO receives the phase');
+    pr.setParam(mm2.id, 'phase', 0.5);
+    mm2.inst.noteOn(9401, 60, 1, 0);
+    assert.equal(ll.filter((m) => m.type === 'noteOn').at(-1).phase, 0.5, 'LFO receives the MULTIMIDI Phase');
     pr.destroy();
   }
 
@@ -479,7 +505,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   {
     const vs = mmC.def.params.find((p) => p.id === 'velSense');
     assert.deepEqual([vs.default, vs.options], [1, ['Off (fixed)', 'On']], 'default On = the old behaviour');
-    assert.equal(mmC.def.params.at(-1), vs, 'appended last (Out Controller numbers stay)');
+    assert.equal(mmC.def.params[11], vs, 'appended after Route Mode (Out Controller numbers stay)');
     r.setParam(mmC.id, 'velSense', 0);
     r.setParam(mmC.id, 'velocity', 0.7);
     for (const [id, vel] of [[1005, 0.1], [1006, 1]]) {

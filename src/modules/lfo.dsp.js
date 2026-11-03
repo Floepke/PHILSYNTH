@@ -5,10 +5,14 @@
 // curve included, via noteMod); Frequency is ignored. When that note ends the previous held one
 // takes over; with none held the last pitch keeps running. Before the first note it stands still.
 // Being control rate, notes above ~half the block rate (sampleRate / 256, ~187 Hz) alias.
+// Phase (0..1): where in its cycle the wave starts. Applied when the kernel is created (project
+// load / new module), on panic, and on every noteOn: there the note's MODMIDI phase (e.g. from a
+// MULTIMIDI's Phase / Random Phase) is added to it. Turning it while running does not jump.
 import { Kernel } from '../dsp/kernel.js';
 
 const BEATS_PER_UNIT = [0, 1, 0.5, 0.25];
 export const MIDI_UNIT = 4;
+const wrap = (p) => p - Math.floor(p); // into [0, 1)
 export const pitchHz = (pitch) => 440 * 2 ** ((pitch - 69) / 12);
 // Synced cycle lengths, in units (e.g. 4 × 1/4 = one bar of 4/4).
 const PERIODS = [64, 48, 32, 24, 16, 12, 8, 6, 4, 3, 2, 1.5, 1, 3 / 4, 2 / 3, 1 / 2, 1 / 3, 1 / 4];
@@ -39,6 +43,8 @@ export default class LfoKernel extends Kernel {
     this.pitch = null; // MIDI Pitch: the pitch followed (null until the first note)
     this.wave = 0;
     this.phase = 0;
+    this.startPhase = 0; // the Phase controller
+    this.ran = false; // until the first block, a Phase setting moves the wave there
     // Random: every cycle glides (smoothstep) from the previous target to a new random one
     this.from = 0.5;
     this.to = Math.random();
@@ -53,14 +59,30 @@ export default class LfoKernel extends Kernel {
       v |= 0;
       if (v === 4 && this.wave !== 4) this.from = this.to = this.at(); // continue from where the wave is
       this.wave = v;
+    } else if (id === 'phase') {
+      this.startPhase = wrap(Number(v) || 0);
+      if (!this.ran) this.restart(0);
     }
   }
+
+  // jump to Phase + `offset` (cycles)
+  restart(offset) {
+    this.phase = wrap(this.startPhase + (Number(offset) || 0));
+    this.value = this.at();
+  }
+
+  panic() { this.restart(0); }
 
   message(m) {
     if (m.type === 'param') this.param(m.id, m.value);
     else if (m.type === 'bpm') { this.bpm = m.value; this.updateRate(); }
-    else if (m.type === 'reset') this.phase = 0;
-    else if (m.type === 'noteOn') { this.held.delete(m.id); this.held.set(m.id, Number(m.pitch) || 0); this.follow(); }
+    else if (m.type === 'reset') this.restart(0);
+    else if (m.type === 'noteOn') {
+      this.held.delete(m.id);
+      this.held.set(m.id, Number(m.pitch) || 0);
+      this.follow();
+      this.restart(m.phase);
+    }
     else if (m.type === 'noteMod') {
       for (const [id, pitch] of m.notes) if (this.held.has(id)) this.held.set(id, Number(pitch) || 0);
       this.follow();
@@ -94,6 +116,7 @@ export default class LfoKernel extends Kernel {
 
   process(_inputs, outputs) {
     const n = outputs[0]?.[0]?.length ?? 128;
+    this.ran = true;
     this.value = this.at();
     this.phase += (this.rate * n) / sampleRate;
     if (this.phase >= 1) {

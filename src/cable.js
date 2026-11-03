@@ -42,17 +42,23 @@ export function midpoint(a, b) {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, tx, ty };
 }
 
+// Centre and tip of the arrowhead drawn by arrowPath(a, b, size, back).
+export function arrowPoints(a, b, size = 7, back = 0) {
+  const { x, y, tx, ty } = midpoint(a, b);
+  const centre = { x: x - tx * back, y: y - ty * back };
+  return { centre, tip: { x: centre.x + tx * size, y: centre.y + ty * size } };
+}
+
 // Arrowhead (closed triangle path) centred on the segment's midpoint, pointing from a to b.
 // `back` shifts it that many px towards a: for a two-way connection (a -> b and b -> a) both arrows
 // get back = size + gap, so their tips point at each other with a small gap at the midpoint.
+// Their lines then end at their own arrow (half cables), so the two do not overlap.
 export function arrowPath(a, b, size = 7, back = 0) {
   const m = midpoint(a, b);
   const { tx, ty } = m;
-  const x = m.x - tx * back;
-  const y = m.y - ty * back;
+  const { centre: { x, y }, tip } = arrowPoints(a, b, size, back);
   const nx = -ty;
   const ny = tx;
-  const tip = { x: x + tx * size, y: y + ty * size };
   const bx = x - tx * size;
   const by = y - ty * size;
   const w = size * 0.85;

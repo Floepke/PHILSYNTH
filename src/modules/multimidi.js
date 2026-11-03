@@ -8,10 +8,10 @@
 // Several MULTIMIDIs can feed one synth in parallel (each plays its own copy of the note);
 // chained MULTIMIDIs add up.
 //
-// Random Phase: every note starts its waveform at its own random point of the cycle (MODMIDI
-// phase, 0..1): 0 % passes the incoming phase on unchanged (OSC starts at the cycle's beginning),
-// 100 % = anywhere in the cycle. The offset is drawn once per note and added to the incoming phase
-// (so chained MULTIMIDIs add up here too).
+// Phase: the phase every note starts with (MODMIDI phase, 0..1), added to the incoming phase.
+// Random Phase: every note starts its waveform at its own random point of the cycle on top of that:
+// 0 % = no random offset, 100 % = anywhere in the cycle. The offset is drawn once per note
+// (so chained MULTIMIDIs add up here too). OSC and LFO start their wave at the phase they receive.
 // Velocity: overall level, scales every outgoing velocity (100 % = unchanged, 0 % = silent).
 // Velocity Sense: On = the incoming velocity is passed on (scaled by Velocity); Off = fixed: every
 // note gets exactly the Velocity value, however hard it was played (Velocity Drift still applies).
@@ -98,12 +98,13 @@ export default {
     { id: 'overtone', label: 'Overtone', min: 0, max: 128, default: 0, step: 1, format: overtoneLabel },
     { id: 'routeMode', label: 'Route Mode', min: 0, max: ROUTE_MODES.length - 1, default: 0, step: 1, options: ROUTE_MODES },
     { id: 'velSense', label: 'Velocity Sense', min: 0, max: 1, default: 1, step: 1, options: VEL_SENSE },
+    { id: 'phase', label: 'Phase', min: 0, max: 1, default: 0, step: 0.01, format: (p) => `${Math.round(p * 100)} % (${Math.round(p * 360)}°)` },
   ],
   create(ctx, _def, host, { rand = Math.random } = {}) {
     // no DSP: its controllers live here; the node only receives modulation (LFO -> Transpose ...)
     const ctl = host.dsp.create('none');
 
-    const v = { transpose: 0, finetune: 0, drift: 0, driftFreq: 1, velocity: 1, overtone: 0, routeMode: 0, velSense: 1, velDrift: 0, velDriftFreq: 1, randomPhase: 0, randomDelay: 0 };
+    const v = { transpose: 0, finetune: 0, drift: 0, driftFreq: 1, velocity: 1, overtone: 0, routeMode: 0, velSense: 1, velDrift: 0, velDriftFreq: 1, randomPhase: 0, randomDelay: 0, phase: 0 };
     // Incoming id -> per-note pitch/velocity drift, including its delayed release tail.
     const notes = new Map();
     let lastRoute = null; // the target the previous note went to (Round Robin / no repeat)
@@ -152,7 +153,7 @@ export default {
         const delay = Math.max(0, Math.min(5000, v.randomDelay));
         n.delay = delay ? rand() * delay / 1000 : 0;
         const amount = Math.min(1, Math.max(0, v.randomPhase));
-        n.phase = wrapPhase((Number.isFinite(phase) ? phase : 0) + (amount ? rand() * amount : 0));
+        n.phase = wrapPhase((Number.isFinite(phase) ? phase : 0) + (Number(v.phase) || 0) + (amount ? rand() * amount : 0));
         n.out = outOf(n);
         notes.set(inId, n);
         midi.noteOn(inId, n.out[0], n.out[1], n.phase, n.delay, time);

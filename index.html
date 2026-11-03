@@ -16,9 +16,6 @@
     <div id="seq-split" class="splitter horizontal" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Piano roll / patcher divider" aria-controls="seq patcher" title="Drag the exposed divider to resize the piano roll and controller panel; pushes the lower divider when they meet. Arrow keys resize; Home/End move to an edge.">
       <div id="seq-bar" role="toolbar" aria-label="Sequencer controls">
         <div id="seq-bar-content">
-          <button id="seq-play" class="seq-play" title="Play song (.) / toggle (Space)">▶</button>
-          <span id="seq-pos" class="seq-pos" title="Play position: bar.beat.hundredths">1.1.00</span>
-          <span class="seq-sep"></span>
           <label class="seq-field seq-clip" title="Name of the selected clip"><span>Clip</span><input id="seq-name" type="text" spellcheck="false"></label>
           <label class="seq-field" id="seq-target-field" title="Module number (main patch) that plays the notes of this clip"><span>Send to</span><select id="seq-target"></select></label>
           <label class="seq-field" id="seq-ctl-field" title="Controller of the target module that this automation clip drives" hidden><span>Controller</span><select id="seq-ctl"></select></label>
@@ -40,6 +37,13 @@
     </section>
     <div id="seq-hsplit" class="splitter horizontal" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Patcher / TimeLine divider" aria-controls="patcher arranger" title="Drag up/down to resize the TimeLine and left/right to resize the controller panel; pushes the upper divider when they meet. Arrow keys resize; Home/End move to an edge.">
       <nav id="crumbs" aria-label="Patch path"></nav>
+      <div id="seq-transport" role="toolbar" aria-label="TimeLine transport controls">
+        <button id="seq-restart" class="seq-play" title="Play from beginning (,)" aria-label="Play from beginning" aria-keyshortcuts=","><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h2v10H2zM5 3l9 5-9 5z"/></svg></button>
+        <button id="seq-play" class="seq-play" title="Play from current playhead position (.)" aria-label="Play from current playhead position" aria-keyshortcuts="."><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 3l9 5-9 5z"/></svg></button>
+        <button id="seq-loop" class="seq-play" title="Loop selected clip (/)" aria-label="Loop selected clip" aria-keyshortcuts="/"><svg viewBox="0 0 24 16" aria-hidden="true"><path d="M2 3l9 5-9 5z"/><path d="M21 5a4 4 0 1 0 0 6" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
+        <button id="seq-stop" class="seq-play" title="Stop playback ('); press again for panic" aria-label="Stop playback" aria-keyshortcuts="'"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3h10v10H3z"/></svg></button>
+        <span id="seq-pos" class="seq-pos" title="Play position: bar.beat.hundredths">1.1.00</span>
+      </div>
       <time id="clock" aria-label="Current time"></time>
     </div>
     <div id="arranger" class="seq-view" role="region" aria-label="TimeLine"></div>
@@ -105,6 +109,26 @@
         <button value="ok" class="primary sig-ok">OK</button>
         <button value="cancel" class="sig-cancel">Cancel</button>
         <button value="delete" id="sig-delete" class="danger">Remove</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="color-dialog">
+    <form method="dialog">
+      <h3 id="color-title">Module color</h3>
+      <div class="color-preview" aria-label="Preview">
+        <div id="color-sample" class="module"><span class="module-name"></span><span class="module-id"></span></div>
+      </div>
+      <div class="color-sliders">
+        <label class="color-row"><span>R</span><input id="color-r" type="range" min="0" max="255" step="1" aria-label="Red"><output id="color-r-val" for="color-r"></output></label>
+        <label class="color-row"><span>G</span><input id="color-g" type="range" min="0" max="255" step="1" aria-label="Green"><output id="color-g-val" for="color-g"></output></label>
+        <label class="color-row"><span>B</span><input id="color-b" type="range" min="0" max="255" step="1" aria-label="Blue"><output id="color-b-val" for="color-b"></output></label>
+      </div>
+      <p id="color-note" class="dialog-note"></p>
+      <menu>
+        <button value="ok" class="primary color-ok">OK</button>
+        <button value="cancel" class="color-cancel">Cancel</button>
+        <button type="button" id="color-reset" class="color-reset" title="Back to the stock color of the module type">Reset color</button>
       </menu>
     </form>
   </dialog>

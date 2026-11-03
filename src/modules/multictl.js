@@ -10,6 +10,7 @@
 // DSP: multictl.dsp.js (the engine graph applies the value, like for the LFO).
 import { outParams } from './modtarget.js';
 import { fromNorm, paramsOf, toNorm } from '../params.js';
+import { colorOf } from '../modcolor.js';
 
 const pct1 = (v) => `${(+v).toFixed(1)} %`;
 const OUT = outParams().filter((p) => p.id !== 'outController'); // Out Min, Out Max
@@ -83,7 +84,7 @@ function routesView(entry, api) {
     const routes = entry.state.routes;
     for (const t of targets) {
       const card = el('div', 'mc-target');
-      if (t.def.color) card.style.setProperty('--mod-color', t.def.color);
+      if (colorOf(t)) card.style.setProperty('--mod-color', colorOf(t));
       const head = el('div', 'mc-head');
       const num = el('span', 'ctl-num', String(t.id));
       head.append(num, el('span', 'mc-name', labelOf(t)));

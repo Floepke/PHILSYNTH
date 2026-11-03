@@ -5,6 +5,8 @@
 //   Out Controller: controller number (0..) of the connected module(s) to modulate.
 //   Amplitude: depth of the wave around its centre (100 % = full swing, 0 % = steady at the middle).
 //   Out Min / Out Max: modulation range in % of that controller's slider range (applied after Amplitude).
+//   Phase: where in its cycle the wave starts, on project load, after a panic (' twice: stop, then
+//   panic) and on every incoming note (plus that note's MODMIDI phase, e.g. a MULTIMIDI's Phase).
 import { modulatorParams, outParams, pct } from './modtarget.js';
 import { syncedPeriod, MIDI_UNIT } from './lfo.dsp.js';
 
@@ -13,6 +15,7 @@ export { lfoRateHz, syncedPeriod, pitchHz, MIDI_UNIT } from './lfo.dsp.js';
 // appended last: saved Freq Unit values keep their meaning
 const UNITS = ['Hz', '1/4', '1/8', '1/16', 'MIDI Pitch (use incoming MIDI pitch)'];
 const FRACTIONS = { 0.75: '3/4', 0.667: '2/3', 0.5: '1/2', 0.333: '1/3', 0.25: '1/4' };
+export const phaseLabel = (v) => `${Math.round(v * 100)} % (${Math.round(v * 360)}°)`;
 
 function formatFreq(v, values) {
   const unit = values?.unit | 0;
@@ -27,7 +30,7 @@ export default {
   type: 'LFO',
   color: '#05a6de',
   label: 'LFO (modulator)',
-  acceptsMidi: true, // only used with Freq Unit MIDI Pitch
+  acceptsMidi: true, // notes restart its phase; with Freq Unit MIDI Pitch they also set the rate
   liveMidi: false, // not played by the MIDI device (selecting it does not take the keyboard)
   hasInput: false,
   hasOutput: true,
@@ -38,6 +41,8 @@ export default {
     { id: 'wave', label: 'Waveform', min: 0, max: 4, default: 0, step: 1, options: ['Sine', 'Triangle', 'Saw', 'Square', 'Random'] },
     ...outParams(),
     { id: 'amp', label: 'Amplitude', min: 0, max: 100, default: 100, step: 1, format: pct },
+    // appended last: controllers are targeted by index, existing ones keep their number
+    { id: 'phase', label: 'Phase', min: 0, max: 1, default: 0, step: 0.01, format: phaseLabel },
   ],
   create(_ctx, def, host) {
     // DSP: lfo.dsp.js; the engine graph maps its value onto the controllers it is cabled to
@@ -50,7 +55,7 @@ export default {
       params: () => modulatorParams(inst, def),
       setParam: (id, v) => node.param(id, v),
       setBpm: (bpm) => send({ type: 'bpm', value: bpm }),
-      noteOn: (id, pitch) => send({ type: 'noteOn', id, pitch }),
+      noteOn: (id, pitch, _velocity, phase = 0) => send({ type: 'noteOn', id, pitch, phase }),
       noteMod: (id, pitch, velocity) => send({ type: 'noteMod', notes: [[id, pitch, velocity]] }),
       noteOff: (id) => send({ type: 'noteOff', id }),
       allOff: () => send({ type: 'allOff' }),

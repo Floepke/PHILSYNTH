@@ -18,7 +18,7 @@
 // songs to play as { key, song, getTarget, setAuto } (the app passes only the level's own one:
 // a Patch's TimeLine is heard only from inside it). They play together on its clock; the loop
 // region of the first applies, without one playback loops at the end of the last clip of any.
-// The / audition loops a clip (playClip(id, song)).
+// The / audition loops a clip (playClip(id, song)); at each boundary it follows that song's selection.
 // pitchOffset(scope): semitones added to every played note (that level's Output Global Transpose /
 // Cents Offset).
 import { newNoteId } from './modmidi.js';
@@ -166,9 +166,9 @@ export class Transport {
     if (!this.playing) return;
     const clip = this.loopClip();
     if (this.clipId !== null && !clip) { this.stop(); return; }
-    const [start, end] = clip ? [clip.start, clip.start + clip.length] : this.songBounds();
+    let [start, end] = clip ? [clip.start, clip.start + clip.length] : this.songBounds();
     if (end <= start) { this.stop(); return; }
-    const span = end - start;
+    let span = end - start;
     const dt = Math.min(0.25, Math.max(0, (nowMs - this.last) / 1000)); // a stalled tab must not jump far ahead
     this.last = nowMs;
     if (this.from < start || this.from >= end) {
@@ -184,7 +184,20 @@ export class Transport {
     for (let guard = 0; to >= end && guard < 4; guard++) {
       this.advance(this.from, end);
       this.releaseAll();
-      to -= span;
+      const next = clip && getClip(this.clipSong, this.clipSong.selected);
+      if (next && next.id !== this.clipId && next.length > 0) {
+        const remaining = to - end;
+        this.clipId = next.id;
+        this.pos += next.start - end;
+        start = next.start;
+        end = next.start + next.length;
+        span = next.length;
+        to = start + remaining;
+        this.releaseAuto();
+        if (this.chase) this.chaseAt(start);
+      } else {
+        to -= span;
+      }
       this.from = start;
     }
     // Very short clips can wrap many times in one tick; skip stale cycles, not the loop bounds.

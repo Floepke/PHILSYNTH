@@ -2414,9 +2414,10 @@ for (const notes of [
   }
   const elements = new Map();
   const inputIds = ['seq-name', 'seq-snap-div', 'seq-free-time'];
-  for (const id of ['seq', 'seq-bar', 'seq-bar-content', 'seq-play', 'seq-pos', 'seq-target', 'seq-snap-base', 'seq-ctl', 'seq-ctl-field', 'seq-target-field', ...inputIds,
+  const transportIds = ['seq-restart', 'seq-play', 'seq-loop', 'seq-stop'];
+  for (const id of ['seq', 'seq-bar', 'seq-bar-content', ...transportIds, 'seq-pos', 'seq-target', 'seq-snap-base', 'seq-ctl', 'seq-ctl-field', 'seq-target-field', ...inputIds,
     'workspace', 'patcher', 'roll', 'arranger', 'seq-split', 'seq-hsplit', 'panel', 'panel-split', 'status']) {
-    elements.set(id, new Element(inputIds.includes(id) ? 'input' : id === 'seq-play' ? 'button' : 'div'));
+    elements.set(id, new Element(inputIds.includes(id) ? 'input' : transportIds.includes(id) ? 'button' : 'div'));
   }
   document.getElementById = (id) => elements.get(id);
   document.body = new Element();
@@ -2471,7 +2472,8 @@ for (const notes of [
   assert.ok(press('/').defaultPrevented);
   assert.equal(transport.pos, 4.25);
   assert.equal(transport.clipId, clip.id);
-  assert.match(elements.get('seq-play').title, /Stop clip loop/);
+  assert.ok(elements.get('seq-loop').classes.has('playing'));
+  assert.ok(!elements.get('seq-play').classes.has('playing'));
   transport.seek(4.5);
   press('/', { shiftKey: true }); // layouts where slash requires Shift
   assert.equal(transport.pos, 4.25);
@@ -2522,8 +2524,32 @@ for (const notes of [
   song.selected = selected;
   elements.get('seq-play').onclick();
   assert.equal(transport.playing, true);
+  assert.equal(transport.pos, 1.5, 'play button starts at the parked playhead');
+  assert.ok(elements.get('seq-play').classes.has('playing'));
   elements.get('seq-play').onclick();
-  assert.equal(transport.pos, clip.start, 'the stop button does the same');
+  assert.equal(transport.playing, true, 'play button never toggles to stop');
+  assert.equal(transport.pos, 1.5);
+  elements.get('seq-restart').onclick();
+  assert.equal(transport.pos, 0, 'restart button matches comma');
+  assert.equal(transport.clipId, null);
+  elements.get('seq-loop').onclick();
+  assert.equal(transport.clipId, clip.id, 'clip button matches slash');
+  assert.equal(transport.pos, clip.start);
+  assert.ok(elements.get('seq-loop').classes.has('playing'));
+  transport.seek(clip.start + 0.1);
+  elements.get('seq-stop').onclick();
+  assert.equal(transport.playing, false);
+  assert.equal(transport.pos, clip.start + 0.1, 'stop button keeps the playhead, like apostrophe');
+  assert.ok(!elements.get('seq-play').classes.has('playing'));
+  assert.ok(!elements.get('seq-loop').classes.has('playing'));
+  const beforePanic = panics;
+  elements.get('seq-stop').onclick();
+  assert.equal(panics, beforePanic + 1, 'repeated stop button matches apostrophe panic');
+  song.selected = null;
+  elements.get('seq-loop').onclick();
+  assert.equal(transport.playing, false, 'clip playback needs a selection');
+  assert.match(elements.get('status').textContent, /Select a clip/);
+  song.selected = selected;
   const rollCanvas = elements.get('roll').children[0];
   seq.applyView({ roll: { sy: 0, ppq: 48 } });
   flush();

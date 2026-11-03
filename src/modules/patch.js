@@ -63,7 +63,7 @@ function applyValues(rt, data) {
 
 export default {
   type: 'PATCH',
-  color: '#9b86e7',
+  color: '#000000',
   label: 'Patch (folder)',
   acceptsMidi: true, // forwarded to every MIDI-capable module inside
   hasInput: true,

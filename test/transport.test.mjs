@@ -181,19 +181,108 @@ function setup() {
   transport.stop();
 }
 
-// Switching selection does not silently switch the running loop; slash explicitly selects it.
+// Selection changes take effect at the loop boundary, keeping the elapsed remainder of the tick.
 {
   const { song, selected, other, transport, events, run } = setup();
+  other.start = 10;
+  transport.playClip(selected.id);
+  run(100);
+  const activeId = transport.active[0].id;
+  song.selected = other.id;
+  run(140);
+  assert.equal(transport.clipId, selected.id);
+  assert.ok(!events.some((e) => e.pitch === 80));
+  run(20);
+  assert.equal(transport.clipId, other.id);
+  near(transport.pos, 10.02);
+  assert.ok(events.some((e) => e.type === 'off' && e.id === activeId));
+  assert.equal(events.filter((e) => e.type === 'on').at(-1).pitch, 80);
+  run(500);
+  assert.equal(transport.clipId, other.id);
+  near(transport.pos, 10.02);
+  transport.stop();
+}
+
+// The latest selection wins; clearing/deleting it keeps the current loop, and selecting it cancels a switch.
+{
+  const { song, selected, other, transport, run } = setup();
   transport.playClip(selected.id);
   song.selected = other.id;
-  run(5);
+  run(100);
+  song.selected = selected.id;
+  run(160);
   assert.equal(transport.clipId, selected.id);
-  assert.ok(events.every((e) => e.target === 1 || e.target === 2));
-  transport.playClip(song.selected);
-  run(5);
-  assert.equal(transport.clipId, other.id);
-  assert.equal(events.filter((e) => e.type === 'on').at(-1).pitch, 80);
+  song.selected = null;
+  run(250);
+  assert.equal(transport.clipId, selected.id);
+  song.selected = other.id;
+  removeClip(song, other.id);
+  run(250);
+  assert.equal(transport.clipId, selected.id);
+  assert.equal(transport.playing, true);
   transport.stop();
+}
+
+// Switching backwards also chases overlapping notes at the new start, without duplicate first notes.
+{
+  const { song, selected, other, transport, events, run } = setup();
+  other.start = 2;
+  selected.start = 8;
+  selected.length = 0.5;
+  const overlap = addClip(song, { start: 1, length: 3, target: 3 });
+  overlap.notes.push(note(50, 0, 3));
+  song.selected = selected.id;
+  transport.playClip(selected.id);
+  run(100);
+  song.selected = other.id;
+  run(160);
+  near(transport.pos, 2.02);
+  assert.equal(transport.loopClip(), other);
+  assert.deepEqual(events.filter((e) => e.type === 'on').slice(-2).map((e) => e.pitch), [50, 80]);
+  assert.equal(events.filter((e) => e.type === 'on' && e.pitch === 80).length, 1);
+  transport.stop();
+}
+
+// Only the latest selection is followed, including automation clips; old automation is released.
+{
+  const { song, selected, other, transport, run } = setup();
+  const auto = addAutoClip(song, { start: 10, length: 1, target: 1, controller: 2 });
+  auto.points.push({ t: 0, v: 0.3, r: 0 });
+  const calls = [];
+  transport.setAuto = (id, clip, v) => calls.push({ id, clip, v });
+  song.selected = selected.id;
+  transport.playClip(selected.id);
+  run(100);
+  song.selected = other.id;
+  run(100);
+  song.selected = auto.id;
+  run(60);
+  assert.equal(transport.loopClip(), auto);
+  near(transport.pos, 10.02);
+  assert.equal(calls.at(-1).clip, auto);
+  song.selected = selected.id;
+  run(500);
+  assert.equal(transport.loopClip(), selected);
+  near(transport.pos, 4.27);
+  assert.deepEqual(calls.at(-1), { id: auto.id, clip: null, v: null });
+  assert.equal(transport.autoActive.size, 0);
+  transport.stop();
+}
+
+// A switch to a sub-tick clip stays bounded even when the remaining tick covers many loops.
+{
+  const { song, selected, other, transport, tick, events } = setup();
+  other.start = -2;
+  other.length = 0.001;
+  transport.playClip(selected.id);
+  tick(200);
+  song.selected = other.id;
+  tick(200);
+  assert.equal(transport.loopClip(), other);
+  assert.ok(transport.pos >= other.start && transport.pos < other.start + other.length);
+  assert.ok(events.filter((e) => e.type === 'on' && e.pitch === 80).length <= 4);
+  transport.stop();
+  assert.equal(events.filter((e) => e.type === 'on').length, events.filter((e) => e.type === 'off').length);
 }
 
 // Seeking stays within the clip; moving/shrinking/deleting the looped clip cannot leak playback.
@@ -315,6 +404,7 @@ function setup() {
   // clip loop mode plays the other clips in its range too; each wrap retriggers their first notes once
   const other = addClip(song, { start: 2, length: 4, target: 1, y: 34 });
   other.notes.push(note(90, 0, 4));
+  song.selected = clip.id;
   events.length = 0;
   transport.playClip(clip.id);
   run(5);

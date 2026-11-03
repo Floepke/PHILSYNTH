@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { midpoint, arrowPath, linePath, samplePoints, edgePoint, visibleSegment, centerOf } from '../src/cable.js';
+import { midpoint, arrowPath, arrowPoints, linePath, samplePoints, edgePoint, visibleSegment, centerOf } from '../src/cable.js';
 import { Ring, displace, scopePath, AMP, crossings, period, lockAge } from '../src/cablescope.js';
 
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
@@ -20,6 +20,14 @@ const fwd = tipOf(arrowPath({ x: 0, y: 0 }, { x: 200, y: 0 }, 7, 9));
 const rev = tipOf(arrowPath({ x: 200, y: 0 }, { x: 0, y: 0 }, 7, 9));
 assert.deepEqual(fwd, [98, 0]);
 assert.deepEqual(rev, [102, 0]);
+// their lines end at their own arrow (centre inside the head, tip = where the wave stops): no overlap
+{
+  const f = arrowPoints({ x: 0, y: 0 }, { x: 200, y: 0 }, 7, 9);
+  const r = arrowPoints({ x: 200, y: 0 }, { x: 0, y: 0 }, 7, 9);
+  assert.deepEqual([f.centre, f.tip], [{ x: 91, y: 0 }, { x: 98, y: 0 }]);
+  assert.deepEqual([r.centre, r.tip], [{ x: 109, y: 0 }, { x: 102, y: 0 }]);
+  assert.ok(f.tip.x < r.tip.x, 'the halves do not overlap');
+}
 
 // vertical-ish cable: tangent points from a towards b, unit length
 m = midpoint({ x: 0, y: 0 }, { x: 0, y: 300 });

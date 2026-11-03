@@ -52,4 +52,27 @@ assert.ok(new Set(ends.map((v) => v.toFixed(3))).size > 30, 'keeps moving to new
   assert.equal(k.rate, 3, 'Hz: Frequency again');
 }
 
+// Phase: start point on creation (project load), panic and incoming notes; turning it does not jump
+{
+  const k = new Proc();
+  const m = (data) => k.port.onmessage({ data });
+  m({ type: 'param', id: 'wave', value: 2 }); // saw: value = phase
+  m({ type: 'param', id: 'phase', value: 0.25 });
+  assert.equal(k.phase, 0.25, 'set before the first block: starts there');
+  assert.equal(k.value, 0.25);
+  for (let b = 0; b < 100; b++) k.process([], [[new Float32Array(128)]]);
+  const running = k.phase;
+  m({ type: 'param', id: 'phase', value: 0.75 });
+  assert.equal(k.phase, running, 'turned while running: no jump');
+  k.panic();
+  assert.equal(k.phase, 0.75, 'panic resets to Phase');
+  for (let b = 0; b < 10; b++) k.process([], [[new Float32Array(128)]]);
+  m({ type: 'noteOn', id: 1, pitch: 60, phase: 0.5 });
+  assert.equal(k.phase, 0.25, 'noteOn: Phase + note phase, wrapped');
+  m({ type: 'noteOn', id: 2, pitch: 60 });
+  assert.equal(k.phase, 0.75, 'noteOn without phase: Phase');
+  m({ type: 'reset' });
+  assert.equal(k.phase, 0.75);
+}
+
 console.log('lfo tests passed');

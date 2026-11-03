@@ -39,7 +39,7 @@ export const DOCS = {
     },
     notes: [
       'The text box below the controllers keeps notes about the song or patch; it is saved with the project.',
-      'Inside a Patch, MIDI cables (MULTIMIDI, STRUM) and modulator cables (LFO, ADSR, ENVELOPE, VELOCITY2CTL, SOUND2CTL) into the Output pass out over the Patch module\'s cables. At the top level a modulator cabled into the Output drives the Output\'s own controllers.',
+      'Inside a Patch, MIDI cables (MULTIMIDI, STRUM) and modulator cables (LFO, ADSR, ENVELOPE, VELOCITY2CTL, PITCH2CTL, SOUND2CTL) into the Output pass out over the Patch module\'s cables. At the top level a modulator cabled into the Output drives the Output\'s own controllers.',
     ],
   },
 
@@ -147,12 +147,13 @@ export const DOCS = {
       driftFreq: 'Speed of the pitch drift: how often (per second) it heads for a new random value. 0 holds each note\'s initial offset.',
       velDrift: 'Depth of a random velocity (loudness) wander per note: reduces the velocity by up to this percentage.',
       velDriftFreq: 'Speed of the velocity drift. 0 holds each note\'s initial offset.',
-      randomPhase: 'Starts every note at a random point of the waveform cycle: 0 % = all notes start at the cycle\'s beginning, 100 % = anywhere.',
+      randomPhase: 'Adds a random offset to every note\'s start point in the waveform cycle, on top of <b>Phase</b>: 0 % = no random offset, 100 % = anywhere in the cycle.',
       randomDelay: 'Delays every note by a random time between 0 and this value (0–5000 ms). The note\'s velocity changes and note-off get the same delay, so its length is kept.',
       velocity: 'Overall level: scales every outgoing velocity (100 % = unchanged, 0 % = silent).',
       overtone: 'Plays the n-th overtone of the harmonic series instead of the note: (n + 1) × its frequency. 0 = the fundamental, 1 = octave, 2 = octave + fifth, 3 = two octaves … up to 128.',
       velSense: '<i>On</i> (default): the played velocity is passed on, scaled by <b>Velocity</b>. <i>Off (fixed)</i>: velocity detection is off, every note gets exactly the <b>Velocity</b> value however hard it was played (Velocity Drift still applies).',
       routeMode: 'Which MIDI cables each note goes out of: <i>Sent to All</i> (every cable), <i>Round Robin</i> (the next cable in turn, in the order they were made), <i>Random</i> (one random cable), <i>Random (no repeat)</i> (random, never the same cable twice in a row).',
+      phase: 'The point of the waveform cycle every note starts at (0–100 % = 0–360°), sent with the note to OSCs and LFOs. <b>Random Phase</b> adds a random offset on top.',
     },
     notes: [
       'Notes arrive when it is selected and the MIDI keyboard is played, from a clip sent to it, or from another MULTIMIDI cabled into it. <kbd>Shift</kbd> + drag from it to an OSC, SAMPLER, Patch, ADSR or another MIDI module to send them on.',
@@ -326,6 +327,7 @@ export const DOCS = {
       wave: 'Shape of the wave: Sine, Triangle, Saw, Square, or Random (glides smoothly to a new random value every cycle).',
       ...MOD_PARAMS,
       amp: 'Depth of the wave around its centre: 100 % = full swing between Out Min and Out Max, 0 % = steady in the middle.',
+      phase: 'Where in its cycle the wave starts (0–100 % = 0–360°). The LFO jumps there when the project loads, after a panic (<kbd>\'</kbd> twice: stop, then panic) and on every incoming note; a note\'s own phase (from a MULTIMIDI\'s Phase / Random Phase) is added to it. Turning it while running does not make the wave jump.',
     },
     notes: [MOD_CABLE, 'Modulation is applied once per 128-sample block (~375 times a second), so with MIDI Pitch only low notes (below about 90 Hz, F♯2) give a clean wave; higher notes alias into a slower, stepped movement.'],
   },
@@ -378,6 +380,24 @@ export const DOCS = {
     ],
   },
 
+  PITCH2CTL: {
+    summary: 'Turns the pitch of incoming notes into a controller value: the higher the note within its key range, the further it moves the controlled controller (e.g. a filter that opens up the keyboard, or key tracking for any controller). It makes no sound.',
+    params: {
+      outController: OUT_CONTROLLER,
+      outMin: `${OUT_MIN} Notes at (or below) Low Key give this value.`,
+      outMax: `${OUT_MAX} Notes at (or above) High Key give this value.`,
+      lowKey: 'Bottom of the key range, as MIDI key 0–127 (C-1 … G9; middle C = C4 = 60): this note gives Out Min (default A0 = 21, the bottom of an 88-key piano). Lower notes stay at Out Min. Set it above High Key to flip the mapping, so higher notes give lower values.',
+      highKey: 'Top of the key range: this note gives Out Max (default C8 = 108, the top of an 88-key piano), higher notes stay at Out Max. In between the value moves in a straight line per semitone; cents (micro-pitch, pitch glides) count too. Low Key = High Key makes a switch: below that key Out Min, from it up Out Max.',
+      noteOffAction: 'What happens when the newest note ends: Do Nothing holds the value until the next note, Control Down moves it to Out Min, Control Up to Out Max.',
+      smooth: 'Glide time to every new value, 0–5000 ms: instead of jumping, the controller moves in a straight line from where it is to the new value in this time (like portamento for the controller). 0 (default, <i>Off</i>) jumps. The very first note jumps, as there is nothing to glide from.',
+    },
+    notes: [
+      '<b>Keyboard</b> (below the controllers): all 128 MIDI keys with the range tinted. Drag on the keys to move the nearest handle (a click jumps it there), double-click a handle to reset it. The newest sounding note lights up; the line below names the range or the hovered key.',
+      MOD_CABLE,
+      'The newest note wins, including its pitch curve while it sounds. Notes come from clips sent to it or a MULTIMIDI cabled into it; the MIDI keyboard keeps playing the current synth. Changing the key range moves a held value along.',
+    ],
+  },
+
   SOUND2CTL: {
     summary: 'Turns an audio signal into a controller value: the voltage of the incoming audio drives a controller, either at audio speed (e.g. an oscillator modulating a filter) or sampled slowly and optionally smoothed (e.g. a random or stepped modulation taken from a sound). It makes no sound.',
     params: {
@@ -416,7 +436,7 @@ export const DOCS = {
     notes: [
       '<kbd>Double-click</kbd> the Patch (or select it and press <kbd>Enter</kbd>) to open it; the mouse <b>back</b> button or the patch path goes up again.',
       '<b>Controllers…</b> maps controllers of modules inside to extra controllers of this module.',
-      'Inside, cable a MULTIMIDI or STRUM into the Output to send notes out, or an LFO, ADSR, ENVELOPE, VELOCITY2CTL or SOUND2CTL to send modulation out; the inner modulator\'s Out Controller then picks a controller of the modules this Patch is cabled to.',
+      'Inside, cable a MULTIMIDI or STRUM into the Output to send notes out, or an LFO, ADSR, ENVELOPE, VELOCITY2CTL, PITCH2CTL or SOUND2CTL to send modulation out; the inner modulator\'s Out Controller then picks a controller of the modules this Patch is cabled to.',
     ],
   },
 };
