@@ -71,6 +71,16 @@ chord; nearby but different starts stay independent.
 - **Timing Humanize**: 0–100%; zero gives evenly spaced notes, higher values vary
   the interior timing while preserving order and the duration endpoints.
 
+Insert **TUNING** for microtonal scales: paste or type a
+[Scala](https://www.huygens-fokker.org/scala/) `.scl` file into its panel, or click
+**Load Tuning** (a file) or **Load Tuning from PHILSYNTH Library** (built-in
+equal, Bohlen–Pierce, Werckmeister / Kirnberger / Vallotti well, meantone and just
+scales), then MIDI-cable it to an OSC, Patch, or another MIDI module. It
+has no controllers. Key 60 (C4) plays degree 0 at its normal pitch; each key up
+or down is the next scale degree, and the last pitch (usually `2/1`) is the
+period. A 12-tone equal temperament scale changes nothing, micropitch is kept on
+top, and sounding notes glide to an edited scale. The scale is saved with the project.
+
 **MULTIMIDI / Velocity** scales every outgoing note velocity (0–100 %, default
 100 % = unchanged), so trimming it down makes the notes it sends quieter; held
 notes follow changes and it can be modulated like any other controller.

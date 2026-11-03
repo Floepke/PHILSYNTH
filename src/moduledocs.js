@@ -173,6 +173,17 @@ export const DOCS = {
     ],
   },
 
+  TUNING: {
+    summary: 'Microtonal tuning: retunes the notes passing through it to a <a href="https://www.huygens-fokker.org/scala/" target="_blank" rel="noopener">Scala</a> scale (.scl) and sends them on through its MIDI cables. It has no controllers: the scale is the text in its panel.',
+    params: {},
+    notes: [
+      'Paste or type the contents of a Scala file into the text box, click <b>Load Tuning</b> to open a .scl file, or <b>Load Tuning from PHILSYNTH Library</b> to pick a built-in scale: equal temperaments (5 … 53 notes), Bohlen–Pierce and Wendy Carlos (non-octave), Werckmeister, Kirnberger, Vallotti, Young and Bach/Lehman well temperaments, meantone (1/3 … 1/6 comma) and Pythagorean, and just scales (5-limit, harmonic series, Partch 43, 22 shruti). The line above the box names the scale, or shows where the text has an error (notes then pass untuned). The scale is saved with the project.',
+      'Scala format: lines starting with <code>!</code> are comments; the first other line is a description, the next the number of notes, then one pitch per line: a value with a period is in cents (<code>701.955</code>), otherwise a ratio (<code>3/2</code>) or a whole number. The 1/1 is implied; the last pitch is the period where the scale repeats (usually <code>2/1</code>, the octave).',
+      'A .scl file holds only intervals, no frequency. Here C4 (key 60) stays at its normal pitch (261.63 Hz with A4 = 440 Hz) and is degree 0 of the scale, so in a historical temperament on C the A is slightly off 440 Hz. Keyboard mapping: C4 (key 60) plays degree 0, each key up or down is the next scale degree, so a scale with more or fewer than 12 notes spreads over more or fewer keys per period. A 12-tone equal temperament scale changes nothing. Micropitch from the piano roll or a MULTIMIDI before it is kept on top of the tuned pitch.',
+      'Notes arrive when it is selected and the MIDI keyboard is played, from a clip sent to it, or from another MIDI module cabled into it. <kbd>Shift</kbd> + drag from it to an OSC, SAMPLER, Patch or another MIDI module to play the tuned notes. Sounding notes glide to a new scale as you edit it.',
+    ],
+  },
+
   FILTER: {
     summary: 'Multi-mode filter that shapes the frequency content of the audio: state-variable filters (12–48 dB/oct), EQ bell and shelves, a Moog-style ladder, comb filters and a vowel formant filter, with a built-in LFO on the cutoff.',
     params: {
