@@ -278,4 +278,37 @@ assert.throws(() => graph.handle([['add', 999, 'nope']]), /Unknown DSP kernel/);
   assert.equal(got.length, 0, 'unwatched: no scope data');
 }
 
+// ---- cable scope at display rate: report(time, false) keeps the points for a later report ----
+{
+  const T = dspTestHost();
+  const src = T.dsp.create('const', { v: 0.5 });
+  src.connect(T.dsp.destination);
+  const got = [];
+  T.dsp.onScope = (s) => got.push(s);
+  T.dsp.scope([src.h]);
+  T.graph.nodes.get(src.h).k.process = function (_i, o) {
+    o[0][0].fill(this.on ? 0.3 : 0); o[0][1].fill(this.on ? 0.3 : 0);
+    return this.on;
+  };
+  T.graph.nodes.get(src.h).k.on = true;
+  const step = (withScope) => {
+    T.graph.render(new Float32Array(128), new Float32Array(128));
+    const r = T.graph.report(0, withScope);
+    if (r) T.dsp.receive(r);
+  };
+  for (let i = 0; i < 5; i++) step(false);
+  assert.equal(got.length, 0, 'no scope without withScope');
+  step(true);
+  assert.equal(got.length, 1);
+  assert.equal(got[0].n, 6 * SCOPE_PTS, 'the held points come in one batch');
+  near(got[0].v[0], 0.3, 1e-6);
+  // silence in batches of 6 quanta: zeros still flush the cables, then stop
+  T.graph.nodes.get(src.h).k.on = false;
+  got.length = 0;
+  for (let i = 0; i < SCOPE_QUIET / SCOPE_PTS + 60; i++) step(i % 6 === 5);
+  const pts = got.reduce((n, s) => n + s.n, 0);
+  assert.ok(pts >= SCOPE_QUIET && pts <= SCOPE_QUIET + 6 * SCOPE_PTS, `zeros flush the cables, then stop (${pts})`);
+  assert.ok(got.every((s) => s.v.every((x) => x === 0)));
+}
+
 console.log('graph tests passed');

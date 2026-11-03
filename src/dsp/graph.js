@@ -39,7 +39,7 @@ const NO_INPUT = [[]];
 export const SCOPE_DECIM = 4;
 export const SCOPE_PTS = BLOCK / SCOPE_DECIM;
 export const SCOPE_QUIET = 8192;
-const SCOPE_MAX = SCOPE_PTS * 16; // points kept between two reports (older ones are dropped)
+const SCOPE_MAX = SCOPE_PTS * 32; // points kept between two reports (older ones are dropped)
 
 export class Graph {
   constructor({ kernels = null, heap = null, native = true } = {}) {
@@ -354,12 +354,14 @@ export class Graph {
 
   // Message for the main thread: { time, mods: [handle, controller id, value, ...],
   // scope?: { h: [handles], n: points, v: Float32Array [point][node] } }, or null when there is
-  // nothing to tell.
-  report(time) {
+  // nothing to tell. withScope = false keeps the scope points for a later report (the worklet
+  // sends them at display rate, modulation and clock at full rate).
+  report(time, withScope = true) {
     let scope = null;
-    if (this.scopeN > 0) {
+    if (withScope && this.scopeN > 0) {
       const H = this.scopeH;
-      if (this.scopeQuiet <= SCOPE_QUIET + SCOPE_PTS) scope = { h: H, n: this.scopeN, v: this.scopeBuf.slice(0, this.scopeN * H.length) };
+      // sent while the batch starts within SCOPE_QUIET silent points
+      if (this.scopeQuiet - this.scopeN <= SCOPE_QUIET) scope = { h: H, n: this.scopeN, v: this.scopeBuf.slice(0, this.scopeN * H.length) };
       this.scopeN = 0;
     }
     let meters = null;
