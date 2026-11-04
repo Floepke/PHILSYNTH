@@ -69,9 +69,11 @@ export class DspNode {
 
 export class DspHost {
   // port: the engine AudioWorkletNode's port (or a test double). sync: post every message at once.
-  constructor(port, { sync = false } = {}) {
+  constructor(port, { sync = false, clockBatch = false } = {}) {
     this.port = port;
     this.sync = sync;
+    // Offline rendering flushes coalesced note bends at each virtual audio-clock report.
+    this.clockBatch = clockBatch;
     this.nodes = new Map();
     this.next = 1;
     this.queue = [];

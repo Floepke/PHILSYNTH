@@ -68,13 +68,14 @@ export default {
     const feed = sampleFeeder((s) => send(s?.kind === 'image'
       ? { type: 'image', width: s.width, height: s.height, rgb: s.rgb }
       : { type: 'image', width: 0, height: 0, rgb: null }));
+    const midi = noteMessages(send, host.dsp);
     return {
       node,
       input: null,
       setParam: (id, value) => send({ type: 'param', id, value }),
       setState: (st) => feed.set(st?.imageId ?? null),
-      ...noteMessages(send),
-      destroy: () => { feed.destroy(); node.destroy(); },
+      ...midi,
+      destroy: () => { midi.destroyNotes(); feed.destroy(); node.destroy(); },
     };
   },
 };

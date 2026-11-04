@@ -19,6 +19,14 @@ const hasPendingMidi = (patch) => [...patch.modules.values()].some(({ inst }) =>
   inst.hasPendingMidi || (inst.patch && hasPendingMidi(inst.patch))
   || inst.clones?.some(hasPendingMidi));
 
+async function prepareInstances(patch) {
+  for (const { inst } of patch.modules.values()) {
+    if (!inst.patch) continue;
+    await inst.sync?.();
+    await Promise.all([inst.patch, ...(inst.clones ?? [])].map(prepareInstances));
+  }
+}
+
 // A new task without setTimeout: timers are throttled hard in background windows, messages are not.
 function nextTask() {
   if (typeof MessageChannel !== 'function') return new Promise((res) => setTimeout(res, 0));
@@ -43,7 +51,7 @@ export async function renderSong(project, { sampleRate = 48000, wasm = null, onP
     }
     graph ??= new Graph();
     let time = 0;
-    const dsp = new DspHost({ onmessage: null, postMessage: (batch) => graph.handle(batch) }, { sync: true });
+    const dsp = new DspHost({ onmessage: null, postMessage: (batch) => graph.handle(batch) }, { sync: true, clockBatch: true });
     const engine = {
       ctx: { get currentTime() { return time; }, sampleRate },
       dsp,
@@ -51,6 +59,7 @@ export async function renderSong(project, { sampleRate = 48000, wasm = null, onP
     };
     root = await PatchRuntime.create(engine, dsp.destination);
     await root.load(project.patch);
+    await prepareInstances(root);
     const song = normalizeSong(structuredClone(project.song));
     const transport = new Transport({
       getSong: () => song,

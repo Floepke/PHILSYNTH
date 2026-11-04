@@ -35,21 +35,26 @@ export function sampleFeeder(send) {
 }
 
 // MODMIDI note messages for a poly kernel (as osc.js: noteMod updates of one tick go in one message)
-export function noteMessages(send) {
+export function noteMessages(send, dsp) {
   let mods = null;
   const flushMods = () => {
     if (!mods) return;
     send({ type: 'noteMod', notes: [...mods.values()] });
     mods = null;
   };
+  const stopClock = dsp.clockBatch ? dsp.onClock(flushMods) : null;
   return {
     noteOn: (id, pitch, velocity, phase = 0) => { flushMods(); send({ type: 'noteOn', id, pitch, velocity, phase }); },
     noteMod(id, pitch, velocity) {
-      if (!mods) { mods = new Map(); queueMicrotask(flushMods); }
+      if (!mods) {
+        mods = new Map();
+        if (!stopClock) queueMicrotask(flushMods);
+      }
       mods.set(id, [id, pitch, velocity]);
     },
     noteOff: (id) => { flushMods(); send({ type: 'noteOff', id }); },
     allOff: () => { mods = null; send({ type: 'allOff' }); },
+    destroyNotes() { stopClock?.(); mods = null; },
   };
 }
 
@@ -82,13 +87,14 @@ export default {
     const node = host.dsp.create('sampler'); // DSP: sampler.dsp.js
     const send = (m) => node.send(m);
     const feed = sampleFeeder((s) => send({ type: 'sample', rate: s?.rate ?? 0, channels: s?.channels ?? null }));
+    const midi = noteMessages(send, host.dsp);
     return {
       node,
       input: null,
       setParam: (id, value) => send({ type: 'param', id, value }),
       setState: (st) => feed.set(st?.sampleId ?? null),
-      ...noteMessages(send),
-      destroy: () => { feed.destroy(); node.destroy(); },
+      ...midi,
+      destroy: () => { midi.destroyNotes(); feed.destroy(); node.destroy(); },
     };
   },
 };

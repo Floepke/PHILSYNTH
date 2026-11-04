@@ -88,6 +88,7 @@ export default {
       send({ type: 'noteMod', notes: [...mods.values()] });
       mods = null;
     };
+    const stopClock = host.dsp.clockBatch ? host.dsp.onClock(flushMods) : null;
     return {
       node,
       input: null,
@@ -95,12 +96,15 @@ export default {
       // MODMIDI (src/modmidi.js): float pitch, float velocity, start phase 0..1, per-note id
       noteOn: (id, pitch, velocity, phase = 0) => { flushMods(); send({ type: 'noteOn', id, pitch, velocity, phase }); },
       noteMod(id, pitch, velocity) {
-        if (!mods) { mods = new Map(); queueMicrotask(flushMods); }
+        if (!mods) {
+          mods = new Map();
+          if (!stopClock) queueMicrotask(flushMods);
+        }
         mods.set(id, [id, pitch, velocity]);
       },
       noteOff: (id) => { flushMods(); send({ type: 'noteOff', id }); },
       allOff: () => { mods = null; send({ type: 'allOff' }); },
-      destroy: () => node.destroy(),
+      destroy() { stopClock?.(); mods = null; node.destroy(); },
     };
   },
 };

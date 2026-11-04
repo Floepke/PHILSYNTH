@@ -37,6 +37,7 @@ export default {
   create(_ctx, _def, host) {
     const node = host.dsp.create('wavetable'); // DSP: wavetable.dsp.js
     const send = (m) => node.send(m);
+    const midi = noteMessages(send, host.dsp);
     let frame = 0;
     const feed = sampleFeeder((s) => send({ type: 'table', data: s?.channels[0] ?? null, frame }));
     return {
@@ -49,8 +50,8 @@ export default {
         frame = f;
         feed.set(st?.sampleId ?? null, force);
       },
-      ...noteMessages(send),
-      destroy: () => { feed.destroy(); node.destroy(); },
+      ...midi,
+      destroy: () => { midi.destroyNotes(); feed.destroy(); node.destroy(); },
     };
   },
 };

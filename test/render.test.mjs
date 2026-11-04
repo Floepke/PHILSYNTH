@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 globalThis.sampleRate ??= 48000;
 const { dspTestHost } = await import('./dsphost.mjs');
+const { Graph } = await import('../src/dsp/graph.js');
 const { PatchRuntime } = await import('../src/patch.js');
 const { emptySong, addClip } = await import('../src/song.js');
 const { renderSong, encodeWav, TAIL_MAX_S } = await import('../src/render.js');
@@ -96,6 +97,64 @@ for (const type of ['STRUM', 'MULTIMIDI']) {
   assert.ok(early < 1e-3, `${type}: delayed note does not sound early`);
   assert.ok(late > 0.01, `${type}: pending MIDI survives silent offline tail until delayed onset`);
   assert.ok(out.seconds > onset, `${type}: export includes all delayed notes`);
+}
+
+// Offline rendering advances many DSP blocks without yielding to microtasks. Pitch-bend and
+// velocity curves must therefore flush on the audio clock, not only in a queued microtask.
+{
+  const bent = structuredClone(project);
+  const id = 2;
+  bent.patch.modules.push({ id, type: 'MULTIMIDI', x: 0, y: 0 });
+  bent.patch.cables.push({ from: id, to: osc.id });
+  bent.song.clips[0].target = id;
+  bent.song.clips[0].notes = [{
+    pitch: 69, start: 0, length: 1, vel: 0.8,
+    bends: [{ t: 0.1, d: 0, r: 1 }, { t: 0.2, d: 2, r: 1 }, { t: 0.4, d: 2, r: 1 }, { t: 0.5, d: 0, r: 1 }],
+    vels: [{ t: 0.1, v: 0.2, r: 1 }, { t: 0.4, v: 0.9, r: 1 }],
+  }];
+
+  const oldHandle = Graph.prototype.handle;
+  let updates = 0;
+  Graph.prototype.handle = function (batch) {
+    for (const op of batch) if (op[0] === 'msg' && op[2]?.type === 'noteMod') updates++;
+    return oldHandle.call(this, batch);
+  };
+  try {
+    await renderSong(bent, { sampleRate: rate });
+  } finally {
+    Graph.prototype.handle = oldHandle;
+  }
+  assert.ok(updates > 50, `bend/velocity updates are not coalesced until note-off (${updates})`);
+}
+
+// A multi-instance PATCH routes simultaneous notes round-robin to separate monophonic OPERATORs.
+{
+  const patch = await root.addModule('PATCH', { values: { inputModule: 1, instances: 2 } });
+  const innerOp = await patch.inst.patch.addModule('OPERATOR');
+  patch.inst.patch.connect(innerOp.id, 0);
+  const poly = emptySong();
+  const clip = addClip(poly, { start: 0, length: 1, target: patch.id });
+  clip.notes.push(
+    { pitch: 48, start: 0, length: 0.75, vel: 0.8 },
+    { pitch: 60, start: 0, length: 0.75, vel: 0.8 },
+  );
+  const data = { format: 'modsynth', version: 1, patch: root.toJSON(), song: poly };
+  const oldHandle = Graph.prototype.handle;
+  const operatorNotes = [];
+  Graph.prototype.handle = function (batch) {
+    for (const op of batch) {
+      if (op[0] !== 'msg' || op[2]?.type !== 'noteOn') continue;
+      if (this.nodes.get(op[1])?.kind === 'operator') operatorNotes.push([op[1], op[2].pitch]);
+    }
+    return oldHandle.call(this, batch);
+  };
+  try {
+    await renderSong(data, { sampleRate: rate });
+  } finally {
+    Graph.prototype.handle = oldHandle;
+  }
+  assert.deepEqual(operatorNotes.map(([, pitch]) => pitch).sort((a, b) => a - b), [48, 60]);
+  assert.equal(new Set(operatorNotes.map(([handle]) => handle)).size, 2, 'each note reaches a separate OPERATOR instance');
 }
 
 // TRILL through a MIDI cable: one held key repeats every 1/16 (0.125 s) for 1/32 (62.5 ms)

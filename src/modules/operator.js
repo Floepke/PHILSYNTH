@@ -32,17 +32,21 @@ export default {
       node.send({ type: 'noteMod', notes: [...mods.values()] });
       mods = null;
     };
+    const stopClock = host.dsp.clockBatch ? host.dsp.onClock(flush) : null;
     return {
       node, input: node,
       setParam: (id, value) => node.param(id, value),
       noteOn(id, pitch, velocity, phase = 0) { flush(); node.send({ type: 'noteOn', id, pitch, velocity, phase }); },
       noteMod(id, pitch, velocity) {
-        if (!mods) { mods = new Map(); queueMicrotask(flush); }
+        if (!mods) {
+          mods = new Map();
+          if (!stopClock) queueMicrotask(flush);
+        }
         mods.set(id, [id, pitch, velocity]);
       },
       noteOff(id) { flush(); node.send({ type: 'noteOff', id }); },
       allOff() { mods = null; node.send({ type: 'allOff' }); },
-      destroy() { mods = null; node.destroy(); },
+      destroy() { stopClock?.(); mods = null; node.destroy(); },
     };
   },
 };
