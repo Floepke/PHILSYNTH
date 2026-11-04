@@ -22,7 +22,8 @@
 // The image arrives from the main thread: { type: 'image', width, height, rgb } (rgb: Uint8Array
 // of width * height * 3) or rgb null (no image: silent). ADSR with curves as OSC (poly.dsp.js).
 import { PolyKernel, curveEnv, curveStart, curveRelease, curveBlock, curveTick } from './poly.dsp.js';
-import { SCAN, scanCenter, ovalAxes, ovalPerimeter, unit, colorWeights, wrapDeg, resPoints, RES_MAX } from './imagescan.js';
+import { SCAN, scanCenter, ovalAxes, ovalPerimeter, unit, colorWeights, wrapDeg, resPoints, RES_MAX, RES_DEFAULT } from './imagescan.js';
+import { imageCache } from '../dsp/imagecache.js';
 
 const SMOOTH_S = 0.01;
 const MAX_TLEVELS = 16;
@@ -114,12 +115,15 @@ export function pyramid(width, height, rgb) {
   return levels;
 }
 
+const images = imageCache(pyramid);
+
 export default class ImageSamplerKernel extends PolyKernel {
   constructor() {
     super({ atkCurve: 0, decCurve: 0, relCurve: 0, scanType: SCAN.LINE, x: 50, y: 50, length: 70, rotation: 0, speed: 0.5,
-      ovalWidth: 60, ovalHeight: 60, ovalRotation: 0, resolution: RES_MAX,
+      ovalWidth: 60, ovalHeight: 60, ovalRotation: 0, resolution: RES_DEFAULT,
       redLeft: 100, greenLeft: 50, blueLeft: 0, redRight: 0, greenRight: 50, blueRight: 100 });
     this.levels = null;
+    this.imageEntry = null;
     this.g = null; // smoothed scanner: { x, y, length } (controller units), angle in degrees
     this.angle = 0;
     this.w = null; // smoothed colour -> speaker weights (colorWeights)
@@ -138,8 +142,16 @@ export default class ImageSamplerKernel extends PolyKernel {
 
   message(m) {
     if (m.type !== 'image') return super.message(m);
-    this.levels = m.rgb && m.width > 0 && m.height > 0 && m.rgb.length === m.width * m.height * 3 ? pyramid(m.width, m.height, m.rgb) : null;
+    const entry = images.acquire(m.width, m.height, m.rgb);
+    images.release(this.imageEntry);
+    this.imageEntry = entry;
+    this.levels = entry?.value ?? null;
     this.image++;
+  }
+
+  destroy() {
+    images.release(this.imageEntry);
+    this.imageEntry = this.levels = null;
   }
 
   start(v, phase) {

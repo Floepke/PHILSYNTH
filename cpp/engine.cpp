@@ -9,6 +9,7 @@
 #include "modulator.h"
 #include "osc.h"
 #include "operator.h"
+#include "imagesampler.h"
 #include "reverb.h"
 #include "waveshaper.h"
 
@@ -21,15 +22,16 @@ void operator delete(void* p, __SIZE_TYPE__) noexcept { free(p); }
 
 using namespace ms;
 
-enum Kind { KIND_OSC = 1, KIND_FILTER = 2, KIND_REVERB = 3, KIND_WAVESHAPER = 4, KIND_BUS = 5, KIND_AMP = 6, KIND_OUT = 7, KIND_DCBLOCK = 8, KIND_EQ = 9, KIND_DELAY = 10, KIND_ECHO = 11, KIND_MODULATOR = 12, KIND_OPERATOR = 13 };
+enum Kind { KIND_OSC = 1, KIND_FILTER = 2, KIND_REVERB = 3, KIND_WAVESHAPER = 4, KIND_BUS = 5, KIND_AMP = 6, KIND_OUT = 7, KIND_DCBLOCK = 8, KIND_EQ = 9, KIND_DELAY = 10, KIND_ECHO = 11, KIND_MODULATOR = 12, KIND_OPERATOR = 13, KIND_IMAGESAMPLER = 14 };
 
 // Bumped when the API changes; src/dsp/wasm.js refuses other versions.
-EXPORT(ms_version) int ms_version() { return 10; }
+EXPORT(ms_version) int ms_version() { return 11; }
 
 EXPORT(ms_param_count) int ms_param_count(int kind) {
   switch (kind) {
     case KIND_OSC: return Osc::PARAMS;
     case KIND_OPERATOR: return Operator::PARAMS;
+    case KIND_IMAGESAMPLER: return ImageSampler::PARAMS;
     case KIND_FILTER: return Filter::PARAMS;
     case KIND_REVERB: return Reverb::PARAMS;
     case KIND_WAVESHAPER: return Waveshaper::PARAMS;
@@ -53,6 +55,7 @@ EXPORT(ms_create) Kernel* ms_create(int kind, double sampleRate, int salt, uint3
   switch (kind) {
     case KIND_OSC: return new Osc(sampleRate, seed);
     case KIND_OPERATOR: return new Operator(sampleRate);
+    case KIND_IMAGESAMPLER: return new ImageSampler(sampleRate);
     case KIND_FILTER: return new Filter(sampleRate, seed);
     case KIND_REVERB: return new Reverb(sampleRate, salt);
     case KIND_WAVESHAPER: return new Waveshaper(sampleRate);
@@ -69,6 +72,14 @@ EXPORT(ms_create) Kernel* ms_create(int kind, double sampleRate, int salt, uint3
 }
 
 EXPORT(ms_destroy) void ms_destroy(Kernel* k) { delete k; }
+EXPORT(ms_image_create) ImagePyramid* ms_image_create(int w, int h, const uint8_t* rgb) {
+  if (w < 1 || h < 1 || w > 256 || h > 256 || !rgb) return nullptr;
+  auto* image = new ImagePyramid(w, h, rgb);
+  if (!image->pixels) { delete image; return nullptr; }
+  return image;
+}
+EXPORT(ms_image_free) void ms_image_free(ImagePyramid* image) { delete image; }
+EXPORT(ms_image_set) void ms_image_set(ImageSampler* k, ImagePyramid* image) { k->setImage(image); }
 EXPORT(ms_param) void ms_param(Kernel* k, int id, double v) { k->param(id, v); }
 EXPORT(ms_bpm) void ms_bpm(Kernel* k, double value) { k->tempo(value); }
 EXPORT(ms_note) void ms_note(Kernel* k, int type, double id, double pitch, double vel, double phase) { k->note(type, id, pitch, vel, phase); }

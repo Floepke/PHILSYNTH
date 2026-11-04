@@ -47,8 +47,9 @@ export const ovalPerimeter = (a, b) => Math.PI * (3 * (a + b) - Math.sqrt(Math.m
 // Resolution: the number of points read along the scanner per cycle (the waveform is the straight
 // lines between them). Point j sits at progress j / points.
 export const RES_MIN = 2;
-export const RES_MAX = 2048;
-export const resPoints = (v) => Math.min(RES_MAX, Math.max(RES_MIN, Math.round(Number(v) || RES_MAX)));
+export const RES_MAX = 1024;
+export const RES_DEFAULT = 64;
+export const resPoints = (v) => Math.min(RES_MAX, Math.max(RES_MIN, Math.round(Number(v) || RES_DEFAULT)));
 
 // Colour byte (0..255) -> -1..1
 export const unit = (c) => c / 127.5 - 1;

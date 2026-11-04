@@ -1,16 +1,16 @@
 // IMAGE SAMPLER: a polyphonic synth that plays an image. A scanner (a line on the photo below the
 // controllers) is read once per cycle of every note: the colours along it are the waveform, red
-// mixed onto each speaker by its own + / − amount of every colour (DSP: imagesampler.dsp.js, maths:
+// mixed onto each speaker by its own + / − amount of every colour (DSP: cpp/imagesampler.h and imagesampler.dsp.js, maths:
 // imagescan.js). Scanner Type picks the scanner; X / Y are shared by every type (Length by Line and
 // Propellor), the controllers of one type only (Rotation, Propellor Speed, the Oval's Width /
 // Height / Rotation) follow them and show for that type (fixed numbers, hidden when another type
-// is chosen). Resolution: how many points along the scanner make the waveform (2..2048, the
+// is chosen). Resolution: how many points along the scanner make the waveform (2..1024, the
 // straight lines between them; few = coarse and jumpy). Then the colour amounts per speaker (Left, then Right), the envelope with its curves, and Gain last.
 // Load Image (or drop a picture on the photo): it is scaled to 256 px at most and saved with the
 // project (sample pool, src/samples.js). ADSR with stage curves and the ADSR editor as OSC.
 import { linkDecayRelease } from './envlink.js';
 import { curveParams } from './adsrcurve.js';
-import { SCAN, SCAN_TYPES, RES_MIN, RES_MAX, resPoints } from './imagescan.js';
+import { SCAN, SCAN_TYPES, RES_MIN, RES_MAX, RES_DEFAULT, resPoints } from './imagescan.js';
 import { createImageView } from './imageview.js';
 import { sampleFeeder, noteMessages } from './sampler.js';
 
@@ -49,7 +49,7 @@ export default {
     { id: 'ovalHeight', label: 'Height', min: 0, max: 100, default: 60, step: 0.1, format: percent, visible: (v) => (v.scanType | 0) === SCAN.OVAL },
     { id: 'ovalRotation', label: 'Rotation', min: -180, max: 180, default: 0, step: 0.1, format: (v) => `${+v.toFixed(1)}°`, visible: (v) => (v.scanType | 0) === SCAN.OVAL },
     // points read along the scanner per cycle (the waveform is the lines between them)
-    { id: 'resolution', label: 'Resolution', min: RES_MIN, max: RES_MAX, default: RES_MAX, step: 1, scale: 'log', format: (v) => `${resPoints(v)} points` },
+    { id: 'resolution', label: 'Resolution', min: RES_MIN, max: RES_MAX, default: RES_DEFAULT, step: 1, scale: 'log', normalize: resPoints, format: (v) => `${resPoints(v)} points` },
     ...colorParams(),
     { id: 'attack', label: 'Attack (s)', min: 0.001, max: 10, default: 0.01, step: 0.001 },
     { id: 'decay', label: 'Decay (s)', min: 0.001, max: 10, default: 0.2, step: 0.001 },

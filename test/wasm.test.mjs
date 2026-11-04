@@ -2,6 +2,8 @@
 // Rebuild the .wasm first after changing cpp/: npm run build:wasm
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { PatchRuntime } from '../src/patch.js';
+import { addImage } from '../src/samples.js';
 
 globalThis.sampleRate = 48000;
 const { KERNELS } = await import('../src/dsp/kernels.js');
@@ -91,7 +93,8 @@ function compare(kind, { opts = {}, script = [], input = null, gaps = () => fals
   const wa = new WASM[kind](opts);
   let worst = 0;
   let at = -1;
-  const outW = inHeap ? [[heap.f32(heap.alloc(N * 4), N), heap.f32(heap.alloc(N * 4), N)]] : [stereo()];
+  const outPtrs = inHeap ? [heap.alloc(N * 4), heap.alloc(N * 4)] : null;
+  const outW = outPtrs ? [outPtrs.map((p) => heap.f32(p, N))] : [stereo()];
   for (let b = 0; b < blocks; b++) {
     for (const [when, m] of script) if (when === b) {
       if (m === 'panic') { js.panic(); wa.panic(); } else { js.message(m); wa.message(m); }
@@ -104,6 +107,7 @@ function compare(kind, { opts = {}, script = [], input = null, gaps = () => fals
     }
     const outJ = [stereo()];
     const rj = js.process(ins, outJ) !== false;
+    if (outPtrs && outW[0][0].buffer !== heap.memory.buffer) outW[0] = outPtrs.map((p) => heap.f32(p, N));
     const rw = wa.process(ins, outW) !== false;
     assert.equal(rw, rj, `${kind}: same silent flag at block ${b}`);
     if (!rj) continue; // silent outputs are undefined
@@ -116,6 +120,8 @@ function compare(kind, { opts = {}, script = [], input = null, gaps = () => fals
     }
   }
   wa.destroy();
+  js.destroy?.();
+  if (outPtrs) outPtrs.forEach((p) => heap.free(p));
   assert.ok(worst <= tol, `${kind} ${JSON.stringify(script.slice(0, 3))}: differs by ${worst} at block ${at}`);
   return worst;
 }
@@ -186,6 +192,111 @@ for (const K of [KERNELS.operator, WASM.operator]) {
   assert.equal(k.process([[]], out), false, 'silent after panic (silent output buffers are undefined)');
   assert.deepEqual(play(), first, 'panic clears self-feedback and filter state');
   k.destroy?.();
+}
+
+// IMAGESAMPLER: all scanners, odd and power-of-two table sizes, movement, colours, voice
+// stealing, curved envelopes, image replacement/removal, fractional pitch, start phase and panic.
+function imageMessage(width, height, seed = 123) {
+  const random = noise(seed);
+  return { type: 'image', width, height, rgb: Uint8Array.from({ length: width * height * 3 }, () => Math.floor((random() + 1) * 127.5)) };
+}
+for (const [width, height] of [[1, 1], [3, 5], [256, 256]]) {
+  for (const scanType of [0, 1, 2]) {
+    for (const resolution of [2, 3, 64, 1024, 2048]) {
+      compare('imagesampler', {
+        blocks: 100, tol: 2e-6, inHeap: true,
+        script: [
+          [0, param('scanType', scanType)], [0, param('resolution', resolution)], [0, param('polyphony', 3)],
+          [0, imageMessage(width, height)], [0, noteOn(1, 48.37, 0.8, 0.23)],
+          [2, noteOn(2, 72.12, 0.5, -0.3)], [4, noteOn(3, 93)], [5, noteOn(4, 60)],
+          [6, param('x', 21)], [7, param('y', 80)], [8, param('length', 20)],
+          [9, param('rotation', 179)], [10, param('speed', -3.1)],
+          [11, param('ovalWidth', 30)], [12, param('ovalHeight', 90)], [13, param('ovalRotation', -175)],
+          [14, param('redLeft', -80)], [15, param('blueRight', 30)], [16, param('greenRight', -50)],
+          [17, { type: 'noteMod', notes: [[4, 70.34, 0.3]] }],
+          [18, param('atkCurve', -75)], [19, param('decCurve', 100)], [20, param('sustain', 0.2)],
+          [22, param('relCurve', -100)], [23, param('release', 0.01)], [24, { type: 'noteOff', id: 4 }],
+          [30, param('scanType', (scanType + 1) % 3)], [35, param('resolution', 7)],
+          [40, imageMessage(7, 3, 321)], [45, param('polyphony', 1)], [50, 'panic'],
+          [55, noteOn(5, 65.5)], [60, { type: 'allOff' }], [65, noteOn(6, 48)],
+          [70, { type: 'image', width: 0, height: 0, rgb: null }],
+          [75, imageMessage(width, height)], [76, noteOn(7, 60)],
+          [80, param('gain', 0.8)], [82, param('release', 0.001)], [83, { type: 'noteOff', id: 7 }],
+        ],
+      });
+    }
+  }
+}
+
+// Content-sharing survives cloned messages and releases only the replaced/deleted owner's ref.
+for (const K of [KERNELS.imagesampler, WASM.imagesampler]) {
+  const a = new K(), b = new K();
+  a.message(imageMessage(16, 7));
+  b.message(imageMessage(16, 7));
+  assert.equal(a.imageEntry, b.imageEntry, 'identical image content prepared once');
+  const original = b.imageEntry;
+  assert.equal(original.refs, 2);
+  a.message(imageMessage(16, 7, 456));
+  assert.notEqual(a.imageEntry, b.imageEntry, 'changed content uses its own pyramid');
+  assert.equal(original.refs, 1);
+  a.destroy();
+  assert.equal(original.refs, 1);
+  b.message(noteOn(1, 60));
+  assert.equal(b.process([[]], [stereo()]), true, 'remaining image owner keeps playing');
+  b.message({ type: 'image', width: 0, height: 0, rgb: null });
+  assert.equal(original.refs, 0);
+  b.destroy();
+}
+
+// Fully native sixteen-instance rendering, shared image lifecycle and fractional MIDI notes.
+{
+  const { dsp, graph, render } = dspTestHost({ kernels: WASM, heap });
+  const nodes = [];
+  for (let i = 0; i < 16; i++) {
+    const node = dsp.create('imagesampler');
+    node.send(imageMessage(256, 256));
+    node.param('scanType', 1);
+    node.connect(dsp.destination);
+    node.send(noteOn(i, 48 + i * 0.37));
+    nodes.push(node);
+  }
+  assert.ok(render(20).L.some((v) => Math.abs(v) > 1e-5), 'sixteen moving image scanners produce sound');
+  assert.ok(graph.prog, 'image samplers no longer force mixed JS/native rendering');
+  nodes[0].destroy();
+  assert.ok(render().L.every(Number.isFinite), 'deleting one shared image user preserves the others');
+  dsp.panic();
+  assert.ok(render().L.every((v) => v === 0), 'native image network panic');
+  for (const node of nodes.slice(1)) node.destroy();
+}
+
+// Real Patch Instances use sampleFeeder state (not hand-sent image messages).
+for (const options of [{}, { kernels: WASM, heap }]) {
+  const { dsp, graph, render, kernel } = dspTestHost(options);
+  const engine = { ctx: { currentTime: 0 }, dsp, createPatch(sink) { return PatchRuntime.create(this, sink); } };
+  const rt = await PatchRuntime.create(engine, dsp.destination);
+  const patch = await rt.addModule('PATCH');
+  const msg = imageMessage(32, 17);
+  const imageId = addImage({ width: msg.width, height: msg.height, rgb: msg.rgb });
+  const entry = await patch.inst.patch.addModule('IMAGESAMPLER', {
+    state: { imageId }, values: { scanType: 1, resolution: 1024 },
+  });
+  patch.inst.patch.connect(entry.id, 0);
+  rt.connect(patch.id, 0);
+  rt.setParam(patch.id, 'instances', 16);
+  await patch.inst.sync();
+  const copies = [patch.inst.patch, ...patch.inst.clones];
+  assert.equal(copies.length, 16);
+  const shared = kernel(entry.inst.node).imageEntry;
+  assert.ok(copies.every((copy) => kernel(copy.modules.get(entry.id).inst.node).imageEntry === shared));
+  assert.equal(shared.refs, 16, 'all sixteen real Patch instances share image preparation');
+  for (let i = 0; i < 16; i++) patch.inst.noteOn(100 + i, 48 + i * 0.37, 0.8);
+  assert.ok(render(20).L.some((v) => Math.abs(v) > 1e-5), 'all Patch copies play');
+  if (options.heap) assert.ok(graph.prog, 'Patch instances use the fully native render path');
+  rt.setParam(patch.id, 'instances', 2);
+  await patch.inst.sync();
+  assert.equal(shared.refs, 2, 'removed instances release their image ownership');
+  rt.destroy();
+  assert.equal(shared.refs, 0, 'deleting the Patch releases the final prepared image');
 }
 
 // DELAY / ECHO: fractional taps, controller glides, tempo sync and all feedback filters.

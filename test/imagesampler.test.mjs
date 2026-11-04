@@ -8,6 +8,9 @@ import { fitImage, dragEnd, dragCenter, dragOval } from '../src/modules/imagevie
 import { curveEnv, curveStart, curveTick, curveRelease } from '../src/modules/poly.dsp.js';
 import { attackLevel, decayLevel, releaseLevel } from '../src/modules/adsrcurve.js';
 import { addImage, getImage, getSample, exportSamples, importSamples, withSamples, MAX_IMAGE } from '../src/samples.js';
+import { imageCache } from '../src/dsp/imagecache.js';
+import { PatchRuntime } from '../src/patch.js';
+import { dspTestHost } from './dsphost.mjs';
 
 const SR = 48000;
 const close = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`);
@@ -253,7 +256,7 @@ const pitch = (hz) => 69 + 12 * Math.log2(hz / 440);
 { // Oval: once around per cycle, no jump at the wrap (a Line over the same ramp is a sawtooth)
   const hz = 187.5; // 256 samples per cycle
   const run = (params) => {
-    const { k, m } = make({ blueRight: 0, ...params });
+    const { k, m } = make({ blueRight: 0, resolution: 1024, ...params });
     m({ type: 'noteOn', id: 1, pitch: pitch(hz), velocity: 1 });
     const { L } = render(k, 24);
     const s = L.slice(1024);
@@ -278,8 +281,8 @@ const pitch = (hz) => 69 + 12 * Math.log2(hz / 440);
 
 // ---- Resolution: points along the scanner, straight lines between them ----
 {
-  assert.deepEqual([resPoints(1), resPoints(2.4), resPoints(5000), resPoints(NaN)], [2, 2, 2048, 2048]);
-  assert.deepEqual([P.resolution.min, P.resolution.max, P.resolution.default, P.resolution.scale], [2, 2048, 2048, 'log']);
+  assert.deepEqual([resPoints(1), resPoints(2.4), resPoints(5000), resPoints(NaN)], [2, 2, 1024, 64]);
+  assert.deepEqual([P.resolution.min, P.resolution.max, P.resolution.default, P.resolution.scale], [2, 1024, 64, 'log']);
   // halved table copies: [1 2 1] / 4 per pair, periodic
   const T = { buf: new Float32Array(64 * 3), off: new Int32Array(16), len: new Int32Array(16), count: 0 };
   [0, 4, 8, 4].forEach((v, j) => { T.buf[j * 3] = v; });
@@ -307,7 +310,7 @@ const pitch = (hz) => 69 + 12 * Math.log2(hz / 440);
   const d = four.slice(1).map((v, i) => v - four[i]);
   close(d[20], d[40], 1e-6, 'four points: a straight line inside a quarter');
   // the full resolution keeps the ramp's detail: a saw, not a triangle
-  const full = cycle({}).c;
+  const full = cycle({ resolution: 1024 }).c;
   assert.ok(full.slice(1).filter((v, i) => v > full[i]).length > 240, 'full resolution: a saw');
 
   // the table is built once while the scanner stands still, every block while it moves
@@ -323,7 +326,7 @@ const pitch = (hz) => 69 + 12 * Math.log2(hz / 440);
   assert.equal(idle.k.rebuilds, 0, 'silent: no tables');
 
   // moving the scanner while playing crossfades the tables: no bigger jump than the cycle wrap
-  for (const resolution of [2048, 16]) {
+  for (const resolution of [1024, 16]) {
     const mv = make({ blueRight: 0, resolution, length: 20 });
     mv.m({ type: 'noteOn', id: 1, pitch: 40, velocity: 1 });
     const a = render(mv.k, 40).L.slice(128 * 4);
@@ -339,6 +342,46 @@ const pitch = (hz) => 69 + 12 * Math.log2(hz / 440);
     const own = Math.max(jump(a), jump(b.slice(-2000)));
     assert.ok(at <= own + 1e-6, `${resolution} points: scanner / resolution change is smooth (${at} vs ${own})`);
   }
+}
+
+// ---- shared image preparation: cloned bytes, replacement and ownership ----
+{
+  let builds = 0, frees = 0;
+  const cache = imageCache(() => ({ serial: ++builds }), () => frees++);
+  const rgb = new Uint8Array([0, 100, 255]);
+  const a = cache.acquire(1, 1, rgb);
+  const b = cache.acquire(1, 1, rgb.slice());
+  assert.equal(a, b, 'separate worklet messages share one preparation');
+  assert.equal(builds, 1);
+  rgb[0] = 1;
+  const changed = cache.acquire(1, 1, rgb);
+  assert.notEqual(changed, a, 'cache owns immutable bytes and distinguishes new content');
+  cache.release(a);
+  assert.equal(frees, 0, 'remaining owner keeps data alive');
+  cache.release(b);
+  assert.equal(frees, 1, 'last owner releases data');
+  cache.release(changed);
+  assert.equal(frees, 2);
+  assert.equal(cache.acquire(2, 1, rgb), null, 'invalid image clears instead of preparing');
+  assert.equal(builds, 2);
+}
+
+// Old saved resolutions clamp in the model as well as DSP, so UI and exports agree.
+{
+  const { dsp } = dspTestHost();
+  const engine = { ctx: { currentTime: 0 }, dsp, createPatch(sink) { return PatchRuntime.create(this, sink); } };
+  const rt = await PatchRuntime.create(engine, dsp.destination);
+  const fresh = await rt.addModule('IMAGESAMPLER');
+  assert.equal(fresh.values.resolution, 64);
+  await rt.load({ modules: [{ id: 1, type: 'IMAGESAMPLER', values: { resolution: 2048 } }], cables: [] });
+  const entry = rt.modules.get(1);
+  assert.equal(entry.values.resolution, 1024, 'old project values above the new maximum clamp');
+  rt.setParam(1, 'resolution', 3000);
+  assert.equal(entry.values.resolution, 1024, 'programmatic edits cannot exceed the maximum');
+  assert.equal(rt.toJSON().modules.find((m) => m.id === 1).values.resolution, 1024);
+  rt.setParam(1, 'resolution', 63.8);
+  assert.equal(entry.values.resolution, 64, 'model holds integer point count');
+  rt.destroy();
 }
 
 // ---- image pool: saved with the project ----

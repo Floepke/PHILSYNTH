@@ -119,7 +119,8 @@ export class PatchRuntime {
     entry.ctl = inst.ctl ?? inst.node ?? inst.input ?? null;
     if (entry.ctl) entry.ctl.onMod = (pid, v) => this.modulated(entry, pid, v);
     for (const p of def.params) {
-      entry.values[p.id] = values?.[p.id] ?? p.default;
+      const value = values?.[p.id] ?? p.default;
+      entry.values[p.id] = p.normalize ? p.normalize(value) : value;
       inst.setParam(p.id, entry.values[p.id]);
     }
     // module state that is not a controller (e.g. the WAVESHAPER curve); saved with the project
@@ -254,6 +255,8 @@ export class PatchRuntime {
 
   setParam(id, key, value) {
     const e = this.modules.get(id);
+    const normalize = e.def.params.find((p) => p.id === key)?.normalize;
+    if (normalize) value = normalize(value);
     // controllers that follow this one (e.g. OSC Decay <-> Release with Sustain at 0)
     const linked = e.def.linked?.(e.values, key, value, e.def.params) ?? {};
     for (const [k, v] of [[key, value], ...Object.entries(linked)]) {

@@ -21,6 +21,14 @@ const signal = () => {
 };
 const param = (id, value) => ({ type: 'param', id, value });
 const noteOn = (id, pitch) => ({ type: 'noteOn', id, pitch, velocity: 0.7 });
+let imageSeed = 123;
+const image = {
+  type: 'image', width: 256, height: 256,
+  rgb: Uint8Array.from({ length: 256 * 256 * 3 }, () => {
+    imageSeed = (Math.imul(imageSeed, 1664525) + 1013904223) >>> 0;
+    return imageSeed >>> 24;
+  }),
+};
 
 const CASES = {
   'OSC 8 voices saw': { kind: 'osc', input: false, msgs: [param('polyphony', 8), param('wave', 1), ...[0, 3, 7, 10, 12, 15, 19, 24].map((p, i) => noteOn(i + 1, 48 + p))] },
@@ -32,6 +40,8 @@ const CASES = {
   'WAVESHAPER 4×': { kind: 'waveshaper', msgs: [param('drive', 6), param('oversample', 2)] },
   REVERB: { kind: 'reverb', msgs: [param('mix', 0.5)] },
   AMP: { kind: 'amp', msgs: [param('pan', 0.3)] },
+  'IMAGE Propellor 64': { kind: 'imagesampler', input: false, msgs: [image, param('scanType', 1), param('resolution', 64), noteOn(1, 48)] },
+  'IMAGE Propellor 1024': { kind: 'imagesampler', input: false, msgs: [image, param('scanType', 1), param('resolution', 1024), noteOn(1, 48)] },
 };
 
 function time(K, c) {
@@ -61,7 +71,9 @@ function graph(opts, build) {
   render(300);
   const t0 = performance.now();
   render(BLOCKS);
-  return (performance.now() - t0) / SECONDS / 10;
+  const load = (performance.now() - t0) / SECONDS / 10;
+  for (const node of [...dsp.nodes.values()]) if (node !== dsp.destination) node.destroy();
+  return load;
 }
 const heavy = (dsp) => {
   for (let i = 0; i < 16; i++) {
@@ -96,4 +108,20 @@ for (const [name, build] of [['16×(OSC→FILTER→WAVESHAPER 4×) + REVERB', he
   const js = graph(undefined, build);
   const wa = graph(W, build);
   console.log(`${name.padEnd(44)} ${js.toFixed(1).padStart(8)}   ${wa.toFixed(1).padStart(9)}   ${(js / wa).toFixed(2).padStart(7)}×`);
+}
+for (const resolution of [64, 1024]) {
+  for (const voices of [1, 8]) {
+    const build = (dsp) => {
+      for (let i = 0; i < 16; i++) {
+        const node = dsp.create('imagesampler');
+        node.send(image);
+        node.param('scanType', 1);
+        node.param('resolution', resolution);
+        node.connect(dsp.destination);
+        for (let v = 0; v < voices; v++) node.send(noteOn(v, 48 + v * 3));
+      }
+    };
+    const js = graph(undefined, build), wa = graph(W, build);
+    console.log(`${`16× IMAGE Propellor ${resolution}, ${voices} voice(s)`.padEnd(44)} ${js.toFixed(1).padStart(8)}   ${wa.toFixed(1).padStart(9)}   ${(js / wa).toFixed(2).padStart(7)}×`);
+  }
 }

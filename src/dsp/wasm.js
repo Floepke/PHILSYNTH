@@ -11,8 +11,9 @@
 // output in place; buffers outside the heap (tests) are copied through a scratch area.
 import { Kernel } from './kernel.js';
 import { curveTable, defaultCurve } from '../curve.js';
+import { imageCache } from './imagecache.js';
 
-export const WASM_VERSION = 10;
+export const WASM_VERSION = 11;
 
 // kind = Kind in cpp/engine.cpp; params in the order of the kernel's enum
 export const SPECS = {
@@ -35,6 +36,11 @@ export const SPECS = {
   echo: { kind: 11, params: ['dry', 'wet', 'feedback', 'delay', 'unit', 'mode', 'filter', 'cutoff'] },
   modulator: { kind: 12, params: ['type', 'carrier', 'interpolation'], carrierInput: true },
   operator: { kind: 13, params: ['modulation', 'feedback', 'attack', 'decay', 'sustain', 'release', 'atkCurve', 'decCurve', 'relCurve', 'velocity', 'gain'] },
+  imagesampler: { kind: 14, params: [
+    'polyphony', 'scanType', 'x', 'y', 'length', 'rotation', 'speed', 'ovalWidth', 'ovalHeight', 'ovalRotation', 'resolution',
+    'redLeft', 'greenLeft', 'blueLeft', 'redRight', 'greenRight', 'blueRight',
+    'attack', 'decay', 'sustain', 'release', 'atkCurve', 'decCurve', 'relCurve', 'gain',
+  ] },
 };
 
 const NOTE = { noteOn: 0, noteMod: 1, noteOff: 2, allOff: 3 };
@@ -207,5 +213,31 @@ export function wasmKernels(x, sr = globalThis.sampleRate) {
   const kernels = {};
   for (const [name, spec] of Object.entries(SPECS)) kernels[name] = kernelClass(name, spec, x, heap, sr);
   kernels.waveshaper = waveshaperClass(kernels.waveshaper, x, heap);
+  const images = imageCache((width, height, rgb) => {
+    const bytes = heap.alloc(rgb.length);
+    try {
+      new Uint8Array(heap.memory.buffer, bytes, rgb.length).set(rgb);
+      const ptr = x.ms_image_create(width, height, bytes);
+      if (!ptr) throw new Error('DSP: cannot prepare image (maximum size 256 x 256, or memory exhausted)');
+      return ptr;
+    } finally {
+      heap.free(bytes);
+    }
+  }, (ptr) => x.ms_image_free(ptr));
+  kernels.imagesampler = class extends kernels.imagesampler {
+    constructor(opts) { super(opts); this.imageEntry = null; }
+    message(m) {
+      if (m.type !== 'image') return super.message(m);
+      const entry = images.acquire(m.width, m.height, m.rgb);
+      x.ms_image_set(this.ptr, entry?.value ?? 0);
+      images.release(this.imageEntry);
+      this.imageEntry = entry;
+    }
+    destroy() {
+      super.destroy();
+      images.release(this.imageEntry);
+      this.imageEntry = null;
+    }
+  };
   return { heap, kernels };
 }

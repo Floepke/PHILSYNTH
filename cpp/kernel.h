@@ -6,9 +6,9 @@
 // double where JS keeps a number, float where JS keeps a Float32Array, so both render the same
 // samples (test/wasm.test.mjs compares them). Change both together.
 //
-// Rules: no allocation after construction (process() and messages run between graph renders that
-// hold views into the wasm memory; growing it there would detach them) and no libc++ (the module
-// is built with -nostdlib++ so it has no imports at all).
+// Rules: no allocation during process(). Image uploads may allocate between renders; Graph
+// remaps its views before the next render if memory grew. No libc++ (the module is built with
+// -nostdlib++ so it has no imports at all).
 #pragma once
 #include <math.h>
 #include <stdint.h>
