@@ -616,6 +616,147 @@ for (const how of ['wheel', 'edge']) {
   }
 }
 
+// Dragging a note's duration past the bottom edge (or with the wheel) scrolls the view along, as the clip end.
+{
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  try {
+    const { clip, roll } = setup();
+    const cv = roll.surface.cv;
+    clip.length = 64;
+    roll.redraw(); flush();
+    // new note: drag past the bottom edge
+    point(cv, 'pointerdown', nx(64), ny(0), { buttons: 1 });
+    point(cv, 'pointermove', nx(64), 1000, { buttons: 1 });
+    mock.timers.tick(3000); flush();
+    point(cv, 'pointerup', nx(64), 1000);
+    const n = clip.notes.at(-1);
+    assert.ok(n.length > 20, `edge auto-scroll lengthened the new note (${n.length})`);
+    assert.equal(n.length, Math.round(n.length * 4) / 4, 'still snapped');
+    mock.timers.tick(1000); // no interval left running
+    // existing body: wheel while dragging
+    roll.setView({ sy: 0 }); flush();
+    n.length = 1;
+    roll.redraw(); flush();
+    point(cv, 'pointerdown', nx(64), ny(0.5), { buttons: 1 });
+    point(cv, 'pointermove', nx(64), 300, { buttons: 1 });
+    const before = n.length;
+    for (let i = 0; i < 20; i++) fire(cv, 'wheel', { clientX: nx(64), clientY: 300, deltaX: 0, deltaY: 100, deltaMode: 0 });
+    point(cv, 'pointerup', nx(64), 300);
+    assert.ok(n.length > before + 3, `the wheel scrolled the note end along (${before} → ${n.length})`);
+    // moving a note (circle) past the bottom edge scrolls too, carrying the note along
+    roll.setView({ sy: 0 }); flush();
+    n.length = 1;
+    roll.redraw(); flush();
+    point(cv, 'pointerdown', nx(64), ny(0), { buttons: 1 });
+    point(cv, 'pointermove', nx(64), 1000, { buttons: 1 });
+    mock.timers.tick(3000); flush();
+    point(cv, 'pointerup', nx(64), 1000);
+    assert.ok(roll.getView().sy > 500, 'moves auto-scroll');
+    assert.ok(n.start > 20, `the moved note travelled with the view (${n.start})`);
+    assert.equal(n.start, Math.round(n.start * 4) / 4, 'start still snapped');
+    assert.equal(n.length, 1, 'a move keeps the length');
+    mock.timers.tick(1000);
+    // and back up past the top edge
+    roll.setView({ sy: n.start * 48 - 100 }); flush();
+    point(cv, 'pointerdown', nx(64), n.start * 48 - roll.getView().sy, { buttons: 1 });
+    point(cv, 'pointermove', nx(64), -200, { buttons: 1 });
+    mock.timers.tick(5000); flush();
+    point(cv, 'pointerup', nx(64), -200);
+    assert.equal(n.start, 0, 'dragging past the top scrolls back to the clip start');
+  } finally {
+    mock.timers.reset();
+  }
+}
+
+// Every drag along the time axis scrolls the view along near / past an edge: bend points, velocity
+// curve points, automation points, the TimeLine selection rectangle and the loop region.
+{
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  try {
+    {
+      const { clip, roll } = setup();
+      const cv = roll.surface.cv;
+      clip.length = 64;
+      const n = note(60, 0, 64);
+      n.bends = [{ t: 1, d: 0, r: 0 }];
+      clip.notes.push(n);
+      key(cv, 'a', { ctrlKey: true });
+      flush();
+      point(cv, 'pointerdown', nx(60), ny(1), { buttons: 1 });
+      point(cv, 'pointermove', nx(60), 1000, { buttons: 1 });
+      mock.timers.tick(3000); flush();
+      point(cv, 'pointerup', nx(60), 1000);
+      assert.ok(n.bends[0].t > 20, `bend point travelled with the view (${n.bends[0].t})`);
+      mock.timers.tick(1000);
+    }
+    {
+      const { clip, roll } = setup();
+      const cv = roll.surface.cv;
+      const vx = (v) => 7 + v * 70;
+      clip.length = 64;
+      const n = note(60, 0, 64, 0.5);
+      clip.notes.push(n);
+      click(cv, vx(0.5), ny(0));
+      dbl(cv, vx(0.5), ny(2));
+      const before = JSON.stringify(n.vels);
+      point(cv, 'pointerdown', vx(0.5), ny(2), { buttons: 1 });
+      point(cv, 'pointermove', vx(0.5), 1000, { buttons: 1 });
+      mock.timers.tick(3000); flush();
+      point(cv, 'pointerup', vx(0.5), 1000);
+      const last = Math.max(...(n.vels ?? []).map((p) => p.t));
+      assert.ok(last > 20, `velocity point travelled with the view (${before} → ${JSON.stringify(n.vels)})`);
+      assert.ok(roll.getView().sy > 500, 'the roll scrolled');
+      mock.timers.tick(1000);
+    }
+    {
+      const song = emptySong();
+      const a = addAutoClip(song, { length: 64, target: 1, controller: 0 });
+      song.selected = a.id;
+      a.points.push({ t: 1, v: 0.5, r: 0 }, { t: 2, v: 0.5, r: 0 });
+      const lane = createAutomationLane(host(), {
+        song: () => song, clip: () => a, color: () => '#e76f51', transport: { playing: false, pos: 0 },
+        changed() {}, autoParam: () => ({ p: {}, format: (v) => `${Math.round(v * 100)}` }),
+      });
+      flush();
+      const cv = lane.surface.cv;
+      const lx = (v) => 48 + v * 420;
+      const ly = (t) => t * 48 - lane.getView().sy;
+      point(cv, 'pointerdown', lx(0.5), ly(2), { buttons: 1 });
+      point(cv, 'pointermove', lx(0.5), 1000, { buttons: 1 });
+      mock.timers.tick(3000); flush();
+      point(cv, 'pointerup', lx(0.5), 1000);
+      assert.ok(a.points[1].t > 20, `automation point travelled with the view (${a.points[1].t})`);
+      assert.equal(a.points[1].t, Math.round(a.points[1].t * 4) / 4, 'still snapped');
+      mock.timers.tick(1000);
+    }
+    {
+      const { song, clip, arranger } = setup();
+      const cv = arranger.surface.cv;
+      clip.length = 4;
+      const far = addClip(song, { start: 60, length: 4 });
+      point(cv, 'pointerdown', ax(5), ay(60), { buttons: 1 });
+      point(cv, 'pointermove', 478, ay(0), { buttons: 1 });
+      mock.timers.tick(2000); flush();
+      point(cv, 'pointerup', 478, ay(0));
+      assert.ok(arranger.getView().sx > 500, 'the rectangle scrolled the TimeLine');
+      key(cv, 'Delete');
+      assert.deepEqual(song.clips, [clip], 'the far clip was selected by the scrolled rectangle');
+      assert.ok(!song.clips.includes(far));
+      mock.timers.tick(1000);
+      arranger.setView({ sx: 0 }); flush();
+      const RY = 27;
+      point(cv, 'pointerdown', ax(4), RY, { buttons: 1 });
+      point(cv, 'pointermove', 478, RY, { buttons: 1 });
+      mock.timers.tick(2000); flush();
+      point(cv, 'pointerup', 478, RY);
+      assert.equal(song.loop.start, 4);
+      assert.ok(song.loop.end > 40, `the loop region scrolled along (${song.loop.end})`);
+    }
+  } finally {
+    mock.timers.reset();
+  }
+}
+
 // Dragging the thick clip end line changes the clip length instead of adding a note; the wheel and
 // dragging past the bottom edge scroll the view along, so the end can go anywhere in one drag.
 {

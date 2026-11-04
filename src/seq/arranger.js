@@ -224,6 +224,15 @@ export function createArranger(host, ctx) {
     view.sy = Number.isFinite(view.sy) ? clamp(view.sy, -FAR, FAR) : 0;
   }
 
+  // Any drag in the time area: holding the pointer near / past an edge scrolls the TimeLine along
+  // (faster further out); onScroll re-applies the drag at the new view. vertical / horizontal pick the axes.
+  const areaScroll = (onScroll, { vertical = true, horizontal = true } = {}) => edgeScroll({
+    area: () => ({ left: horizontal ? x0 : -Infinity, top: RULER, right: horizontal ? right() : Infinity, bottom: bottom() }),
+    vertical,
+    scroll: (dx, dy) => { view.sx += dx; view.sy += dy; limitScroll(); },
+    onScroll,
+  });
+
   // scrollbar geometry: track from a over len px, thumb at pos (thumb px long), view range lo..hi
   function scrollbars() {
     const r = scrollRange();
@@ -703,15 +712,23 @@ export function createArranger(host, ctx) {
     s.redraw();
     ctx.live?.();
     dragging = true;
-    capture(cv, e, (ev) => {
-      const p = s.local(ev);
+    let p = null;
+    const apply = () => {
+      if (!p) return;
       const l = laneAt(clamp(p.y, RULER, bottom() - 1)) / CLIP_H;
-      // fill the lanes skipped by a fast move
+      // fill the lanes skipped by a fast move (or a scroll)
       for (let i = Math.min(l, last); i <= Math.max(l, last); i++) changed = set(i) || changed;
       last = l;
       s.redraw();
       ctx.live?.();
+    };
+    const auto = areaScroll(apply, { horizontal: false });
+    capture(cv, e, (ev) => {
+      p = s.local(ev);
+      apply();
+      auto.update(p);
     }, () => {
+      auto.stop();
       dragging = false;
       if (changed) ctx.changed();
     });
@@ -781,27 +798,38 @@ export function createArranger(host, ctx) {
     const st = step();
     if (y < SIG_H) { // signature row: set / scrub the play position (double-click inserts / edits a signature)
       if (x < x0) return;
-      const seek = (ev) => { ctx.transport.seek(Math.max(0, snapRound(timeAt(s.local(ev).x), st))); s.redraw(); };
-      seek(e);
+      let p = { x, y };
+      const seek = () => { ctx.transport.seek(Math.max(0, snapRound(timeAt(clamp(p.x, x0, right())), st))); s.redraw(); };
+      const auto = areaScroll(seek, { vertical: false });
+      seek();
       dragging = true;
-      capture(cv, e, seek, () => { dragging = false; });
+      capture(cv, e, (ev) => { p = s.local(ev); seek(); auto.update(p); }, () => { auto.stop(); dragging = false; });
       return;
     }
     if (y < RULER) { // ruler: a click sets the play position, a drag selects the loop region
       if (x < x0) return;
-      const at = (ev) => Math.max(0, snapRound(timeAt(s.local(ev).x), st));
-      const a = at(e);
+      const at = (p) => Math.max(0, snapRound(timeAt(clamp(p.x, x0, right())), st));
+      const a = at({ x });
       ctx.transport.seek(a);
       s.redraw();
       const before = song.loop;
       let region = false;
+      let p = null;
+      const apply = () => {
+        if (!p) return;
+        if (!setLoop(song, a, at(p))) song.loop = before; // zero width: keep the old region for now
+        s.redraw();
+      };
+      const auto = areaScroll(apply, { vertical: false });
       dragging = true;
       capture(cv, e, (ev) => {
         if (!region && Math.abs(s.local(ev).x - x) < 3) return;
         region = true;
-        if (!setLoop(song, a, at(ev))) song.loop = before; // zero width: keep the old region for now
-        s.redraw();
+        p = s.local(ev);
+        apply();
+        auto.update(p);
       }, (ev) => {
+        auto.stop();
         dragging = false;
         if (!region) return;
         if (ev.type === 'pointercancel') song.loop = before;
@@ -850,12 +878,7 @@ export function createArranger(host, ctx) {
     cv.style.cursor = part === 'body' ? 'grabbing' : 'ew-resize';
     let last = null;
     // dragging near an edge of the time area scrolls it, so a clip can travel anywhere in one drag
-    const auto = edgeScroll({
-      area: () => ({ left: x0, top: RULER, right: right(), bottom: bottom() }),
-      vertical: part === 'body',
-      scroll: (dx, dy) => { view.sx += dx; view.sy += dy; limitScroll(); },
-      onScroll: () => { if (last) apply(last); },
-    });
+    const auto = areaScroll(() => { if (last) apply(last); }, { vertical: part === 'body' });
     const apply = (ev) => {
       const p = s.local(ev);
       if (!moved && Math.hypot(p.x - x, p.y - y) < 3) return; // a click is not a move
@@ -898,18 +921,29 @@ export function createArranger(host, ctx) {
   function selectRect(e, x, y, additive) {
     e.preventDefault();
     const base = additive ? selectedClips().map((c) => c.id) : [];
+    // the start corner is anchored in the song, so the rectangle grows while the view scrolls along
+    const t0 = timeAt(x);
+    const w0 = worldY(y);
     rect = { x0: x, y0: y, x1: x, y1: y, ids: new Set(base), shown: false };
+    const state = rect;
+    let p = null;
     dragging = true;
-    capture(cv, e, (ev) => {
-      const p = s.local(ev);
-      if (!rect.shown && Math.hypot(p.x - x, p.y - y) < 3) return;
+    const apply = () => {
+      if (rect !== state || !p) return;
       rect.shown = true;
-      rect.x1 = clamp(p.x, x0, right());
-      rect.y1 = clamp(p.y, RULER, bottom());
-      const l = Math.min(x, rect.x1);
-      const r = Math.max(x, rect.x1);
-      const t = Math.min(y, rect.y1);
-      const b = Math.max(y, rect.y1);
+      const ax = xOf(t0);
+      const ay = w0 + RULER - view.sy;
+      const bx = clamp(p.x, x0, right());
+      const by = clamp(p.y, RULER, bottom());
+      // drawn inside the time area; hit-tested over the whole span
+      rect.x0 = clamp(ax, x0, right());
+      rect.y0 = clamp(ay, RULER, bottom());
+      rect.x1 = bx;
+      rect.y1 = by;
+      const l = Math.min(ax, bx);
+      const r = Math.max(ax, bx);
+      const t = Math.min(ay, by);
+      const b = Math.max(ay, by);
       const hits = ctx.song().clips.filter((c) => {
         const cx = xOf(c.start);
         const cy = yOf(c.y);
@@ -917,7 +951,15 @@ export function createArranger(host, ctx) {
       });
       rect.ids = new Set([...base, ...hits.map((c) => c.id)]);
       s.redraw();
+    };
+    const auto = areaScroll(apply);
+    capture(cv, e, (ev) => {
+      p = s.local(ev);
+      if (!rect.shown && Math.hypot(p.x - x, p.y - y) < 3) return;
+      apply();
+      auto.update(p);
     }, (ev) => {
+      auto.stop();
       dragging = false;
       const r = rect;
       rect = null;

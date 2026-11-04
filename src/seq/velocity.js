@@ -29,7 +29,8 @@ const SELECT = '#65b4ff';
 const VEL_SNAP = 16; // velocity snapping levels: 0, 1/16 .. 1
 
 // o: { cv, local(e), clip(), selected() -> Set, setSelected(Set), yOf(t), timeAt(y), bottom(), ppq(), song(),
-//      color(clip), changed(), redraw(), menu(opts), snapVelocity(), toggleSnapVelocity(), width()? }
+//      color(clip), changed(), redraw(), menu(opts), snapVelocity(), toggleSnapVelocity(), width()?,
+//      edgeScroll(onScroll)? (an edgeScroll() that scrolls the shared time axis) }
 export function createVelocityStrip(o) {
   let group = null; // { notes, points (absolute clip times), start, end, sig }
   let hover = null; // { kind: 'point', i } | { kind: 'note', note }
@@ -207,21 +208,34 @@ export function createVelocityStrip(o) {
     const t0 = p.t;
     const v0 = p.v;
     const st = step();
+    const tStart = o.timeAt(y);
+    let q = null;
+    let shift = e.shiftKey;
     drag = { i, moved: false };
-    capture(o.cv, e, (ev) => {
-      const q = o.local(ev);
-      if (!drag.moved && Math.hypot(q.x - x, q.y - y) < 2) return;
-      drag.moved = true;
-      presses.reset();
-      p.v = snapVelocity(clamp(v0 + ((q.x - x) * (ev.shiftKey ? 0.1 : 1)) / (W() - 2 * PAD), 0, 1));
+    const state = drag;
+    const update = () => {
+      if (drag !== state || !q) return;
+      p.v = snapVelocity(clamp(v0 + ((q.x - x) * (shift ? 0.1 : 1)) / (W() - 2 * PAD), 0, 1));
       if (i > 0) {
         const lo = pts[i - 1].t;
         const hi = i < pts.length - 1 ? pts[i + 1].t : group.end;
-        p.t = clean(clamp(snapRound(t0 + (q.y - y) / o.ppq(), st), lo, hi));
+        p.t = clean(clamp(snapRound(t0 + o.timeAt(clamp(q.y, 0, o.bottom())) - tStart, st), lo, hi));
       }
       apply();
       o.redraw();
+    };
+    // a point's time drags along the roll's time axis: past the top / bottom edge the roll scrolls along
+    const auto = i > 0 ? o.edgeScroll?.(update) : null;
+    capture(o.cv, e, (ev) => {
+      q = o.local(ev);
+      shift = ev.shiftKey;
+      if (!drag.moved && Math.hypot(q.x - x, q.y - y) < 2) return;
+      drag.moved = true;
+      presses.reset();
+      update();
+      auto?.update(q);
     }, (ev) => {
+      auto?.stop();
       if (ev.type === 'pointercancel') { p.t = t0; p.v = v0; apply(); }
       const moved = drag.moved;
       drag = null;

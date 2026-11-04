@@ -10,7 +10,8 @@
 //   click / drag the keyboard  play pitches on the live MIDI module (red MIDI in the patcher) without editing notes
 //   click / drag on empty space  insert a note (last used length), dragging beyond 10 px sets its duration
 //   drag a note's coloured body  set the duration: the end jumps to the pointer, snapped to the grid
-//                                (all selected notes change by the same amount when it is selected)
+//                                (all selected notes change by the same amount when it is selected;
+//                                 duration drags scroll along past the top / bottom edge, as the clip end)
 //   drag a note's circle         change pitch (sideways) and start time (moves the whole selection)
 //   Shift + drag a note's circle sideways  micropitch: tune the note (or the selection it is in) up /
 //                                in 0.1 cent steps, slowly (MICRO_PX px per cent); a slider shows the
@@ -141,6 +142,7 @@ export function createPianoRoll(host, ctx) {
     timeAt,
     bottom: gridBottom,
     ppq: () => view.ppq,
+    edgeScroll: (onScroll) => gridScroll(onScroll),
     song: ctx.song,
     color: ctx.color,
     changed: () => ctx.changed(),
@@ -174,6 +176,14 @@ export function createPianoRoll(host, ctx) {
     const end = clip ? Math.max(clip.length, ...clip.notes.map((n) => n.start + n.length), drag?.kind === 'clipEnd' ? drag.extent : 0) : BAR;
     view.sy = clamp(view.sy, -TOP_MARGIN, Math.max(0, (end + BAR) * view.ppq - gridBottom()));
   }
+
+  // Any drag along the time axis: holding the pointer near / past the top or bottom of the note grid
+  // scrolls the view along (faster further out); onScroll re-applies the drag at the new view.
+  const gridScroll = (onScroll) => edgeScroll({
+    area: () => ({ left: -Infinity, right: Infinity, top: 0, bottom: gridBottom() }),
+    scroll: (_dx, dy) => { view.sy += dy; limitScroll(); },
+    onScroll,
+  });
 
   function head(g, x, y, black, alpha = 1) {
     g.globalAlpha = alpha;
@@ -613,11 +623,7 @@ export function createPianoRoll(host, ctx) {
       state.extent = Math.max(state.extent, length);
       s.redraw();
     };
-    const auto = edgeScroll({
-      area: () => ({ left: -Infinity, right: Infinity, top: 0, bottom: gridBottom() }),
-      scroll: (_dx, dy) => { view.sy += dy; limitScroll(); },
-      onScroll: apply,
-    });
+    const auto = gridScroll(apply);
     state.refresh = () => { apply(); auto.update(pointer); };
     hover = null;
     endHover = false;
@@ -658,11 +664,7 @@ export function createPianoRoll(host, ctx) {
       clearTimeout(timer);
       onHold();
     };
-    const auto = edgeScroll({
-      area: () => ({ left: -Infinity, right: Infinity, top: 0, bottom: gridBottom() }),
-      scroll: (_dx, dy) => { view.sy += dy; limitScroll(); },
-      onScroll: () => apply(),
-    });
+    const auto = gridScroll(() => apply());
     // the rectangle from the anchored start corner to the pointer, at the current view
     const apply = () => {
       if (held || !pointer || drag !== state) return;
@@ -803,18 +805,17 @@ export function createPianoRoll(host, ctx) {
     const lo = i > 0 ? orig[i - 1].t : 0;
     const hi = i < orig.length - 1 ? orig[i + 1].t : Math.max(note.length, p0.t);
     const inserted = before !== orig;
-    const state = { kind: 'bend', note, i, moved: false, stop: null };
+    const state = { kind: 'bend', note, i, moved: false, stop: null, refresh: null };
+    const tStart = timeAt(y);
     let pv = null;
+    let shift = e.shiftKey;
     drag = state;
     hover = null;
-    const stop = capture(cv, e, (ev) => {
-      const q = s.local(ev);
-      pointer = q;
-      if (!state.moved && Math.hypot(q.x - x, q.y - y) < 2) return;
-      state.moved = true;
-      presses.reset();
-      const d = bendPitch(note, pitchFromX(x0 + q.x - x), ev.shiftKey);
-      let t = bendTime(note, note.start + p0.t + (q.y - y) / view.ppq, lo, hi);
+    const apply = () => {
+      if (drag !== state || !pointer) return;
+      const q = pointer;
+      const d = bendPitch(note, pitchFromX(x0 + q.x - x), shift);
+      let t = bendTime(note, note.start + p0.t + timeAt(clamp(q.y, 0, gridBottom())) - tStart, lo, hi);
       if (t <= 1e-9) t = Math.min(hi, 1 / view.ppq); // just after the note's start
       note.bends = orig.map((b, j) => (j === i ? { t, d, r: b.r } : b));
       const pitch = clamp(note.pitch + d, 0, PITCH_MAX);
@@ -822,7 +823,20 @@ export function createPianoRoll(host, ctx) {
       else ctx.preview.bend?.(pv, pitch);
       hoverPitch = basePitch(pitch);
       s.redraw();
+    };
+    const auto = gridScroll(apply);
+    const stop = capture(cv, e, (ev) => {
+      const q = s.local(ev);
+      pointer = q;
+      shift = ev.shiftKey;
+      if (!state.moved && Math.hypot(q.x - x, q.y - y) < 2) return;
+      state.moved = true;
+      presses.reset();
+      apply();
+      auto.update(q);
+      state.refresh = () => { apply(); auto.update(pointer); };
     }, (ev) => {
+      auto.stop();
       ctx.preview.off(pv);
       cv.removeEventListener('blur', stop);
       window.removeEventListener('blur', stop);
@@ -1054,44 +1068,25 @@ export function createPianoRoll(host, ctx) {
     const sources = group;
     hover = null;
     s.redraw();
+    const state = drag;
+    const sizing = state.kind === 'new' || state.kind === 'length';
+    const auto = gridScroll(() => apply());
     capture(cv, e, (ev) => {
       const p = s.local(ev);
       pointer = p;
       if (!moved) {
         const distance = Math.hypot(p.x - x, p.y - y);
-        if (drag.kind === 'new' || drag.kind === 'length') {
+        if (sizing) {
           if (distance <= DURATION_DRAG_THRESHOLD) return;
         } else if (distance < dragThreshold()) return;
       }
       moved = true;
       presses.reset();
-      if (dup && !cloned) {
-        group = group.map((n) => ({ ...n }));
-        clip.notes.push(...group);
-        selected = new Set(group);
-        cloned = true;
-      }
-      const a = origs[anchor];
-      if (drag.kind === 'new') {
-        group[0].length = Math.max(minLength, clean(snapRound(timeAt(p.y), st) - group[0].start));
-      } else if (drag.kind === 'length') {
-        // the end jumps to the snapped pointer position; the rest of the selection changes by the same amount
-        const dl = Math.max(minLength, snapRound(timeAt(p.y), st) - a.start) - a.length;
-        group.forEach((n, i) => { n.length = Math.max(minLength, clean(origs[i].length + dl)); });
-      } else {
-        // whole semitones that keep every (tuned) pitch inside 0..PITCH_MAX
-        const dp = clamp(pitchAt(p.x) - drag.p0, Math.ceil(-Math.min(...origs.map((o) => o.pitch)) - 1e-9), Math.floor(PITCH_MAX - Math.max(...origs.map((o) => o.pitch)) + 1e-9));
-        const dt = Math.max(snapRound(a.start + timeAt(p.y) - drag.t0, st) - a.start, -Math.min(...origs.map((o) => o.start)));
-        const before = group[anchor].pitch;
-        group.forEach((n, i) => { n.pitch = clean(origs[i].pitch + dp); n.start = clean(origs[i].start + dt); });
-        if (group[anchor].pitch !== before) {
-          ctx.preview.off(pv);
-          pv = ctx.preview.on(clip, group[anchor].pitch);
-        }
-      }
-      hoverPitch = group[anchor].pitch;
-      s.redraw();
+      apply();
+      auto.update(p);
+      state.refresh = () => { apply(); auto.update(pointer); };
     }, (ev) => {
+      auto.stop();
       ctx.preview.off(pv);
       if (cloned && ev.type === 'pointercancel') {
         group.forEach(remove);
@@ -1104,6 +1099,37 @@ export function createPianoRoll(host, ctx) {
       const p = s.local(ev);
       updateHover(p.x, p.y);
     });
+    function apply() {
+      if (drag !== state || !pointer) return;
+      const p = pointer;
+      if (dup && !cloned) {
+        group = group.map((n) => ({ ...n }));
+        clip.notes.push(...group);
+        selected = new Set(group);
+        cloned = true;
+      }
+      const a = origs[anchor];
+      const end = timeAt(clamp(p.y, 0, gridBottom())); // past the grid edge the time stays at the edge while it scrolls
+      if (drag.kind === 'new') {
+        group[0].length = Math.max(minLength, clean(snapRound(end, st) - group[0].start));
+      } else if (drag.kind === 'length') {
+        // the end jumps to the snapped pointer position; the rest of the selection changes by the same amount
+        const dl = Math.max(minLength, snapRound(end, st) - a.start) - a.length;
+        group.forEach((n, i) => { n.length = Math.max(minLength, clean(origs[i].length + dl)); });
+      } else {
+        // whole semitones that keep every (tuned) pitch inside 0..PITCH_MAX
+        const dp = clamp(pitchAt(p.x) - drag.p0, Math.ceil(-Math.min(...origs.map((o) => o.pitch)) - 1e-9), Math.floor(PITCH_MAX - Math.max(...origs.map((o) => o.pitch)) + 1e-9));
+        const dt = Math.max(snapRound(a.start + end - drag.t0, st) - a.start, -Math.min(...origs.map((o) => o.start)));
+        const before = group[anchor].pitch;
+        group.forEach((n, i) => { n.pitch = clean(origs[i].pitch + dp); n.start = clean(origs[i].start + dt); });
+        if (group[anchor].pitch !== before) {
+          ctx.preview.off(pv);
+          pv = ctx.preview.on(clip, group[anchor].pitch);
+        }
+      }
+      hoverPitch = group[anchor].pitch;
+      s.redraw();
+    }
   });
 
   // ---- commands (keyboard and context menu) ----

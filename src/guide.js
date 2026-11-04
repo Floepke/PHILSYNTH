@@ -39,7 +39,7 @@ export const GUIDE = [
       {
         title: 'Move and arrange',
         items: [
-          'Drag a module (or any module of a selection) to move it or the whole selection.',
+          'Drag a module (or any module of a selection) to move it or the whole selection. Near / past the edge of the patcher the view pans along (also while duplicating, Shift-wiring or drawing a selection rectangle).',
           '<b>Snap to Grid</b> (right-click menu, a checkbox): moved and duplicated modules snap with their left edge and top to an invisible 20 px grid (half a module high), the same step sideways. Remembered on this computer.',
           `${k('Middle mouse')} + drag pans the canvas, the wheel zooms; click the zoom % (bottom right) to fit all modules. ${k('S')} maximizes the patcher, ${k('S')} again restores the piano roll and TimeLine.`,
         ],
@@ -149,7 +149,7 @@ export const GUIDE = [
         title: 'Arrange clips',
         items: [
           `Click a clip to select it (when stopped the playhead jumps to its start). Drag on empty space for a selection rectangle (${k(CMD)} adds); ${k(CMD)} + click toggles a clip.`,
-          'Drag a clip (or the selection) to move it in time and up / down over the lanes; drag its left / right edge to trim the start / set the length. Near an edge of the view the TimeLine scrolls along.',
+          'Drag a clip (or the selection) to move it in time and up / down over the lanes; drag its left / right edge to trim the start / set the length. Every drag (clips, the selection rectangle, the loop region, scrubbing, the M / S buttons) scrolls the TimeLine along near / past an edge of the view.',
           'Clips never overlap: a moved, pasted or new clip snaps to the nearest free position, and resizing stops at neighbours. Use separate lanes for clips that play together.',
           `${k('Alt')} + drag copies; ${k('Shift')} + drag makes <i>linked clones</i> (hatched, ⧉) that share their notes: editing one edits all. ${k(CMD, 'D')} clones the selection right after itself, ${k(CMD, 'Shift', 'D')} duplicates it.`,
           'Park clips left of the bright zero line: they are not played by the song (<kbd>/</kbd> still auditions them), handy for source clips whose clones make up the song.',
@@ -213,6 +213,7 @@ export const GUIDE = [
         title: 'Edit notes',
         items: [
           'Drag a note\'s coloured <b>body</b> more than 10 pixels to start setting its length (the end jumps to the snapped pointer); drag its <b>circle</b> to change pitch (sideways) and start time (up / down).',
+          'Every drag along time (note lengths and moves, bend and velocity points, the clip end, selection rectangles, automation points) scrolls the view along when you hold the pointer near / past the top or bottom edge, faster further out; the wheel scrolls along too.',
           `${k('Alt')} + drag a note (body or circle) moves a clone of it.`,
           `<b>Micropitch</b>: ${k('Shift')} + drag a note\'s circle sideways to tune it up or down (slowly, in 0.1 cent steps); a slider shows the cents while you drag and the note sounds along. With several notes selected, all of them change by the same amount. The note stays on its key (from −50 to just under +50 cents); the whole note (circle and coloured body) shifts sideways to show the tuning; menu → <b>Reset tuning</b> puts the selection back on its keys.`,
           `<b>Pitch bend</b>: select a note and double-click its coloured body to add a bend point (keep the second press held to drag it right away). The note becomes a thick line through its bend points and glides along them while it plays. Pitch snaps to whole notes; hold ${k('Shift')} for free pitch editing sideways. Point times snap to the grid unless <b>Free timing</b> is on; Shift only frees pitch, not time. Points stay between their neighbours and inside the note. Scroll on a point to round its corner, right-click a point to delete it; menu → <b>Reset bend</b> straightens the selection. Moving, transposing or tuning a note takes its bend along.`,

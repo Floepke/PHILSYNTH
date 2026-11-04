@@ -2,14 +2,15 @@
 // selected). Time runs down like the piano roll; the controller value runs left (min) -> right (max).
 //   double-click empty space     insert a point (time snaps to the snap grid); keep the second
 //                                press held to drag the new point right away
-//   drag a point                 move it (time snaps and stays between its neighbours)
+//   drag a point                 move it (time snaps and stays between its neighbours); near / past
+//                                the top or bottom edge the lane scrolls along
 //   Shift + drag a point         fine value adjustment
 //   mouse wheel on a point       round the corner (same as the WAVESHAPER curve editor)
 //   right click on a point       delete it
 //   Backspace / Delete           delete the selected point
 //   wheel / middle drag          scroll, Ctrl + wheel zooms time
 import { snapStep, snapRound, clipSilent, isIdea, BAR, meter, barLines, beatLines, autoPolyline, pointIndex } from '../song.js';
-import { createSurface, capture, startPan, onWheel, clamp, snapBands, mutedMark } from './surface.js';
+import { createSurface, capture, startPan, onWheel, clamp, snapBands, mutedMark, edgeScroll } from './surface.js';
 import { NEW_POINT_ROUND } from '../curve.js';
 import { doublePress } from '../doublepress.js';
 import { TOP_MARGIN } from './pianoroll.js';
@@ -342,18 +343,35 @@ export function createAutomationLane(host, ctx) {
     const lo = i > 0 ? clip.points[i - 1].t : -Infinity;
     const hi = i < clip.points.length - 1 ? clip.points[i + 1].t : Infinity;
     const st = step();
-    drag = { kind: 'move', point, t0: point.t, v0: point.v, y0: y, x0: x, moved: false };
+    const tStart = timeAt(y);
+    const state = drag = { kind: 'move', point, t0: point.t, v0: point.v, y0: y, x0: x, moved: false };
+    let shift = e.shiftKey;
+    const apply = () => {
+      if (drag !== state || !pointer) return;
+      const q = pointer;
+      const fine = shift ? 0.1 : 1;
+      point.v = clamp(drag.v0 + ((q.x - x) * fine) / (right() - left()), 0, 1);
+      point.t = clamp(snapRound(drag.t0 + timeAt(clamp(q.y, 0, bottom())) - tStart, st), Math.max(lo, drag.t0 < 0 ? -Infinity : 0), hi);
+      s.redraw();
+    };
+    // near / past the top or bottom edge the lane scrolls along, so a point can travel the whole clip
+    const auto = edgeScroll({
+      area: () => ({ left: -Infinity, right: Infinity, top: 0, bottom: bottom() }),
+      scroll: (_dx, dy) => { view.sy += dy; limitScroll(); },
+      onScroll: apply,
+    });
     capture(cv, e, (ev) => {
       const q = s.local(ev);
       pointer = q;
+      shift = ev.shiftKey;
       if (!drag.moved && Math.hypot(q.x - x, q.y - y) < 3) return;
       drag.moved = true;
       presses.reset();
-      const fine = ev.shiftKey ? 0.1 : 1;
-      point.v = clamp(drag.v0 + ((q.x - x) * fine) / (right() - left()), 0, 1);
-      point.t = clamp(snapRound(drag.t0 + (q.y - y) / view.ppq, st), Math.max(lo, drag.t0 < 0 ? -Infinity : 0), hi);
-      s.redraw();
+      apply();
+      auto.update(q);
+      state.refresh = () => { apply(); auto.update(pointer); };
     }, (ev) => {
+      auto.stop();
       if (ev.type === 'pointercancel' && !inserted) { point.t = drag.t0; point.v = drag.v0; }
       const moved = drag.moved;
       drag = null;
@@ -399,10 +417,12 @@ export function createAutomationLane(host, ctx) {
       const t = timeAt(y);
       view.ppq = clamp(view.ppq * Math.pow(1.15, notches), 6, 600);
       view.sy = t * view.ppq - y;
+      if (drag?.refresh) { limitScroll(); drag.refresh(); } // a dragged point follows the view
       s.redraw();
     },
     scroll(dx, dy) {
       view.sy += dy;
+      if (drag?.refresh) { limitScroll(); drag.refresh(); }
       s.redraw();
     },
   });

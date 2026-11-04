@@ -12,7 +12,8 @@ import { Transport } from './transport.js';
 import { unsavedDialog } from './dialogs.js';
 import { exitToOS } from './exit.js';
 import { createSequencer } from './seq/index.js';
-import { defaultCam, validCam, toWorld, zoomAt, fitBox, clampCam, ZOOM_STEP } from './camera.js';
+import { defaultCam, validCam, toWorld, toScreen, zoomAt, fitBox, clampCam, ZOOM_STEP } from './camera.js';
+import { edgeScroll } from './seq/surface.js';
 import { initWidgets } from './widgets.js';
 import { emptySong, getClip, snapStep } from './song.js';
 import { CableScope } from './cablescope.js';
@@ -144,6 +145,15 @@ function setCam(c) {
   path[path.length - 1].cam = clampCam(validCam(c), modulesBox(), canvas.clientWidth, canvas.clientHeight);
   applyCam();
   persist.schedule();
+}
+// Dragging (a module, a copy, a Shift cable sweep or a selection rectangle) near / past an edge of
+// the patcher pans the view along, faster further out; onScroll re-applies the drag at the new view.
+function patcherScroll(onScroll) {
+  return edgeScroll({
+    area: () => { const r = canvas.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }; },
+    scroll: (dx, dy) => { const c = cam(); setCam({ ...c, x: c.x - dx, y: c.y - dy }); },
+    onScroll,
+  });
 }
 function fitAll() {
   const box = modulesBox();
@@ -531,10 +541,15 @@ function createBox(entry) {
     const touching = new Set(others().filter(overlaps));
     let wired = false;
     undoHistory?.begin(); // the move and its cable toggles are one undo step
-    const move = (ev) => {
+    // anchored in the world, so the modules stay under the pointer while the view pans along
+    const w0 = clientToWorld(sx, sy);
+    let last = null;
+    const place = () => {
+      if (!last) return;
+      const w = clientToWorld(last.clientX, last.clientY);
       for (const { m, x, y } of start) {
-        m.x = snapToGrid(x + (ev.clientX - sx) / cam().z, snapGrid);
-        m.y = snapToGrid(y + (ev.clientY - sy) / cam().z, snapGrid);
+        m.x = snapToGrid(x + w.x - w0.x, snapGrid);
+        m.y = snapToGrid(y + w.y - w0.y, snapGrid);
         m.el.style.left = `${m.x}px`;
         m.el.style.top = `${m.y}px`;
       }
@@ -547,7 +562,16 @@ function createBox(entry) {
       }
       drawCables();
     };
+    const auto = patcherScroll(place);
+    let moved = false;
+    const move = (ev) => {
+      last = ev;
+      moved ||= Math.hypot(ev.clientX - sx, ev.clientY - sy) >= 4;
+      place();
+      if (moved) auto.update({ x: ev.clientX, y: ev.clientY });
+    };
     const up = () => {
+      auto.stop();
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
@@ -582,21 +606,34 @@ function startDuplicate(e, entries, anchor = entries[0]) {
   });
   let dx = 0;
   let dy = 0;
-  const move = (ev) => {
-    dx = snapToGrid(anchor.x + (ev.clientX - e.clientX) / cam().z, snapGrid) - anchor.x;
-    dy = snapToGrid(anchor.y + (ev.clientY - e.clientY) / cam().z, snapGrid) - anchor.y;
+  const w0 = clientToWorld(e.clientX, e.clientY);
+  let last = null;
+  let moved = false;
+  const place = () => {
+    if (!last) return;
+    const w = clientToWorld(last.clientX, last.clientY);
+    dx = snapToGrid(anchor.x + w.x - w0.x, snapGrid) - anchor.x;
+    dy = snapToGrid(anchor.y + w.y - w0.y, snapGrid) - anchor.y;
     for (const { m, g } of ghosts) {
       g.style.left = `${m.x + dx}px`;
       g.style.top = `${m.y + dy}px`;
     }
   };
+  const auto = patcherScroll(place);
+  const move = (ev) => {
+    last = ev;
+    moved ||= Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) >= 4;
+    place();
+    if (moved) auto.update({ x: ev.clientX, y: ev.clientY });
+  };
   const up = async (ev) => {
+    auto.stop();
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
     window.removeEventListener('pointercancel', up);
     suppressAltUp = true; // Alt released after the drag must not open the browser menu bar
     const done = () => ghosts.forEach(({ g }) => g.remove());
-    if (ev.type === 'pointercancel' || Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) < 4) { done(); return; }
+    if (ev.type === 'pointercancel' || (!moved && Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) < 4)) { done(); return; }
     try {
       const copies = undoHistory
         ? await undoHistory.group(() => patch.duplicateMany(entries.map((m) => m.id), dx, dy))
@@ -714,7 +751,9 @@ function startCable(e, entry) {
   const toggle = (el) => {
     if (toggleCable(patch, entry, el)) svg.append(temp); // drawCables cleared the svg: temporary cable back on top
   };
-  const move = (ev) => {
+  let last = e;
+  const update = () => {
+    const ev = last;
     const seg = visibleSegment(box, null, clientToWorld(ev.clientX, ev.clientY));
     wire.setAttribute('d', linePath(centerOf(box), seg.to));
     arrow.setAttribute('d', arrowPath(seg.from, seg.to));
@@ -723,7 +762,15 @@ function startCable(e, entry) {
     over = el;
     if (el && el !== entry.el && patch.modules.has(+el.dataset.id)) toggle(el);
   };
+  // the view pans along near / past the patcher edge, sweeping over the modules that come in
+  const auto = patcherScroll(update);
+  const move = (ev) => {
+    last = ev;
+    update();
+    auto.update({ x: ev.clientX, y: ev.clientY });
+  };
   const up = () => {
+    auto.stop();
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
     window.removeEventListener('pointercancel', up);
@@ -732,7 +779,7 @@ function startCable(e, entry) {
     select(sel); // refresh the panel: e.g. an LFO's Out Controller names follow its cables
   };
   over = entry.el; // starting on the source: nothing to do until the pointer leaves it
-  move(e);
+  update();
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
   window.addEventListener('pointercancel', up);
@@ -750,16 +797,23 @@ canvas.addEventListener('pointerdown', (e) => {
   const c = canvas.getBoundingClientRect();
   const x0 = e.clientX - c.left;
   const y0 = e.clientY - c.top;
+  // the start corner is anchored in the world, so the rectangle grows while the view pans along
+  const w0 = toWorld(cam(), x0, y0);
   const box = document.createElement('div');
   box.className = 'select-rect';
   let shown = false;
-  const move = (ev) => {
-    const x1 = ev.clientX - c.left;
-    const y1 = ev.clientY - c.top;
-    if (!shown && Math.hypot(x1 - x0, y1 - y0) < 3) return;
+  let last = null;
+  const apply = () => {
+    if (!last) return;
+    const k = canvas.getBoundingClientRect();
+    const x1 = Math.min(k.width, Math.max(0, last.clientX - k.left));
+    const y1 = Math.min(k.height, Math.max(0, last.clientY - k.top));
+    const a0 = toScreen(cam(), w0.x, w0.y);
     if (!shown) { canvas.appendChild(box); shown = true; }
-    const r = { l: Math.min(x0, x1), t: Math.min(y0, y1), r: Math.max(x0, x1), b: Math.max(y0, y1) };
-    Object.assign(box.style, { left: `${r.l}px`, top: `${r.t}px`, width: `${r.r - r.l}px`, height: `${r.b - r.t}px` });
+    const r = { l: Math.min(a0.x, x1), t: Math.min(a0.y, y1), r: Math.max(a0.x, x1), b: Math.max(a0.y, y1) };
+    // drawn inside the patcher; hit-tested over the whole (world) span
+    const d = { l: Math.max(0, r.l), t: Math.max(0, r.t), r: Math.min(k.width, r.r), b: Math.min(k.height, r.b) };
+    Object.assign(box.style, { left: `${d.l}px`, top: `${d.t}px`, width: `${Math.max(0, d.r - d.l)}px`, height: `${Math.max(0, d.b - d.t)}px` });
     // the rectangle is drawn in screen space; hit-test modules in world space
     const a = toWorld(cam(), r.l, r.t);
     const b = toWorld(cam(), r.r, r.b);
@@ -770,7 +824,15 @@ canvas.addEventListener('pointerdown', (e) => {
     });
     selectEntries([...new Set([...base, ...hit])]);
   };
+  const auto = patcherScroll(apply);
+  const move = (ev) => {
+    if (!shown && Math.hypot(ev.clientX - c.left - x0, ev.clientY - c.top - y0) < 3) return;
+    last = ev;
+    apply();
+    auto.update({ x: ev.clientX, y: ev.clientY });
+  };
   const up = () => {
+    auto.stop();
     window.removeEventListener('pointermove', move);
     window.removeEventListener('pointerup', up);
     window.removeEventListener('pointercancel', up);
