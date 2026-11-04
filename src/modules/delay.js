@@ -1,6 +1,7 @@
 // Audio and MODMIDI share the LEFT DELAY time; RIGHT DELAY only affects audio.
 // MIDI events sample the current delay on arrival. Queued events retain their due time.
 import { newNoteId } from '../modmidi.js';
+import { MidiQueue } from '../midiqueue.js';
 import { delayParam, delayUnitParam, delaySeconds } from './delaytime.js';
 
 export default {
@@ -22,10 +23,20 @@ export default {
     const values = { left: 250, right: 250, unit: 0 };
     let bpm = 120;
     let clock = 0;
-    let queue = [];
+    const queue = new MidiQueue();
+    const expiries = new MidiQueue();
+    let pending = 0;
     const notes = new Map();
     const records = new Set();
     const now = () => Math.max(ctx?.currentTime ?? 0, clock);
+    const expire = (note) => {
+      expiries.remove(note.expiry);
+      if (note.pending) return;
+      if (note.cancelled) {
+        records.delete(note);
+        if (notes.get(note.inId) === note) notes.delete(note.inId);
+      } else if (note.released) note.expiry = expiries.push({ note, due: note.expires });
+    };
 
     const dispatch = ({ note, type, args, due }) => {
       if (note.cancelled) return;
@@ -35,21 +46,26 @@ export default {
         note.expires = due + 6;
         // A shortened delay can make noteOff overtake noteOn. Cancel that pending note
         // rather than leaving a voice stuck when its late noteOn would otherwise arrive.
-        if (!note.started) { note.cancelled = true; return; }
+        if (!note.started) {
+          pending -= note.pending;
+          note.cancelled = true;
+          return;
+        }
       } else if (!note.started) return;
       for (const t of note.targets) t[type](note.id, ...args);
     };
     const tick = (time) => {
       clock = time;
       const at = now();
-      let count = 0;
-      while (count < queue.length && queue[count].due <= at + 1e-9) {
-        const event = queue[count++];
+      while (queue.first && queue.first.due <= at + 1e-9) {
+        const event = queue.pop();
         event.note.pending--;
+        if (!event.note.cancelled) pending--;
         dispatch(event);
+        expire(event.note);
       }
-      if (count) queue.splice(0, count);
-      for (const n of records) if (!n.pending && (n.cancelled || (n.released && at >= n.expires))) {
+      while (expiries.first && at >= expiries.first.due) {
+        const { note: n } = expiries.pop();
         records.delete(n);
         if (notes.get(n.inId) === n) notes.delete(n.inId);
       }
@@ -58,21 +74,17 @@ export default {
       const due = now() + delaySeconds(values.left, values.unit, bpm);
       const event = { note, type, args, due };
       note.pending++;
+      pending++;
       if (note.released) note.expires = Math.max(note.expires, due + 6);
-      // Stable insertion: equal due times retain arrival order, including zero-delay events.
-      let lo = 0, hi = queue.length;
-      while (lo < hi) {
-        const mid = (lo + hi) >>> 1;
-        if (queue[mid].due <= due) lo = mid + 1; else hi = mid;
-      }
-      queue.splice(lo, 0, event);
+      expiries.remove(note.expiry);
+      queue.push(event);
       tick(now());
     };
 
     const inst = {
       node,
       input: node,
-      get hasPendingMidi() { return queue.some(e => !e.note.cancelled); },
+      get hasPendingMidi() { return pending > 0; },
       getMidiTargets: () => [],
       setParam(id, value) { values[id] = value; node.param(id, value); },
       onModulated(id, value) { values[id] = value; },
@@ -81,7 +93,7 @@ export default {
         inst.noteOff(inId);
         const note = {
           inId, id: newNoteId(), targets: [...inst.getMidiTargets()],
-          started: false, closed: false, released: false, cancelled: false, pending: 0, expires: Infinity,
+          started: false, closed: false, released: false, cancelled: false, pending: 0, expires: Infinity, expiry: null,
         };
         notes.set(inId, note);
         records.add(note);
@@ -99,7 +111,9 @@ export default {
         enqueue(note, 'noteOff');
       },
       allOff() {
-        queue = [];
+        queue.clear();
+        expiries.clear();
+        pending = 0;
         notes.clear();
         for (const n of records) if (n.started && !n.released) for (const t of n.targets) t.noteOff(n.id);
         records.clear();

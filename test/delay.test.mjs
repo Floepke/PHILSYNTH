@@ -113,6 +113,7 @@ function midiHarness() {
   h.inst.setParam('left', 100);
   h.inst.noteOn(1, 60, 1);
   h.at(0.02); h.inst.setParam('left', 0); h.inst.noteOff(1);
+  assert.equal(h.inst.hasPendingMidi, false, 'cancelled late starts do not keep export alive');
   h.at(1);
   assert.deepEqual(h.calls, [], 'an overtaking off cancels the pending on');
   h.inst.noteOn(1, 60, 1);
@@ -147,6 +148,61 @@ function midiHarness() {
   h.at(0.1); h.inst.setBpm(60); h.inst.noteOff(1);
   h.at(0.5); h.at(1.1);
   assert.deepEqual(h.calls.map((c) => [c[0], c[1]]), [[0.5, 'noteOn'], [1.1, 'noteOff']], 'tempo change affects new events only');
+  h.inst.destroy();
+}
+
+{
+  const h = midiHarness();
+  h.inst.setParam('left', 100);
+  h.inst.noteOn(1, 60, 1);
+  h.inst.noteMod(1, 61, 0.5);
+  h.inst.noteOff(1);
+  assert.equal(h.inst.hasPendingMidi, true);
+  h.at(0.1);
+  assert.deepEqual(h.calls.map(c => c[1]), ['noteOn', 'noteMod', 'noteOff'], 'equal deadlines preserve arrival order');
+  assert.equal(h.inst.hasPendingMidi, false);
+  h.inst.destroy();
+}
+{
+  const h = midiHarness();
+  h.inst.setParam('left', 0);
+  h.inst.noteOn(1, 60, 1);
+  h.at(0.1);
+  h.inst.setParam('left', 10000);
+  h.inst.noteMod(1, 61, 0.5);
+  h.at(0.2);
+  h.inst.setParam('left', 0);
+  h.inst.noteOff(1);
+  h.at(7);
+  h.inst.noteMod(1, 62, 0.4);
+  assert.equal(h.calls.at(-1)[3], 62, 'pending bends prevent expiry even if release overtakes them');
+  assert.equal(h.inst.hasPendingMidi, true);
+  h.at(10.1);
+  assert.equal(h.calls.at(-1)[3], 61, 'older bend retains its captured delay');
+  assert.equal(h.inst.hasPendingMidi, false);
+  h.at(13 - 5e-10);
+  h.inst.noteMod(1, 63, 0.3);
+  assert.equal(h.calls.at(-1)[3], 63, 'expiry does not use the dispatch epsilon');
+  h.at(19);
+  const count = h.calls.length;
+  h.inst.noteMod(1, 64, 0.2);
+  assert.equal(h.calls.length, count, 'release history expires after its final extension');
+  h.inst.destroy();
+}
+{
+  const h = midiHarness();
+  h.inst.setParam('left', 0);
+  h.inst.noteOn(1, 60, 1);
+  h.inst.noteOff(1);
+  h.at(1);
+  h.inst.noteOn(1, 62, 1);
+  const id = h.calls.at(-1)[2];
+  h.at(6);
+  h.inst.noteMod(1, 63, 0.5);
+  assert.deepEqual(h.calls.at(-1).slice(1), ['noteMod', id, 63, 0.5], 'old expiry cannot remove a reused id');
+  h.inst.allOff();
+  assert.deepEqual(h.calls.at(-1).slice(1), ['noteOff', id]);
+  assert.equal(h.inst.hasPendingMidi, false);
   h.inst.destroy();
 }
 

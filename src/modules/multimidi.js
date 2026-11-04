@@ -24,6 +24,7 @@
 // Random = one random cable per note; Random (no repeat) = random, but never the same cable
 // twice in a row. A note's noteMod / noteOff follow the cable its noteOn took.
 import { createMidiScheduler } from '../midischedule.js';
+import { MidiQueue } from '../midiqueue.js';
 
 const RELEASE_KEEP_S = 6; // released notes keep drifting through the synth's release tail
 
@@ -107,6 +108,8 @@ export default {
     const v = { transpose: 0, finetune: 0, drift: 0, driftFreq: 1, velocity: 1, overtone: 0, routeMode: 0, velSense: 1, velDrift: 0, velDriftFreq: 1, randomPhase: 0, randomDelay: 0, phase: 0 };
     // Incoming id -> per-note pitch/velocity drift, including its delayed release tail.
     const notes = new Map();
+    const expiries = new MidiQueue();
+    let dirty = false;
     let lastRoute = null; // the target the previous note went to (Round Robin / no repeat)
     const midi = createMidiScheduler(ctx, host.dsp, () => {
       const targets = routeTargets(v.routeMode, inst.getMidiTargets(), lastRoute, rand);
@@ -128,10 +131,15 @@ export default {
     const tick = (time) => {
       const dt = lastTime === null ? 0 : Math.min(0.1, time - lastTime);
       lastTime = time;
+      while (expiries.first && time > expiries.first.due) {
+        const { inId, note } = expiries.pop();
+        if (notes.get(inId) === note) notes.delete(inId);
+      }
+      if (!dirty && !v.drift && !v.velDrift) return;
+      dirty = false;
       for (const [inId, n] of notes) {
-        if (n.off !== null && time - n.off > RELEASE_KEEP_S + n.delay) { notes.delete(inId); continue; }
-        n.pd.step(dt, v.driftFreq);
-        n.vd.step(dt, v.velDriftFreq);
+        if (v.drift) n.pd.step(dt, v.driftFreq);
+        if (v.velDrift) n.vd.step(dt, v.velDriftFreq);
         update(inId, n);
       }
     };
@@ -143,13 +151,18 @@ export default {
       get hasPendingMidi() { return midi.hasPending; },
       getMidiTargets: () => [], // set by the patch: instances this module is MIDI-cabled to
       setParam(id, val) {
+        if (v[id] !== val) dirty = true;
         v[id] = val; // pitch/velocity changes reach the notes on the next clock tick
         ctl.param(id, val);
       },
-      onModulated(id, val) { v[id] = val; },
+      onModulated(id, val) {
+        if (v[id] !== val) dirty = true;
+        v[id] = val;
+      },
       noteOn(inId, pitch, vel, phase = 0, time) {
         inst.noteOff(inId); // same id again: release the old copy first
-        const n = { pitch, vel, pd: new Drifter(true, rand), vd: new Drifter(false, rand), off: null };
+        expiries.remove(notes.get(inId)?.expiry);
+        const n = { pitch, vel, pd: new Drifter(true, rand), vd: new Drifter(false, rand), off: null, expiry: null };
         const delay = Math.max(0, Math.min(5000, v.randomDelay));
         n.delay = delay ? rand() * delay / 1000 : 0;
         const amount = Math.min(1, Math.max(0, v.randomPhase));
@@ -169,10 +182,12 @@ export default {
         const n = notes.get(inId);
         if (!n || n.off !== null) return;
         n.off = midi.now();
+        n.expiry = expiries.push({ inId, note: n, due: n.off + RELEASE_KEEP_S + n.delay });
         midi.noteOff(inId);
       },
       allOff() {
         notes.clear();
+        expiries.clear();
         midi.allOff();
       },
       // a MIDI cable to `t` was removed: release the notes it got from us
@@ -180,6 +195,7 @@ export default {
       destroy() {
         midi.destroy();
         notes.clear();
+        expiries.clear();
         stopClock();
         ctl.destroy();
       },

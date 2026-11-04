@@ -42,6 +42,19 @@ table is generated with the existing JS routine. JavaScript playback remains the
 fallback when Wasm is unavailable. Rebuild the committed binary after C++ changes
 with `npm run build:wasm`; `node test/wasm.test.mjs` checks native/JS audio parity.
 
+STRUM, TUNING, MULTIMIDI and DELAY use stable deadline queues for MIDI delivery
+and release-history expiry, instead of scanning all retained notes on every
+message or clock tick. Equal-time events remain in arrival order, six seconds
+of release history still allow tail modulation, and pending-event checks are
+constant-time. STRUM/TUNING/MULTIMIDI retain each note's original delay; DELAY
+still captures its current delay separately for every arriving message.
+MULTIMIDI's actual release-tail pitch drift remains active. Run
+`node test/midischedule.test.mjs` for ordering, lifetime and scaling regressions.
+MULTIMIDI pauses each random drift generator when its amount is zero. When both
+pitch and velocity drift are zero, clock ticks skip the note-update loop unless
+a controller changed; incoming note updates and deadline-based release cleanup
+still work. Re-enabling drift resumes its paused random trajectory.
+
 ## Linux AppImage
 
 On an x86-64 or ARM64 Linux machine with Node.js 22 or newer:

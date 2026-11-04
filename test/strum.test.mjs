@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import strum from '../src/modules/strum.js';
-import multimidi from '../src/modules/multimidi.js';
+import multimidi, { Drifter } from '../src/modules/multimidi.js';
 import { getModule } from '../src/modules/index.js';
 import { Transport } from '../src/transport.js';
 import { emptySong, addClip } from '../src/song.js';
@@ -194,6 +194,76 @@ for (const action of ['allOff', 'destroy', 'releaseTarget']) {
   s.tick(6);
   assert.equal(s.log.length, 0, action + ' cancels pending random-delay notes');
   if (action !== 'destroy') s.inst.destroy();
+}
+
+// Disabled drift does no per-note clock work, but controllers and incoming bends still work.
+{
+  const step = Drifter.prototype.step;
+  const log2 = Math.log2;
+  const steps = [];
+  let outputs = 0;
+  Drifter.prototype.step = function (...args) { steps.push(this); return step.apply(this, args); };
+  Math.log2 = (v) => { outputs++; return log2(v); };
+  const s = setup(multimidi, () => 0.75);
+  try {
+    s.inst.noteOn(1, 60, 0.8);
+    outputs = 0;
+    for (let i = 0; i < 300; i++) s.tick(i * 0.005);
+    assert.equal(steps.length, 0, 'zero amounts never advance either generator');
+    assert.equal(outputs, 0, 'zero amounts skip output recomputation too');
+    s.inst.setParam('transpose', 12);
+    s.tick(1.5);
+    assert.equal(s.log.at(-1).pitch, 72);
+    s.inst.onModulated('velocity', 0.5);
+    s.tick(1.505);
+    near(s.log.at(-1).velocity, 0.4);
+    s.inst.noteMod(1, 61, 0.6);
+    assert.equal(s.log.at(-1).pitch, 73);
+    near(s.log.at(-1).velocity, 0.3);
+
+    s.inst.setParam('drift', 1);
+    s.tick(1.51);
+    assert.equal(steps.length, 1, 'pitch-only drift advances just one generator');
+    const pitchGenerator = steps[0];
+    s.inst.setParam('drift', 0);
+    s.inst.setParam('velDrift', 1);
+    s.tick(1.515);
+    assert.equal(steps.length, 2, 'velocity-only drift advances just one generator');
+    assert.notEqual(steps[1], pitchGenerator);
+    near(s.log.at(-1).pitch, 73);
+    s.inst.setParam('velDrift', 0);
+    s.tick(1.52);
+    near(s.log.at(-1).velocity, 0.3);
+    const count = outputs;
+    s.inst.onModulated('velDrift', 0);
+    s.tick(1.525);
+    assert.equal(outputs, count, 'unchanged modulation does not restart output computation');
+  } finally {
+    s.inst.destroy();
+    Drifter.prototype.step = step;
+    Math.log2 = log2;
+  }
+}
+{
+  const s = setup(multimidi);
+  s.inst.setParam('randomDelay', 1000);
+  s.inst.noteOn(1, 60, 1);
+  s.tick(0.1);
+  s.inst.noteOff(1);
+  s.tick(0.5);
+  s.tick(0.6);
+  assert.deepEqual(s.log.map(e => e.type), ['on', 'off'], 'disabled drift preserves delayed releases');
+  s.tick(6.7);
+  const count = s.log.length;
+  s.inst.noteMod(1, 62, 0.5);
+  s.inst.setParam('transpose', 12);
+  s.tick(6.8);
+  assert.equal(s.log.length, count, 'disabled drift still expires released notes');
+  s.inst.noteOn(1, 64, 1);
+  s.inst.allOff();
+  s.tick(8);
+  assert.equal(s.log.length, count, 'panic clears cleanup deadlines and pending starts');
+  s.inst.destroy();
 }
 
 // Sequencer integration: equal starts strum, nearby distinct starts do not join the chord.
