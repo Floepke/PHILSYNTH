@@ -2,6 +2,34 @@
 import assert from 'node:assert/strict';
 
 import { dspTestHost } from './dsphost.mjs';
+import { patchControllersView } from '../src/mapdialog.js';
+
+{
+  const previousDocument = globalThis.document;
+  globalThis.document = {
+    createElement: (tag) => ({
+      tagName: tag, children: [],
+      append(...children) { this.children.push(...children); },
+    }),
+  };
+  try {
+    let opened = 0, edited = 0;
+    const view = patchControllersView({ state: { maps: [] } }, {
+      open: () => opened++, edit: () => edited++,
+    });
+    const [actions, info] = view.el.children;
+    assert.equal(actions.className, 'map-actions', 'both Patch actions share one row');
+    assert.deepEqual(actions.children.map((b) => b.textContent), ['Controllers…', 'Edit Patch...']);
+    actions.children[0].onclick();
+    assert.deepEqual([opened, edited], [1, 0], 'Controllers still opens only its dialog');
+    actions.children[1].onclick();
+    assert.deepEqual([opened, edited], [1, 1], 'Edit Patch invokes patch navigation');
+    assert.match(info.textContent, /Map controllers/);
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+}
 
 const ctx = { currentTime: 0 };
 const { dsp, graph, render, kernel } = dspTestHost();

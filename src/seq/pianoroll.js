@@ -8,7 +8,7 @@
 // During playback the keys of the clip's notes under the playhead light up in the clip's note colour.
 // All 128 MIDI pitches fit the available width; only time can be scrolled / zoomed.
 //   click / drag the keyboard  play pitches on the live MIDI module (red MIDI in the patcher) without editing notes
-//   click / drag on empty space  insert a note (last used length), dragging sets its duration
+//   click / drag on empty space  insert a note (last used length), dragging beyond 10 px sets its duration
 //   drag a note's coloured body  set the duration: the end jumps to the pointer, snapped to the grid
 //                                (all selected notes change by the same amount when it is selected)
 //   drag a note's circle         change pitch (sideways) and start time (moves the whole selection)
@@ -21,9 +21,9 @@
 //   double-click a selected note's coloured body  pitch bend: inserts a bend point there (hold the
 //                                second press to drag it at once). The body becomes a thick line through
 //                                its bend points (bendPolyline in song.js), it is heard as noteMod glides.
-//   drag a bend point            anywhere: sideways is pitch (continuous, read it off the stave;
-//                                Shift snaps to whole semitones from the note), up / down its time
-//                                (free, off the grid too; between its neighbours, inside the note). Bend points
+//   drag a bend point            sideways snaps to whole pitches (Shift: continuous pitch);
+//                                up / down snaps to the time grid unless Free timing is on,
+//                                between its neighbours, inside the note. Bend points
 //                                show on selected notes; wheel on one rounds its corner, right-click
 //                                deletes it, holding right opens the menu (Delete bend point, Reset bend).
 //   drag the thick end line      change the clip length (wheel-scroll or drag past the top / bottom edge to go further)
@@ -76,6 +76,7 @@ const TIME_EPSILON = 1e-7;
 const MICRO_PX = 4; // px of sideways Shift-drag per cent of micropitch
 const SLIDER_W = 160; // px, the micropitch slider (±50 cents)
 const BEND_HIT = 7; // px, grab radius of a bend point
+const DURATION_DRAG_THRESHOLD = 10;
 const ROUND_STEP = 0.05; // rounding change per wheel step on a bend point
 
 // ctx: { song(), clip(), color(clip), preview: { on(clip, pitch) -> handle, key(pitch) -> handle,
@@ -772,13 +773,16 @@ export function createPianoRoll(host, ctx) {
     s.redraw();
   }
 
-  // Insert a bend point into the note at the pointer (its exact time inside the note, no grid; the
-  // pitch under the pointer; a point already at that time takes it) and drag it at once.
+  const bendTime = (note, time, lo, hi) => clean(clamp(snapRound(time, step()) - note.start, lo, hi));
+  const bendPitch = (note, pitch, free) => clamp((free ? pitch : Math.round(pitch)) - note.pitch,
+    Math.max(-BEND_MAX, -note.pitch), Math.min(BEND_MAX, PITCH_MAX - note.pitch));
+
+  // Insert at the snapped pointer; an existing point at that time takes it. Drag immediately.
   function insertBend(e, clip, note, x, y) {
     const before = note.bends;
-    const t = clean(clamp(timeAt(y) - note.start, 0, note.length));
+    const t = bendTime(note, timeAt(y), 0, note.length);
     if (t <= 1e-9) return false;
-    const d = clamp(pitchFromX(x) - note.pitch, -BEND_MAX, BEND_MAX);
+    const d = bendPitch(note, pitchFromX(x), e.shiftKey);
     const pts = [...(before ?? [])];
     let i = 0;
     while (i < pts.length && pts[i].t < t - 1e-9) i++;
@@ -789,8 +793,8 @@ export function createPianoRoll(host, ctx) {
     return true;
   }
 
-  // drag bend point i of the note: sideways = pitch (free, Shift: whole semitones from the note),
-  // up / down = time (free, no grid; between its neighbours, inside the note); before = the bends to
+  // Shift frees only pitch; time follows Free timing. Stay between neighbours inside the note.
+  // before = the bends to
   // restore on cancel (when the point was just inserted), changed() on release
   function dragBend(e, clip, note, i, x, y, before = note.bends) {
     const orig = note.bends;
@@ -809,9 +813,8 @@ export function createPianoRoll(host, ctx) {
       if (!state.moved && Math.hypot(q.x - x, q.y - y) < 2) return;
       state.moved = true;
       presses.reset();
-      let d = clamp(pitchFromX(x0 + q.x - x) - note.pitch, -BEND_MAX, BEND_MAX);
-      if (ev.shiftKey) d = clamp(Math.round(d), Math.ceil(-note.pitch), Math.floor(PITCH_MAX - note.pitch));
-      let t = clean(clamp(p0.t + (q.y - y) / view.ppq, lo, hi));
+      const d = bendPitch(note, pitchFromX(x0 + q.x - x), ev.shiftKey);
+      let t = bendTime(note, note.start + p0.t + (q.y - y) / view.ppq, lo, hi);
       if (t <= 1e-9) t = Math.min(hi, 1 / view.ppq); // just after the note's start
       note.bends = orig.map((b, j) => (j === i ? { t, d, r: b.r } : b));
       const pitch = clamp(note.pitch + d, 0, PITCH_MAX);
@@ -1054,7 +1057,12 @@ export function createPianoRoll(host, ctx) {
     capture(cv, e, (ev) => {
       const p = s.local(ev);
       pointer = p;
-      if (h && !moved && Math.hypot(p.x - x, p.y - y) < dragThreshold()) return;
+      if (!moved) {
+        const distance = Math.hypot(p.x - x, p.y - y);
+        if (drag.kind === 'new' || drag.kind === 'length') {
+          if (distance <= DURATION_DRAG_THRESHOLD) return;
+        } else if (distance < dragThreshold()) return;
+      }
       moved = true;
       presses.reset();
       if (dup && !cloned) {

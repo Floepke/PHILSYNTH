@@ -20,18 +20,23 @@ const valueText = (m, p) => {
   return p.format ? p.format(v, m.values) : p.options ? p.options[v] : String(+(+v).toFixed(3));
 };
 
-// Panel part of a Patch module: the button + a line about its mapped controllers.
-export function patchControllersView(entry, { open }) {
+// Panel part of a Patch module: action buttons + a line about its mapped controllers.
+export function patchControllersView(entry, { open, edit }) {
   const box = el('div', 'map-view');
+  const actions = el('div', 'map-actions');
   const info = el('p', 'hint');
   const btn = el('button', 'map-open', 'Controllers…');
   btn.title = 'Map controllers of modules inside this patch to controllers of this Patch module';
   btn.onclick = open;
+  const editBtn = el('button', 'map-edit', 'Edit Patch...');
+  editBtn.title = 'Enter this patch to edit its modules and connections';
+  editBtn.onclick = edit;
+  actions.append(btn, editBtn);
   const n = entry.state?.maps?.length ?? 0;
   info.textContent = n
     ? `${n} controller${n === 1 ? '' : 's'} from inside mapped (numbered after Instances). The panel, LFOs and automation clips drive them from outside.`
     : 'Map controllers of modules inside this patch to this module, to control them from outside.';
-  box.append(btn, info);
+  box.append(actions, info);
   return { el: box };
 }
 

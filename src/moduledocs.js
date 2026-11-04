@@ -459,7 +459,7 @@ export const DOCS = {
     },
     mapped: 'Mapped controller: sets this controller inside the Patch (every instance follows). It can be modulated and automated from outside like any other controller.',
     notes: [
-      '<kbd>Double-click</kbd> the Patch (or select it and press <kbd>Enter</kbd>) to open it; the mouse <b>back</b> button or the patch path goes up again.',
+      'Click <b>Edit Patch...</b> beside <b>Controllers…</b> to open the Patch (or <kbd>Double-click</kbd> it, or select it and press <kbd>Enter</kbd>); the mouse <b>back</b> button or the patch path goes up again.',
       '<b>Controllers…</b> maps controllers of modules inside to extra controllers of this module.',
       'Inside, cable a MULTIMIDI or STRUM into the Output to send notes out, or an LFO, ADSR, ENVELOPE, VELOCITY2CTL, PITCH2CTL or SOUND2CTL to send modulation out; the inner modulator\'s Out Controller then picks a controller of the modules this Patch is cabled to.',
     ],

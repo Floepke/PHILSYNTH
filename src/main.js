@@ -411,7 +411,7 @@ function showName(entry, el = entry.el?.querySelector('.module-name')) {
   el.title = entry.name ? `${entry.name} (${entry.def.label})` : '';
 }
 
-// Patch modules: open (Enter, double-click or the right-click menu); Esc goes up again
+// Patch modules: open (panel button, Enter, double-click or right-click menu); Esc goes up again
 function openPatch(entry) {
   if (!entry?.inst.patch) return;
   path.push({ patch: entry.inst.patch, name: `Patch #${entry.id}`, id: entry.id });
@@ -1200,6 +1200,7 @@ function select(s) {
     rebuild: () => { if (sel?.entry === entry) select(sel); }, // e.g. INPUT: the Microphone list changed
     // Patch: "Controllers…" opens the mapping dialog; the panel shows the new controllers after it
     patchControllers: (e) => patchControllersView(e, {
+      edit: () => openPatch(e),
       open: async () => {
         const patch = current();
         await openMapDialog(e, { setState: (st) => patch.setState(e.id, st) });

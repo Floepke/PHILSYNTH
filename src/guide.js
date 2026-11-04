@@ -82,7 +82,7 @@ export const GUIDE = [
       {
         title: 'Patches (modules inside a module)',
         items: [
-          `${k('Double-click')} a Patch (or select it and press ${k('Enter')}, or right-click → <b>Open patch</b>) to enter it; the mouse <b>back</b> button or the patch path (<b>Main</b> / …, left on the lower divider) goes up.`,
+          `Select a Patch and click <b>Edit Patch...</b> beside <b>Controllers…</b> to enter it (or ${k('Double-click')}, press ${k('Enter')}, or right-click → <b>Open patch</b>); the mouse <b>back</b> button or the patch path (<b>Main</b> / …, left on the lower divider) goes up.`,
           'Audio, MIDI and modulation cabled into a Patch go to its <b>Input Module</b> (default <kbd>1</kbd>: the first module inserted inside; <kbd>0</kbd> = straight to the inner Output). <b>Instances</b> plays notes round-robin over copies of the contents.',
           '<b>Controllers…</b> (in the panel of a selected Patch) maps controllers of modules inside onto the Patch module, so they can be set, modulated and automated from outside.',
           'Custom MIDI / modulation modules: inside a Patch, cable a MULTIMIDI or STRUM into the Output to send notes out of the Patch, or a modulator to send modulation out; cable the Patch module to modules outside to play / drive them.',
@@ -205,17 +205,17 @@ export const GUIDE = [
       {
         title: 'Write notes',
         items: [
-          'Click empty space to insert a note at that pitch, starting on the grid line at or before the pointer, with the last used length; keep dragging to set its duration.',
+          'Click empty space to insert a note at that pitch, starting on the grid line at or before the pointer, with the last used length; move more than 10 pixels while holding to start setting its duration.',
           'Click / drag the keyboard at the bottom to audition pitches on the live MIDI module without writing notes. Keys held on your MIDI controller or the computer keyboard light up blue there, so you can read what you play. During playback the notes under the playhead light up their keys in the clip colour, so you can read the harmony.',
         ],
       },
       {
         title: 'Edit notes',
         items: [
-          'Drag a note\'s coloured <b>body</b> to set its length (the end jumps to the snapped pointer); drag its <b>circle</b> to change pitch (sideways) and start time (up / down).',
+          'Drag a note\'s coloured <b>body</b> more than 10 pixels to start setting its length (the end jumps to the snapped pointer); drag its <b>circle</b> to change pitch (sideways) and start time (up / down).',
           `${k('Alt')} + drag a note (body or circle) moves a clone of it.`,
           `<b>Micropitch</b>: ${k('Shift')} + drag a note\'s circle sideways to tune it up or down (slowly, in 0.1 cent steps); a slider shows the cents while you drag and the note sounds along. With several notes selected, all of them change by the same amount. The note stays on its key (from −50 to just under +50 cents); the whole note (circle and coloured body) shifts sideways to show the tuning; menu → <b>Reset tuning</b> puts the selection back on its keys.`,
-          `<b>Pitch bend</b>: select a note and double-click its coloured body to add a bend point (keep the second press held to drag it right away). The note becomes a thick line through its bend points and glides along them while it plays. Drag a point anywhere: sideways sets the pitch (read it off the black-key stave; ${k('Shift')} snaps to whole semitones), up / down its time, freely (not on the grid). Scroll on a point to round its corner, right-click a point to delete it; menu → <b>Reset bend</b> straightens the selection. Moving, transposing or tuning a note takes its bend along.`,
+          `<b>Pitch bend</b>: select a note and double-click its coloured body to add a bend point (keep the second press held to drag it right away). The note becomes a thick line through its bend points and glides along them while it plays. Pitch snaps to whole notes; hold ${k('Shift')} for free pitch editing sideways. Point times snap to the grid unless <b>Free timing</b> is on; Shift only frees pitch, not time. Points stay between their neighbours and inside the note. Scroll on a point to round its corner, right-click a point to delete it; menu → <b>Reset bend</b> straightens the selection. Moving, transposing or tuning a note takes its bend along.`,
           `${k('Left')} / ${k('Right')} transpose the selection by a semitone, ${k('Up')} / ${k('Down')} move it by one grid step; with ${k('Shift')}: an octave / a bar.`,
           'A short right-click deletes the note under the pointer.',
         ],

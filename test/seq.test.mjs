@@ -153,7 +153,10 @@ const assertNoOverlap = (song) => {
   cv.drawing.length = 0;
   roll.redraw(); flush();
   assert.deepEqual(bands(), before, 'Free timing preserves the visual grid bands');
-  drag(cv, nx(60), ny(1.37), nx(60), ny(1.49));
+  point(cv, 'pointerdown', nx(60), ny(1.37), { buttons: 1 });
+  point(cv, 'pointermove', nx(60), ny(1.37) + 11, { buttons: 1 });
+  point(cv, 'pointermove', nx(60), ny(1.49), { buttons: 1 });
+  point(cv, 'pointerup', nx(60), ny(1.49));
   assert.ok(Math.abs(clip.notes[0].start - 1.37) < 1e-6);
   assert.ok(Math.abs(clip.notes[0].length - 0.12) < 1e-6, 'free duration can be shorter than the grid step');
   point(cv, 'pointermove', nx(72), ny(3.17));
@@ -399,6 +402,43 @@ for (const reverse of [false, true]) {
   song.selected = clip.id;
   assert.equal(key(cv, 'Escape').defaultPrevented, true, 'reselecting a clip restores selection dismissal');
   assert.equal(key(cv, 'Escape').defaultPrevented, false);
+}
+
+// Duration editing needs more than 10 CSS pixels, preserving the remembered length on clicks.
+{
+  const { clip, roll, previews } = setup();
+  const cv = roll.surface.cv;
+  drag(cv, nx(60), ny(0), nx(60), ny(2));
+  assert.equal(clip.notes[0].length, 2);
+  for (const [dx, dy] of [[0, 0], [0, 1], [6, 8], [0, 10]]) {
+    point(cv, 'pointerdown', nx(64), ny(3), { buttons: 1 });
+    const n = clip.notes.at(-1);
+    point(cv, 'pointermove', nx(64) + dx, ny(3) + dy, { buttons: 1 });
+    assert.equal(n.length, 2, 'movement up to 10 px keeps the remembered length');
+    point(cv, 'pointerup', nx(64) + dx, ny(3) + dy);
+    assert.equal(n.length, 2);
+    clip.notes.pop();
+  }
+  point(cv, 'pointerdown', nx(67), ny(3), { buttons: 1 });
+  const n = clip.notes.at(-1);
+  point(cv, 'pointermove', nx(67), ny(3) + 10, { buttons: 1 });
+  assert.equal(n.length, 2, 'exactly 10 px does not resize');
+  point(cv, 'pointermove', nx(67), ny(3) + 11, { buttons: 1 });
+  assert.notEqual(n.length, 2, 'more than 10 px activates duration editing');
+  point(cv, 'pointermove', nx(67), ny(4), { buttons: 1 });
+  assert.equal(n.length, 1, 'active duration drag follows pointer');
+  point(cv, 'pointerup', nx(67), ny(4));
+  click(cv, nx(72), ny(5));
+  assert.equal(clip.notes.at(-1).length, 1, 'completed duration becomes the next remembered length');
+
+  const bodyY = ny(0.5);
+  point(cv, 'pointerdown', nx(60), bodyY, { buttons: 1 });
+  point(cv, 'pointermove', nx(60), bodyY + 10, { buttons: 1 });
+  assert.equal(clip.notes[0].length, 2, 'existing body also ignores movement up to 10 px');
+  point(cv, 'pointermove', nx(60), bodyY + 11, { buttons: 1 });
+  assert.notEqual(clip.notes[0].length, 2, 'body resizing starts past threshold');
+  point(cv, 'pointerup', nx(60), bodyY + 11);
+  assert.equal(previews(), 0, 'all insertion previews released');
 }
 
 // Ordinary insertion, duration edits and head moves still work; short right click deletes.
@@ -1722,10 +1762,29 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
 }
 
 // Pitch bend: double-click a selected note's body inserts a bend point that drags at once; points
-// move freely (pitch continuous, Shift whole semitones), the body follows the curve, wheel rounds,
+// snap pitch and time (Shift frees pitch, Free timing frees time), the body follows the curve, wheel rounds,
 // right-click deletes, the menu resets; tuned notes shift whole (body included).
+for (const free of [false, true]) {
+  for (const shiftKey of [false, true]) {
+    const { song, clip, roll } = setup();
+    const cv = roll.surface.cv;
+    song.snap.free = free;
+    const n = note(60.25, 0.13, 4);
+    n.bends = [{ t: 0.87, d: 0, r: 0.4 }];
+    clip.notes.push(n);
+    key(cv, 'a', { ctrlKey: true });
+    flush();
+    drag(cv, nx(60.25), ny(1), nx(61.4), ny(1.37), { shiftKey });
+    assert.ok(Math.abs(n.pitch + n.bends[0].d - (shiftKey ? 61.4 : 61)) < 1e-8,
+      'pitch snapping is absolute even for a microtuned note');
+    assert.ok(Math.abs(n.start + n.bends[0].t - (free ? 1.37 : 1.25)) < 1e-8,
+      'time snaps to the roll grid, not relative to an off-grid note start');
+    assert.equal(n.bends[0].r, 0.4, 'editing preserves corner rounding');
+  }
+}
+
 {
-  const { clip, roll, changes, menus, previews } = setup();
+  const { song, clip, roll, changes, menus, previews } = setup();
   const cv = roll.surface.cv;
   const n = note(60, 0, 4);
   clip.notes.push(n);
@@ -1736,13 +1795,20 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   const c0 = changes();
   drag(cv, nx(60), ny(2), nx(62) + 7, ny(2.5));
   assert.equal(n.bends[0].t, 2.5);
-  assert.ok(Math.abs(n.bends[0].d - 2.5) < 1e-9, `free pitch ${n.bends[0].d}`);
+  assert.equal(n.bends[0].d, 3, 'ordinary drag snaps pitch');
   assert.ok(changes() > c0);
   assert.equal(previews(), 0, 'the bend preview is released');
-  drag(cv, nx(62.5), ny(2.5), nx(63.4), ny(2.5), { shiftKey: true });
-  assert.equal(n.bends[0].d, 3, 'Shift snaps to whole semitones');
-  // time is free too: off the grid, both when dragging and when inserting
-  drag(cv, nx(63), ny(2.5), nx(63), ny(2.63));
+  drag(cv, nx(63), ny(2.5), nx(63.4), ny(2.63), { shiftKey: true });
+  assert.ok(Math.abs(n.bends[0].d - 3.4) < 1e-9, 'Shift allows continuous pitch');
+  assert.equal(n.bends[0].t, 2.75, 'Shift does not bypass time snapping');
+  delete n.bends;
+  flush();
+  dbl(cv, nx(60), ny(1.37));
+  assert.equal(n.bends[0].t, 1.25, 'new pitch points also use the time grid');
+  n.bends = [{ t: 2.75, d: 3.4, r: 1 }];
+  song.snap.free = true;
+  drag(cv, nx(63.4), ny(2.75), nx(63.4), ny(2.63));
+  assert.equal(n.bends[0].d, 3, 'Free timing does not bypass pitch snapping');
   assert.ok(Math.abs(n.bends[0].t - 2.63) < 1e-6, `dragged off the grid: ${n.bends[0].t}`);
   n.bends = [];
   delete n.bends;
@@ -1934,12 +2000,12 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   assert.equal(song.clips.length, 2);
 }
 
-// Duration drags put the note end at the snapped pointer: a long note becomes short with a small drag.
+// Beyond the 10 px threshold, duration drags put the note end at the snapped pointer.
 {
   const { clip, roll } = setup();
   const cv = roll.surface.cv;
   clip.notes.push(note(60, 1, 32), note(64, 1, 8));
-  drag(cv, nx(60), ny(2.6), nx(60), ny(2.6) + 5);
+  drag(cv, nx(60), ny(2.6), nx(60), ny(2.6) + 11);
   assert.equal(clip.notes[0].length, 1.75, 'end snaps to the 16th grid under the pointer');
   drag(cv, nx(60), ny(1.5), nx(60), ny(0.2));
   assert.equal(clip.notes[0].length, 0.25, 'never shorter than one snap step');
