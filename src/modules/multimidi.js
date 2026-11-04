@@ -11,7 +11,8 @@
 // Phase: the phase every note starts with (MODMIDI phase, 0..1), added to the incoming phase.
 // Random Phase: every note starts its waveform at its own random point of the cycle on top of that:
 // 0 % = no random offset, 100 % = anywhere in the cycle. The offset is drawn once per note
-// (so chained MULTIMIDIs add up here too). OSC and LFO start their wave at the phase they receive.
+// (so chained MULTIMIDIs add up here too). OSC and LFO start their wave at the phase they receive,
+// ENVELOPE starts its curve there.
 // Velocity: overall level, scales every outgoing velocity (100 % = unchanged, 0 % = silent).
 // Velocity Sense: On = the incoming velocity is passed on (scaled by Velocity); Off = fixed: every
 // note gets exactly the Velocity value, however hard it was played (Velocity Drift still applies).

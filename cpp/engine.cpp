@@ -12,6 +12,8 @@
 #include "imagesampler.h"
 #include "reverb.h"
 #include "waveshaper.h"
+#include "distortion.h"
+#include "vibrato.h"
 
 // no libc++: plain malloc-backed new/delete
 void* operator new(__SIZE_TYPE__ n) { return malloc(n); }
@@ -22,10 +24,10 @@ void operator delete(void* p, __SIZE_TYPE__) noexcept { free(p); }
 
 using namespace ms;
 
-enum Kind { KIND_OSC = 1, KIND_FILTER = 2, KIND_REVERB = 3, KIND_WAVESHAPER = 4, KIND_BUS = 5, KIND_AMP = 6, KIND_OUT = 7, KIND_DCBLOCK = 8, KIND_EQ = 9, KIND_DELAY = 10, KIND_ECHO = 11, KIND_MODULATOR = 12, KIND_OPERATOR = 13, KIND_IMAGESAMPLER = 14 };
+enum Kind { KIND_OSC = 1, KIND_FILTER = 2, KIND_REVERB = 3, KIND_WAVESHAPER = 4, KIND_BUS = 5, KIND_AMP = 6, KIND_OUT = 7, KIND_DCBLOCK = 8, KIND_EQ = 9, KIND_DELAY = 10, KIND_ECHO = 11, KIND_MODULATOR = 12, KIND_OPERATOR = 13, KIND_IMAGESAMPLER = 14, KIND_DISTORTION = 15, KIND_VIBRATO = 16 };
 
 // Bumped when the API changes; src/dsp/wasm.js refuses other versions.
-EXPORT(ms_version) int ms_version() { return 11; }
+EXPORT(ms_version) int ms_version() { return 13; }
 
 EXPORT(ms_param_count) int ms_param_count(int kind) {
   switch (kind) {
@@ -35,6 +37,8 @@ EXPORT(ms_param_count) int ms_param_count(int kind) {
     case KIND_FILTER: return Filter::PARAMS;
     case KIND_REVERB: return Reverb::PARAMS;
     case KIND_WAVESHAPER: return Waveshaper::PARAMS;
+    case KIND_DISTORTION: return Distortion::PARAMS;
+    case KIND_VIBRATO: return Vibrato::PARAMS;
     case KIND_BUS: return Bus::PARAMS;
     case KIND_AMP: return Amp::PARAMS;
     case KIND_OUT: return Out::PARAMS;
@@ -59,6 +63,8 @@ EXPORT(ms_create) Kernel* ms_create(int kind, double sampleRate, int salt, uint3
     case KIND_FILTER: return new Filter(sampleRate, seed);
     case KIND_REVERB: return new Reverb(sampleRate, salt);
     case KIND_WAVESHAPER: return new Waveshaper(sampleRate);
+    case KIND_DISTORTION: return new Distortion(sampleRate);
+    case KIND_VIBRATO: return new Vibrato(sampleRate);
     case KIND_BUS: return new Bus(sampleRate);
     case KIND_AMP: return new Amp(sampleRate);
     case KIND_OUT: return new Out(sampleRate);

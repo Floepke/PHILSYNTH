@@ -472,6 +472,13 @@ const set = (e, x) => { hold(e, x); render(1); };
     pr.setParam(mm2.id, 'phase', 0.5);
     mm2.inst.noteOn(9401, 60, 1, 0);
     assert.equal(ll.filter((m) => m.type === 'noteOn').at(-1).phase, 0.5, 'LFO receives the MULTIMIDI Phase');
+    // MULTIMIDI -> ENVELOPE: the curve starts at the note's phase
+    const env = await pr.addModule('ENVELOPE');
+    const el = capture(env);
+    pr.connect(mm2.id, env.id);
+    pr.setParam(mm2.id, 'phase', 0.3);
+    mm2.inst.noteOn(9402, 60, 1, 0);
+    assert.ok(Math.abs(el.find((m) => m.type === 'noteOn')?.phase - 0.3) < 1e-9, 'ENVELOPE receives the MULTIMIDI Phase');
     pr.destroy();
   }
 

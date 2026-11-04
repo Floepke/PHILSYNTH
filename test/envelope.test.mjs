@@ -109,6 +109,35 @@ assert.equal(e.meter, -1, 'reset hides the playhead');
   close(go(0.2), 0.2, 0.01, 'every note restarts in trigger mode');
 }
 
+// ---- start phase: a note starts the curve at its MODMIDI phase ----
+for (const mode of [0, 1, 2]) {
+  const l = new Proc();
+  const m = (data) => l.port.onmessage({ data });
+  const go = (s) => { for (let b = 0; b < Math.round((s * SR) / 128); b++) l.process([], [[new Float32Array(128)]]); return l.value; };
+  m({ type: 'curve', curve: { points: [{ x: 0, y: 0, r: 0 }, { x: 1, y: 1, r: 0 }] } });
+  m({ type: 'param', id: 'length', value: 1000 });
+  m({ type: 'param', id: 'mode', value: mode });
+  m({ type: 'noteOn', id: 1, phase: 0.6 });
+  close(go(128 / SR), 0.6, 1e-6, `mode ${mode}: starts at phase 0.6`);
+  close(go(0.2), 0.8, 0.01, `mode ${mode}: plays on forward from there`);
+  if (mode) {
+    m({ type: 'noteOn', id: 2, phase: 0.1 });
+    close(go(0.1), 0.9, 0.01, `mode ${mode}: a second held note does not move the loop`);
+  }
+}
+{
+  const l = new Proc();
+  const m = (data) => l.port.onmessage({ data });
+  const go = () => { l.process([], [[new Float32Array(128)]]); return l.value; };
+  m({ type: 'curve', curve: { points: [{ x: 0, y: 0, r: 0 }, { x: 1, y: 1, r: 0 }] } });
+  m({ type: 'noteOn', id: 1, phase: 1.25 });
+  close(go(), 0.25, 1e-6, 'phase wraps into 0..1');
+  m({ type: 'noteOn', id: 2, phase: NaN });
+  close(go(), 0, 1e-6, 'invalid phase starts at the beginning');
+  m({ type: 'noteOn', id: 3 });
+  close(go(), 0, 1e-6, 'no phase starts at the beginning');
+}
+
 // ---- main-thread playhead extrapolation follows the mode ----
 {
   const { playheadAt, MODES } = await import('../src/modules/envelope.js');

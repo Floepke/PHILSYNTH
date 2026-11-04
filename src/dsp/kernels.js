@@ -9,6 +9,8 @@ import AmpKernel from '../modules/amp.dsp.js';
 import DcBlockKernel from '../modules/dcblock.dsp.js';
 import EqKernel from '../modules/eq.dsp.js';
 import WaveshaperKernel from '../modules/waveshaper.dsp.js';
+import DistortionKernel from '../modules/distortion.dsp.js';
+import VibratoKernel from '../modules/vibrato.dsp.js';
 import OutKernel from '../modules/out.dsp.js';
 import LfoKernel from '../modules/lfo.dsp.js';
 import AdsrKernel from '../modules/adsr.dsp.js';
@@ -37,6 +39,8 @@ export const KERNELS = {
   dcblock: DcBlockKernel,
   eq: EqKernel,
   waveshaper: WaveshaperKernel,
+  distortion: DistortionKernel,
+  vibrato: VibratoKernel,
   out: OutKernel,
   lfo: LfoKernel,
   adsr: AdsrKernel,

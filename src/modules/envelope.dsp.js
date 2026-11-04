@@ -3,6 +3,8 @@
 // once from its start, stretched over Envelope Length; afterwards it holds the curve's end value.
 // Its value (0..1) is mapped by the engine graph onto the controllers its cables point to. Until
 // the first note (and after a panic) the value is null: the controller is left alone.
+// A note starts the curve at its MODMIDI phase (0..1, e.g. a MULTIMIDI's Phase): 0 = the start,
+// 0.5 = halfway through (forward in ping-pong mode).
 // Mode (Graph param 'mode'):
 //   0 Note ON Trigger: every note restarts the curve; it plays once and holds the end value.
 //   1 Notes ON/OFF Loop: the first note (no other note held) starts the curve, which repeats
@@ -39,8 +41,10 @@ export default class EnvelopeKernel extends Kernel {
     }
   }
 
-  start() {
-    this.pos = 0;
+  // phase: the note's MODMIDI phase (0..1) = where on the curve it starts
+  start(phase = 0) {
+    const p = Number.isFinite(phase) ? phase : 0;
+    this.pos = p - Math.floor(p);
     this.dir = 1;
     this.running = true;
   }
@@ -52,7 +56,7 @@ export default class EnvelopeKernel extends Kernel {
       case 'noteOn': {
         const first = this.held.size === 0;
         this.held.add(m.id);
-        if (this.mode === 0 || first) this.start();
+        if (this.mode === 0 || first) this.start(m.phase);
         break;
       }
       case 'noteOff':

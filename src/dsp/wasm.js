@@ -13,7 +13,7 @@ import { Kernel } from './kernel.js';
 import { curveTable, defaultCurve } from '../curve.js';
 import { imageCache } from './imagecache.js';
 
-export const WASM_VERSION = 11;
+export const WASM_VERSION = 13;
 
 // kind = Kind in cpp/engine.cpp; params in the order of the kernel's enum
 export const SPECS = {
@@ -27,6 +27,8 @@ export const SPECS = {
     params: ['mix', 'size', 'decay', 'damp', 'seed', 'predelay', 'early', 'diffusion', 'mod', 'lowCut', 'highCut', 'width', 'freeze', 'level'],
   },
   waveshaper: { kind: 4, params: ['drive', 'range', 'oversample', 'mix', 'level'] },
+  distortion: { kind: 15, params: ['type', 'power', 'bits', 'frequency'] },
+  vibrato: { kind: 16, params: ['wave', 'unit', 'freq', 'phase', 'amp'] },
   bus: { kind: 5, params: [], passive: true },
   amp: { kind: 6, params: ['amp', 'inverse', 'pan'], passive: true },
   out: { kind: 7, params: ['volume', 'bpm'], passive: true },

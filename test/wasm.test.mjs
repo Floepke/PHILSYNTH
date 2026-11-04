@@ -443,6 +443,91 @@ for (let os = 0; os <= 2; os++) {
   });
 }
 
+// DISTORTION: all transfer types, quantization, hold clocks and live controller edits.
+for (let type = 0; type < 12; type++) {
+  compare('distortion', {
+    input: (b, i, c) => signal(b, i, c) * 3,
+    gaps: (b) => b >= 65 && b < 75,
+    blocks: 100,
+    inHeap: type % 2 === 0,
+    script: [
+      [0, param('type', type)], [0, param('power', 4)], [0, param('frequency', 11025)],
+      [10, param('bits', 8)], [20, param('power', 12)], [30, param('frequency', 1)],
+      [35, param('frequency', 1)], [40, param('frequency', 0)], [50, param('bits', 1)],
+      [60, param('bits', 16)], [60, param('frequency', 9000)], [80, 'panic'],
+    ],
+  });
+}
+compare('distortion', { blocks: 4 });
+for (const sr of [44100, 96000]) {
+  globalThis.sampleRate = sr;
+  const Native = wasmKernels(x, sr).kernels.distortion;
+  try {
+    for (let bits = 1; bits <= 16; bits++) {
+      const js = new KERNELS.distortion(), native = new Native();
+      for (const k of [js, native]) {
+        k.param('bits', bits); k.param('frequency', 11025); k.param('power', 6);
+      }
+      for (let type = 0; type < 12; type++) {
+        js.param('type', type); native.param('type', type);
+        const input = [stereo()];
+        for (let c = 0; c < 2; c++) for (let i = 0; i < N; i++) input[0][c][i] = Math.sin((i + type * N) * 0.137 + c);
+        const a = [stereo()], b = [stereo()];
+        assert.equal(native.process(input, b), js.process(input, a));
+        for (let c = 0; c < 2; c++) for (let i = 0; i < N; i++) {
+          assert.ok(Math.abs(a[0][c][i] - b[0][c][i]) < 1e-6, `${sr} Hz, type ${type}, ${bits} bits: native parity`);
+        }
+      }
+      native.destroy();
+    }
+  } finally {
+    globalThis.sampleRate = 48000;
+  }
+}
+{
+  const { dsp, graph, render } = dspTestHost({ kernels: WASM, heap });
+  const osc = dsp.create('osc'), fx = dsp.create('distortion');
+  osc.connect(fx); fx.connect(dsp.destination);
+  fx.param('type', 8); fx.param('power', 8); fx.param('frequency', 10000);
+  osc.send(noteOn(1, 60));
+  const { L } = render(10);
+  assert.ok(graph.prog, 'DISTORTION keeps the complete audio graph native');
+  assert.ok(L.some((v) => Math.abs(v) > 0.01));
+  dsp.panic();
+  assert.ok(render().L.every((v) => v === 0), 'native panic clears the distortion hold');
+  osc.destroy(); fx.destroy();
+}
+
+// VIBRATO: both waveforms, phase, BPM sync, live edits (waveform switch glide), gaps and panic.
+for (const wave of [0, 1]) {
+  compare('vibrato', {
+    input: signal,
+    gaps: (b) => b >= 120 && b < 130,
+    blocks: 400,
+    inHeap: wave === 1,
+    script: [
+      [0, param('wave', wave)], [0, param('phase', 0.3)], [0, param('freq', 7)], [0, param('amp', 80)],
+      [20, param('amp', 200)], [40, param('wave', 1 - wave)], [60, param('unit', 2)], [60, { type: 'bpm', value: 140 }],
+      [90, param('unit', 0)], [90, param('freq', 0.05)], [150, param('phase', 0.9)], [200, 'panic'], [260, param('amp', 0)],
+    ],
+  });
+}
+compare('vibrato', { blocks: 4 });
+{
+  const { dsp, graph, render } = dspTestHost({ kernels: WASM, heap });
+  const osc = dsp.create('osc'), fx = dsp.create('vibrato');
+  osc.connect(fx); fx.connect(dsp.destination);
+  fx.param('amp', 100);
+  osc.send(noteOn(1, 60));
+  const { L } = render(10);
+  assert.ok(graph.prog, 'VIBRATO keeps the complete audio graph native');
+  assert.ok(L.some((v) => Math.abs(v) > 0.01));
+  osc.send({ type: 'allOff' });
+  dsp.panic();
+  assert.ok(render().L.every((v) => v === 0), 'native panic empties the vibrato delay line');
+  osc.destroy(); fx.destroy();
+}
+
 // BUS, AMP, OUT: the small kernels of the native graph
 compare('bus', { input: signal, blocks: 4 });
 compare('bus', { blocks: 2 });

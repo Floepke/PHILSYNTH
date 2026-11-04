@@ -1,6 +1,7 @@
 // ENVELOPE: a drawn envelope that modulates one controller of every module it is cabled to
 // (control cable, like the ADSR). Notes trigger it (select it and play, send a clip to it, or
-// cable a MULTIMIDI into it).
+// cable a MULTIMIDI into it). A note starts the curve at its MODMIDI phase (MULTIMIDI Phase /
+// Random Phase): phase 0..1 is the position on the curve.
 //   Envelope Length: duration of the whole curve (0..10000 ms; 0 jumps straight to the end).
 //   Mode: Note ON Trigger (every note plays the curve once from its start, then holds the end
 //     value), Notes ON/OFF Loop (repeats while notes are held, stops when all are released; the
@@ -82,7 +83,7 @@ export default {
       params: () => modulatorParams(inst, def),
       setParam: (id, v) => node.param(id, v),
       setState: (curve) => node.send({ type: 'curve', curve }),
-      noteOn: (id) => node.send({ type: 'noteOn', id }),
+      noteOn: (id, _pitch, _velocity, phase = 0) => node.send({ type: 'noteOn', id, phase }),
       noteMod() {},
       noteOff: (id) => node.send({ type: 'noteOff', id }),
       allOff: () => node.send({ type: 'allOff' }),

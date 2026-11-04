@@ -17,7 +17,7 @@ const UNITS = ['Hz', '1/4', '1/8', '1/16', 'MIDI Pitch (use incoming MIDI pitch)
 const FRACTIONS = { 0.75: '3/4', 0.667: '2/3', 0.5: '1/2', 0.333: '1/3', 0.25: '1/4' };
 export const phaseLabel = (v) => `${Math.round(v * 100)} % (${Math.round(v * 360)}°)`;
 
-function formatFreq(v, values) {
+export function formatFreq(v, values) {
   const unit = values?.unit | 0;
   if (unit === MIDI_UNIT) return 'MIDI pitch (ignored)';
   if (!unit) return `${v < 1 ? v.toFixed(3) : v < 10 ? v.toFixed(2) : v.toFixed(1)} Hz`;

@@ -176,7 +176,7 @@ export const DOCS = {
       overtone: 'Plays the n-th overtone of the harmonic series instead of the note: (n + 1) × its frequency. 0 = the fundamental, 1 = octave, 2 = octave + fifth, 3 = two octaves … up to 128.',
       velSense: '<i>On</i> (default): the played velocity is passed on, scaled by <b>Velocity</b>. <i>Off (fixed)</i>: velocity detection is off, every note gets exactly the <b>Velocity</b> value however hard it was played (Velocity Drift still applies).',
       routeMode: 'Which MIDI cables each note goes out of: <i>Sent to All</i> (every cable), <i>Round Robin</i> (the next cable in turn, in the order they were made), <i>Random</i> (one random cable), <i>Random (no repeat)</i> (random, never the same cable twice in a row).',
-      phase: 'The point of the waveform cycle every note starts at (0–100 % = 0–360°), sent with the note to OSCs and LFOs. <b>Random Phase</b> adds a random offset on top.',
+      phase: 'The point of the waveform cycle every note starts at (0–100 % = 0–360°), sent with the note to OSCs and LFOs; an ENVELOPE starts its curve at that position. <b>Random Phase</b> adds a random offset on top.',
     },
     notes: [
       'Notes arrive when it is selected and the MIDI keyboard is played, from a clip sent to it, or from another MULTIMIDI cabled into it. <kbd>Shift</kbd> + drag from it to an OSC, SAMPLER, Patch, ADSR or another MIDI module to send them on.',
@@ -250,6 +250,22 @@ export const DOCS = {
     notes: ['<b>Curve editor</b> (below the controllers): the horizontal axis is the input level, the vertical axis the output level. The curve is saved with the project.'],
   },
 
+  DISTORTION: {
+    summary: 'Distortion with twelve transfer types, input gain, bit crushing and sample-rate reduction. Both stereo channels are shaped independently, with a shared sample-and-hold clock.',
+    params: {
+      type: 'Original passes the amplified signal unchanged. Clipping limits it to ±1. Foldback repeatedly reflects at ±1; Foldback2 folds twice as fast beyond ±1; Foldback3 folds magnitude between 0 and 1 without reversing polarity. Overflow wraps magnitude to 0 beyond 1; Overflow2 wraps between −1 and +1. Saturation + foldback uses 1.5x − 0.5x³ (limited to ±1); the sin variant uses sin(x). Saturation3 uses sign(x) × (1 − (1 − min(|x|, 1))²); Saturation4 uses x / sqrt(1 + x²); Saturation5 uses x / (1 + |x|).',
+      power: 'Input gain before shaping, 0–100×: 1× leaves the level unchanged, higher values push the signal further into distortion, 0× mutes it. Changes are smoothed over about 10 ms.',
+      bits: 'Signed PCM bit crushing after shaping, 1–16 bits. 16 bypasses quantization and keeps the engine’s floating-point precision. Lower settings quantize and clip to the signed PCM range; 1 bit has levels −1 and 0 and can introduce DC.',
+      frequency: 'Sample-and-hold updates per second, 1–48000 Hz. Lower values hold each processed sample longer for a lo-fi effect. 0 (Off) disables sample-rate reduction. Values at or above the actual audio engine sample rate process every sample; this does not change the engine sample rate.',
+    },
+    notes: [
+      'Cable an audio source → <b>DISTORTION</b> → Output. Defaults: Clipping, Power 1×, Bit Depth 16, Freq Hz 48000.',
+      '<b>Type chart</b> (below the controllers): every row is one Type, fed by a sine that grows from 0.25× to 4× from left to right (one cycle per band). The selected Type is highlighted, the dashed line marks the current Power (clamped to the chart range) and the current Bit Depth is applied. Click a row to select that Type.',
+      'The types follow the supplied distortion chart; the fold and wrap variants are defined above, not a claim of bit-identical emulation of another synthesizer.',
+      'Shaping, bit crushing and sample-rate reduction deliberately allow aliasing. Use a FILTER afterwards to tame harshness and a DC BLOCKER if the output has DC offset. Original can exceed ±1 when amplified.',
+    ],
+  },
+
   AMP: {
     summary: 'Amplifier: sets the level, the stereo position and the polarity of the audio. Mono input is spread to both channels.',
     params: {
@@ -309,6 +325,21 @@ export const DOCS = {
       cutoff: 'Cutoff frequency of the echo filter, 20 Hz–20 kHz.',
     },
     notes: [],
+  },
+
+  VIBRATO: {
+    summary: 'Audio pitch vibrato: a short, constantly changing delay makes the pitch of any audio go up and down. Audio in, audio out; no MIDI.',
+    params: {
+      wave: 'Shape the pitch follows. <i>Sine</i> sweeps smoothly and slows down at the top and bottom. <i>Triangle</i> moves the pitch at a constant speed and turns sharply at the top and bottom.',
+      unit: '<i>Hz</i>: Frequency is in cycles per second. <i>1/4, 1/8, 1/16</i>: Frequency picks a length in note values, synced to the BPM of this patch\'s Output, like the LFO.',
+      freq: 'Vibrato rate, 0.01–50 Hz (or a synced note length with Freq Unit).',
+      phase: 'Where in its cycle the vibrato starts (0–100 % = 0–360°; 0 % = centre pitch, rising; 25 % = top). Applied when the project loads and after a panic (<kbd>\'</kbd> twice: stop, then panic), so a song always starts the vibrato at the same point. Turning it while running does not jump.',
+      amp: 'Pitch depth, 0–200 cents up and about as much down (100 cents = one semitone). The depth stays the same at any Frequency.',
+    },
+    notes: [
+      'A vibrato delays the sound slightly: on average half of its delay swing. At the default 5 Hz and ±25 cents that is about 0.5 ms; ±100 cents at 1 Hz is about 10 ms. Very slow, deep settings would need a swing over 2 s; there the depth is limited.',
+      'Changes of Amp, Frequency, BPM and Waveform glide over about 50 ms, so they do not click.',
+    ],
   },
 
   MODULATOR: {
@@ -384,6 +415,7 @@ export const DOCS = {
     },
     notes: [
       '<b>Curve editor</b> (below the controllers): left to right is time over Envelope Length, bottom = Out Min, top = Out Max. While the envelope plays, a white dot follows the curve.',
+      '<b>Start phase</b>: a note starts the curve at its phase (from a MULTIMIDI\'s Phase / Random Phase): 0 % = the start of the curve, 50 % = halfway. Notes without a phase start at the beginning. In the loop modes only the note that starts the loop sets it.',
       MOD_CABLE, NOTES_IN,
     ],
   },

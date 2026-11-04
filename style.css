@@ -264,6 +264,7 @@ body.panel-collapsed #panel { visibility: hidden; }
 .curve-info { margin-top: 4px; min-height: 16px; color: var(--text-faint); font: 500 11px var(--mono); }
 .wave-view { margin-top: 10px; height: 96px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); overflow: hidden; }
 .wave-view canvas { display: block; width: 100%; height: 100%; }
+.dist-view canvas { cursor: pointer; }
 .adsr-view { margin-top: 6px; height: 84px; }
 .adsr-view canvas { touch-action: none; }
 .adsr-view.adsr-solo { margin-top: 10px; height: 96px; }
