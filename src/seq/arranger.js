@@ -44,17 +44,15 @@ import {
   meter, barLines, barRound, barLength, removeSig, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource, setLoop,
   canConsolidate, consolidateClips, splitClip, laneMuted, laneSoloed, laneSilent, clipSilent, setLaneFlag, laneY, isIdea, ideaY,
 } from '../song.js';
-import { createSurface, capture, startPan, onWheel, clamp, snapBands, rightHold, edgeScroll, MUTE_COLOR } from './surface.js';
+import {
+  createSurface, capture, startPan, onWheel, clamp, snapBands, rightHold, edgeScroll, MUTE_COLOR,
+  SB, SB_TRACK, scrollThumb, scrollValue, paintThumb, roundRect,
+} from './surface.js';
 import { CLIP_H, findClipPosition, clipResizeBounds } from './clipplacement.js';
 import { showMenu, shortcut } from './menu.js';
 
 const SIG_H = 16; // time signature row on top of the ruler
 const RULER = 38; // signature row and bar numbers
-const SB = 32; // scrollbars below and right of the time area, drawn like the controller panel's
-const SB_PAD = 8; // thumb inset
-const SB_MIN = 48; // shortest thumb
-const SB_TRACK = '#151517'; // --surface-2
-const SB_THUMB = ['#2a2a2e', '#4a4a52', '#5a5a64']; // --surface-4, hover, dragged
 const FAR = 1e7; // free camera: px it may go from time zero / the first lane
 const MIN_LANES = 16; // the lanes (and bars) that count as content even when empty
 const IDEA_BG = '#121016';
@@ -239,12 +237,8 @@ export function createArranger(host, ctx) {
     const make = (vertical) => {
       const [lo, hi] = vertical ? r.y : r.x;
       const a = vertical ? RULER : x0;
-      const len = Math.max(0, (vertical ? bottom() : right()) - a);
-      const page = vertical ? r.vh : r.vw;
-      const thumb = Math.min(len, Math.max(SB_MIN, (len * page) / (hi - lo + page)));
-      const v = vertical ? view.sy : view.sx;
-      const pos = a + (hi > lo ? (clamp(v, lo, hi) - lo) / (hi - lo) : 0) * (len - thumb);
-      return { vertical, lo, hi, a, len, thumb, pos };
+      const len = (vertical ? bottom() : right()) - a;
+      return { vertical, ...scrollThumb(a, len, vertical ? r.vh : r.vw, lo, hi, vertical ? view.sy : view.sx) };
     };
     return { h: make(false), v: make(true) };
   }
@@ -264,8 +258,7 @@ export function createArranger(host, ctx) {
     const inside = along(p) >= b.pos && along(p) <= b.pos + b.thumb;
     const offset = inside ? along(p) - b.pos : b.thumb / 2;
     const scrollTo = (q) => {
-      const f = b.len > b.thumb ? clamp((along(q) - offset - b.a) / (b.len - b.thumb), 0, 1) : 0;
-      view[b.vertical ? 'sy' : 'sx'] = b.lo + f * (b.hi - b.lo);
+      view[b.vertical ? 'sy' : 'sx'] = scrollValue(b, along(q) - offset);
       s.redraw();
     };
     sbActive = which;
@@ -286,12 +279,7 @@ export function createArranger(host, ctx) {
     const bars = scrollbars();
     for (const key of ['h', 'v']) {
       const b = bars[key];
-      g.fillStyle = SB_THUMB[sbActive === key ? 2 : sbHover === key ? 1 : 0];
-      const th = SB - 2 * SB_PAD;
-      const tl = Math.max(th, b.thumb - 2 * SB_PAD);
-      if (b.vertical) roundRect(g, w - SB + SB_PAD, b.pos + SB_PAD, th, tl, th / 2);
-      else roundRect(g, b.pos + SB_PAD, h - SB + SB_PAD, tl, th, th / 2);
-      g.fill();
+      paintThumb(g, b, b.vertical, b.vertical ? w - SB : h - SB, sbActive === key ? 2 : sbHover === key ? 1 : 0);
     }
   }
 
@@ -1172,15 +1160,4 @@ export function createArranger(host, ctx) {
       s.redraw();
     },
   };
-}
-
-function roundRect(g, x, y, w, h, r) {
-  r = Math.min(r, w / 2, h / 2);
-  g.beginPath();
-  g.moveTo(x + r, y);
-  g.arcTo(x + w, y, x + w, y + h, r);
-  g.arcTo(x + w, y + h, x, y + h, r);
-  g.arcTo(x, y + h, x, y, r);
-  g.arcTo(x, y, x + w, y, r);
-  g.closePath();
 }

@@ -30,7 +30,8 @@ const VEL_SNAP = 16; // velocity snapping levels: 0, 1/16 .. 1
 
 // o: { cv, local(e), clip(), selected() -> Set, setSelected(Set), yOf(t), timeAt(y), bottom(), ppq(), song(),
 //      color(clip), changed(), redraw(), menu(opts), snapVelocity(), toggleSnapVelocity(), width()?,
-//      edgeScroll(onScroll)? (an edgeScroll() that scrolls the shared time axis) }
+//      edgeScroll(onScroll)? (an edgeScroll() that scrolls the shared time axis),
+//      labelTop()? (top of the label strip, default bottom()) }
 export function createVelocityStrip(o) {
   let group = null; // { notes, points (absolute clip times), start, end, sig }
   let hover = null; // { kind: 'point', i } | { kind: 'note', note }
@@ -187,16 +188,18 @@ export function createVelocityStrip(o) {
       }
     }
     g.restore();
-    // label strip under the velocity area (the keyboard strip of the roll)
+    // label strip under the velocity area (the keyboard strip of the roll; below the roll's
+    // horizontal scrollbar row when that shows)
+    const labelTop = Math.max(bottom, o.labelTop?.() ?? bottom);
     g.fillStyle = '#292b31';
-    g.fillRect(0, bottom, W(), h - bottom);
+    g.fillRect(0, labelTop, W(), h - labelTop);
     g.fillStyle = '#9a9ea8';
     g.font = '600 9px ui-monospace, monospace';
     g.textBaseline = 'middle';
     g.textAlign = 'center';
     const p = drag ? group?.points[drag.i] : hover?.kind === 'point' ? group?.points[hover.i] : null;
     const v = drag?.note ? drag.note.vel : p ? p.v : hover?.kind === 'note' ? hover.note.vel : null;
-    g.fillText(v === null ? 'VELOCITY' : `VEL ${Math.round(v * 127)}`, W() / 2, bottom + (h - bottom) / 2);
+    g.fillText(v === null ? 'VELOCITY' : `VEL ${Math.round(v * 127)}`, W() / 2, labelTop + (h - labelTop) / 2);
     g.strokeStyle = '#34363e';
     g.lineWidth = 2;
     g.beginPath(); g.moveTo(W(), 0); g.lineTo(W(), h); g.stroke();

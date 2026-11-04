@@ -90,7 +90,8 @@ const holdRightClick = (cv, x, y) => {
   }
 };
 const host = () => ({ clientWidth: 480, clientHeight: 400, append() {} });
-const ROLL_WIDTH = 120 + 128 * 14;
+const ROLL_SB = 32; // the piano roll's vertical scrollbar, right of the keys
+const ROLL_WIDTH = 120 + 128 * 14 + ROLL_SB;
 const note = (pitch, start, length = 1, vel = 0.8) => ({ pitch, start, length, vel });
 
 function setup({ snapVelocity = false } = {}) {
@@ -1437,7 +1438,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   roll.redraw(); flush();
   const [x, y] = bigM()[0];
   const LEFT = 84 + 36; // velocity strip + ruler
-  assert.ok(Math.abs(x - (LEFT + (rollHost.clientWidth - LEFT) / 2)) < 1, 'centred horizontally');
+  assert.ok(Math.abs(x - (LEFT + (rollHost.clientWidth - ROLL_SB - LEFT) / 2)) < 1, 'centred horizontally');
   assert.ok(Math.abs(y - (400 - 24) / 2) < 1, 'centred vertically');
   roll.setView({ sy: 2000 }); rc.drawing.length = 0; roll.redraw(); flush();
   assert.deepEqual(bigM()[0], [x, y], 'stays centred while scrolling');
@@ -2562,7 +2563,7 @@ for (const width of [240, 480, 1000, 1912, 3000]) {
   cv.drawing.length = 0;
   roll.setView({ sx: 4676, kw: 40 });
   flush();
-  const kw = (width - 120) / 128;
+  const kw = (width - ROLL_SB - 120) / 128;
   const left = 120 + 22.5 * kw;
   const right = 120 + 106.5 * kw;
   const bands = cv.drawing.filter(([op, x, , , , color]) => op === 'fillRect' && color === 'rgba(0, 0, 0, 0.10)' && x >= 120);
@@ -2589,7 +2590,7 @@ for (const width of [300, 480, 900, 1912]) {
   rollHost.clientWidth = width;
   rollHost.resize();
   flush();
-  const kw = (width - 120) / 128;
+  const kw = (width - ROLL_SB - 120) / 128;
   const center = (pitch) => 120 + (pitch + 0.5) * kw;
   for (let pitch = 0; pitch < 128; pitch++) {
     cv.drawing.length = 0;
@@ -2616,6 +2617,102 @@ for (const width of [300, 480, 900, 1912]) {
   assert.equal(clip.notes.length, 126, 'audition never inserts notes');
 }
 
+// A vertical scrollbar (the TimeLine's look) right of the note grid scrolls the clip.
+{
+  const { clip, roll, changes } = setup();
+  const cv = roll.surface.cv;
+  const x = ROLL_WIDTH - ROLL_SB / 2;
+  const bottom = 400 - 24; // above the keyboard
+  const max = (clip.length + 4) * 48 - bottom; // a bar past the clip end
+  cv.drawing.length = 0;
+  roll.redraw(); flush();
+  assert.ok(cv.drawing.some(([op, x0, y0, w, h, color]) => op === 'fillRect' && x0 === ROLL_WIDTH - ROLL_SB && y0 === 0
+    && w === ROLL_SB && h === bottom && color === '#151517'), 'the track spans the note grid height');
+  roll.setView({ sy: 0 }); flush();
+  click(cv, x, bottom - 4); // the track below the thumb: jump to the end
+  assert.equal(roll.getView().sy, max);
+  drag(cv, x, bottom - 20, x, -500); // drag the thumb all the way up
+  assert.equal(roll.getView().sy, -128, 'back to the margin above the clip start');
+  click(cv, x, bottom + 10); // the dead corner beside the keyboard
+  assert.equal(clip.notes.length, 0, 'the scrollbar never inserts notes');
+  assert.equal(changes(), 0, 'scrolling is no undo step');
+  const keys = cv.drawing.filter(([op, , y, , h]) => op === 'fillRect' && y === 377 && h === 22);
+  assert.ok(keys.every(([, kx, , kw]) => kx + kw <= ROLL_WIDTH - ROLL_SB), 'the keyboard ends at the scrollbar');
+}
+
+// Shift + wheel zooms pitch (stave and keyboard) around the pointer; zoomed in, a horizontal
+// scrollbar shows above the keys and middle-drag pans sideways. The zoom is not saved.
+{
+  const { clip, roll, ctx } = setup();
+  const cv = roll.surface.cv;
+  const played = [];
+  const on = ctx.preview.on;
+  ctx.preview.on = (c, pitch) => { played.push(pitch); return on(c, pitch); };
+  clip.notes.push(note(60, 1), note(61, 1));
+  const heads = () => {
+    cv.drawing.length = 0;
+    roll.redraw(); flush();
+    return cv.drawing.filter(([op]) => op === 'translate').map((op) => op[1]).slice(0, 2); // the notes, not the hover ghost
+  };
+  const track = (y) => cv.drawing.some(([op, x0, y0, w, h, color]) => op === 'fillRect' && x0 === 0 && y0 === y && h === ROLL_SB && color === '#151517');
+  const [a0, b0] = heads();
+  assert.equal(b0 - a0, 14, 'unzoomed: one 14 px column per key');
+  assert.ok(!track(400 - 24 - ROLL_SB), 'no horizontal scrollbar unzoomed');
+  for (let i = 0; i < 10; i++) fire(cv, 'wheel', { clientX: nx(60), clientY: 100, deltaX: 0, deltaY: -100, deltaMode: 0, shiftKey: true });
+  const [a1, b1] = heads();
+  assert.ok(Math.abs(a1 - a0) < 1e-6, 'the key under the pointer stays put');
+  assert.ok(b1 - a1 > 50, `keys widen (${b1 - a1} px)`);
+  assert.equal(roll.getView().sy, 0, 'Shift + wheel does not scroll time');
+  const sbY = 400 - 24 - ROLL_SB;
+  assert.ok(track(sbY), 'the horizontal scrollbar shows just above the keyboard');
+  const bodies = cv.drawing.filter(([op]) => op === 'roundRect');
+  assert.ok(bodies.length === 2 && bodies.every((r) => r[3] <= 24 + 1), 'notes stop growing at 24 px');
+  // keys and stave stay aligned: click the keyboard and the stave under the same key
+  click(cv, b1, 390);
+  assert.deepEqual(played, [61], 'the zoomed key under the pointer plays');
+  click(cv, b1, ny(6));
+  assert.deepEqual(clip.notes.at(-1).pitch, 61, 'a note lands in the zoomed column under the pointer');
+  clip.notes.pop();
+  // middle-drag pans sideways (and in time)
+  drag(cv, 600, 100, 700, 100, { button: 1 });
+  const [a2] = heads();
+  assert.ok(Math.abs(a2 - (a1 + 100)) < 1e-6, 'middle-drag pans the zoomed keys');
+  // the horizontal scrollbar: click the track at its right end, the view jumps to the highest keys
+  click(cv, ROLL_WIDTH - ROLL_SB - 2, sbY + 16);
+  click(cv, ROLL_WIDTH - ROLL_SB - 4, ny(6));
+  assert.equal(clip.notes.at(-1).pitch, 127, 'scrolled to the right end of the keys');
+  clip.notes.pop();
+  assert.equal(clip.notes.length, 2, 'the scrollbar inserts no notes');
+  assert.ok(!('hz' in roll.getView()) && !('hx' in roll.getView()), 'the pitch zoom is not saved');
+  for (let i = 0; i < 40; i++) fire(cv, 'wheel', { clientX: 600, clientY: 100, deltaX: 0, deltaY: 100, deltaMode: 0, shiftKey: true });
+  const [a3, b3] = heads();
+  assert.deepEqual([a3, b3], [a0, b0], 'zoomed fully out: back to all keys');
+  assert.ok(!track(sbY), 'the horizontal scrollbar hides again');
+  for (let i = 0; i < 10; i++) fire(cv, 'wheel', { clientX: nx(60), clientY: 100, deltaX: 0, deltaY: -100, deltaMode: 0, shiftKey: true });
+  roll.setView({ sy: 0, ppq: 48 });
+  assert.deepEqual(heads(), [a0, b0], 'a loaded view starts unzoomed');
+}
+
+// When zoomed in, moving a note past the side edge scrolls the keys along.
+{
+  const { clip, roll } = setup();
+  const cv = roll.surface.cv;
+  clip.notes.push(note(60, 1));
+  for (let i = 0; i < 15; i++) fire(cv, 'wheel', { clientX: nx(60), clientY: 100, deltaX: 0, deltaY: -100, deltaMode: 0, shiftKey: true });
+  mock.timers.enable({ apis: ['setInterval'] });
+  try {
+    const x = nx(60);
+    point(cv, 'pointerdown', x, ny(1) + 3, { buttons: 1 });
+    point(cv, 'pointermove', ROLL_WIDTH - ROLL_SB - 2, ny(1) + 3, { buttons: 1 });
+    const p0 = clip.notes[0].pitch;
+    mock.timers.tick(2000);
+    assert.ok(clip.notes[0].pitch > p0, `the note keeps moving up while the keys scroll (${p0} → ${clip.notes[0].pitch})`);
+    point(cv, 'pointerup', ROLL_WIDTH - ROLL_SB - 2, ny(1) + 3);
+  } finally {
+    mock.timers.reset();
+  }
+}
+
 // The bar ruler is a divider: dragging it widens the velocity strip and the note grid scales.
 {
   const { clip, roll, ctx, changes } = setup();
@@ -2632,7 +2729,7 @@ for (const width of [300, 480, 900, 1912]) {
   assert.equal(roll.getView().velW, 84, 'default width');
   drag(cv, 100, 50, 200, 50);
   assert.equal(roll.getView().velW, 184, 'dragged 100 px wider');
-  const kw = (ROLL_WIDTH - 220) / 128;
+  const kw = (ROLL_WIDTH - ROLL_SB - 220) / 128;
   assert.deepEqual(centers(), [220 + kw / 2, 220 + 127.5 * kw], 'the grid scales into the rest');
   assert.equal(viewChanges, 1, 'saved as a view change');
   assert.equal(changes(), 0, 'no undo step');
@@ -2663,7 +2760,7 @@ for (const width of [300, 480, 900, 1912]) {
     rollHost.clientWidth = width;
     rollHost.resize();
     const centers = cv.drawing.filter(([op]) => op === 'translate').map((op) => op[1]);
-    const kw = (width - 120) / 128;
+    const kw = (width - ROLL_SB - 120) / 128;
     assert.deepEqual(centers, [120 + kw / 2, 120 + 127.5 * kw]);
     roll.setView({ sx: 4000, kw: 40, sy: 0, ppq: 48 });
     flush();

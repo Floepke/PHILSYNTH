@@ -118,6 +118,43 @@ export function edgeScroll({ area, scroll, onScroll, vertical = true, edge = EDG
   };
 }
 
+// Scrollbars of the TimeLine and the piano roll, drawn like the controller panel's.
+export const SB = 32; // bar thickness
+export const SB_PAD = 8; // thumb inset
+export const SB_MIN = 48; // shortest thumb
+export const SB_TRACK = '#151517'; // --surface-2
+export const SB_THUMB = ['#2a2a2e', '#4a4a52', '#5a5a64']; // --surface-4, hover, dragged
+// Track from a over len px for the scroll values lo..hi (page = the visible extent, v = now):
+// -> { a, len, lo, hi, thumb (px long), pos (px, start of the thumb) }
+export function scrollThumb(a, len, page, lo, hi, v) {
+  len = Math.max(0, len);
+  const thumb = Math.min(len, Math.max(SB_MIN, (len * page) / (hi - lo + page)));
+  const pos = a + (hi > lo ? (clamp(v, lo, hi) - lo) / (hi - lo) : 0) * (len - thumb);
+  return { a, len, lo, hi, thumb, pos };
+}
+// the scroll value that puts the thumb's start at track coordinate `at`
+export const scrollValue = (b, at) => b.lo + (b.len > b.thumb ? clamp((at - b.a) / (b.len - b.thumb), 0, 1) : 0) * (b.hi - b.lo);
+// the rounded thumb of bar b in the track whose cross axis starts at `across`; state 0 idle, 1 hover, 2 dragged
+export function paintThumb(g, b, vertical, across, state) {
+  g.fillStyle = SB_THUMB[state];
+  const th = SB - 2 * SB_PAD;
+  const tl = Math.max(th, b.thumb - 2 * SB_PAD);
+  if (vertical) roundRect(g, across + SB_PAD, b.pos + SB_PAD, th, tl, th / 2);
+  else roundRect(g, b.pos + SB_PAD, across + SB_PAD, tl, th, th / 2);
+  g.fill();
+}
+
+export function roundRect(g, x, y, w, h, r) {
+  r = Math.min(r, w / 2, h / 2);
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r);
+  g.arcTo(x, y, x + w, y, r);
+  g.closePath();
+}
+
 export const RIGHT_HOLD_MS = 250;
 export const RIGHT_HOLD_SLOP = 5; // px the pointer may move before a right-button hold is cancelled
 

@@ -125,7 +125,8 @@ kbd {
 /* ---------- main menu button: fixed in the top-right corner, above everything but menus and dialogs ---------- */
 .brand {
   position: fixed;
-  right: calc(var(--window-frame) + 6px);
+  /* beside the piano roll's 32 px scrollbar (top right), not over it */
+  right: calc(var(--window-frame) + 32px + 6px);
   top: calc(var(--window-frame) + 6px);
   z-index: 900;
   display: flex;

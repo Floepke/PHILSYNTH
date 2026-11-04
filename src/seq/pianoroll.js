@@ -6,7 +6,11 @@
 // The keyboard sits below the stave. Noteheads are left-tilted ovals, white/black by key.
 // Keys held on the MIDI device or computer keyboard (ctx.heldKeys) light up blue (the selection colour).
 // During playback the keys of the clip's notes under the playhead light up in the clip's note colour.
-// All 128 MIDI pitches fit the available width; only time can be scrolled / zoomed.
+// Unzoomed, all 128 MIDI pitches fit the available width. Ctrl/Cmd + wheel zooms time, Shift + wheel
+// zooms pitch (the stave and the keyboard together, around the pointer) for finer micropitch work;
+// zoomed in, a horizontal scrollbar shows between the stave and the keyboard and middle-drag pans
+// both ways. Noteheads and bodies grow with the pitch zoom only up to NOTE_MAX_W. A vertical
+// scrollbar right of the note grid (the TimeLine's look) spans the clip; the keyboard ends beside it.
 //   click / drag the keyboard  play pitches on the live MIDI module (red MIDI in the patcher) without editing notes
 //   click / drag on empty space  insert a note (last used length), dragging beyond 10 px sets its duration
 //   drag a note's coloured body  set the duration: the end jumps to the pointer, snapped to the grid
@@ -46,12 +50,16 @@
 // scales to the rest), double-click it to reset. The width is saved with the project view.
 // Free timing bypasses time snapping; the visual grid (base note ÷ divider) stays visible.
 import { basePitch, centsOf, bendPolyline, notePitchAt, BEND_MAX, withCents, centsLabel, isBlack, inPiano, clipSilent, isIdea, snapStep, pianoTimeStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, clean, meter, barLines, beatLines, barLength } from '../song.js';
-import { createSurface, capture, startPan, onWheel, clamp, snapBands, mutedMark, edgeScroll, RIGHT_HOLD_MS, RIGHT_HOLD_SLOP } from './surface.js';
+import {
+  createSurface, capture, startPan, onWheel, clamp, snapBands, mutedMark, edgeScroll, RIGHT_HOLD_MS, RIGHT_HOLD_SLOP,
+  SB, SB_TRACK, scrollThumb, scrollValue, paintThumb,
+} from './surface.js';
 import { createVelocityStrip, VEL_W } from './velocity.js';
 import { clipResizeBounds } from './clipplacement.js';
 import { showMenu, shortcut } from './menu.js';
 import { doublePress } from '../doublepress.js';
 import { NEW_POINT_ROUND } from '../curve.js';
+import { wheelNotches } from '../params.js';
 
 const CENTRAL = [61, 63]; // C#4 and D#4, the black keys next to middle C
 const GRID_LOW = 22; // A#0 (American notation)
@@ -78,6 +86,9 @@ const MICRO_PX = 4; // px of sideways Shift-drag per cent of micropitch
 const SLIDER_W = 160; // px, the micropitch slider (±50 cents)
 const BEND_HIT = 7; // px, grab radius of a bend point
 const DURATION_DRAG_THRESHOLD = 10;
+const HZ_MAX = 24; // pitch (x) zoom: 1 = all 128 keys fit
+const HZ_STEP = 1.15; // per wheel notch
+const NOTE_MAX_W = 24; // px, notes stop growing with the pitch zoom (unless unzoomed keys are wider)
 const ROUND_STEP = 0.05; // rounding change per wheel step on a bend point
 
 // ctx: { song(), clip(), color(clip), preview: { on(clip, pitch) -> handle, key(pitch) -> handle,
@@ -85,7 +96,7 @@ const ROUND_STEP = 0.05; // rounding change per wheel step on a bend point
 //        menu?(opts) (context menu, default showMenu), heldKeys?() -> Set of pitches held on the live
 //        inputs (shown blue on the keyboard; call redraw() when it changes) }
 export function createPianoRoll(host, ctx) {
-  const view = { sy: -TOP_MARGIN, ppq: 48, snapVelocity: true, velW: VEL_W };
+  const view = { sy: -TOP_MARGIN, ppq: 48, snapVelocity: true, velW: VEL_W, hz: 1, hx: 0 }; // hz / hx: pitch zoom, px scrolled sideways
   let hover = null; // { pitch, t } where a click would insert a note
   let endHover = false; // the pointer is on the clip's end line
   let hoverPitch = null;
@@ -96,6 +107,10 @@ export function createPianoRoll(host, ctx) {
   let clipboard = [];
   let lastLength = null; // length of the last drawn / resized note: new notes get it
   let hoverBend = null; // { note, i }: the bend point under the pointer
+  let sbHover = false; // the pointer is on the scrollbar (right of the note grid)
+  let sbActive = false; // its thumb is being dragged
+  let hbHover = false; // the same for the horizontal scrollbar (zoomed in)
+  let hbActive = false;
   const presses = doublePress(); // double-click a note body = down-up-DOWN: the new bend point drags at once
   const menu = (opts) => (ctx.menu ?? showMenu)(opts);
 
@@ -104,27 +119,36 @@ export function createPianoRoll(host, ctx) {
   const velW = () => clamp(view.velW, VEL_MIN, Math.max(VEL_MIN, s.w * VEL_MAX_SHARE));
   const gridX = () => velW() + GUTTER; // left edge of the note grid
   const inRuler = (x, y) => x >= velW() && x < gridX() && y >= 0 && y < s.h;
-  const keyWidth = () => Math.max(0, s.w - gridX()) / (PITCH_MAX + 1);
-  const overlap = () => Math.min(0.5, keyWidth() * 0.05);
+  const rollRight = () => Math.max(gridX(), s.w - SB); // the note grid and keyboard end at the scrollbar
+  const visW = () => Math.max(0, rollRight() - gridX());
+  const baseKeyWidth = () => visW() / (PITCH_MAX + 1); // unzoomed: all keys fit
+  const keyWidth = () => baseKeyWidth() * view.hz; // a pitch column
+  const zoomedX = () => view.hz > 1 + 1e-9;
+  const noteW = () => Math.min(keyWidth(), Math.max(baseKeyWidth(), NOTE_MAX_W)); // notehead / body width
+  const overlap = () => Math.min(0.5, noteW() * 0.05);
   const dragThreshold = () => Math.min(3, keyWidth() * 0.4);
-  const xOf = (p) => gridX() + p * keyWidth();
+  const xOf = (p) => gridX() + p * keyWidth() - view.hx;
   const yOf = (t) => t * view.ppq - view.sy;
   const keyX = (n) => xOf(basePitch(n.pitch)); // a note's column: the key its pitch belongs to
   // x of a (fractional) pitch: whole pitches sit in the middle of their column, cents lean sideways
   const centerX = (p) => xOf(p) + keyWidth() / 2;
   const headX = (n) => centerX(n.pitch); // leans by the tuning
   const bodyX = (n, t) => centerX(notePitchAt(n, t)); // middle of the note body t quarters after its start
-  const pitchAt = (x) => keyWidth() > 0 ? clamp(Math.floor((x - gridX()) / keyWidth()), 0, PITCH_MAX) : 0;
-  const pitchFromX = (x) => keyWidth() > 0 ? clamp((x - gridX()) / keyWidth() - 0.5, 0, PITCH_MAX) : 0; // continuous
+  const pitchAt = (x) => keyWidth() > 0 ? clamp(Math.floor((x - gridX() + view.hx) / keyWidth()), 0, PITCH_MAX) : 0;
+  const pitchFromX = (x) => keyWidth() > 0 ? clamp((x - gridX() + view.hx) / keyWidth() - 0.5, 0, PITCH_MAX) : 0; // continuous
+  const clampX = (x) => clamp(x, gridX(), Math.max(gridX(), rollRight() - 1)); // drags past the side edges stay at the edge
   const bendXY = (n, b) => ({ x: centerX(clamp(n.pitch + b.d, 0, PITCH_MAX)), y: yOf(n.start + b.t) });
   const timeAt = (y) => (y + view.sy) / view.ppq;
-  const gridBottom = () => Math.max(0, s.h - KEYBOARD);
-  const inGrid = (x, y) => x >= gridX() && x < s.w && y >= 0 && y < gridBottom();
-  const inKeyboard = (x, y) => x >= gridX() && x < s.w && y >= gridBottom() && y < s.h;
+  const keyTop = () => Math.max(0, s.h - KEYBOARD);
+  const gridBottom = () => Math.max(0, keyTop() - (zoomedX() ? SB : 0)); // zoomed: the horizontal scrollbar sits above the keys
+  const inGrid = (x, y) => x >= gridX() && x < rollRight() && y >= 0 && y < gridBottom();
+  const inKeyboard = (x, y) => x >= gridX() && x < rollRight() && y >= keyTop() && y < s.h;
+  const onScrollbar = (x, y) => x >= rollRight() && y >= 0 && y < gridBottom();
+  const onHScrollbar = (x, y) => zoomedX() && x >= gridX() && x < rollRight() && y >= gridBottom() && y < keyTop();
   // the keys play the live MIDI module (preview.key) even without a clip; else the clip's target
   const keysPlay = () => !!(ctx.preview.key || ctx.clip());
   const headSize = () => {
-    const rx = (keyWidth() - overlap()) / (2 * Math.hypot(Math.cos(TILT), 0.72 * Math.sin(TILT)));
+    const rx = (noteW() - overlap()) / (2 * Math.hypot(Math.cos(TILT), 0.72 * Math.sin(TILT)));
     const ry = rx * 0.72;
     return { rx, ry, height: Math.hypot(rx * Math.sin(TILT), ry * Math.cos(TILT)) * HEAD_STRETCH + 0.75 };
   };
@@ -141,6 +165,7 @@ export function createPianoRoll(host, ctx) {
     yOf,
     timeAt,
     bottom: gridBottom,
+    labelTop: keyTop,
     ppq: () => view.ppq,
     edgeScroll: (onScroll) => gridScroll(onScroll),
     song: ctx.song,
@@ -174,14 +199,74 @@ export function createPianoRoll(host, ctx) {
     // while the clip end is dragged the scroll range never shrinks: a shortened clip would pull the
     // view up under the pointer, which would shorten it again on the next move
     const end = clip ? Math.max(clip.length, ...clip.notes.map((n) => n.start + n.length), drag?.kind === 'clipEnd' ? drag.extent : 0) : BAR;
-    view.sy = clamp(view.sy, -TOP_MARGIN, Math.max(0, (end + BAR) * view.ppq - gridBottom()));
+    view.sy = clamp(view.sy, -TOP_MARGIN, scrollMax(end));
+    limitX();
+  }
+  function limitX() {
+    view.hz = clamp(Number.isFinite(view.hz) ? view.hz : 1, 1, HZ_MAX);
+    view.hx = clamp(Number.isFinite(view.hx) ? view.hx : 0, 0, (view.hz - 1) * visW());
+  }
+  // Shift + wheel: zoom pitch around local x (+ notches = in)
+  function zoomX(notches, x) {
+    limitX();
+    const p = (clamp(x, gridX(), rollRight()) - gridX() + view.hx) / keyWidth(); // pitch columns under the pointer
+    const px = clamp(x, gridX(), rollRight()) - gridX();
+    view.hz = clamp(view.hz * Math.pow(HZ_STEP, notches), 1, HZ_MAX);
+    if (Math.abs(view.hz - 1) < 0.02) view.hz = 1;
+    view.hx = Number.isFinite(p) ? p * keyWidth() - px : 0;
+    limitX();
+    limitScroll();
+  }
+  // the horizontal scrollbar between the stave and the keyboard (zoomed in only)
+  const hScrollbar = () => scrollThumb(gridX(), visW(), visW(), 0, (view.hz - 1) * visW(), view.hx);
+  function hScrollbarDrag(e, p) {
+    e.preventDefault();
+    const b = hScrollbar();
+    const inside = p.x >= b.pos && p.x <= b.pos + b.thumb;
+    const offset = inside ? p.x - b.pos : b.thumb / 2;
+    const scrollTo = (q) => {
+      view.hx = scrollValue(b, q.x - offset);
+      s.redraw();
+    };
+    hbActive = true;
+    drag = { kind: 'scrollbar' };
+    scrollTo(p);
+    drag.stop = capture(cv, e, (ev) => scrollTo(s.local(ev)), () => { hbActive = false; drag = null; s.redraw(); });
+  }
+  // the lowest scroll: one bar of room past the clip end / the last note end (end, quarters)
+  const scrollMax = (end) => Math.max(0, (end + BAR) * view.ppq - gridBottom());
+
+  // the vertical scrollbar right of the note grid (the TimeLine's look): spans the clip from the
+  // margin above its start to a bar past its end
+  function scrollbar() {
+    const clip = ctx.clip();
+    const end = clip ? Math.max(clip.length, ...clip.notes.map((n) => n.start + n.length), drag?.kind === 'clipEnd' ? drag.extent : 0) : BAR;
+    return scrollThumb(0, gridBottom(), gridBottom(), -TOP_MARGIN, scrollMax(end), view.sy);
+  }
+  // drag the thumb (grabbed where pressed), or press the track: the thumb centres there and follows
+  function scrollbarDrag(e, p) {
+    e.preventDefault();
+    const b = scrollbar();
+    const inside = p.y >= b.pos && p.y <= b.pos + b.thumb;
+    const offset = inside ? p.y - b.pos : b.thumb / 2;
+    const scrollTo = (q) => {
+      view.sy = scrollValue(b, q.y - offset);
+      s.redraw();
+    };
+    sbActive = true;
+    drag = { kind: 'scrollbar' };
+    scrollTo(p);
+    drag.stop = capture(cv, e, (ev) => scrollTo(s.local(ev)), () => { sbActive = false; drag = null; s.redraw(); });
   }
 
   // Any drag along the time axis: holding the pointer near / past the top or bottom of the note grid
   // scrolls the view along (faster further out); onScroll re-applies the drag at the new view.
-  const gridScroll = (onScroll) => edgeScroll({
-    area: () => ({ left: -Infinity, right: Infinity, top: 0, bottom: gridBottom() }),
-    scroll: (_dx, dy) => { view.sy += dy; limitScroll(); },
+  // horizontal: also sideways past the left / right edge while zoomed in (drags that change pitch)
+  const gridScroll = (onScroll, { horizontal = false } = {}) => edgeScroll({
+    area: () => (horizontal && zoomedX()
+      ? { left: gridX(), right: rollRight(), top: 0, bottom: gridBottom() }
+      : { left: -Infinity, right: Infinity, top: 0, bottom: gridBottom() }),
+    scroll: (dx, dy) => { view.sy += dy; view.hx += dx; limitScroll(); },
     onScroll,
   });
 
@@ -196,7 +281,7 @@ export function createPianoRoll(host, ctx) {
     g.restore();
     g.fillStyle = black ? STAVE : '#e0e1dc';
     g.fill();
-    g.lineWidth = Math.min(3, keyWidth() * 0.3);
+    g.lineWidth = Math.min(3, noteW() * 0.3);
     g.strokeStyle = STAVE;
     g.stroke();
     g.globalAlpha = 1;
@@ -279,11 +364,15 @@ export function createPianoRoll(host, ctx) {
     syncSelection();
     const clip = ctx.clip();
     const kw = keyWidth();
+    const nw = noteW();
     const bottom = gridBottom();
+    const keysY = keyTop();
     const gridLeft = xOf(GRID_LOW) + kw / 2;
     const gridRight = xOf(GRID_HIGH) + kw / 2;
     g.fillStyle = BG;
     g.fillRect(0, 0, w, h);
+    const fullW = w;
+    w = rollRight();
 
     g.save();
     g.beginPath();
@@ -316,7 +405,7 @@ export function createPianoRoll(host, ctx) {
           // Compare musical time, not rounded pixels; starts and ends can drift at triplet boundaries.
           const gaps = clip.notes
             .filter((n) => n.start <= t + TIME_EPSILON && n.start + n.length >= t - TIME_EPSILON)
-            .map((n) => { const cx = bodyX(n, t - n.start); return [cx - kw - overlap(), cx + kw + overlap()]; })
+            .map((n) => { const cx = bodyX(n, t - n.start); return [cx - nw - overlap(), cx + nw + overlap()]; })
             .sort((a, b) => a[0] - b[0]);
           for (const [start, end] of gaps) {
             if (end <= left || start >= gridRight) continue;
@@ -356,15 +445,15 @@ export function createPianoRoll(host, ctx) {
         const hh = n.length * view.ppq;
         if (y > bottom || y + hh < 0) continue;
         const poly = bendPolyline(n);
-        const x = headX(n) - kw / 2;
-        if (!poly && (x > w || x + kw < gridX())) continue;
+        const x = headX(n) - nw / 2;
+        if (!poly && (x > w || x + nw < gridX())) continue;
         g.globalAlpha = n.start >= 0 && n.start < clip.length ? 1 : 0.35;
         g.fillStyle = g.strokeStyle = selected.has(n)
           ? (isBlack(n.pitch) ? blackSelected : SELECT)
           : (isBlack(n.pitch) ? blackColor : color);
         g.beginPath();
         const edge = overlap();
-        const bw = kw + 2 * edge;
+        const bw = nw + 2 * edge;
         if (poly) bentBody(g, n, poly, bw);
         else {
           g.roundRect(x - edge, y, bw, hh, Math.min(bw / 2, hh / 2));
@@ -377,7 +466,7 @@ export function createPianoRoll(host, ctx) {
     // stave lines (black keys of the 88-key piano), on top of the note bodies; none without a clip
     if (clip) {
       g.strokeStyle = STAVE;
-      const thin = kw * 0.22;
+      const thin = Math.min(kw, nw) * 0.22;
       const staveTop = Math.min(bottom, Math.max(0, yOf(0)));
       // the group of three (F# G# A#) is twice as thick as the group of two (C# D#)
       const isThree = (p) => [6, 8, 10].includes(p % 12);
@@ -440,10 +529,10 @@ export function createPianoRoll(host, ctx) {
 
     // keyboard strip
     g.fillStyle = '#292b31';
-    g.fillRect(0, bottom, w, KEYBOARD);
+    g.fillRect(0, keysY, fullW, KEYBOARD);
     g.save();
     g.beginPath();
-    g.rect(gridX(), bottom, Math.max(0, w - gridX()), KEYBOARD);
+    g.rect(gridX(), keysY, Math.max(0, w - gridX()), KEYBOARD);
     g.clip();
     g.font = '600 8px system-ui, sans-serif';
     g.textAlign = 'center';
@@ -460,7 +549,7 @@ export function createPianoRoll(host, ctx) {
         : live.has(p) ? (isBlack(p) ? blackLive : SELECT)
         : sounding.has(p) ? (isBlack(p) ? blackNote : noteColor)
         : inPiano(p) ? (isBlack(p) ? '#191a20' : '#bfc1c7') : (isBlack(p) ? '#24262c' : '#777a84');
-      g.fillRect(x + keyGap / 2, bottom + 1, kw - keyGap, KEYBOARD - 2);
+      g.fillRect(x + keyGap / 2, keysY + 1, kw - keyGap, KEYBOARD - 2);
       if (p === hoverPitch) {
         g.fillStyle = PLAYHEAD;
         g.fillRect(x + keyGap / 2, h - 5, kw - keyGap, 4);
@@ -515,7 +604,22 @@ export function createPianoRoll(host, ctx) {
     }
     g.strokeStyle = '#34363e';
     g.lineWidth = 2;
-    g.beginPath(); g.moveTo(gridX(), 0); g.lineTo(gridX(), h); g.moveTo(0, bottom); g.lineTo(w, bottom); g.stroke();
+    g.beginPath(); g.moveTo(gridX(), 0); g.lineTo(gridX(), h); g.moveTo(0, keysY); g.lineTo(fullW, keysY); g.stroke();
+    if (bottom < keysY) { // zoomed in: horizontal scrollbar between the stave and the keys
+      g.fillStyle = SB_TRACK;
+      g.fillRect(0, bottom, fullW, keysY - bottom);
+      g.strokeStyle = '#1e1e21';
+      g.lineWidth = 1;
+      g.beginPath(); g.moveTo(0, bottom + 0.5); g.lineTo(fullW, bottom + 0.5); g.stroke();
+      paintThumb(g, hScrollbar(), false, bottom, hbActive ? 2 : hbHover ? 1 : 0);
+    }
+    // vertical scrollbar right of the note grid
+    g.fillStyle = SB_TRACK;
+    g.fillRect(w, 0, fullW - w, bottom);
+    g.strokeStyle = '#1e1e21';
+    g.lineWidth = 1;
+    g.beginPath(); g.moveTo(w + 0.5, 0); g.lineTo(w + 0.5, bottom); g.stroke();
+    paintThumb(g, scrollbar(), true, w, sbActive ? 2 : sbHover ? 1 : 0);
     vel.paint(g, h);
   }
 
@@ -524,7 +628,7 @@ export function createPianoRoll(host, ctx) {
     const clip = ctx.clip();
     if (!clip || !inGrid(x, y)) return null;
     const { rx, ry } = headSize();
-    const tolerance = Math.min(1, keyWidth() * 0.1);
+    const tolerance = Math.min(1, noteW() * 0.1);
     for (let i = clip.notes.length - 1; i >= 0; i--) {
       const n = clip.notes[i];
       const dx = x - headX(n);
@@ -537,7 +641,7 @@ export function createPianoRoll(host, ctx) {
       const n = clip.notes[i];
       const ny = yOf(n.start);
       if (y < ny || y > ny + n.length * view.ppq) continue;
-      if (Math.abs(x - bodyX(n, timeAt(y) - n.start)) <= keyWidth() / 2 + overlap()) return { note: n, part: 'body' };
+      if (Math.abs(x - bodyX(n, timeAt(y) - n.start)) <= noteW() / 2 + overlap()) return { note: n, part: 'body' };
     }
     return null;
   }
@@ -565,7 +669,7 @@ export function createPianoRoll(host, ctx) {
     hoverBend = ctx.clip() ? bendAt(x, y) : null;
     const h = inside && !hoverBend ? hit(x, y) : null;
     endHover = !h && onClipEnd(x, y);
-    hoverPitch = x >= gridX() ? pitchAt(x) : null;
+    hoverPitch = x >= gridX() && x < rollRight() ? pitchAt(x) : null;
     hover = inside && !h && !hoverBend ? { pitch: pitchAt(x), t: Math.max(0, snapFloor(timeAt(y), step())) } : null;
     const keyboard = keysPlay() && inKeyboard(x, y);
     cv.style.cursor = keyboard ? 'pointer' : h?.part === 'head' ? 'move' : h ? 'ns-resize' : inside ? 'crosshair' : 'default';
@@ -578,6 +682,11 @@ export function createPianoRoll(host, ctx) {
     if (hoverBend) cv.style.cursor = 'move';
     if (endHover) { cv.style.cursor = 'row-resize'; cv.title = `Clip end at ${+ctx.clip().length.toFixed(4)} quarters — drag to lengthen or shorten the clip`; }
     if (v) { cv.style.cursor = v.cursor; cv.title = `${v.title} — right-click for the menu`; }
+    const bar = onScrollbar(x, y);
+    sbHover = bar;
+    hbHover = onHScrollbar(x, y);
+    if (bar) { cv.style.cursor = 'default'; cv.title = 'Drag to scroll the clip, or click the track to jump there'; }
+    if (hbHover) { cv.style.cursor = 'default'; cv.title = 'Drag to scroll the zoomed keys sideways, or click the track to jump there (Shift + wheel zooms)'; }
     if (inRuler(x, y)) { cv.style.cursor = 'col-resize'; cv.title = 'Drag the bar ruler sideways to resize the velocity editor (the piano roll scales along) — double-click resets'; }
     s.redraw();
   }
@@ -654,7 +763,7 @@ export function createPianoRoll(host, ctx) {
   function selectRect(e, x, y, onClick, onHold = null) {
     const clip = ctx.clip();
     const before = selected;
-    const state = drag = { kind: 'select', t0: timeAt(y), x0: x, y0: y, x1: x, y1: y, shown: false, stop: null, refresh: null };
+    const state = drag = { kind: 'select', t0: timeAt(y), c0: x + view.hx, x0: x, y0: y, x1: x, y1: y, shown: false, stop: null, refresh: null };
     let timer = null;
     let held = false;
     hover = null;
@@ -664,24 +773,25 @@ export function createPianoRoll(host, ctx) {
       clearTimeout(timer);
       onHold();
     };
-    const auto = gridScroll(() => apply());
+    const auto = gridScroll(() => apply(), { horizontal: true });
     // the rectangle from the anchored start corner to the pointer, at the current view
     const apply = () => {
       if (held || !pointer || drag !== state) return;
       state.shown = true;
       clearTimeout(timer);
       state.y0 = yOf(state.t0);
-      state.x1 = clamp(pointer.x, gridX(), s.w);
+      state.x0 = state.c0 - view.hx; // anchored in pitch, so the rectangle grows while the view pans
+      state.x1 = clamp(pointer.x, gridX(), rollRight());
       state.y1 = clamp(pointer.y, 0, gridBottom());
       const left = Math.min(state.x0, state.x1);
       const right = Math.max(state.x0, state.x1);
       const top = Math.min(state.y0, state.y1);
       const bottom = Math.max(state.y0, state.y1);
       selected = new Set(clip.notes.filter((n) => {
-        const nx = keyX(n);
+        const nx = headX(n) - noteW() / 2;
         const ny = yOf(n.start);
         const height = Math.max(n.length * view.ppq, 2 * headSize().height);
-        return nx + keyWidth() + overlap() >= left && nx - overlap() <= right && ny + height >= top && ny <= bottom;
+        return nx + noteW() + overlap() >= left && nx - overlap() <= right && ny + height >= top && ny <= bottom;
       }));
       s.redraw();
     };
@@ -801,7 +911,7 @@ export function createPianoRoll(host, ctx) {
   function dragBend(e, clip, note, i, x, y, before = note.bends) {
     const orig = note.bends;
     const p0 = orig[i];
-    const x0 = bendXY(note, p0).x;
+    const x0 = bendXY(note, p0).x + view.hx; // content x: stays put while the view pans sideways
     const lo = i > 0 ? orig[i - 1].t : 0;
     const hi = i < orig.length - 1 ? orig[i + 1].t : Math.max(note.length, p0.t);
     const inserted = before !== orig;
@@ -814,7 +924,7 @@ export function createPianoRoll(host, ctx) {
     const apply = () => {
       if (drag !== state || !pointer) return;
       const q = pointer;
-      const d = bendPitch(note, pitchFromX(x0 + q.x - x), shift);
+      const d = bendPitch(note, pitchFromX(x0 - view.hx + clampX(q.x) - x), shift);
       let t = bendTime(note, note.start + p0.t + timeAt(clamp(q.y, 0, gridBottom())) - tStart, lo, hi);
       if (t <= 1e-9) t = Math.min(hi, 1 / view.ppq); // just after the note's start
       note.bends = orig.map((b, j) => (j === i ? { t, d, r: b.r } : b));
@@ -824,7 +934,7 @@ export function createPianoRoll(host, ctx) {
       hoverPitch = basePitch(pitch);
       s.redraw();
     };
-    const auto = gridScroll(apply);
+    const auto = gridScroll(apply, { horizontal: true });
     const stop = capture(cv, e, (ev) => {
       const q = s.local(ev);
       pointer = q;
@@ -876,11 +986,11 @@ export function createPianoRoll(host, ctx) {
   // the micropitch slider above the note being tuned: ±50 cents, the tuning filled from the centre
   function paintSlider(g) {
     const n = drag.note;
-    const kw = keyWidth();
-    const W = Math.min(SLIDER_W, Math.max(60, s.w - gridX() - 8));
+    const kw = noteW();
+    const W = Math.min(SLIDER_W, Math.max(60, rollRight() - gridX() - 8));
     const H = 34;
     const hx = headX(n);
-    const left = clamp(hx - W / 2, gridX() + 4, s.w - W - 4);
+    const left = clamp(hx - W / 2, gridX() + 4, rollRight() - W - 4);
     const hy = headY(yOf(n.start));
     const hh = headSize().height;
     const above = hy - hh - H - 10;
@@ -939,11 +1049,21 @@ export function createPianoRoll(host, ctx) {
     syncSelection();
     if (e.button === 1) {
       drag = { kind: 'pan' };
-      startPan(s, e, (_dx, dy) => { view.sy -= dy; s.redraw(); }, () => { drag = null; });
+      startPan(s, e, (dx, dy) => { view.sy -= dy; view.hx -= dx; limitX(); s.redraw(); }, () => { drag = null; });
       return;
     }
     const clip = ctx.clip();
     const { x, y } = s.local(e);
+    if (onScrollbar(x, y) || (x >= rollRight() && y >= gridBottom())) { // the scrollbar, and the dead corner below it
+      e.preventDefault();
+      if (e.button === 0 && y < gridBottom()) scrollbarDrag(e, { x, y });
+      return;
+    }
+    if (y >= gridBottom() && y < keyTop()) { // zoomed in: the horizontal scrollbar (dead left of it)
+      e.preventDefault();
+      if (e.button === 0 && onHScrollbar(x, y)) hScrollbarDrag(e, { x, y });
+      return;
+    }
     if (e.button === 0 && inRuler(x, y)) { // the bar ruler is a divider: velocity strip | note grid
       e.preventDefault();
       if (e.detail >= 2) {
@@ -1070,7 +1190,7 @@ export function createPianoRoll(host, ctx) {
     s.redraw();
     const state = drag;
     const sizing = state.kind === 'new' || state.kind === 'length';
-    const auto = gridScroll(() => apply());
+    const auto = gridScroll(() => apply(), { horizontal: state.kind === 'move' });
     capture(cv, e, (ev) => {
       const p = s.local(ev);
       pointer = p;
@@ -1118,7 +1238,7 @@ export function createPianoRoll(host, ctx) {
         group.forEach((n, i) => { n.length = Math.max(minLength, clean(origs[i].length + dl)); });
       } else {
         // whole semitones that keep every (tuned) pitch inside 0..PITCH_MAX
-        const dp = clamp(pitchAt(p.x) - drag.p0, Math.ceil(-Math.min(...origs.map((o) => o.pitch)) - 1e-9), Math.floor(PITCH_MAX - Math.max(...origs.map((o) => o.pitch)) + 1e-9));
+        const dp = clamp(pitchAt(clampX(p.x)) - drag.p0, Math.ceil(-Math.min(...origs.map((o) => o.pitch)) - 1e-9), Math.floor(PITCH_MAX - Math.max(...origs.map((o) => o.pitch)) + 1e-9));
         const dt = Math.max(snapRound(a.start + end - drag.t0, st) - a.start, -Math.min(...origs.map((o) => o.start)));
         const before = group[anchor].pitch;
         group.forEach((n, i) => { n.pitch = clean(origs[i].pitch + dp); n.start = clean(origs[i].start + dt); });
@@ -1247,7 +1367,7 @@ export function createPianoRoll(host, ctx) {
     const { x, y } = s.local(e);
     updateHover(x, y);
   });
-  cv.addEventListener('pointerleave', () => { pointer = null; vel.leave(); if (!drag) { hover = null; hoverPitch = null; s.redraw(); } });
+  cv.addEventListener('pointerleave', () => { pointer = null; vel.leave(); if (!drag) { hover = null; hoverPitch = null; sbHover = false; hbHover = false; s.redraw(); } });
 
   cv.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();
@@ -1303,9 +1423,21 @@ export function createPianoRoll(host, ctx) {
     return true;
   }
 
-  // wheel on a velocity point rounds it (before the scroll / zoom handler)
+  // Shift + wheel zooms pitch around the pointer; a wheel on a velocity / bend point rounds it
+  // (both before the scroll / zoom handler)
   cv.addEventListener('wheel', (e) => {
     if (e.ctrlKey || e.metaKey) return;
+    if (e.shiftKey) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const d = e.deltaY || e.deltaX; // some systems turn Shift + wheel into a sideways wheel
+      if (!d) return;
+      pointer = s.local(e);
+      zoomX(wheelNotches(d, e.deltaMode), pointer.x);
+      drag?.refresh?.();
+      s.redraw();
+      return;
+    }
     const { x, y } = s.local(e);
     if (!vel.wheel(e, x, y) && !bendWheel(e, x, y)) return;
     e.preventDefault();
@@ -1321,8 +1453,15 @@ export function createPianoRoll(host, ctx) {
       if (drag?.refresh) { limitScroll(); drag.refresh(); }
       s.redraw();
     },
-    scroll(_dx, dy, e) { // one snap step per wheel event, whatever the wheel / trackpad distance
+    scroll(dx, dy, e) { // one snap step per wheel event, whatever the wheel / trackpad distance
       pointer = s.local(e);
+      if (dx && !dy && zoomedX()) { // trackpad sideways: pan the zoomed keys
+        view.hx += dx;
+        limitX();
+        drag?.refresh?.();
+        s.redraw();
+        return;
+      }
       if (!dy) return;
       view.sy += Math.sign(dy) * gridStep() * view.ppq;
       if (drag?.refresh) { limitScroll(); drag.refresh(); } // the rectangle follows the scroll
@@ -1340,10 +1479,12 @@ export function createPianoRoll(host, ctx) {
     },
     // scroll so the clip start is visible (called when another clip gets selected)
     reveal() { view.sy = -TOP_MARGIN; s.redraw(); },
-    getView: () => ({ ...view }),
+    getView: () => { const { hz, hx, ...saved } = view; return saved; },
     setView(v) {
       view.snapVelocity = typeof v?.snapVelocity === 'boolean' ? v.snapVelocity : true;
       view.velW = Number.isFinite(v?.velW) ? Math.max(VEL_MIN, v.velW) : VEL_W;
+      view.hz = 1; // the pitch zoom is a working view: not saved, every loaded view starts unzoomed
+      view.hx = 0;
       if (!v) { s.redraw(); return; }
       for (const k of ['sy', 'ppq']) if (Number.isFinite(v[k])) view[k] = v[k];
       view.ppq = clamp(view.ppq, 6, 600);

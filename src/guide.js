@@ -254,7 +254,8 @@ export const GUIDE = [
       {
         title: 'Navigate and play',
         items: [
-          `The wheel scrolls one grid step per notch (scroll up past beat zero for some free room); ${k(CMD)} + wheel zooms time, ${k('Middle mouse')} + drag pans.`,
+          `The wheel scrolls one grid step per notch (scroll up past beat zero for some free room); ${k(CMD)} + wheel zooms time, ${k('Middle mouse')} + drag pans. The scrollbar on the right (the TimeLine\'s look) spans the clip: drag it, or click its track to jump there.`,
+          `${k('Shift')} + wheel zooms pitch around the pointer: the stave and the keyboard widen together, so micropitch leans and bends are easier to place. Zoomed in, a horizontal scrollbar shows just above the keyboard, ${k('Middle mouse')} + drag also pans sideways, and moving notes, bend points or a selection rectangle past the left / right edge scrolls along. Notes stop growing at 24 px wide. Zoom fully out to see all keys again; the pitch zoom is not saved with the project.`,
           `${k('Space')} over the note grid plays the song from that (snapped) time.`,
         ],
       },
@@ -276,6 +277,8 @@ export const GUIDE = [
       [`${k('Backspace')} ${k('Delete')}`, 'delete the selected notes'],
       [k('Space'), 'play from the pointer'],
       [`${k(CMD)} + wheel`, 'zoom time'],
+      [`${k('Shift')} + wheel`, 'zoom pitch (keys and stave)'],
+      [`${k('Middle mouse')} drag`, 'pan (sideways too when zoomed in)'],
     ],
   },
   {
