@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PatchRuntime } from '../src/patch.js';
-import { addImage } from '../src/samples.js';
+import { addImage, addSample } from '../src/samples.js';
 
 globalThis.sampleRate = 48000;
 const { KERNELS } = await import('../src/dsp/kernels.js');
@@ -88,13 +88,14 @@ function noise(seed) {
 }
 
 // script: [[block, message], ...]; input: (block, i, ch) -> sample, or null (nothing connected)
-function compare(kind, { opts = {}, script = [], input = null, gaps = () => false, blocks = 200, tol = 1e-5, inHeap = false }) {
+function compare(kind, { opts = {}, script = [], input = null, gaps = () => false, blocks = 200, tol = 1e-5, inHeap = false, channels = 2 }) {
   const js = new KERNELS[kind](opts);
   const wa = new WASM[kind](opts);
   let worst = 0;
   let at = -1;
-  const outPtrs = inHeap ? [heap.alloc(N * 4), heap.alloc(N * 4)] : null;
-  const outW = outPtrs ? [outPtrs.map((p) => heap.f32(p, N))] : [stereo()];
+  const output = () => Array.from({ length: channels }, () => new Float32Array(N));
+  const outPtrs = inHeap ? Array.from({ length: channels }, () => heap.alloc(N * 4)) : null;
+  const outW = outPtrs ? [outPtrs.map((p) => heap.f32(p, N))] : [output()];
   for (let b = 0; b < blocks; b++) {
     for (const [when, m] of script) if (when === b) {
       if (m === 'panic') { js.panic(); wa.panic(); } else { js.message(m); wa.message(m); }
@@ -105,13 +106,13 @@ function compare(kind, { opts = {}, script = [], input = null, gaps = () => fals
       for (let i = 0; i < N; i++) { L[i] = input(b, i, 0); R[i] = input(b, i, 1); }
       ins = [[L, R]];
     }
-    const outJ = [stereo()];
+    const outJ = [output()];
     const rj = js.process(ins, outJ) !== false;
     if (outPtrs && outW[0][0].buffer !== heap.memory.buffer) outW[0] = outPtrs.map((p) => heap.f32(p, N));
     const rw = wa.process(ins, outW) !== false;
     assert.equal(rw, rj, `${kind}: same silent flag at block ${b}`);
     if (!rj) continue; // silent outputs are undefined
-    for (let c = 0; c < 2; c++) {
+    for (let c = 0; c < channels; c++) {
       for (let i = 0; i < N; i++) {
         const d = Math.abs(outJ[0][c][i] - outW[0][c][i]);
         assert.ok(Number.isFinite(outW[0][c][i]), `${kind}: finite output`);
@@ -127,6 +128,195 @@ function compare(kind, { opts = {}, script = [], input = null, gaps = () => fals
 }
 const param = (id, value) => ({ type: 'param', id, value });
 const noteOn = (id, pitch, velocity = 0.8, phase) => ({ type: 'noteOn', id, pitch, velocity, ...(phase === undefined ? {} : { phase }) });
+
+// SAMPLER: all five playback modes and interpolation choices, non-engine sample rates,
+// stereo/mono, moving selections, glides, sample replacement and one-shot end conditions.
+const sampleL = Float32Array.from({ length: 9001 }, (_, i) => 0.6 * Math.sin(i * 0.13) + 0.1 * Math.cos(i * 0.031));
+const sampleR = Float32Array.from(sampleL, v => -v * 0.4);
+for (const playMode of [0, 1, 2, 3, 4]) for (const interpolation of [0, 1, 2]) {
+  for (const channels of [1, 2]) compare('sampler', {
+    channels, blocks: 160, inHeap: true, tol: 1e-5,
+    script: [
+      [0, { type: 'sample', rate: 22050, channels: [sampleL, sampleR] }],
+      [0, param('playMode', playMode)], [0, param('interpolation', interpolation)],
+      [0, param('attack', 0.001)], [0, param('release', 0.012)],
+      [0, param('selStart', 12.31)], [0, param('selLength', 60.23)],
+      [0, noteOn(1, 60.37, 0.9, 0.75)], [3, noteOn(2, 48.21, 0.4)],
+      [8, { type: 'noteMod', notes: [[1, 84.9, 0.25], [2, 51.2, 0.8]] }],
+      [12, param('transpose', -5)], [13, param('finetune', 23)],
+      [20, param('selStart', 87.3)], [21, param('selLength', 0)],
+      [24, noteOn(3, 127.4)], [28, param('selLength', 12)],
+      [32, { type: 'noteOff', id: 2 }], [34, param('release', 1)],
+      [40, { type: 'sample', rate: 96000, channels: [sampleR] }],
+      [41, noteOn(4, 60.8)], [44, param('playMode', 4)], [50, param('playMode', 2)],
+      [55, param('selStart', 0)], [55, param('selLength', 100)],
+      [70, 'panic'], [72, noteOn(5, 58.2)], [80, { type: 'allOff' }],
+      [90, { type: 'sample', rate: 0, channels: null }], [91, noteOn(6, 60)],
+      [100, { type: 'sample', rate: 48000, channels: [sampleL] }], [101, noteOn(7, 64.5)],
+    ],
+  });
+}
+
+for (const kind of ['sampler', 'wavetable']) {
+  compare(kind, {
+    blocks: 160,
+    script: [
+      ...(kind === 'sampler' ? [[0, { type: 'sample', rate: 48000, channels: [sampleL, sampleR] }], [0, param('playMode', 3)]] : []),
+      [0, param('polyphony', 32)],
+      ...Array.from({ length: 36 }, (_, i) => [i, noteOn(i + 1, 40 + i * 0.7, 0.6)]),
+      [38, noteOn(35, 70.33, 0.9)], // retrigger by id rather than stealing another voice
+      [40, param('polyphony', 3)], [41, param('polyphony', 8)],
+      [42, { type: 'noteMod', notes: [[35, 60.7, 0.2], [36, 61.3, 0.9]] }],
+      [45, param('attack', 0.03)], [46, param('decay', 0.01)], [47, param('sustain', 0.2)],
+      [48, param('gain', 0.7)], [50, noteOn(40, 67, 1)],
+      [60, param('release', 0.02)], [62, { type: 'noteOff', id: 40 }],
+      [70, { type: 'allOff' }], [72, noteOn(41, 65)], [80, 'panic'], [82, noteOn(42, 44.1)],
+    ],
+  });
+}
+
+// WAVETABLE: exact FFT mipmaps for power-of-two and resampled odd-sized frames,
+// phase wrapping, high-note anti-aliasing, frame morphing, layout changes and builtin fallback.
+for (const frame of [2, 7, 256, 257, 2048, 4096]) for (const interpolation of [0, 1, 2]) {
+  const data = Float32Array.from({ length: frame * 3 + 1 }, (_, i) => Math.sin(i * 0.17) * 0.5 + Math.cos(i * 0.043) * 0.3);
+  compare('wavetable', {
+    blocks: 140, inHeap: true, channels: interpolation === 0 ? 1 : 2,
+    script: [
+      [0, { type: 'table', data, frame }], [0, param('interpolation', interpolation)],
+      [0, param('attack', 0.001)], [0, param('release', 0.01)],
+      [0, noteOn(1, 48.7, 0.9, -0.3)], [1, noteOn(2, 110.3, 0.6, 1.25)],
+      [3, param('position', 100)], [12, param('position', 27.3)],
+      [20, { type: 'noteMod', notes: [[1, 94.2, 0.2]] }],
+      [30, param('block', 1)], [35, param('position', 50.5)],
+      [40, param('block', 5)], [50, param('block', 0)],
+      [60, { type: 'noteOff', id: 2 }], [65, { type: 'table', data: null }],
+      [68, noteOn(3, 69.25, 0.7, 0.25)], [70, param('position', 81.7)],
+      [90, 'panic'], [92, noteOn(4, 127, 0.6)], [100, { type: 'allOff' }],
+    ],
+  });
+}
+
+// Uploads and mipmaps are shared across cloned Patch messages, released at their last owner,
+// and never grow memory during rendering (including first-time FFT/frame visits).
+{
+  const counts = { banks: 0, bankFrees: 0, tables: 0, tableFrees: 0 };
+  let failBank = false, failTable = false;
+  const api = {
+    ...x,
+    ms_sample_create(...args) { if (failBank) return 0; counts.banks++; return x.ms_sample_create(...args); },
+    ms_sample_free(ptr) { counts.bankFrees++; x.ms_sample_free(ptr); },
+    ms_table_create(...args) { if (failTable) return 0; counts.tables++; return x.ms_table_create(...args); },
+    ms_table_free(ptr) { counts.tableFrees++; x.ms_table_free(ptr); },
+  };
+  const native = wasmKernels(api, 48000);
+  const a = new native.kernels.sampler(), b = new native.kernels.sampler();
+  for (const k of [a, b]) k.message({ type: 'sample', rate: 48000, channels: [sampleL.slice(), sampleR.slice()] });
+  assert.equal(counts.banks, 1, 'stereo PCM shared by content');
+  a.destroy();
+  assert.equal(counts.bankFrees, 0, 'another sampler still owns the data');
+  b.message(noteOn(1, 60));
+  assert.equal(b.process([[]], [stereo()]), true, 'surviving owner still plays');
+  b.destroy(); b.destroy();
+  assert.equal(counts.bankFrees, 1, 'last owner frees PCM once');
+  const c = new native.kernels.wavetable(), d = new native.kernels.wavetable();
+  assert.equal(c.sampleEntry, d.sampleEntry, 'builtin PCM shared');
+  assert.equal(c.tableEntry, d.tableEntry, 'builtin FFT cache shared');
+  const custom = sampleL.slice(0, 1024);
+  for (const k of [c, d]) k.message({ type: 'table', data: custom.slice(), frame: 256 });
+  assert.equal(c.tableEntry, d.tableEntry, 'cloned custom tables share mipmaps');
+  c.param('block', 2);
+  assert.notEqual(c.tableEntry, d.tableEntry, 'different frame sizes have different caches');
+  const previous = c.tableEntry;
+  failTable = true;
+  assert.throws(() => c.param('block', 3), /cannot allocate wavetable/);
+  assert.equal(c.tableEntry, previous, 'failed layout change preserves the current table');
+  assert.throws(() => c.message({ type: 'table', data: sampleR, frame: 7 }), /cannot allocate wavetable/);
+  assert.equal(c.tableEntry, previous, 'failed replacement preserves the current table and releases its new PCM');
+  failTable = false;
+  failBank = true;
+  assert.throws(() => c.message({ type: 'table', data: sampleR, frame: 7 }), /cannot allocate sample/);
+  assert.equal(c.tableEntry, previous);
+  failBank = false;
+  c.destroy();
+  d.message(noteOn(1, 60));
+  const mem = native.heap.memory.buffer;
+  const outputs = [stereo()];
+  for (let i = 0; i < 80; i++) {
+    d.param('position', i % 2 ? 100 : 0);
+    assert.equal(d.process([[]], outputs), true);
+    assert.equal(native.heap.memory.buffer, mem, 'first-time frame builds cannot detach graph buffers');
+  }
+  d.destroy();
+  assert.equal(counts.banks, counts.bankFrees, 'all native PCM freed');
+  assert.equal(counts.tables, counts.tableFrees, 'all native mipmaps freed');
+}
+
+// Modules use the native graph through real state uploads, including a Patch container.
+for (const type of ['SAMPLER', 'WAVETABLE']) {
+  const h = dspTestHost({ kernels: WASM, heap });
+  const engine = { ctx: { get currentTime() { return h.time; } }, dsp: h.dsp };
+  const root = await PatchRuntime.create(engine, h.dsp.destination);
+  const folder = await root.addModule('PATCH');
+  const sampleId = addSample({ rate: 48000, channels: [sampleL] });
+  const entry = await folder.inst.patch.addModule(type, { state: { sampleId, frame: 256 }, values: { playMode: 3 } });
+  assert.ok(folder.inst.patch.connect(entry.id, 0) && root.connect(folder.id, 0));
+  folder.inst.noteOn(1, 60.7, 0.8, 0.3);
+  let peak = 0;
+  for (let i = 0; i < 20; i++) peak = Math.max(peak, ...h.render().L.map(Math.abs));
+  assert.ok(h.graph.prog, `${type} can run entirely through the native graph`);
+  assert.ok(peak > 0.01);
+  h.dsp.panic();
+  assert.ok(h.render().L.every(v => v === 0), `${type}: native graph panic is silent`);
+  root.destroy();
+  h.dsp.destination.destroy();
+}
+
+// Sample-based graphs switch safely between the single-call native runner and mixed rendering.
+for (const kind of ['sampler', 'wavetable']) {
+  const h = dspTestHost({ kernels: { ...WASM, jsonly: KERNELS.bus }, heap });
+  const src = h.dsp.create(kind);
+  src.connect(h.dsp.destination);
+  if (kind === 'sampler') {
+    src.send({ type: 'sample', rate: 48000, channels: [sampleL] });
+    src.param('playMode', 3);
+  }
+  src.send(noteOn(1, 60.7));
+  assert.ok(h.render(4).L.some(v => v !== 0));
+  assert.ok(h.graph.prog);
+  const bus = h.dsp.create('jsonly');
+  src.disconnect(h.dsp.destination);
+  src.connect(bus); bus.connect(h.dsp.destination);
+  assert.ok(h.render(4).L.some(v => v !== 0));
+  assert.equal(h.graph.prog, 0);
+  bus.destroy();
+  src.connect(h.dsp.destination);
+  assert.ok(h.render(4).L.some(v => v !== 0));
+  assert.ok(h.graph.prog);
+  src.destroy(); h.dsp.destination.destroy();
+}
+
+// Block Size modulation can allocate a new layout before or after audio processing. Force
+// memory growth to exercise buffer remapping, including the scope and final output copy.
+for (const modKind of ['multictl', 'sound2ctl']) {
+  const native = wasmKernels({
+    ...x,
+    ms_table_create(...args) { x.memory.grow(1); return x.ms_table_create(...args); },
+  }, 48000);
+  const h = dspTestHost(native);
+  const src = h.dsp.create('wavetable'), mod = h.dsp.create(modKind);
+  src.connect(h.dsp.destination);
+  if (modKind === 'sound2ctl') src.connect(mod);
+  h.dsp.scope([src.h]);
+  src.send(noteOn(1, 60));
+  assert.ok(h.render(4).L.some(v => v !== 0));
+  const before = x.memory.buffer;
+  mod.routes([{ to: src.h, id: 'block', min: 2, max: 2, step: 1 }]);
+  const out = h.render();
+  assert.notEqual(x.memory.buffer, before, 'Block Size modulation forced a heap growth');
+  assert.ok(out.L.every(Number.isFinite) && out.L.some(v => v !== 0));
+  assert.equal(h.graph.nodes.get(src.h).outs[0][0].buffer, x.memory.buffer);
+  src.destroy(); mod.destroy(); h.dsp.destination.destroy();
+}
 
 // OPERATOR: stereo PM, monophonic note ownership, fractional tuning, curves, smoothing and panic.
 for (const feedback of [0, 2]) {

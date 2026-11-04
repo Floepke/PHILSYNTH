@@ -7,6 +7,7 @@ const { dspTestHost } = await import('./dsphost.mjs');
 const { PatchRuntime } = await import('../src/patch.js');
 const { emptySong, addClip } = await import('../src/song.js');
 const { renderSong, encodeWav, TAIL_MAX_S } = await import('../src/render.js');
+const { addSample } = await import('../src/samples.js');
 
 // a project: OSC (module 1, plays MIDI) -> Output; one clip with a one-beat note at 120 BPM
 const { dsp } = dspTestHost();
@@ -38,7 +39,35 @@ for (const wasm of [null, await readFile(new URL('../src/dsp/modsynth.wasm', imp
   assert.equal(progress.at(-1), 1, `${kind}: progress ends at 100%`);
 }
 
-// an empty song cannot be exported
+// Sample-based songs export the same audio with native and fallback kernels, at different
+// engine rates, using the normal project state -> sample feeder -> native graph path.
+{
+  const sampleId = addSample({
+    rate: 22050,
+    channels: [Float32Array.from({ length: 8192 }, (_, i) => 0.6 * Math.sin(i * 0.13))],
+  });
+  const wasm = await readFile(new URL('../src/dsp/modsynth.wasm', import.meta.url));
+  for (const type of ['SAMPLER', 'WAVETABLE']) for (const sampleRate of [44100, 96000]) {
+    const data = structuredClone(project);
+    const source = data.patch.modules.find(m => m.id === osc.id);
+    source.type = type;
+    source.state = { sampleId, frame: 256 };
+    source.values = type === 'SAMPLER'
+      ? { playMode: 2, selStart: 11.3, selLength: 41.7, release: 0.02 }
+      : { position: 37.3, release: 0.02 };
+    const js = await renderSong(data, { sampleRate });
+    const native = await renderSong(data, { sampleRate, wasm });
+    assert.equal(native.length, js.length, `${type}: same export length`);
+    assert.ok(native.peak > 0.01, `${type}: exported audio is not silent`);
+    let worst = 0;
+    for (let i = 0; i < js.length; i++) {
+      worst = Math.max(worst, Math.abs(js.left[i] - native.left[i]), Math.abs(js.right[i] - native.right[i]));
+    }
+    assert.ok(worst < 1e-5, `${type} ${sampleRate}: native export differs by ${worst}`);
+  }
+}
+
+// Delayed MIDI survives export's silent tail.
 for (const type of ['STRUM', 'MULTIMIDI']) {
   const delayed = structuredClone(project);
   const id = 2;

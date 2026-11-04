@@ -14,6 +14,8 @@
 #include "waveshaper.h"
 #include "distortion.h"
 #include "vibrato.h"
+#include "sampler.h"
+#include "wavetable.h"
 
 // no libc++: plain malloc-backed new/delete
 void* operator new(__SIZE_TYPE__ n) { return malloc(n); }
@@ -24,10 +26,10 @@ void operator delete(void* p, __SIZE_TYPE__) noexcept { free(p); }
 
 using namespace ms;
 
-enum Kind { KIND_OSC = 1, KIND_FILTER = 2, KIND_REVERB = 3, KIND_WAVESHAPER = 4, KIND_BUS = 5, KIND_AMP = 6, KIND_OUT = 7, KIND_DCBLOCK = 8, KIND_EQ = 9, KIND_DELAY = 10, KIND_ECHO = 11, KIND_MODULATOR = 12, KIND_OPERATOR = 13, KIND_IMAGESAMPLER = 14, KIND_DISTORTION = 15, KIND_VIBRATO = 16 };
+enum Kind { KIND_OSC = 1, KIND_FILTER = 2, KIND_REVERB = 3, KIND_WAVESHAPER = 4, KIND_BUS = 5, KIND_AMP = 6, KIND_OUT = 7, KIND_DCBLOCK = 8, KIND_EQ = 9, KIND_DELAY = 10, KIND_ECHO = 11, KIND_MODULATOR = 12, KIND_OPERATOR = 13, KIND_IMAGESAMPLER = 14, KIND_DISTORTION = 15, KIND_VIBRATO = 16, KIND_SAMPLER = 17, KIND_WAVETABLE = 18 };
 
 // Bumped when the API changes; src/dsp/wasm.js refuses other versions.
-EXPORT(ms_version) int ms_version() { return 13; }
+EXPORT(ms_version) int ms_version() { return 14; }
 
 EXPORT(ms_param_count) int ms_param_count(int kind) {
   switch (kind) {
@@ -39,6 +41,8 @@ EXPORT(ms_param_count) int ms_param_count(int kind) {
     case KIND_WAVESHAPER: return Waveshaper::PARAMS;
     case KIND_DISTORTION: return Distortion::PARAMS;
     case KIND_VIBRATO: return Vibrato::PARAMS;
+    case KIND_SAMPLER: return Sampler::PARAMS;
+    case KIND_WAVETABLE: return Wavetable::PARAMS;
     case KIND_BUS: return Bus::PARAMS;
     case KIND_AMP: return Amp::PARAMS;
     case KIND_OUT: return Out::PARAMS;
@@ -65,6 +69,8 @@ EXPORT(ms_create) Kernel* ms_create(int kind, double sampleRate, int salt, uint3
     case KIND_WAVESHAPER: return new Waveshaper(sampleRate);
     case KIND_DISTORTION: return new Distortion(sampleRate);
     case KIND_VIBRATO: return new Vibrato(sampleRate);
+    case KIND_SAMPLER: return new Sampler(sampleRate);
+    case KIND_WAVETABLE: return new Wavetable(sampleRate);
     case KIND_BUS: return new Bus(sampleRate);
     case KIND_AMP: return new Amp(sampleRate);
     case KIND_OUT: return new Out(sampleRate);
@@ -78,6 +84,23 @@ EXPORT(ms_create) Kernel* ms_create(int kind, double sampleRate, int salt, uint3
 }
 
 EXPORT(ms_destroy) void ms_destroy(Kernel* k) { delete k; }
+EXPORT(ms_sample_create) SampleBank* ms_sample_create(int size, int stereo) {
+  if (size < 1 || (size_t)size > SIZE_MAX / (2 * sizeof(float))) return nullptr;
+  auto* bank = new SampleBank(size, stereo != 0);
+  if (!bank->samples) { delete bank; return nullptr; }
+  return bank;
+}
+EXPORT(ms_sample_data) float* ms_sample_data(SampleBank* bank) { return bank->samples; }
+EXPORT(ms_sample_free) void ms_sample_free(SampleBank* bank) { delete bank; }
+EXPORT(ms_sample_set) void ms_sample_set(Sampler* k, SampleBank* bank, double rate) { k->setSample(bank, rate); }
+EXPORT(ms_table_create) SampleTable* ms_table_create(SampleBank* bank, int frame) {
+  if (!bank || frame < 1) return nullptr;
+  auto* table = new SampleTable(bank, frame);
+  if (!table->valid()) { delete table; return nullptr; }
+  return table;
+}
+EXPORT(ms_table_free) void ms_table_free(SampleTable* table) { delete table; }
+EXPORT(ms_table_set) void ms_table_set(Wavetable* k, SampleTable* table) { k->table = table; }
 EXPORT(ms_image_create) ImagePyramid* ms_image_create(int w, int h, const uint8_t* rgb) {
   if (w < 1 || h < 1 || w > 256 || h > 256 || !rgb) return nullptr;
   auto* image = new ImagePyramid(w, h, rgb);

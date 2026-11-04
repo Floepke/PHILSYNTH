@@ -2,6 +2,46 @@
 
 Modular synthesizer for the browser and Electron.
 
+## Module CPU benchmarks
+
+Run `npm run bench:modules` for every registered module, including Output.
+It compares isolated DSP kernels in JavaScript and C++/Wasm where available,
+with active input, sample/image fixtures, and one/eight-voice synth workloads.
+Additional cases exercise 32 voices, filter modes, distortion types,
+oversampling, image-scanner resolution, sample interpolation, wavetable
+crossfading and non-flat EQ bands.
+MIDI processors are measured separately with eight-key chords and a 32-key
+stress workload, pitch updates and audio-clock callbacks. PATCH is a container:
+its separate graph comparison measures an empty folder versus a direct
+OSC-to-Output connection, not the cost of arbitrary contents.
+
+The benchmark warms up each case, alternates backend order and reports five
+repeats of five simulated audio seconds (median and min/max). MIDI warmup also
+fills the schedulers' six-second release-history window. Results are
+milliseconds of execution per simulated audio second: **10 ms/s = 1% of one
+core**, not total system CPU. DSP timings exclude graph routing, control-target
+updates, UI, IPC, loading and initialisation. Node timings are estimates, not
+browser audio-thread deadline guarantees; repeat on an otherwise idle machine.
+Only modules with native kernels get Wasm results; the others still use JS.
+Avoid treating tiny timings or overlapping ranges as meaningful rankings.
+
+Use `npm run bench:modules -- --quick` for fixture/coverage validation, not
+performance conclusions. To save all measurements and machine metadata as JSON:
+`npm run --silent bench:modules -- --json > module-bench.json`.
+No project files are changed. The older `npm run bench` still measures selected
+kernels and large end-to-end graphs.
+
+SAMPLER and WAVETABLE have native C++/Wasm playback kernels, including every
+playback/interpolation mode, pitch/velocity smoothing and the original ADSR.
+Wavetable FFT mipmaps preserve the existing anti-aliasing. Equal PCM uploads and
+wavetable mipmaps are shared across native instances and freed with their last
+owner. Mipmap storage and FFT workspace are allocated on upload or Block Size
+changes, never inside the audio-processing loop; frame transforms are still
+prepared lazily on first use. The built-in
+table is generated with the existing JS routine. JavaScript playback remains the
+fallback when Wasm is unavailable. Rebuild the committed binary after C++ changes
+with `npm run build:wasm`; `node test/wasm.test.mjs` checks native/JS audio parity.
+
 ## Linux AppImage
 
 On an x86-64 or ARM64 Linux machine with Node.js 22 or newer:

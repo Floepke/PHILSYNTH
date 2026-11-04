@@ -6,7 +6,7 @@
 // double where JS keeps a number, float where JS keeps a Float32Array, so both render the same
 // samples (test/wasm.test.mjs compares them). Change both together.
 //
-// Rules: no allocation during process(). Image uploads may allocate between renders; Graph
+// Rules: no allocation during process(). Image/sample uploads may allocate between renders; Graph
 // remaps its views before the next render if memory grew. No libc++ (the module is built with
 // -nostdlib++ so it has no imports at all).
 #pragma once

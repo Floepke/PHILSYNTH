@@ -275,6 +275,8 @@ export class Graph {
       const x = m.k.value;
       if (x !== null && x !== undefined && m.routes.length) this.modulate(m, x);
     }
+    // A modulated wavetable Block Size can replace its prepared layout and grow the heap.
+    if (this.heap?.grown()) this.remap();
     if (this.prog) this.master.silent = !this.x.ms_run(this.prog, BLOCK);
     else for (const n of this.order) {
       if (n.carrierInputs) {
@@ -299,6 +301,7 @@ export class Graph {
     // Apply after rendering: audio-derived control feeds the next quantum, including feedback
     // to its own source, without a circular audio dependency or insertion-order differences.
     for (const m of this.mods) if (m.audioInput && m.routes.length) this.modulate(m, m.k.value);
+    if (this.heap?.grown()) this.remap();
     if (this.scopeH.length) this.scope();
     const m = this.master;
     if (m.silent) {
