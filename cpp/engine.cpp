@@ -8,6 +8,7 @@
 #include "kernel.h"
 #include "modulator.h"
 #include "osc.h"
+#include "operator.h"
 #include "reverb.h"
 #include "waveshaper.h"
 
@@ -20,14 +21,15 @@ void operator delete(void* p, __SIZE_TYPE__) noexcept { free(p); }
 
 using namespace ms;
 
-enum Kind { KIND_OSC = 1, KIND_FILTER = 2, KIND_REVERB = 3, KIND_WAVESHAPER = 4, KIND_BUS = 5, KIND_AMP = 6, KIND_OUT = 7, KIND_DCBLOCK = 8, KIND_EQ = 9, KIND_DELAY = 10, KIND_ECHO = 11, KIND_MODULATOR = 12 };
+enum Kind { KIND_OSC = 1, KIND_FILTER = 2, KIND_REVERB = 3, KIND_WAVESHAPER = 4, KIND_BUS = 5, KIND_AMP = 6, KIND_OUT = 7, KIND_DCBLOCK = 8, KIND_EQ = 9, KIND_DELAY = 10, KIND_ECHO = 11, KIND_MODULATOR = 12, KIND_OPERATOR = 13 };
 
 // Bumped when the API changes; src/dsp/wasm.js refuses other versions.
-EXPORT(ms_version) int ms_version() { return 9; }
+EXPORT(ms_version) int ms_version() { return 10; }
 
 EXPORT(ms_param_count) int ms_param_count(int kind) {
   switch (kind) {
     case KIND_OSC: return Osc::PARAMS;
+    case KIND_OPERATOR: return Operator::PARAMS;
     case KIND_FILTER: return Filter::PARAMS;
     case KIND_REVERB: return Reverb::PARAMS;
     case KIND_WAVESHAPER: return Waveshaper::PARAMS;
@@ -50,6 +52,7 @@ EXPORT(ms_free) void ms_free(void* p) { free(p); }
 EXPORT(ms_create) Kernel* ms_create(int kind, double sampleRate, int salt, uint32_t seed) {
   switch (kind) {
     case KIND_OSC: return new Osc(sampleRate, seed);
+    case KIND_OPERATOR: return new Operator(sampleRate);
     case KIND_FILTER: return new Filter(sampleRate, seed);
     case KIND_REVERB: return new Reverb(sampleRate, salt);
     case KIND_WAVESHAPER: return new Waveshaper(sampleRate);

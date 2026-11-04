@@ -2,8 +2,8 @@
 // Incoming audio is routed to the inner module selected by 'Input Module'.
 // The inner Output module feeds this module's output.
 //
-// Instances (1..16): when > 1 and Input Module is a MIDI module without audio input (OSC,
-// MULTIMIDI), the contents run that many times and incoming notes go round robin over the
+// Instances (1..16): when > 1 and Input Module is a MIDI-only module or an OPERATOR,
+// the contents run that many times and incoming notes go round robin over the
 // instances (a free instance first). Instance 1 is the one you edit; the others are hidden
 // copies kept in sync with it. Every instance runs its own random generators (drift, Random
 // LFO, ...) and seeded modules (REVERB) get a per-instance salt, so no two instances are alike.
@@ -117,16 +117,17 @@ export default {
 
     const route = () => {
       inGain.disconnect();
-      const t = patch.modules.get(target);
-      if (t?.inst.input) inGain.connect(t.inst.input);
+      for (const rt of runtimes()) {
+        const t = rt.modules.get(target);
+        if (t?.inst.input) inGain.connect(t.inst.input);
+      }
     };
     patch.listeners.add(route);
-    route();
 
-    // round robin needs a note-only entry point: a MIDI module without audio input
+    // OPERATOR's input is modulation, not a replacement for its MIDI-triggered voice.
     const midiTarget = () => {
       const t = patch.modules.get(target);
-      return !!t && t.def.acceptsMidi && !t.def.hasInput;
+      return !!t && t.def.acceptsMidi && (!t.def.hasInput || t.def.type === 'OPERATOR');
     };
     const wanted = () => (midiTarget() ? instances : 1);
 
@@ -136,6 +137,7 @@ export default {
     let pending = false;
     let syncing = null;
     const runtimes = () => [patch, ...clones.map((c) => c.rt)];
+    route();
 
     async function syncNow() {
       let rebuilt = false;
@@ -158,6 +160,7 @@ export default {
         }
       }
       syncing = null;
+      if (rebuilt && !destroyed) route();
       // modulation of mapped controllers is routed to every instance: new copies need new routes
       if (rebuilt && !destroyed && maps.length) owner?.changed();
     }

@@ -66,8 +66,9 @@ export const GUIDE = [
         items: [
           `Drag a controller, scroll it, or ${k('Double-click')} the number to type a value (${k('Tab')} moves on). Scroll a dropdown to change it. The keyboard focus stays where it was, so ${k('Space')} still plays.`,
           'Modulators (LFO, ADSR, ENVELOPE, VELOCITY2CTL, PITCH2CTL, SOUND2CTL) drive a controller of the modules they are cabled to: pick it with <b>Out Controller</b>, trim the range with <b>Out Min</b> / <b>Out Max</b>. A MULTICTL picks its controllers under <b>Routes</b>.',
-          'OSC / ADSR: with <b>Sustain</b> at 0, <b>Decay</b> and <b>Release</b> are linked (their Curves too).',
-          'OSC / ADSR: <b>Attack/Decay/Release Curve</b> bend each stage (0 = linear, +100 % = analog). Or drag the handles of the ADSR graph in the panel: the peak, the decay corner, the release end and the round curve dots.',
+          'OSC / OPERATOR / ADSR: with <b>Sustain</b> at 0, <b>Decay</b> and <b>Release</b> are linked (their Curves too).',
+          'OSC / OPERATOR / ADSR: <b>Attack/Decay/Release Curve</b> bend each stage (0 = linear, +100 % = analog). Or drag the handles of the ADSR graph in the panel: the peak, the decay corner, the release end and the round curve dots.',
+          '<b>OPERATOR</b> builds FM instruments with sine phase modulation: send MIDI to both operators, then cable audio A → B → Output. <b>Modulation Amount</b> scales input phase depth (100 % = one cycle at amplitude 1); <b>Feedback</b> adds internal self-modulation. Use MULTIMIDI OVERTONE for ratios and TUNING for tuning. Each operator is monophonic; use <b>Patch Instances</b> for separate polyphonic copies of the whole network.',
         ],
       },
       {

@@ -122,6 +122,72 @@ function compare(kind, { opts = {}, script = [], input = null, gaps = () => fals
 const param = (id, value) => ({ type: 'param', id, value });
 const noteOn = (id, pitch, velocity = 0.8, phase) => ({ type: 'noteOn', id, pitch, velocity, ...(phase === undefined ? {} : { phase }) });
 
+// OPERATOR: stereo PM, monophonic note ownership, fractional tuning, curves, smoothing and panic.
+for (const feedback of [0, 2]) {
+  compare('operator', {
+    blocks: 160, tol: 1e-5, inHeap: true,
+    input: (b, i, ch) => 0.2 * Math.sin((b * N + i) * (ch ? 0.07 : 0.11)),
+    gaps: (b) => b >= 50 && b < 60,
+    script: [
+      [0, param('feedback', feedback)], [0, param('modulation', 25)], [0, param('attack', 0.01)],
+      [0, noteOn(1, 60.37, 0.7, 0.2)], [5, param('modulation', 200)],
+      [10, { type: 'noteMod', notes: [[1, 72.15, 0.3]] }], [15, param('velocity', 0)],
+      [20, param('atkCurve', -100)], [25, param('gain', 0.2)],
+      [30, noteOn(2, 65.5)], [35, { type: 'noteOff', id: 1 }],
+      [40, param('sustain', 0.3)], [45, param('relCurve', -50)], [65, param('release', 0.03)],
+      [70, { type: 'noteOff', id: 2 }], [100, 'panic'], [110, noteOn(3, 69, 1, -0.3)],
+      [120, { type: 'allOff' }], [130, noteOn(4, 48, 0.5, 1.25)],
+    ],
+  });
+}
+
+function operatorGraph(opts, modulation) {
+  const { dsp, graph, render } = dspTestHost(opts);
+  const a = dsp.create('operator'), b = dsp.create('operator');
+  a.connect(b); b.connect(dsp.destination);
+  b.send(param('modulation', modulation));
+  render();
+  a.send(noteOn(1, 60.37, 1));
+  assert.ok(render(4).L.every((v) => v === 0), 'modulator audio alone cannot play a carrier');
+  b.send(noteOn(2, 69.12, 1));
+  const samples = [];
+  for (let i = 0; i < 30; i++) samples.push(...render().L);
+  if (opts.heap) assert.ok(graph.prog, 'operator network uses native rendering');
+  dsp.panic();
+  assert.ok(render().L.every((v) => v === 0), 'operator network panic clears tails');
+  a.destroy(); b.destroy();
+  return samples;
+}
+const opJs = operatorGraph({}, 100);
+const opNative = operatorGraph({ kernels: WASM, heap }, 100);
+const opDry = operatorGraph({ kernels: WASM, heap }, 0);
+assert.ok(opNative.every((v, i) => Math.abs(v - opJs[i]) < 1e-5), 'native operator network matches JS');
+assert.ok(opNative.some((v, i) => Math.abs(v - opDry[i]) > 0.01), 'operator audio cable modulates downstream phase');
+
+// Strong self-feedback can be chaotic (tiny floating-point differences diverge), so test
+// boundedness and deterministic resets in each engine rather than sample equality between them.
+for (const K of [KERNELS.operator, WASM.operator]) {
+  const k = new K();
+  k.message(param('feedback', 100));
+  const out = [stereo()];
+  k.process([[]], out);
+  const play = () => {
+    k.message(noteOn(1, 60.13, 1, 0.2));
+    const samples = [];
+    for (let b = 0; b < 60; b++) {
+      k.process([[]], out);
+      assert.ok(out[0][0].every((v) => Number.isFinite(v) && Math.abs(v) < 1));
+      samples.push(...out[0][0]);
+    }
+    return samples;
+  };
+  const first = play();
+  k.panic();
+  assert.equal(k.process([[]], out), false, 'silent after panic (silent output buffers are undefined)');
+  assert.deepEqual(play(), first, 'panic clears self-feedback and filter state');
+  k.destroy?.();
+}
+
 // DELAY / ECHO: fractional taps, controller glides, tempo sync and all feedback filters.
 compare('delay', {
   blocks: 160, input: (b, i, ch) => b < 20 ? Math.sin((b * N + i) * (ch ? 0.13 : 0.1)) : 0,

@@ -60,6 +60,26 @@ export const DOCS = {
     ],
   },
 
+  OPERATOR: {
+    summary: 'Monophonic sine operator for custom FM instruments, using phase modulation. MIDI triggers its ADSR; audio input changes its waveform phase. Chain operators as modulators and carriers, or send several carriers to the Output.',
+    params: {
+      modulation: 'Scales the incoming audio, not the output volume. At 100 %, input amplitude 1 shifts the sine phase by one full cycle (2 pi radians); at 0 the input is ignored. Range 0–1000 %. Stereo is averaged and multiple audio inputs are summed. Quieter source audio gives less modulation.',
+      feedback: 'Internal self-modulation: feeds the previous oversampled sine value back into its phase, before the envelope and output level. At 100 % the phase depth is one cycle. Higher values produce bright or noisy timbres. This is a one-internal-sample delay, not a block-delayed cable.',
+      ...VOICE_ENV,
+      ...ENV_CURVES,
+      velocity: 'How much MIDI velocity changes output level (and hence downstream modulation strength): 0 % ignores velocity; 100 % follows it fully.',
+    },
+    notes: [
+      NOTES_IN,
+      'Follows fractional MIDI pitch and live changes from TUNING and MULTIMIDI, including cent offsets and OVERTONE ratios. No separate tuning or ratio controls.',
+      'Example: MULTIMIDI sends notes to A and B; audio A → B → Output. A shapes B\'s timbre. Send A through its own MULTIMIDI for a different OVERTONE ratio. MIDI cables do not automatically follow audio cables.',
+      'One voice per OPERATOR (a new note replaces the previous one). For polyphonic FM, put the entire network in a Patch and raise Instances. Pick an OPERATOR or a MIDI-only module such as MULTIMIDI as the Input Module; notes play separate copies of the whole network.',
+      'Each operator uses 4× oversampling, interpolated input and a low-pass downsampling filter to reduce aliasing; it does not eliminate all aliasing. The filter delays audio by about eight samples per operator. Audio feedback cable loops are not supported; use Feedback for self-modulation.',
+      'Input audio alone makes no sound and is never mixed directly into the output. Level and ADSR shape both audible loudness and the modulation sent to another operator.',
+      `<b>ADSR editor</b>: ${ADSR_EDITOR}`,
+    ],
+  },
+
   SAMPLER: {
     summary: 'Polyphonic sample player: one loaded audio sample is spread over the keyboard. C4 (MIDI 60) plays it at its own pitch; every semitone up plays it faster and higher. Each note is shaped by an ADSR envelope.',
     params: {
@@ -434,7 +454,7 @@ export const DOCS = {
     summary: 'A folder holding a complete sub-patch with its own Output: it groups modules into one reusable module. Audio and notes go in, its inner Output comes out. It can also run several copies (Instances) and pass notes and modulation out, to act as a custom MIDI or modulation module.',
     params: {
       inputModule: 'The number of the module inside that receives the audio/midi/modulation cabled into the Patch. Defaults to 1, so the first module you insert inside gets the input right away; 0 passes the input straight to the inner Output.',
-      instances: 'Number of copies of the contents (1–16). With more than one, and a MIDI-only Input Module (OSC, MULTIMIDI), incoming notes go round-robin over the copies, free copies first. Every copy has its own random generators.',
+      instances: 'Number of copies of the contents (1–16). With more than one, and an OPERATOR or MIDI-only Input Module (OSC, MULTIMIDI), incoming notes go round-robin over the copies, free copies first. Every copy has its own random generators.',
     },
     mapped: 'Mapped controller: sets this controller inside the Patch (every instance follows). It can be modulated and automated from outside like any other controller.',
     notes: [

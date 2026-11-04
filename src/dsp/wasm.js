@@ -12,7 +12,7 @@
 import { Kernel } from './kernel.js';
 import { curveTable, defaultCurve } from '../curve.js';
 
-export const WASM_VERSION = 9;
+export const WASM_VERSION = 10;
 
 // kind = Kind in cpp/engine.cpp; params in the order of the kernel's enum
 export const SPECS = {
@@ -34,6 +34,7 @@ export const SPECS = {
   delay: { kind: 10, params: ['left', 'right', 'unit'] },
   echo: { kind: 11, params: ['dry', 'wet', 'feedback', 'delay', 'unit', 'mode', 'filter', 'cutoff'] },
   modulator: { kind: 12, params: ['type', 'carrier', 'interpolation'], carrierInput: true },
+  operator: { kind: 13, params: ['modulation', 'feedback', 'attack', 'decay', 'sustain', 'release', 'atkCurve', 'decCurve', 'relCurve', 'velocity', 'gain'] },
 };
 
 const NOTE = { noteOn: 0, noteMod: 1, noteOff: 2, allOff: 3 };

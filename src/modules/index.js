@@ -2,6 +2,7 @@
 // every controller in src/moduledocs.js (test/moduledocs.test.mjs fails otherwise).
 import out from './out.js';
 import osc from './osc.js';
+import operator from './operator.js';
 import sampler from './sampler.js';
 import wavetable from './wavetable.js';
 import imagesampler from './imagesampler.js';
@@ -28,7 +29,7 @@ import modulator from './modulator.js';
 import input from './input.js';
 import compressor from './compressor.js';
 
-const all = [out, osc, sampler, wavetable, imagesampler, input, multimidi, strum, tuning, filter, eq, waveshaper, amp, compressor, dcblock, delay, echo, modulator, reverb, lfo, adsr, envelope, velocity2ctl, pitch2ctl, sound2ctl, multictl, patch];
+const all = [out, osc, operator, sampler, wavetable, imagesampler, input, multimidi, strum, tuning, filter, eq, waveshaper, amp, compressor, dcblock, delay, echo, modulator, reverb, lfo, adsr, envelope, velocity2ctl, pitch2ctl, sound2ctl, multictl, patch];
 
 export const getModule = (type) => all.find((m) => m.type === type);
 // Modules offered in the insert dialog (system modules like OUT are excluded)
