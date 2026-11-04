@@ -39,7 +39,7 @@ export const DOCS = {
     },
     notes: [
       'The text box below the controllers keeps notes about the song or patch; it is saved with the project.',
-      'Inside a Patch, MIDI cables (MULTIMIDI, STRUM) and modulator cables (LFO, ADSR, ENVELOPE, VELOCITY2CTL, PITCH2CTL, SOUND2CTL) into the Output pass out over the Patch module\'s cables. At the top level a modulator cabled into the Output drives the Output\'s own controllers.',
+      'Inside a Patch, MIDI cables (MULTIMIDI, STRUM, TRILL) and modulator cables (LFO, ADSR, ENVELOPE, VELOCITY2CTL, PITCH2CTL, SOUND2CTL) into the Output pass out over the Patch module\'s cables. At the top level a modulator cabled into the Output drives the Output\'s own controllers.',
     ],
   },
 
@@ -194,6 +194,21 @@ export const DOCS = {
     notes: [
       'Send chord notes from a sequencer clip to STRUM, then <kbd>Shift</kbd> + drag it to an OSC, Patch or another MIDI module.',
       'Note-off and velocity changes follow each note\'s delay, so note lengths are kept. Panic cancels pending strums.',
+    ],
+  },
+
+  TRILL: {
+    summary: 'Human-like trill: while keys are held it plays them one after another, again and again, and sends the notes through its MIDI cables. Two keys alternate like a classic trill; with more keys the notes follow the chosen order (random by default). It makes no sound itself.',
+    params: {
+      order: 'Order of the held notes: random (never the same note twice in a row), up (low to high, then wraps), down (high to low) or up-down (back and forth). With two keys every order alternates.',
+      separation: 'Time from one note start to the next, as a division of a whole note at the BPM of this patch level\'s Output: 16 = 1/16 note, 8 = 1/8; 3, 6, 12, 24 are triplets. Higher = faster trill (at 120 BPM, 32 = 62.5 ms).',
+      length: 'Length of every played note, also a whole-note division (higher = shorter). Longer than the separation makes the notes overlap; a note that comes back cuts its previous copy.',
+      humanize: 'Random human variation. 0 % plays exactly on the separation grid with exact lengths and the key velocities; 100 % moves every note up to ±40 % of the separation earlier or later and varies its length by ±30 % and velocity by ±20 %. The variation never builds up into drift.',
+    },
+    notes: [
+      'The trill starts at once on the first key you press and stops when all keys are released; the last notes ring for their Note Length. Keys pressed or released during the trill join or leave it.',
+      'Play it live or send held notes / chords from a clip, then <kbd>Shift</kbd> + drag it to an OSC, SAMPLER, Patch or another MIDI module. Pitch bends of a held key follow on its trill notes.',
+      'Timing runs on the audio clock with about 5 ms resolution. Panic stops the trill.',
     ],
   },
 
@@ -493,7 +508,7 @@ export const DOCS = {
     notes: [
       'Click <b>Edit Patch...</b> beside <b>Controllers…</b> to open the Patch (or <kbd>Double-click</kbd> it, or select it and press <kbd>Enter</kbd>); the mouse <b>back</b> button or the patch path goes up again.',
       '<b>Controllers…</b> maps controllers of modules inside to extra controllers of this module.',
-      'Inside, cable a MULTIMIDI or STRUM into the Output to send notes out, or an LFO, ADSR, ENVELOPE, VELOCITY2CTL, PITCH2CTL or SOUND2CTL to send modulation out; the inner modulator\'s Out Controller then picks a controller of the modules this Patch is cabled to.',
+      'Inside, cable a MULTIMIDI, STRUM or TRILL into the Output to send notes out, or an LFO, ADSR, ENVELOPE, VELOCITY2CTL, PITCH2CTL or SOUND2CTL to send modulation out; the inner modulator\'s Out Controller then picks a controller of the modules this Patch is cabled to.',
     ],
   },
 };

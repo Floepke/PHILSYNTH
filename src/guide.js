@@ -69,6 +69,7 @@ export const GUIDE = [
           'OSC / OPERATOR / ADSR: with <b>Sustain</b> at 0, <b>Decay</b> and <b>Release</b> are linked (their Curves too).',
           'OSC / OPERATOR / ADSR: <b>Attack/Decay/Release Curve</b> bend each stage (0 = linear, +100 % = analog). Or drag the handles of the ADSR graph in the panel: the peak, the decay corner, the release end and the round curve dots.',
           '<b>OPERATOR</b> builds FM instruments with sine phase modulation: send MIDI to both operators, then cable audio A → B → Output. <b>Modulation Amount</b> scales input phase depth (100 % = one cycle at amplitude 1); <b>Feedback</b> adds internal self-modulation. Use MULTIMIDI OVERTONE for ratios and TUNING for tuning. Each operator is monophonic; use <b>Patch Instances</b> for separate polyphonic copies of the whole network.',
+          '<b>TRILL</b> turns held keys into a human-like trill: two keys alternate, more keys follow <b>Order</b>. <b>Note Separation</b> and <b>Note Length</b> are whole-note divisions at the BPM (16 = 1/16, 12 = 1/8 triplet; higher = faster / shorter); <b>Humanize</b> adds timing, length and velocity variation. <kbd>Shift</kbd> + drag it to the sound module.',
         ],
       },
       {
@@ -85,7 +86,7 @@ export const GUIDE = [
           `Select a Patch and click <b>Edit Patch...</b> beside <b>Controllers…</b> to enter it (or ${k('Double-click')}, press ${k('Enter')}, or right-click → <b>Open patch</b>); the mouse <b>back</b> button or the patch path (<b>Main</b> / …, left on the lower divider) goes up.`,
           'Audio, MIDI and modulation cabled into a Patch go to its <b>Input Module</b> (default <kbd>1</kbd>: the first module inserted inside; <kbd>0</kbd> = straight to the inner Output). <b>Instances</b> plays notes round-robin over copies of the contents.',
           '<b>Controllers…</b> (in the panel of a selected Patch) maps controllers of modules inside onto the Patch module, so they can be set, modulated and automated from outside.',
-          'Custom MIDI / modulation modules: inside a Patch, cable a MULTIMIDI or STRUM into the Output to send notes out of the Patch, or a modulator to send modulation out; cable the Patch module to modules outside to play / drive them.',
+          'Custom MIDI / modulation modules: inside a Patch, cable a MULTIMIDI, STRUM or TRILL into the Output to send notes out of the Patch, or a modulator to send modulation out; cable the Patch module to modules outside to play / drive them.',
           'Each level has its own sequencer (piano roll and TimeLine) and its Output its own BPM, <b>Global Transpose</b> and <b>Global Cents Offset</b>. Play always plays the level you are on, so a Patch\'s TimeLine is a sketch pad that never sounds in the main song.',
         ],
       },

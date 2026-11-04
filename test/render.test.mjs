@@ -69,6 +69,22 @@ for (const type of ['STRUM', 'MULTIMIDI']) {
   assert.ok(out.seconds > onset, `${type}: export includes all delayed notes`);
 }
 
+// TRILL through a MIDI cable: one held key repeats every 1/16 (0.125 s) for 1/32 (62.5 ms)
+{
+  const trilled = structuredClone(project);
+  const id = 2;
+  trilled.patch.modules.push({ id, type: 'TRILL', x: 0, y: 0, values: { separation: 16, length: 32, humanize: 0 } });
+  trilled.patch.cables.push({ from: id, to: osc.id });
+  trilled.song.clips[0].target = id;
+  const out = await renderSong(trilled, { sampleRate: rate });
+  const peak = (a, b) => { let p = 0; for (let i = Math.floor(a * rate); i < Math.floor(b * rate); i++) p = Math.max(p, Math.abs(out.left[i])); return p; };
+  for (let k = 0; k < 4; k++) {
+    assert.ok(peak(k * 0.125 + 0.01, k * 0.125 + 0.05) > 0.01, `TRILL: note ${k} sounds`);
+    assert.ok(peak(k * 0.125 + 0.08, k * 0.125 + 0.115) < 1e-3, `TRILL: gap after note ${k}`);
+  }
+  assert.ok(peak(0.6, 1) < 1e-3, 'TRILL: stops when the key is released');
+}
+
 // an empty song cannot be exported
 await assert.rejects(renderSong({ ...structuredClone(project), song: emptySong() }, { sampleRate: rate }), /empty/);
 
