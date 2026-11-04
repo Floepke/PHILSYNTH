@@ -3,11 +3,15 @@
 // one (see PatchRuntime.pitchOffset); they are not DSP controllers (dsp: false).
 // Inside a Patch, MIDI and control cables into it pass out through the Patch module (see
 // passesMod in src/patch.js).
-// Its state holds free text: comments / notes about the song (or patch), edited in its panel and
-// saved with the project.
+// Its state holds free text: the song name, the creator's name and comments / notes about the song
+// (or patch), edited in its panel and saved with the project.
 export const MAX_COMMENT = 20000;
+export const MAX_NAME = 200; // song name and creator
+const text = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
 export const normalizeComment = (state) => ({
-  comment: typeof state?.comment === 'string' ? state.comment.slice(0, MAX_COMMENT) : '',
+  songName: text(state?.songName, MAX_NAME),
+  creator: text(state?.creator, MAX_NAME),
+  comment: text(state?.comment, MAX_COMMENT),
 });
 
 export default {
@@ -26,28 +30,47 @@ export default {
     { id: 'cents', dsp: false, label: 'Global Cents Offset', min: -100, max: 100, default: 0, step: 1, wheelStep: 1, format: (v) => `${v > 0 ? '+' : ''}${v} ct` },
     { id: 'volume', label: 'Master volume', min: 0, max: 1, default: 0.8, step: 0.01 },
   ],
-  defaultState: () => ({ comment: '' }),
+  defaultState: () => ({ songName: '', creator: '', comment: '' }),
   normalizeState: normalizeComment,
-  // panel (below the controllers): a text box for comments, saved as you type
+  // panel (below the controllers): Song/Patch Name, Creator and a Comments box, saved as you type
   view(entry, api) {
-    const el = document.createElement('label');
-    el.className = 'out-comment';
-    const title = document.createElement('span');
-    title.textContent = 'Comments';
+    const el = document.createElement('div');
+    const field = (label, input) => {
+      const row = document.createElement('label');
+      row.className = 'out-comment';
+      const title = document.createElement('span');
+      title.textContent = label;
+      // the app's key shortcuts skip text fields; Escape leaves the field (instead of going up a patch level)
+      input.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        e.stopPropagation();
+        input.blur();
+      });
+      row.append(title, input);
+      el.append(row);
+    };
+    const line = (key, placeholder) => {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.maxLength = MAX_NAME;
+      input.spellcheck = false;
+      input.placeholder = placeholder;
+      input.value = entry.state?.[key] ?? '';
+      return input;
+    };
+    const songName = line('songName', 'Title of the song/patch');
+    const creator = line('creator', 'Your name');
     const text = document.createElement('textarea');
     text.rows = 8;
     text.maxLength = MAX_COMMENT;
     text.spellcheck = true;
     text.placeholder = 'Notes about the song: ideas, structure, credits…';
     text.value = entry.state?.comment ?? '';
-    text.addEventListener('input', () => api.setState({ comment: text.value }));
-    // the app's key shortcuts skip textareas; Escape leaves the box (instead of going up a patch level)
-    text.addEventListener('keydown', (e) => {
-      if (e.key !== 'Escape') return;
-      e.stopPropagation();
-      text.blur();
-    });
-    el.append(title, text);
+    const save = () => api.setState({ songName: songName.value, creator: creator.value, comment: text.value });
+    for (const input of [songName, creator, text]) input.addEventListener('input', save);
+    field('Song/Patch Name', songName);
+    field('Creator', creator);
+    field('Comments', text);
     return { el };
   },
   create(_ctx, def, host) {

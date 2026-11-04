@@ -38,7 +38,7 @@ export const DOCS = {
       cents: 'Fine-tunes every note entering this patch level by up to ±100 cents.',
     },
     notes: [
-      'The text box below the controllers keeps notes about the song or patch; it is saved with the project.',
+      'Below the controllers: <b>Song/Patch Name</b>, <b>Creator</b> (the name of whoever made it) and a <b>Comments</b> box for notes about the song or patch; all are saved with the project.',
       'Inside a Patch, MIDI cables (MULTIMIDI, STRUM, TRILL) and modulator cables (LFO, ADSR, ENVELOPE, VELOCITY2CTL, PITCH2CTL, SOUND2CTL) into the Output pass out over the Patch module\'s cables. At the top level a modulator cabled into the Output drives the Output\'s own controllers.',
     ],
   },

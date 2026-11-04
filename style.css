@@ -329,7 +329,8 @@ body.panel-collapsed #panel { visibility: hidden; }
 .input-status.error { color: #e06666; }
 .comp-curve { height: 140px; }
 .out-comment { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; font-size: 12px; color: var(--text-dim); }
-.out-comment textarea {
+.out-comment textarea,
+.out-comment input {
   box-sizing: border-box;
   width: 100%;
   min-height: 80px;
@@ -344,7 +345,9 @@ body.panel-collapsed #panel { visibility: hidden; }
   border-radius: var(--radius-sm);
   outline: none;
 }
-.out-comment textarea:focus { border-color: var(--text-dim); }
+.out-comment input { resize: none; min-height: 0; }
+.out-comment textarea:focus,
+.out-comment input:focus { border-color: var(--text-dim); }
 
 .ctl {
   --ctl-color: #8a8a92;

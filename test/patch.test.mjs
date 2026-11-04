@@ -1478,24 +1478,33 @@ const set = (e, x) => { hold(e, x); render(1); };
 {
   const r = await PatchRuntime.create(engine, dsp.destination);
   const out = r.modules.get(0);
-  assert.deepEqual(out.state, { comment: '' }, 'empty comment by default');
+  assert.deepEqual(out.state, { songName: '', creator: '', comment: '' }, 'empty song name, creator and comment by default');
   assert.equal(out.def.params.find((p) => p.id === 'bpm').max, 1000);
   r.setParam(0, 'bpm', 1000);
   assert.equal(r.bpm, 1000);
   r.setState(0, { comment: 'Intro 8 bars\nverse: Em C G D' });
-  r.setState(0, { comment: 42 });
-  assert.deepEqual(out.state, { comment: '' }, 'normalized');
-  r.setState(0, { comment: 'Intro 8 bars\nverse: Em C G D', junk: 1 });
-  assert.deepEqual(out.state, { comment: 'Intro 8 bars\nverse: Em C G D' });
+  r.setState(0, { comment: 42, creator: 7, songName: [] });
+  assert.deepEqual(out.state, { songName: '', creator: '', comment: '' }, 'normalized');
+  r.setState(0, { creator: 'x'.repeat(500), songName: 'y'.repeat(500) });
+  assert.equal(out.state.creator.length, 200, 'creator is capped');
+  assert.equal(out.state.songName.length, 200, 'song name is capped');
+  r.setState(0, { comment: 'Intro 8 bars\nverse: Em C G D', creator: 'Philip', songName: 'Night Drive', junk: 1 });
+  assert.deepEqual(out.state, { songName: 'Night Drive', creator: 'Philip', comment: 'Intro 8 bars\nverse: Em C G D' });
   const json = JSON.parse(JSON.stringify(r.toJSON()));
   const r2 = await PatchRuntime.create(engine, dsp.destination);
   await r2.load(json);
   assert.equal(r2.modules.get(0).state.comment, 'Intro 8 bars\nverse: Em C G D', 'saved with the project');
+  assert.equal(r2.modules.get(0).state.creator, 'Philip', 'creator saved with the project');
+  assert.equal(r2.modules.get(0).state.songName, 'Night Drive', 'song name saved with the project');
+  // projects saved before the Song/Patch Name / Creator fields load with them empty
+  json.modules.find((m) => m.id === 0).state = { comment: 'old' };
+  await r2.load(json);
+  assert.deepEqual(r2.modules.get(0).state, { songName: '', creator: '', comment: 'old' });
   assert.equal(r2.bpm, 1000);
   // older projects without Output state load with an empty comment
   delete json.modules.find((m) => m.id === 0).state;
   await r2.load(json);
-  assert.deepEqual(r2.modules.get(0).state, { comment: '' });
+  assert.deepEqual(r2.modules.get(0).state, { songName: '', creator: '', comment: '' });
   r.destroy();
   r2.destroy();
 }
