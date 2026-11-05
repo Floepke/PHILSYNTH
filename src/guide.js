@@ -172,12 +172,13 @@ export const GUIDE = [
         items: [
           'Click the ruler to set the play position (on the signature row dragging scrubs). Drag along the ruler for a loop region (blue, snapped); song playback loops inside it. Right-click the region to remove it.',
           `${k('Double-click')} the ruler to insert a time signature change at the nearest bar line (or edit it); right-click a change to remove it.`,
+          '<b>Restart point</b>: right-click the ruler (or a clip / empty space) → <i>Insert restart point at playhead</i>. A green <b>restart:</b> | marks it in the bar number row. Stopping song playback (Space, <kbd>\'</kbd> or the stop button) returns the playhead there; the <kbd>/</kbd> clip loop ignores it. Right-click the marker to remove it.',
         ],
       },
       {
         title: 'Play',
         items: [
-          `${k('Space')} plays / stops (over the piano-roll grid: from the pointer's time). Stopping parks the playhead at the start of the selected clip.`,
+          `${k('Space')} plays / stops (over the piano-roll grid: from the pointer's time). Stopping parks the playhead at the restart point (when set), else at the start of the selected clip.`,
           `${k('.')} plays / resumes the song, ${k(',')} restarts it at zero, ${k('/')} loops the time range of the selected clip with everything else that plays there, ${k("'")} stops (pressed again: panic, all notes and tails off).`,
           'The lower divider, left of the clock, has matching buttons: bar + play starts from the beginning, play resumes from the playhead, play + c loops the selected clip, and the square stops playback (press again for panic).',
           'While looping a clip, select another clip to switch to it when the current clip finishes. The selection at the loop boundary is the one that plays next.',

@@ -421,6 +421,39 @@ for (const reverse of [false, true]) {
   assert.equal(ctx.clip(), clip);
 }
 
+// Restart point: inserted at the playhead from the ruler / clip / empty-space menu, drawn as 'restart:' and a |
+// in the bar number row; right-clicking the marker removes it.
+{
+  const { song, clip, arranger, ctx, menus, changes } = setup();
+  const cv = arranger.surface.cv;
+  const rightClick = (x, y) => { point(cv, 'pointerdown', x, y, { button: 2, buttons: 2 }); point(cv, 'pointerup', x, y, { button: 2 }); };
+  ctx.transport.pos = 4;
+  rightClick(ax(10), 27);
+  assert.deepEqual(labels(menus), ['Insert restart point at playhead', 'Remove restart point']);
+  assert.ok(menus.at(-1).items[1].disabled, 'nothing to remove yet');
+  pick(menus, 'Insert restart point at playhead');
+  assert.equal(song.restart, 4);
+  assert.equal(changes(), 1, 'one undo step');
+  cv.drawing = [];
+  arranger.redraw();
+  flush();
+  assert.ok(cv.drawing.some(([op, text]) => op === 'fillText' && text === 'restart:'), 'labelled');
+  assert.ok(cv.drawing.some(([op, x, , w, , color]) => op === 'fillRect' && x === ax(4) - 1 && w === 3 && color === '#5fd38a'), 'a | at the restart time');
+  rightClick(ax(1), ay(clip.y));
+  assert.ok(labels(menus).includes('Remove restart point'), 'the clip menu has the items too');
+  ctx.transport.pos = 2.5;
+  pick(menus, 'Insert restart point at playhead');
+  assert.equal(song.restart, 2.5, 'moves to the playhead');
+  rightClick(ax(30), ay(200));
+  assert.ok(labels(menus).includes('Insert restart point at playhead'), 'and the empty-space menu');
+  const n = menus.length;
+  rightClick(ax(2.5), 27);
+  assert.equal(menus.length, n, 'the marker opens no menu');
+  assert.equal(song.restart, undefined, 'right-click on the marker removes it');
+  assert.equal(normalizeSong({ restart: 3 }).restart, 3);
+  assert.equal(normalizeSong({ restart: 'x' }).restart, undefined);
+}
+
 // Duration editing needs more than 10 CSS pixels, preserving the remembered length on clicks.
 {
   const { clip, roll, previews } = setup();
@@ -3138,6 +3171,27 @@ for (const notes of [
   assert.ok(transport.pos > clip.start + clip.length, 'song playback continues past the selected clip end');
   press(' ', {}, rollCanvas);
   assert.equal(transport.pos, clip.start, 'Space still stops and parks at the clip start');
+  // a restart point: stopping song playback (Space, ', the stop button) parks the playhead there; the / clip loop does not
+  song.restart = 1;
+  press('.');
+  press(' ');
+  assert.equal(transport.pos, 1, 'Space stops at the restart point');
+  press(',');
+  transport.seek(3);
+  press("'");
+  assert.equal(transport.pos, 1, "' stops at the restart point");
+  press('.');
+  elements.get('seq-stop').onclick();
+  assert.equal(transport.pos, 1, 'stop button too');
+  press('/');
+  transport.seek(clip.start + 0.1);
+  press(' ');
+  assert.equal(transport.pos, clip.start, 'clip loop: Space parks at the clip start as before');
+  press('/');
+  transport.seek(clip.start + 0.1);
+  press("'");
+  assert.equal(transport.pos, clip.start + 0.1, "clip loop: ' keeps the playhead as before");
+  delete song.restart;
   press('/');
   assert.equal(transport.pos, clip.start, 'slash ignores the mouse time');
   assert.equal(transport.clipId, clip.id);

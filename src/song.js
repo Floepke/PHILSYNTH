@@ -233,6 +233,7 @@ export function normalizeSong(s) {
   song.nextId = Math.max(num(s.nextId, 1), ...song.clips.map((c) => c.id + 1), 1);
   song.selected = song.clips.some((c) => c.id === s.selected) ? s.selected : nearestClip(song)?.id ?? null;
   setLoop(song, s.loop?.start, s.loop?.end);
+  setRestart(song, s.restart);
   for (const key of ['mutes', 'solos']) {
     if (Array.isArray(s[key])) for (const l of s[key]) if (Number.isInteger(l) && l >= 0) setLaneFlag(song, key, l, true);
   }
@@ -624,6 +625,14 @@ export function setLoop(song, start, end) {
   const b = num(Math.max(start, end), 0);
   song.loop = b - a > 1e-9 ? { start: clean(a), end: clean(b) } : null;
   return song.loop;
+}
+
+// Restart point (song.restart, quarters, or null): stopping normal song playback (not the / clip
+// loop) parks the playhead there instead of at the start of the selected clip.
+export function setRestart(song, at) {
+  song.restart = Number.isFinite(at) ? clean(Math.max(0, at)) : null;
+  if (song.restart === null) delete song.restart;
+  return song.restart ?? null;
 }
 
 // Notes that start in [from, to) in song time. A note plays when it starts inside its clip;

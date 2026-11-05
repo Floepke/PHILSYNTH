@@ -326,11 +326,13 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
     button.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus (Space) where it is
     button.onclick = () => transportAction(key);
   }
+  // stopping normal song playback returns to the restart point of the playing TimeLine (if set)
+  const restartTo = () => (transport.playing && transport.clipId === null ? transport.getSong().restart ?? null : null);
   function togglePlay(fromPointer = false) {
     engine.resume();
     if (transport.playing) {
-      // pausing parks the playhead at the start of the selected clip
-      transport.stop({ to: getClip(song(), song().selected)?.start ?? null });
+      // pausing parks the playhead at the restart point, else at the start of the selected clip
+      transport.stop({ to: restartTo() ?? getClip(song(), song().selected)?.start ?? null });
       return;
     }
     const pointerTime = fromPointer ? roll.getPointerTime() : null;
@@ -353,7 +355,7 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
     else if (panic) {
       engine.panic();
       $('status').textContent = 'Panic: all notes off, echo / reverb tails and other DSP state cleared.';
-    } else if (key === "'") transport.stop();
+    } else if (key === "'") transport.stop({ to: restartTo() });
     else if (key === '/') {
       engine.resume();
       if (!transport.playClip(song().selected, song())) $('status').textContent = 'Select a clip in the TimeLine to loop it.';

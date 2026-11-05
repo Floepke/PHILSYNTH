@@ -38,11 +38,14 @@
 //   right-click the region     remove it (the ruler, a short click)
 //   double-click the ruler     insert a time signature change at the nearest bar line (or edit it)
 //   right-click a signature    remove that change (the first one can only be edited)
+//   right-click the ruler      menu: insert a restart point at the playhead / remove it; right-click
+//                              the 'restart:' marker removes it (the clip and empty-space menus have
+//                              these items too). Stopping song playback parks the playhead there.
 // Trimming the start of a linked clone trims all its clones (they share the notes).
 import {
   snapStep, snapFloor, snapRound, loopEnd, getClip, addClip, addAutoClip, isAuto, autoPolyline, duplicateClip, removeClip, trimClipStart, BAR, clean,
   meter, barLines, barRound, barLength, removeSig, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource, setLoop,
-  canConsolidate, consolidateClips, splitClip, laneMuted, laneSoloed, laneSilent, clipSilent, setLaneFlag, laneY, isIdea, ideaY,
+  canConsolidate, consolidateClips, splitClip, setRestart, laneMuted, laneSoloed, laneSilent, clipSilent, setLaneFlag, laneY, isIdea, ideaY,
 } from '../song.js';
 import {
   createSurface, capture, startPan, onWheel, clamp, snapBands, rightHold, edgeScroll, MUTE_COLOR,
@@ -63,6 +66,8 @@ const LABEL = 'TimeLine:';
 const EDGE = 6;
 const PLAYHEAD = '#ff5a36';
 const LOOP = '74, 144, 226'; // loop region (rgb)
+const RESTART = '#5fd38a'; // restart point marker
+const RESTART_LABEL = 'restart:';
 const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
 // lane buttons in the lane number column: mute (M) and solo (S)
@@ -85,6 +90,7 @@ export function createArranger(host, ctx) {
   let x0 = 70; // x of time zero, measured from the label
   let hoverId = null;
   let sigBoxes = []; // painted signature labels: { at, x0, x1 }
+  let restartBox = null; // painted restart marker with its label: { x0, x1 }
   let pointer = null;
   let clipboard = null; // snapshots of the copied clips
   let dragging = false;
@@ -548,6 +554,23 @@ export function createArranger(host, ctx) {
       g.fillText(label, x + 4, barY);
       labelEnd = x + 4 + g.measureText(label).width + 8;
     }
+    // restart point: 'restart:' and a | in the bar number row (the label goes right when there is no room left)
+    restartBox = null;
+    if (Number.isFinite(song.restart)) {
+      const x = Math.round(xOf(song.restart));
+      g.font = `600 10px ui-monospace, monospace`;
+      const tw = g.measureText(RESTART_LABEL).width;
+      const left = x - tw - 6 >= x0;
+      const lx = left ? x - tw - 5 : x + 5;
+      if (x + tw + 8 >= x0 && x - tw - 8 <= w) {
+        g.fillStyle = 'rgba(21, 21, 23, 0.95)';
+        g.fillRect(left ? lx - 3 : x + 2, SIG_H + 1, tw + 6, RULER - SIG_H - 3);
+        g.fillStyle = RESTART;
+        g.fillRect(x - 1, SIG_H, 3, RULER - SIG_H);
+        g.fillText(RESTART_LABEL, lx, barY);
+        restartBox = { x0: left ? lx - 3 : x - 3, x1: left ? x + 3 : lx + tw + 3 };
+      }
+    }
     // signature row
     g.fillStyle = 'rgba(255, 255, 255, 0.025)';
     g.fillRect(x0, 0, w - x0, SIG_H);
@@ -576,6 +599,16 @@ export function createArranger(host, ctx) {
     g.strokeStyle = '#26262a';
     g.lineWidth = 2;
     g.beginPath(); g.moveTo(0, RULER - 0.5); g.lineTo(w, RULER - 0.5); g.stroke();
+    if (Number.isFinite(song.restart)) { // the restart point continues faintly through the lanes
+      const x = Math.round(xOf(song.restart)) + 0.5;
+      if (x >= x0 && x <= w) {
+        g.strokeStyle = 'rgba(95, 211, 138, 0.35)';
+        g.lineWidth = 1;
+        g.setLineDash([4, 4]);
+        g.beginPath(); g.moveTo(x, RULER); g.lineTo(x, h - SB); g.stroke();
+        g.setLineDash([]);
+      }
+    }
     // time zero (directly after the colon unless scrolled)
     if (zx >= x0 - 0.5 && zx <= w) {
       const x = Math.max(x0, zx) + 0.75;
@@ -728,9 +761,27 @@ export function createArranger(host, ctx) {
     if (sb !== sbHover) { sbHover = sb; s.redraw(); }
     const h = hit(x, y);
     const id = h?.clip.id ?? null;
-    cv.style.cursor = bar ? 'default' : laneBtnAt(x, y) ? 'pointer' : !h ? (y < RULER && x >= x0 ? (sigAt(x, y) ? 'pointer' : 'text') : 'default') : h.part === 'body' ? 'grab' : 'ew-resize';
+    cv.style.cursor = bar ? 'default' : laneBtnAt(x, y) ? 'pointer' : !h ? (y < RULER && x >= x0 ? (sigAt(x, y) || restartAt(x, y) ? 'pointer' : 'text') : 'default') : h.part === 'body' ? 'grab' : 'ew-resize';
     if (id !== hoverId) { hoverId = id; s.redraw(); }
   }
+
+  // whether local x, y is on the restart marker (bar number row)
+  const restartAt = (x, y) => !!restartBox && y >= SIG_H && y < RULER && x >= restartBox.x0 && x <= restartBox.x1;
+  function insertRestart() {
+    setRestart(ctx.song(), ctx.transport.pos);
+    ctx.changed();
+    s.redraw();
+  }
+  function removeRestart() {
+    if (!Number.isFinite(ctx.song().restart)) return;
+    setRestart(ctx.song(), null);
+    ctx.changed();
+    s.redraw();
+  }
+  const restartItems = () => [
+    { label: 'Insert restart point at playhead', action: insertRestart },
+    { label: 'Remove restart point', disabled: !Number.isFinite(ctx.song().restart), action: removeRestart },
+  ];
 
   // the loop region under local x (ruler), or null
   function loopAt(x) {
@@ -760,9 +811,12 @@ export function createArranger(host, ctx) {
       const box = sigAt(x, y);
       if (y < RULER || x < x0) {
         lastRight = null;
-        // right-click a time signature: remove it; right-click the loop region: remove that
+        // right-click a time signature: remove it; the restart marker or the loop region: remove that;
+        // elsewhere on the ruler: the restart point menu
         if (box) rightHold(cv, e, { onShort: () => { if (removeSig(ctx.song(), box.at)) { ctx.changed(); s.redraw(); } } });
+        else if (x >= x0 && restartAt(x, y)) rightHold(cv, e, { onShort: removeRestart });
         else if (x >= x0 && loopAt(x)) rightHold(cv, e, { onShort: () => { ctx.song().loop = null; ctx.changed(); s.redraw(); } });
+        else if (x >= x0) menu({ x: e.clientX, y: e.clientY, items: restartItems() });
         return;
       }
       // double right-click on empty space: insert an automation clip
@@ -1068,6 +1122,8 @@ export function createArranger(host, ctx) {
         '-',
         { label: clips.length > 1 ? 'Save Clips…' : 'Save Clip…', disabled: !ctx.saveClips, action: () => ctx.saveClips(clips) },
         '-',
+        ...restartItems(),
+        '-',
         { label: 'Select all', shortcut: shortcut('A'), action: selectAll },
       ]
       : [
@@ -1076,6 +1132,8 @@ export function createArranger(host, ctx) {
         { label: 'Insert clip', action: () => insert(x, y, false) },
         { label: 'Insert automation clip', action: () => insert(x, y, true) },
         { label: 'Load Clip…', disabled: !ctx.openClips || !inTimeArea(p), action: () => loadClips(p) },
+        '-',
+        ...restartItems(),
         '-',
         { label: 'Select all', shortcut: shortcut('A'), disabled: !ctx.song().clips.length, action: selectAll },
       ];
