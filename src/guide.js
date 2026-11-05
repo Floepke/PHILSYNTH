@@ -149,7 +149,7 @@ export const GUIDE = [
       {
         title: 'Arrange clips',
         items: [
-          `Click a clip to select it (when stopped the playhead jumps to its start). Drag on empty space for a selection rectangle (${k(CMD)} adds); ${k(CMD)} + click toggles a clip.`,
+          `Click a clip to select it (when stopped the playhead jumps to its start). Drag on empty space for a selection rectangle (${k(CMD)} adds); ${k(CMD)} + click toggles a clip. One clip always stays selected (a new project starts with one empty bar, selected), so the piano roll always shows a clip.`,
           'Drag a clip (or the selection) to move it in time and up / down over the lanes; drag its left / right edge to trim the start / set the length. Every drag (clips, the selection rectangle, the loop region, scrubbing, the M / S buttons) scrolls the TimeLine along near / past an edge of the view.',
           'Clips never overlap: a moved, pasted or new clip snaps to the nearest free position, and resizing stops at neighbours. Use separate lanes for clips that play together.',
           `${k('Alt')} + drag copies; ${k('Shift')} + drag makes <i>linked clones</i> (hatched, ⧉) that share their notes: editing one edits all. ${k(CMD, 'D')} clones the selection right after itself, ${k(CMD, 'Shift', 'D')} duplicates it.`,
@@ -191,8 +191,8 @@ export const GUIDE = [
       [`${k('Alt')} + drag / ${k('Shift')} + drag`, 'copy / linked clone'],
       [`${k(CMD, 'D')} / ${k(CMD, 'Shift', 'D')}`, 'clone / duplicate the selection'],
       [`${k(CMD)} + ${k('X')} / ${k('C')} / ${k('V')}`, 'cut / copy / paste at the pointer (snapped)'],
-      [`${k(CMD, 'A')} / ${k('Esc')}`, 'select all / clear the selection'],
-      [`${k('Backspace')} ${k('Delete')}`, 'delete the selected clips'],
+      [k(CMD, 'A'), 'select all'],
+      [`${k('Backspace')} ${k('Delete')}`, 'delete the selected clips (the nearest clip gets selected)'],
       [`${k('Space')} ${k('.')} ${k(',')} ${k('/')} ${k("'")}`, 'play/stop, song, restart, loop clip, stop/panic'],
       [`wheel / ${k('Shift')} + wheel`, 'scroll time / scroll lanes'],
       [`${k(CMD)} + wheel, ${k('Middle mouse')} drag`, 'zoom, pan'],
@@ -314,7 +314,9 @@ export const GUIDE = [
   },
 ];
 
-// <section class="guide"> with one collapsible <details> per tutorial
+// <section class="guide"> with one collapsible <details> per tutorial: folded until opened; what was
+// opened stays open while the app runs (the panel is rebuilt on every selection change)
+const opened = new Set();
 export function renderGuide(doc = document) {
   const el = (tag, cls, html) => {
     const e = doc.createElement(tag);
@@ -325,7 +327,8 @@ export function renderGuide(doc = document) {
   const root = el('section', 'guide');
   for (const t of GUIDE) {
     const d = el('details', 'guide-part');
-    d.open = true;
+    d.open = opened.has(t.id);
+    d.addEventListener('toggle', () => { if (d.open) opened.add(t.id); else opened.delete(t.id); });
     d.dataset.guide = t.id;
     d.append(el('summary', null, t.title), el('p', 'guide-intro', t.intro));
     t.steps.forEach((step, i) => {

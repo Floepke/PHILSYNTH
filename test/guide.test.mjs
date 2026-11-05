@@ -1,6 +1,6 @@
 // Run: node test/guide.test.mjs   (the tutorials shown when nothing is selected)
 import assert from 'node:assert/strict';
-import { GUIDE } from '../src/guide.js';
+import { GUIDE, renderGuide } from '../src/guide.js';
 
 assert.deepEqual(GUIDE.map((t) => t.id), ['patcher', 'timeline', 'pianoroll', 'workspace'], 'patcher, TimeLine, piano roll, then workspace');
 for (const t of GUIDE) {
@@ -17,4 +17,23 @@ const text = (id) => JSON.stringify(GUIDE.find((t) => t.id === id));
 for (const topic of ['Shift</kbd> + drag', 'Alt</kbd> + drag', 'Snap to Grid', 'F2', 'Save module', 'Input Module', 'Ctrl/Cmd</kbd> + <kbd>Z']) assert.ok(text('patcher').includes(topic), `patcher: ${topic}`);
 for (const topic of ['Double right-click', '<b>Clip</b> field', 'Grid', 'Free timing', 'Automation editor', 'Piano roll:', 'TimeLine:', 'Save Clip']) assert.ok(text('timeline').includes(topic), `timeline: ${topic}`);
 for (const topic of ['selection rectangle', 'end line', 'Velocity', '250 ms', 'Q</kbd>', 'Left</kbd>']) assert.ok(text('pianoroll').includes(topic), `pianoroll: ${topic}`);
+
+// rendered folded; a part opened stays open when the panel is rebuilt
+{
+  class Node extends EventTarget {
+    constructor() { super(); this.children = []; this.dataset = {}; this.open = false; }
+    append(...c) { this.children.push(...c); }
+  }
+  const doc = { createElement: () => new Node() };
+  const parts = () => renderGuide(doc).children;
+  assert.ok(parts().every((d) => d.open === false), 'folded by default');
+  const first = parts();
+  first[1].open = true;
+  first[1].dispatchEvent(new Event('toggle'));
+  assert.deepEqual(parts().map((d) => d.open), GUIDE.map((_, i) => i === 1), 'the opened part stays open');
+  const again = parts();
+  again[1].open = false;
+  again[1].dispatchEvent(new Event('toggle'));
+  assert.ok(parts().every((d) => d.open === false));
+}
 console.log('guide tests passed');

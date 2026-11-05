@@ -7,7 +7,7 @@ import {
   addAutoClip, isAuto, autoValue, automationAt, pointIndex,
   notePoints, noteVelAt, groupVelCurve, applyVelCurve, applyVelLine, withVelEnd, velsForLength, canConsolidate, consolidateClips, splitClip,
   clipFileText, parseClipFile, CLIP_FORMAT,
-  basePitch, centsOf, withCents, centsLabel, isIdea, ideaY, clipSilent, songEnd,
+  basePitch, centsOf, withCents, centsLabel, isIdea, ideaY, clipSilent, songEnd, newSong, nearestClip,
 } from '../src/song.js';
 import { Transport } from '../src/transport.js';
 
@@ -555,3 +555,27 @@ console.log('micropitch tests passed');
   assert.equal(normalizeSong({ clips: [{ start: 0, y: -10 }] }).clips[0].y, -LANE_H);
 }
 console.log('idea storage tests passed');
+
+// A new project starts with one empty, selected bar of 4/4; a song with clips always has one selected.
+{
+  const song = newSong();
+  assert.equal(song.clips.length, 1);
+  assert.deepEqual([song.clips[0].start, song.clips[0].length, song.clips[0].y, song.clips[0].notes.length], [0, 4, 0, 0]);
+  assert.deepEqual(song.sigs, [{ at: 0, num: 4, den: 4 }]);
+  assert.equal(song.selected, song.clips[0].id);
+  assert.equal(normalizeSong(JSON.parse(JSON.stringify(song))).selected, song.clips[0].id, 'saved and loaded it stays selected');
+  // a missing selection picks the lane clip nearest the start; ideas only when nothing else is there
+  const s2 = normalizeSong({ clips: [{ id: 1, start: -2, y: -40 }, { id: 2, start: 8, y: LANE_H }, { id: 3, start: 4, y: 0 }], selected: null });
+  assert.equal(s2.selected, 3);
+  assert.equal(normalizeSong({ clips: [{ id: 5, start: 3, y: -40 }] }).selected, 5);
+  assert.equal(normalizeSong({ clips: [] }).selected, null);
+  // removing the selected clip selects the nearest one
+  removeClip(s2, 3);
+  assert.equal(s2.selected, 2);
+  removeClip(s2, 2);
+  assert.equal(s2.selected, 1, 'only an idea left: it gets selected');
+  removeClip(s2, 1);
+  assert.equal(s2.selected, null);
+  assert.equal(nearestClip(emptySong()), null);
+}
+console.log('new song tests passed');

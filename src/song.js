@@ -231,7 +231,7 @@ export function normalizeSong(s) {
     placed.push(clip);
   }
   song.nextId = Math.max(num(s.nextId, 1), ...song.clips.map((c) => c.id + 1), 1);
-  song.selected = song.clips.some((c) => c.id === s.selected) ? s.selected : null;
+  song.selected = song.clips.some((c) => c.id === s.selected) ? s.selected : nearestClip(song)?.id ?? null;
   setLoop(song, s.loop?.start, s.loop?.end);
   for (const key of ['mutes', 'solos']) {
     if (Array.isArray(s[key])) for (const l of s[key]) if (Number.isInteger(l) && l >= 0) setLaneFlag(song, key, l, true);
@@ -266,6 +266,23 @@ export const isIdea = (clip) => clip.y < 0;
 export const ideaY = (y) => Math.min(-LANE_H, clean(y));
 
 export const getClip = (song, id) => song.clips.find((c) => c.id === id) ?? null;
+
+// The TimeLine always has a clip selected while it has clips: the clip nearest to `at` (a clip or
+// { start, y }; default the start of the first lane), lanes before idea storage.
+export function nearestClip(song, at = { start: 0, y: 0 }) {
+  const cost = (c) => [isIdea(c) !== isIdea(at) ? 1 : 0, Math.abs(c.start - at.start), Math.abs(c.y - at.y)];
+  const less = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+  let best = null;
+  for (const c of song.clips) if (!best || less(cost(c), cost(best)) < 0) best = c;
+  return best;
+}
+
+// A new project's song: one empty bar of 4/4 at the start, selected, so the piano roll shows it.
+export function newSong() {
+  const song = emptySong();
+  song.selected = addClip(song).id;
+  return song;
+}
 
 export function addClip(song, { start = 0, y = 0, length = BAR, target = null } = {}) {
   const id = song.nextId++;
@@ -522,7 +539,7 @@ export function removeClip(song, id) {
   const i = song.clips.findIndex((c) => c.id === id);
   if (i < 0) return false;
   const [clip] = song.clips.splice(i, 1);
-  if (song.selected === id) song.selected = null;
+  if (song.selected === id) song.selected = nearestClip(song, clip)?.id ?? null;
   repairLink(song, clip.link);
   return true;
 }

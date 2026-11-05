@@ -27,7 +27,7 @@
 //   Backspace / Delete         delete the selected clips
 //   Ctrl/Cmd + X / C / V       cut / copy / paste clips at the snapped pointer position
 //   Ctrl/Cmd + D / Shift + D   linked clone / duplicate the selection right after itself
-//   Ctrl/Cmd + A, Escape       select all / clear the selection
+//   Ctrl/Cmd + A               select all (one clip always stays selected while there are clips)
 //   click the ruler            set the play position (the signature row too: click / drag scrubs)
 //   drag on the ruler          select a loop region (snapped); song playback loops inside it
 //   wheel / Shift + wheel      scroll sideways over the time axis / scroll the lanes
@@ -837,7 +837,7 @@ export function createArranger(host, ctx) {
     const source = h.clip;
     if (additive && !e.altKey && !e.shiftKey) { // Ctrl/Cmd + click: toggle the clip in the selection
       const clips = selectedClips();
-      if (sel.has(source.id)) setSelection(clips.filter((c) => c !== source));
+      if (sel.has(source.id)) { if (clips.length > 1) setSelection(clips.filter((c) => c !== source)); } // the last one stays
       else setSelection([...clips, source], source);
       return;
     }
@@ -904,8 +904,8 @@ export function createArranger(host, ctx) {
     });
   });
 
-  // Drag on empty space: rectangle selection (additive keeps the current selection). A plain click
-  // on empty space clears the selection.
+  // Drag on empty space: rectangle selection (additive keeps the current selection). A plain click on
+  // empty space, or a rectangle that catches no clip, keeps the selection: one clip is always selected.
   function selectRect(e, x, y, additive) {
     e.preventDefault();
     const base = additive ? selectedClips().map((c) => c.id) : [];
@@ -951,9 +951,9 @@ export function createArranger(host, ctx) {
       dragging = false;
       const r = rect;
       rect = null;
-      if (ev.type === 'pointercancel') { s.redraw(); return; }
-      if (!r.shown) { if (!additive) setSelection([]); return; }
-      setSelection(ctx.song().clips.filter((c) => r.ids.has(c.id)));
+      const clips = ctx.song().clips.filter((c) => r.ids.has(c.id));
+      if (ev.type === 'pointercancel' || !r.shown || !clips.length) { s.redraw(); return; }
+      setSelection(clips);
     });
   }
 
@@ -983,7 +983,8 @@ export function createArranger(host, ctx) {
     const clips = selectedClips();
     if (!clips.length) return;
     for (const c of clips) removeClip(ctx.song(), c.id);
-    setSelection([]);
+    const next = getClip(ctx.song(), ctx.song().selected); // removeClip picks the clip nearest to the removed one
+    setSelection(next ? [next] : []);
     ctx.changed();
   }
   function paste(p) {
@@ -1115,12 +1116,11 @@ export function createArranger(host, ctx) {
     const command = (e.ctrlKey || e.metaKey) && !e.altKey;
     const deleting = key === 'backspace' || key === 'delete';
     if (!deleting && key !== 'escape' && !(command && ['x', 'c', 'v', 'a', 'd'].includes(key))) return;
-    if (key === 'escape' && !dragging && selectedClips().length === 0) return;
+    if (key === 'escape' && !dragging) return; // the selection stays: a clip is always selected
     e.preventDefault();
     e.stopPropagation();
     if (dragging) return;
-    if (key === 'escape') setSelection([]);
-    else if (key === 'a') selectAll();
+    if (key === 'a') selectAll();
     else if (key === 'v') paste(pointer);
     else if (key === 'd') repeat(!e.shiftKey);
     else if (key === 'c') copy();

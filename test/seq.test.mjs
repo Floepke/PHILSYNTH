@@ -387,22 +387,38 @@ for (const reverse of [false, true]) {
   assert.deepEqual(clip.notes.map((n) => n.pitch), [64]);
 }
 
-// A focused timeline releases Escape to the exit shortcut once its selection is empty.
+// The timeline always keeps a clip selected: Escape leaves it and reaches the exit shortcut.
 {
-  const { song, clip, arranger, roll } = setup();
+  const { song, clip, arranger } = setup();
   const cv = arranger.surface.cv;
   cv.focus();
   assert.equal(song.selected, clip.id);
-  assert.equal(key(cv, 'Escape').defaultPrevented, true, 'first Escape clears the selected timeline clip');
-  assert.equal(song.selected, null);
-  assert.equal(document.activeElement, cv, 'timeline remains focused');
   for (let i = 0; i < 3; i++) {
-    assert.equal(key(cv, 'Escape').defaultPrevented, false, 'an empty timeline selection never traps Escape');
+    assert.equal(key(cv, 'Escape').defaultPrevented, false, 'the timeline never traps Escape');
+    assert.equal(song.selected, clip.id, 'Escape keeps the selected clip');
   }
-  assert.equal(key(roll.surface.cv, 'Escape').defaultPrevented, false, 'empty piano roll also lets Escape reach exit');
-  song.selected = clip.id;
-  assert.equal(key(cv, 'Escape').defaultPrevented, true, 'reselecting a clip restores selection dismissal');
-  assert.equal(key(cv, 'Escape').defaultPrevented, false);
+  assert.equal(document.activeElement, cv, 'timeline remains focused');
+}
+
+// Empty clicks, empty rectangles and Ctrl/Cmd + click on the last selected clip keep a clip selected;
+// deleting selects the nearest remaining clip.
+{
+  const { song, clip, arranger, ctx } = setup();
+  const cv = arranger.surface.cv;
+  const other = addClip(song, { start: 8, length: 4, y: 34, target: 7 });
+  click(cv, ax(20), ay(200));
+  assert.equal(song.selected, clip.id, 'empty click');
+  drag(cv, ax(20), ay(200), ax(24), ay(240));
+  assert.equal(song.selected, clip.id, 'empty rectangle');
+  click(cv, ax(1), ay(0), { ctrlKey: true });
+  assert.equal(song.selected, clip.id, 'Ctrl/Cmd + click cannot deselect the last clip');
+  click(cv, ax(9), ay(34), { ctrlKey: true });
+  click(cv, ax(1), ay(0), { ctrlKey: true });
+  assert.equal(song.selected, other.id, 'with two selected, one can be toggled off');
+  key(cv, 'Delete');
+  assert.deepEqual(song.clips.map((c) => c.id), [clip.id]);
+  assert.equal(song.selected, clip.id, 'the remaining clip is selected');
+  assert.equal(ctx.clip(), clip);
 }
 
 // Duration editing needs more than 10 CSS pixels, preserving the remembered length on clicks.
@@ -1085,7 +1101,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.notEqual(copy.notes[0], clip.notes[0]);
   key(cv, 'x', { [modifier]: true });
   assert.equal(song.clips.length, 1);
-  assert.equal(song.selected, null);
+  assert.equal(song.selected, clip.id, 'cutting selects the nearest remaining clip');
   point(cv, 'pointermove', ax(8.4), ay(120));
   key(cv, 'v', { [modifier]: true });
   const pasted = ctx.clip();
@@ -1170,9 +1186,10 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(other.start, 10);
   assert.equal(ctx.transport.pos, 10, 'moving a clip parks the playhead at its new start');
   assert.equal(clip.start, 2, 'the selection moved together');
-  click(cv, ax(20), ay(200)); // empty: clears the selection, the playhead stays
-  assert.equal(song.selected, null);
+  click(cv, ax(20), ay(200)); // empty: keeps the selection, the playhead stays
+  assert.equal(song.selected, other.id);
   assert.equal(ctx.transport.pos, 10);
+  click(cv, ax(11), ay(34)); // just this clip
   holdRightClick(cv, ax(3), ay(0));
   assert.equal(ctx.transport.pos, 2, 'the menu selects the clip too');
   assert.ok(menus.length);

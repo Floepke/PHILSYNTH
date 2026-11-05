@@ -15,7 +15,7 @@ import { createSequencer } from './seq/index.js';
 import { defaultCam, validCam, toWorld, toScreen, zoomAt, fitBox, clampCam, ZOOM_STEP } from './camera.js';
 import { edgeScroll } from './seq/surface.js';
 import { initWidgets } from './widgets.js';
-import { emptySong, getClip, snapStep } from './song.js';
+import { emptySong, getClip, newSong, snapStep } from './song.js';
 import { CableScope } from './cablescope.js';
 import { openMapDialog, patchControllersView } from './mapdialog.js';
 import { defaultName } from './modname.js';
@@ -1502,7 +1502,7 @@ async function exportAudio() {
 }
 function emptyProject() {
   const values = Object.fromEntries(getModule('OUT').params.map((p) => [p.id, p.default]));
-  return { format: PROJECT_FORMAT, version: 1, patch: { modules: [{ id: 0, type: 'OUT', x: 560, y: 180, values }], cables: [] } };
+  return { format: PROJECT_FORMAT, version: 1, patch: { modules: [{ id: 0, type: 'OUT', x: 560, y: 180, values }], cables: [] }, song: newSong() };
 }
 
 // ---- boot ----
@@ -1605,9 +1605,7 @@ for (const { state, source } of saved.copies) {
   }
 }
 if (!restored) {
-  if (saved.copies.length) {
-    await undoHistory.suspend(() => persist.pause(() => engine.loadProject(emptyProject())));
-  }
+  await undoHistory.suspend(() => persist.pause(() => engine.loadProject(emptyProject())));
   path = [{ patch: engine.root, name: 'Main' }];
   seq.applyView(null);
   render();
