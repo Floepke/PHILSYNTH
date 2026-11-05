@@ -1,7 +1,7 @@
 // Offline song render (EXPORT WAV): a private copy of the project (its own modules and DSP graph,
 // see src/dsp/graph.js) plays the song once through the same Transport as live playback, on a
 // virtual clock, faster than real time. The live engine is not touched.
-// The song runs from its start to its end (the loop region when one is set), then the tail
+// The song runs from its start to its end, then the tail
 // (releases, echoes, reverb) renders until it is silent or TAIL_MAX_S has passed.
 import { Graph } from './dsp/graph.js';
 import { DspHost } from './dsp/host.js';

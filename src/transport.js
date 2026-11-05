@@ -1,8 +1,8 @@
 // Plays the song: the position runs in quarter notes at the main patch's BPM; clip notes are sent
 // as MODMIDI (see modmidi.js) to the module number each clip targets. Loops at loopEnd(song),
 // or at the exact bounds of a single clip when clipId is set (the / audition: every other clip
-// sounding in that time range plays along). A loop region (song.loop, set on the
-// TimeLine ruler) replaces the song bounds: playback jumps into it and loops there.
+// sounding in that time range plays along). Song playback continues at the restart point
+// (song.restart, see song.js) instead of zero when it reaches the end.
 // Note chasing: when playback starts or jumps (play, clip play, seek) into the middle of a note,
 // that note is triggered right away and plays for the rest of its length.
 // Velocity curves (note.vels, see song.js): every tick each sounding note's velocity is
@@ -26,7 +26,7 @@
 // pitchOffset(scope): semitones added to every played note (that level's Output Global Transpose /
 // Cents Offset).
 import { newNoteId } from './modmidi.js';
-import { automationAt, barCeil, clipSilent, getClip, isIdea, loopEnd, loopRegion, notesSounding, notesStarting, notePitchAt, noteVelAt, songEnd } from './song.js';
+import { automationAt, barCeil, clipSilent, getClip, isIdea, loopEnd, notesSounding, notesStarting, notePitchAt, noteVelAt, songEnd } from './song.js';
 
 const TICK_MS = 5;
 
@@ -86,10 +86,8 @@ export class Transport {
     return this.clipId === null ? null : getClip(this.clipSong ?? this.getSong(), this.clipId);
   }
 
-  // song bounds of song playback: the loop region, else [0, end of the last clip of any layer)
+  // song bounds of song playback: [0, end of the last clip of any layer)
   songBounds(song = this.getSong()) {
-    const r = loopRegion(song);
-    if (r) return [r.start, r.end];
     if (song !== this.getSong() || !this.layerList) return [0, loopEnd(song)];
     const end = Math.max(0, ...this.layers().map((l) => songEnd(l.song)));
     return [0, end > 0 ? barCeil(song, end) : 0];
@@ -175,7 +173,10 @@ export class Transport {
     if (this.clipId !== null && !clip) { this.stop(); return; }
     let [start, end] = clip ? [clip.start, clip.start + clip.length] : this.songBounds();
     if (end <= start) { this.stop(); return; }
-    let span = end - start;
+    // song playback continues at the restart point at the end of the song
+    const restart = clip ? null : this.getSong().restart;
+    const back = Number.isFinite(restart) && restart > start && restart < end ? restart : start;
+    let span = end - back;
     const dt = Math.min(0.25, Math.max(0, (nowMs - this.last) / 1000)); // a stalled tab must not jump far ahead
     this.last = nowMs;
     if (this.from < start || this.from >= end) {
@@ -204,6 +205,10 @@ export class Transport {
         if (this.chase) this.chaseAt(start);
       } else {
         to -= span;
+        if (!clip && back !== start) {
+          start = back;
+          if (this.chase) this.chaseAt(start);
+        }
       }
       this.from = start;
     }

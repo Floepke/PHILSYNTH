@@ -786,12 +786,14 @@ function startCable(e, entry) {
 }
 
 // ---- selection, deletion ----
-// Drag on empty canvas: selection rectangle. Modules touching it get selected
-// (Ctrl/⌘ adds to the current selection). A plain click clears the selection.
+// Drag on empty canvas: pan the view (handy on trackpads); a plain click clears the selection.
+// Shift + drag: selection rectangle, modules touching it get selected (Ctrl/⌘ + drag adds to the
+// current selection). The TimeLine works the same way.
 canvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 0 || (e.target !== canvas && e.target !== svg && e.target !== world)) return;
   e.preventDefault();
   const additive = e.ctrlKey || e.metaKey;
+  if (!e.shiftKey && !additive) { backgroundPan(e); return; }
   const base = additive ? selectedEntries() : [];
   if (!additive) select(null);
   const c = canvas.getBoundingClientRect();
@@ -842,6 +844,28 @@ canvas.addEventListener('pointerdown', (e) => {
   window.addEventListener('pointerup', up);
   window.addEventListener('pointercancel', up);
 });
+
+function backgroundPan(e) {
+  const start = { ...cam() };
+  const sx = e.clientX;
+  const sy = e.clientY;
+  let moved = false;
+  const move = (ev) => {
+    if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 3) return;
+    if (!moved) { moved = true; canvas.classList.add('panning'); }
+    setCam({ ...start, x: start.x + ev.clientX - sx, y: start.y + ev.clientY - sy });
+  };
+  const up = (ev) => {
+    canvas.classList.remove('panning');
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', up);
+    if (!moved && ev.type === 'pointerup') select(null); // a click on the background
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+  window.addEventListener('pointercancel', up);
+}
 
 // ---- commands: delete, cut / copy / paste (keyboard and right-click menu) ----
 let clipboard = null; // copied modules (PatchRuntime.copyMany), pasted into any patch level

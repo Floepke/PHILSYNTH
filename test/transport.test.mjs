@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { emptySong, addClip, addAutoClip, removeClip, notesSounding, setLoop, normalizeSong, setLaneMute, setLaneSolo, LANE_H } from '../src/song.js';
+import { emptySong, addClip, addAutoClip, removeClip, notesSounding, setRestart, normalizeSong, setLaneMute, setLaneSolo, LANE_H } from '../src/song.js';
 import { Transport } from '../src/transport.js';
 
 const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-8, `${actual} != ${expected}`);
@@ -571,41 +571,18 @@ function setup() {
   transport.stop();
 }
 
-// Loop region: song playback starts in it and loops there; removing it loops the whole song again.
+// Song playback runs from zero to the end of the song; old loop regions are dropped on load.
 {
-  const { song, transport, events, run } = setup();
-  setLoop(song, 4, 5); // contains the clips at 4.25
+  const { song, transport, run } = setup();
+  assert.deepEqual(transport.songBounds(), [0, 8]);
   transport.seek(1);
   assert.equal(transport.play(), true);
-  assert.equal(transport.pos, 4, 'starting outside the region jumps to its start');
-  run(400); // 0.8 quarters at 120 BPM
-  near(transport.pos, 4.8);
-  run(200);
-  near(transport.pos, 4.2, 'wrapped at the region end');
-  assert.ok(!events.some((e) => e.type === 'on' && e.target === 3), 'the clip outside the region never plays');
+  assert.equal(transport.pos, 1, 'plays from the playhead');
+  run(1000);
+  near(transport.pos, 3);
   transport.stop();
-  transport.seek(4.5);
-  transport.play();
-  assert.equal(transport.pos, 4.5, 'inside the region: plays from the playhead');
-  transport.stop();
-  transport.play({ fromStart: true });
-  assert.equal(transport.pos, 4, ', restarts at the region start');
-  song.loop = null;
-  run(1000); // 2 quarters: now past the region end
-  near(transport.pos, 6);
-  transport.stop();
-  setLoop(song, 20, 24); // after the song: still plays (silence), loops there
-  assert.equal(transport.play({ fromStart: true }), true);
-  assert.equal(transport.pos, 20);
-  run(2500);
-  near(transport.pos, 21);
-  transport.stop();
-  // saved with the song; broken values are dropped, a reversed region is ordered, never before zero
-  assert.deepEqual(normalizeSong(JSON.parse(JSON.stringify(song))).loop, { start: 20, end: 24 });
-  assert.equal(normalizeSong({ loop: { start: 3, end: 3 } }).loop, null);
-  assert.equal(normalizeSong({ loop: 'x' }).loop, null);
-  assert.equal(normalizeSong({}).loop, null);
-  assert.deepEqual(normalizeSong({ loop: { start: 8, end: -2 } }).loop, { start: 0, end: 8 });
+  assert.equal(normalizeSong({ loop: { start: 4, end: 5 } }).loop, undefined);
+  assert.equal('loop' in song, false);
 }
 
 console.log('transport mode tests passed');
@@ -643,3 +620,33 @@ console.log('transport mode tests passed');
   transport.stop();
 }
 console.log('idea transport tests passed');
+
+// Restart point: song playback continues there at the end of the song (not in clip loop mode);
+// a restart point at time zero removes it.
+{
+  const { song, selected, transport, events, run } = setup();
+  setRestart(song, 4);
+  transport.seek(0);
+  transport.play();
+  run(4100); // the song ends at bar 3 (8 q = 4 s at 120 BPM)
+  near(transport.pos, 4.2);
+  events.length = 0;
+  run(300);
+  const ons = events.filter((e) => e.type === 'on').map((e) => e.pitch);
+  assert.ok(ons.includes(60) && !ons.includes(48), `wrapped to the restart point, not to zero: ${ons}`);
+  near(transport.pos, 4.8);
+  transport.stop();
+  setRestart(song, 20); // past the end: wraps to zero as usual
+  transport.seek(7.5);
+  transport.play();
+  run(1000);
+  near(transport.pos, 1.5);
+  transport.stop();
+  setRestart(song, 4);
+  transport.playClip(selected.id);
+  run(300);
+  near(transport.pos, 4.35, 'clip loop mode ignores the restart point');
+  transport.stop();
+  assert.equal(setRestart(song, 0), null, 'a restart point at zero removes it');
+  assert.equal('restart' in song, false);
+}

@@ -1,6 +1,6 @@
 // Song: the clips on the TimeLine and the notes inside them.
 // All times and lengths are float quarter notes; note times are relative to the clip start.
-//   song = { clips, sigs, selected (clip id | null), snap: { base, div, free? }, nextId, loop, mutes, solos }
+//   song = { clips, sigs, selected (clip id | null), snap: { base, div, free? }, nextId, restart?, mutes, solos }
 //   snap.free disables piano-roll time snapping only; base/div still define the visual grid.
 //   mutes = muted TimeLine lanes [lane index (0 = top)], sorted: their clips are not played
 //   solos = soloed lanes, sorted: while any lane is soloed only soloed lanes play (mute still wins)
@@ -82,7 +82,7 @@ export const snapRound = (t, step) => clean(step === 0 ? t : Math.round(t / step
 export const snapFloor = (t, step) => clean(step === 0 ? t : Math.floor(t / step + 1e-9) * step);
 export const pianoTimeStep = (snap) => snap?.free === true ? 0 : snapStep(snap);
 
-export const emptySong = () => ({ clips: [], sigs: [{ at: 0, num: 4, den: 4 }], selected: null, snap: { base: 16, div: 1 }, nextId: 1, loop: null, mutes: [], solos: [] });
+export const emptySong = () => ({ clips: [], sigs: [{ at: 0, num: 4, den: 4 }], selected: null, snap: { base: 16, div: 1 }, nextId: 1, mutes: [], solos: [] });
 
 const num = (v, d) => (Number.isFinite(v) ? v : d);
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
@@ -232,7 +232,6 @@ export function normalizeSong(s) {
   }
   song.nextId = Math.max(num(s.nextId, 1), ...song.clips.map((c) => c.id + 1), 1);
   song.selected = song.clips.some((c) => c.id === s.selected) ? s.selected : nearestClip(song)?.id ?? null;
-  setLoop(song, s.loop?.start, s.loop?.end);
   setRestart(song, s.restart);
   for (const key of ['mutes', 'solos']) {
     if (Array.isArray(s[key])) for (const l of s[key]) if (Number.isInteger(l) && l >= 0) setLaneFlag(song, key, l, true);
@@ -294,7 +293,7 @@ export function addClip(song, { start = 0, y = 0, length = BAR, target = null } 
 
 export function addAutoClip(song, { start = 0, y = 0, length = BAR, target = null, controller = 0 } = {}) {
   const clip = addClip(song, { start, y, length, target });
-  clip.name = `Auto ${clip.id}`;
+  clip.name = 'Automation';
   clip.kind = 'auto';
   clip.controller = controller;
   clip.points = [];
@@ -617,20 +616,12 @@ export const loopEnd = (song) => {
   return end > 0 ? barCeil(song, end) : 0;
 };
 
-// Loop region (quarters, from the TimeLine ruler): song playback loops in [start, end) instead of
-// [0, loopEnd). null = no region. Never before time zero.
-export const loopRegion = (song) => song.loop ?? null;
-export function setLoop(song, start, end) {
-  const a = Math.max(0, num(Math.min(start, end), 0));
-  const b = num(Math.max(start, end), 0);
-  song.loop = b - a > 1e-9 ? { start: clean(a), end: clean(b) } : null;
-  return song.loop;
-}
 
-// Restart point (song.restart, quarters, or null): stopping normal song playback (not the / clip
-// loop) parks the playhead there instead of at the start of the selected clip.
+// Restart point (song.restart, quarters, or null): normal song playback (not the / clip loop)
+// continues there when it reaches the end of the song, and stopping parks the playhead there
+// instead of at the start of the selected clip. A restart point at time zero is no restart point.
 export function setRestart(song, at) {
-  song.restart = Number.isFinite(at) ? clean(Math.max(0, at)) : null;
+  song.restart = Number.isFinite(at) && at > 1e-9 ? clean(at) : null;
   if (song.restart === null) delete song.restart;
   return song.restart ?? null;
 }

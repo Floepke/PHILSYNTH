@@ -184,7 +184,7 @@ t.stop();
   const song = emptySong();
   const a = addAutoClip(song, { start: 4, length: 4, target: 1, controller: 3 });
   assert.ok(isAuto(a));
-  assert.equal(a.name, `Auto ${a.id}`);
+  assert.equal(a.name, 'Automation', 'automation clips are named so on creation');
   assert.deepEqual(a.notes, []);
   assert.equal(autoValue(a, 1), null, 'no points: no value');
   assert.deepEqual(automationAt(song, 5), [], 'clips without points do nothing');

@@ -33,7 +33,7 @@ export const GUIDE = [
         title: 'Select',
         items: [
           'Click a module to select it: the controller panel shows its controllers, their descriptions and usage notes.',
-          `Drag on empty canvas for a selection rectangle; ${k('Ctrl')} + drag adds to the selection, ${k('Ctrl')} + click toggles one module, ${k(CMD, 'A')} selects all.`,
+          `Drag on empty canvas to pan the view (also on a trackpad); ${k('Shift')} + drag there draws a selection rectangle, ${k('Ctrl')} + drag adds to the selection, ${k('Ctrl')} + click toggles one module, ${k(CMD, 'A')} selects all.`,
         ],
       },
       {
@@ -41,7 +41,7 @@ export const GUIDE = [
         items: [
           'Drag a module (or any module of a selection) to move it or the whole selection. Near / past the edge of the patcher the view pans along (also while duplicating, Shift-wiring or drawing a selection rectangle).',
           '<b>Snap to Grid</b> (right-click menu, a checkbox): moved and duplicated modules snap with their left edge and top to an invisible 20 px grid (half a module high), the same step sideways. Remembered on this computer.',
-          `${k('Middle mouse')} + drag pans the canvas, the wheel zooms; click the zoom % (bottom right) to fit all modules. ${k('S')} maximizes the patcher, ${k('S')} again restores the piano roll and TimeLine.`,
+          `Dragging empty canvas or ${k('Middle mouse')} + drag (also over modules) pans the canvas, the wheel zooms; click the zoom % (bottom right) to fit all modules. ${k('S')} maximizes the patcher, ${k('S')} again restores the piano roll and TimeLine.`,
         ],
       },
       {
@@ -103,7 +103,8 @@ export const GUIDE = [
       [k('Enter'), 'open the selected Patch'],
       [`${k(CMD, 'Z')} / ${k(CMD, 'Shift', 'Z')}`, 'undo / redo'],
       [k('S'), 'maximize / restore the patcher'],
-      [`${k('Middle mouse')} drag, wheel`, 'pan, zoom'],
+      [`drag empty canvas / ${k('Middle mouse')} drag, wheel`, 'pan, zoom'],
+      [`${k('Shift')} + drag empty canvas`, 'selection rectangle'],
       [`${k('Right-click')}`, 'menu: cut, copy, paste, delete, open, save / load module, rename, Snap to Grid'],
     ],
   },
@@ -139,8 +140,8 @@ export const GUIDE = [
         title: 'The Grid',
         items: [
           '<b>Grid</b> in the upper divider sets the snap step: a note value (Whole … 128th) divided by the number beside <b>÷</b> (1–64; e.g. Quarter ÷ 3 = eighth-note triplets). Hover the number to see the step in quarter notes.',
-          '<b>TimeLine:</b> inserting, moving, trimming and resizing clips, pasting and the loop region snap to the grid step (the edges of neighbouring clips take priority).',
-          '<b>Piano roll:</b> new notes start on the grid line at or before the pointer; dragging lengths and moving notes, pasting, the clip-end line, the velocity-curve point times, the arrow-key nudges, the wheel (one step per notch) and <b>Quantize</b> (Q) all use the grid step. The light / dark bands show it.',
+          '<b>TimeLine:</b> inserting, moving, trimming and resizing clips, pasting and the restart point snap to the grid step (the edges of neighbouring clips take priority).',
+          '<b>Piano roll:</b> new notes start on the grid line at or before the pointer; dragging lengths and moving notes, pasting, the clip-end line, the velocity-curve point times, the arrow-key nudges and <b>Quantize</b> (Q) all use the grid step. The light / dark bands show it.',
           '<b>Automation editor:</b> the times of new and moved points snap to the grid step.',
           '<b>Free timing</b> (the checkbox beside the Grid) frees piano-roll notes and velocity-curve times from the grid; the bands stay as a guide and Quantize still snaps. The TimeLine and the automation editor keep snapping.',
           'The Grid and Free timing are saved per sequencer, so every Patch level has its own.',
@@ -149,13 +150,13 @@ export const GUIDE = [
       {
         title: 'Arrange clips',
         items: [
-          `Click a clip to select it (when stopped the playhead jumps to its start). Drag on empty space for a selection rectangle (${k(CMD)} adds); ${k(CMD)} + click toggles a clip. One clip always stays selected (a new project starts with one empty bar, selected), so the piano roll always shows a clip.`,
-          'Drag a clip (or the selection) to move it in time and up / down over the lanes; drag its left / right edge to trim the start / set the length. Every drag (clips, the selection rectangle, the loop region, scrubbing, the M / S buttons) scrolls the TimeLine along near / past an edge of the view.',
+          `Click a clip to select it (when stopped the playhead jumps to its start). Drag on empty space to pan the view (like the patcher); ${k('Shift')} + drag there draws a selection rectangle (${k(CMD)} + drag adds); ${k(CMD)} + click toggles a clip. One clip always stays selected (a new project starts with one empty bar, selected), so the piano roll always shows a clip.`,
+          'Drag a clip (or the selection) to move it in time and up / down over the lanes; drag its left / right edge to trim the start / set the length. Every drag (clips, the selection rectangle, the restart marker, scrubbing, the M / S buttons) scrolls the TimeLine along near / past an edge of the view.',
           'Clips never overlap: a moved, pasted or new clip snaps to the nearest free position, and resizing stops at neighbours. Use separate lanes for clips that play together.',
           `${k('Alt')} + drag copies; ${k('Shift')} + drag makes <i>linked clones</i> (hatched, ⧉) that share their notes: editing one edits all. ${k(CMD, 'D')} clones the selection right after itself, ${k(CMD, 'Shift', 'D')} duplicates it.`,
           'Park clips left of the bright zero line: they are not played by the song (<kbd>/</kbd> still auditions them), handy for source clips whose clones make up the song.',
           '<b>Idea storage</b>: scroll up above lane 1. Clips there sit wherever you drop them (no grid, no lanes, overlaps allowed) and are never played by the song; <kbd>/</kbd> loops an idea solo, without the lane clips around it. Drag an idea onto a lane to play it; it snaps like any clip.',
-          'Pan the TimeLine with the wheel (sideways), Shift + wheel (lanes), middle-drag or the scrollbars below and right of it; the camera pans freely, also into empty space, and the scrollbars bring you back to your clips.',
+          'Pan the TimeLine with the wheel (sideways), Shift + wheel (lanes), dragging empty space, middle-drag or the scrollbars below and right of it; the camera pans freely, also into empty space, and the scrollbars bring you back to your clips.',
           'The <b>M</b> / <b>S</b> buttons left of a lane number mute / solo it; drag over a column of buttons to switch many lanes. Mute wins over solo; a silenced clip shows a big M in its editor.',
         ],
       },
@@ -168,11 +169,11 @@ export const GUIDE = [
         ],
       },
       {
-        title: 'Ruler, loop and time signatures',
+        title: 'Ruler, restart point and time signatures',
         items: [
-          'Click the ruler to set the play position (on the signature row dragging scrubs). Drag along the ruler for a loop region (blue, snapped); song playback loops inside it. Right-click the region to remove it.',
-          `${k('Double-click')} the ruler to insert a time signature change at the nearest bar line (or edit it); right-click a change to remove it.`,
-          '<b>Restart point</b>: right-click the ruler (or a clip / empty space) → <i>Insert restart point at playhead</i>. A green <b>restart:</b> | marks it in the bar number row. Stopping song playback (Space, <kbd>\'</kbd> or the stop button) returns the playhead there; the <kbd>/</kbd> clip loop ignores it. Right-click the marker to remove it.',
+          'Click the ruler to set the play position (on the signature row dragging scrubs).',
+          `${k('Double-click')} the time signature row to insert a time signature change at the nearest bar line (or edit it); right-click a change to remove it.`,
+          '<b>Restart point</b>: double-click the bar numbers on the ruler (snapped), or right-click the ruler (or a clip / empty space) → <i>Insert restart point at playhead</i>. A green <b>restart:</b> | marks it in the bar number row; drag it to move it. Song playback continues there when it reaches the end of the song, and stopping it (Space, <kbd>\'</kbd> or the stop button) returns the playhead there; the <kbd>/</kbd> clip loop ignores it. Right-click the marker (or drag it to time zero) to remove it.',
         ],
       },
       {
@@ -196,7 +197,8 @@ export const GUIDE = [
       [`${k('Backspace')} ${k('Delete')}`, 'delete the selected clips (the nearest clip gets selected)'],
       [`${k('Space')} ${k('.')} ${k(',')} ${k('/')} ${k("'")}`, 'play/stop, song, restart, loop clip, stop/panic'],
       [`wheel / ${k('Shift')} + wheel`, 'scroll time / scroll lanes'],
-      [`${k(CMD)} + wheel, ${k('Middle mouse')} drag`, 'zoom, pan'],
+      [`${k(CMD)} + wheel, drag empty space / ${k('Middle mouse')} drag`, 'zoom, pan'],
+      [`${k('Shift')} + drag empty space`, 'selection rectangle'],
     ],
   },
   {
@@ -256,7 +258,7 @@ export const GUIDE = [
       {
         title: 'Navigate and play',
         items: [
-          `The wheel scrolls one grid step per notch (scroll up past beat zero for some free room); ${k(CMD)} + wheel zooms time, ${k('Middle mouse')} + drag pans. The scrollbar on the right (the TimeLine\'s look) spans the clip: drag it, or click its track to jump there.`,
+          `The wheel or trackpad scrolls smoothly (scroll up past beat zero for some free room; with the pitch zoomed in, swiping sideways pans the keys); ${k(CMD)} + wheel zooms time, ${k('Middle mouse')} + drag pans. The scrollbar on the right (the TimeLine\'s look) spans the clip: drag it, or click its track to jump there.`,
           `${k('Shift')} + wheel zooms pitch around the pointer: the stave and the keyboard widen together, so micropitch leans and bends are easier to place. Zoomed in, a horizontal scrollbar shows just above the keyboard, ${k('Middle mouse')} + drag also pans sideways, and moving notes, bend points or a selection rectangle past the left / right edge scrolls along. Notes stop growing at 24 px wide. Zoom fully out to see all keys again; the pitch zoom is not saved with the project.`,
           `${k('Space')} over the note grid plays the song from that (snapped) time.`,
         ],
@@ -300,7 +302,7 @@ export const GUIDE = [
       {
         title: 'Export audio',
         items: [
-          'Renders the song offline from its start to the end of the last clip (or just the loop region) plus up to 10 s of tail, to a 24-bit stereo WAV at the device sample rate. The status bar warns when the mix clips.',
+          'Renders the song offline from its start to the end of the last clip plus up to 10 s of tail, to a 24-bit stereo WAV at the device sample rate. The status bar warns when the mix clips.',
         ],
       },
       {

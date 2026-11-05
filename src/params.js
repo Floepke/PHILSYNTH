@@ -66,13 +66,21 @@ export function wheelNotches(deltaY, deltaMode) {
 // delta (a few px, only fast scrolling is accelerated to big deltas), so an event after a pause
 // counts as at least one whole notch. Trackpads send a dense stream (~16 ms apart) whose small
 // deltas add up as before. whole: only whole notches are returned (stepped values), the rest waits.
+// Some Linux (Wayland) setups deliver one wheel click as a burst of two or more notch-sized
+// events a few ms apart; for whole steps those count once (one click = one option / step).
 //   const take = wheelAccumulator({ whole });  const n = take(e, delta);  if (n) ...
 export const WHEEL_PAUSE_MS = 50;
+export const WHEEL_BURST_MS = 30;
 export function wheelAccumulator({ whole = false } = {}) {
   let acc = 0;
   let last = -Infinity;
+  let lastStep = -Infinity;
   return (e, delta = e.deltaY) => {
     let n = wheelNotches(delta, e.deltaMode);
+    if (whole && Math.abs(n) >= 1 && e.timeStamp - lastStep < WHEEL_BURST_MS) {
+      last = e.timeStamp;
+      return 0; // the rest of the click that just stepped
+    }
     if (e.timeStamp - last > WHEEL_PAUSE_MS) {
       if (Math.sign(n) !== Math.sign(acc)) acc = 0; // a new gesture forgets leftovers of the other way
       if (n && Math.abs(n) < 1) n = Math.sign(n);
@@ -81,6 +89,7 @@ export function wheelAccumulator({ whole = false } = {}) {
     acc += n;
     const out = whole ? Math.trunc(acc) : acc;
     acc -= out;
+    if (out && Math.abs(n) >= 1) lastStep = e.timeStamp;
     return out;
   };
 }

@@ -1477,17 +1477,11 @@ export function createPianoRoll(host, ctx) {
       if (drag?.refresh) { limitScroll(); drag.refresh(); }
       s.redraw();
     },
-    scroll(dx, dy, e) { // one snap step per wheel event, whatever the wheel / trackpad distance
+    scroll(dx, dy, e) { // pixel deltas as the wheel / trackpad sends them (smooth on trackpads)
       pointer = s.local(e);
-      if (dx && !dy && zoomedX()) { // trackpad sideways: pan the zoomed keys
-        view.hx += dx;
-        limitX();
-        drag?.refresh?.();
-        s.redraw();
-        return;
-      }
-      if (!dy) return;
-      view.sy += Math.sign(dy) * gridStep() * view.ppq;
+      if (!dx && !dy) return;
+      if (zoomedX()) { view.hx += dx; limitX(); } // sideways (trackpad): pan the zoomed keys
+      view.sy += dy;
       if (drag?.refresh) { limitScroll(); drag.refresh(); } // the rectangle follows the scroll
       s.redraw();
     },

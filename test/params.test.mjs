@@ -67,6 +67,17 @@ assert.ok(Math.abs(wheelNotches(-10, 0) - 0.1) < 1e-9, 'trackpad: small fraction
   assert.equal(cont(ev(0, -3)), 1);
   assert.ok(Math.abs(cont(ev(16, -3)) - 0.03) < 1e-9);
   assert.equal(cont(ev(500, 100)), -1, 'mouse notch');
+  // one click delivered as a burst of notch-sized events (Wayland): stepped widgets move once
+  const burst = wheelAccumulator({ whole: true });
+  assert.equal(burst(ev(0, 120)), -1);
+  assert.equal(burst(ev(2, 120)), 0, 'the duplicate of the same click is dropped');
+  assert.equal(burst(ev(5, 60)), 0);
+  assert.equal(burst(ev(120, 120)), -1, 'the next click steps again');
+  assert.equal(burst(ev(180, -100)), 1, 'and back up');
+  const pad2 = wheelAccumulator({ whole: true });
+  let sum = 0;
+  for (let i = 0; i < 60; i++) sum += pad2(ev(i * 8, -5));
+  assert.equal(sum, 1 + Math.trunc(59 * 0.05 + 1e-9), 'a 120 Hz trackpad stream still adds up');
 }
 
 // wheelStep: a fixed amount per wheel click (the Output's BPM moves 1 BPM per click)

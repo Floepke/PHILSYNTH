@@ -7,7 +7,8 @@
 //                              press closes the menu the first one opened)
 //   click a clip               select it (the piano roll shows it); when stopped the playhead jumps to its start
 //                              (the border of selected clips pulses white / grey at 50 BPM)
-//   drag on empty space        select clips with a rectangle (Ctrl/Cmd + drag adds to the selection)
+//   drag on empty space        pan the view (like the patcher; middle-drag pans anywhere)
+//   Shift + drag on empty space  select clips with a rectangle (Ctrl/Cmd + drag adds to the selection)
 //   Ctrl/Cmd + click a clip    add it to / remove it from the selection
 //   drag a clip                move it, or the whole selection (time snaps, vertical snaps to lanes)
 //   clips snap out of overlaps to the nearest free position; resizing stops at neighbours
@@ -29,22 +30,23 @@
 //   Ctrl/Cmd + D / Shift + D   linked clone / duplicate the selection right after itself
 //   Ctrl/Cmd + A               select all (one clip always stays selected while there are clips)
 //   click the ruler            set the play position (the signature row too: click / drag scrubs)
-//   drag on the ruler          select a loop region (snapped); song playback loops inside it
 //   wheel / Shift + wheel      scroll sideways over the time axis / scroll the lanes
 //   middle-drag, Ctrl/Cmd + wheel  pan / zoom the time axis
 //   scrollbars (bottom, right) drag the thumb, or click the track to jump there
 // The camera pans freely until the content (clips, the song, the first 16 lanes / bars) would leave
 // the view: a margin of it always stays visible.
-//   right-click the region     remove it (the ruler, a short click)
-//   double-click the ruler     insert a time signature change at the nearest bar line (or edit it)
+//   double-click the signature row  insert a time signature change at the nearest bar line (or edit it)
 //   right-click a signature    remove that change (the first one can only be edited)
-//   right-click the ruler      menu: insert a restart point at the playhead / remove it; right-click
-//                              the 'restart:' marker removes it (the clip and empty-space menus have
-//                              these items too). Stopping song playback parks the playhead there.
+// Restart point (green 'restart:' marker in the bar number row): song playback continues there at
+// the end of the song and stopping it parks the playhead there.
+//   double-click the bar numbers   insert the restart point there (snapped; moves an existing one)
+//   drag the marker            move it (snapped); dropped at time zero it is removed
+//   right-click the marker     remove it; elsewhere on the ruler: menu insert at the playhead / remove
+//                              (the clip and empty-space menus have these items too)
 // Trimming the start of a linked clone trims all its clones (they share the notes).
 import {
   snapStep, snapFloor, snapRound, loopEnd, getClip, addClip, addAutoClip, isAuto, autoPolyline, duplicateClip, removeClip, trimClipStart, BAR, clean,
-  meter, barLines, barRound, barLength, removeSig, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource, setLoop,
+  meter, barLines, barRound, barLength, removeSig, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource,
   canConsolidate, consolidateClips, splitClip, setRestart, laneMuted, laneSoloed, laneSilent, clipSilent, setLaneFlag, laneY, isIdea, ideaY,
 } from '../song.js';
 import {
@@ -65,7 +67,6 @@ const IDEA_LABEL = 'Playback of clips in this area is ignored except if you loop
 const LABEL = 'TimeLine:';
 const EDGE = 6;
 const PLAYHEAD = '#ff5a36';
-const LOOP = '74, 144, 226'; // loop region (rgb)
 const RESTART = '#5fd38a'; // restart point marker
 const RESTART_LABEL = 'restart:';
 const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
@@ -212,7 +213,7 @@ export function createArranger(host, ctx) {
     const vw = Math.max(1, right() - x0);
     const vh = Math.max(1, bottom() - RULER);
     const first = Math.min(0, ...song.clips.map((c) => c.start)) * view.ppq;
-    const last = Math.max(loopEnd(song), MIN_LANES * BAR, song.sigs.at(-1).at, song.loop?.end ?? 0, ...song.clips.map((c) => c.start + c.length)) * view.ppq;
+    const last = Math.max(loopEnd(song), MIN_LANES * BAR, song.sigs.at(-1).at, song.restart ?? 0, ...song.clips.map((c) => c.start + c.length)) * view.ppq;
     const top = Math.min(0, ...song.clips.map((c) => c.y));
     const low = Math.max(MIN_LANES * CLIP_H, ...song.clips.map((c) => c.y + CLIP_H));
     return {
@@ -370,20 +371,14 @@ export function createArranger(host, ctx) {
       }
     }
 
-    // Playback loops over the whole song, the loop region or just the auditioned clip.
+    // Playback loops over the whole song or just the auditioned clip.
     const tr = ctx.transport;
     const looping = tr.loopClip ? (tr.clipSong === song ? tr.loopClip() : null) : getClip(song, tr.clipId); // looped clip of this layer
-    const region = song.loop;
-    if (region && !looping) {
-      const xa = Math.round(xOf(region.start));
-      g.fillStyle = `rgba(${LOOP}, 0.06)`;
-      g.fillRect(xa, RULER, Math.round(xOf(region.end)) - xa, h - RULER);
-    }
-    const bounds = looping ? [looping.start, looping.start + looping.length] : region ? [region.start, region.end] : [loopEnd(song)];
-    for (const t of bounds) if (t !== 0 || (region && !looping)) {
+    const bounds = looping ? [looping.start, looping.start + looping.length] : [loopEnd(song)];
+    for (const t of bounds) if (t !== 0) {
       const x = Math.round(xOf(t)) + 0.5;
       g.setLineDash([4, 4]);
-      g.strokeStyle = region && !looping ? `rgba(${LOOP}, 0.7)` : '#4a4a52';
+      g.strokeStyle = '#4a4a52';
       g.beginPath(); g.moveTo(x, RULER); g.lineTo(x, h); g.stroke();
       g.setLineDash([]);
     }
@@ -533,15 +528,6 @@ export function createArranger(host, ctx) {
     g.font = `500 10px ui-monospace, monospace`;
     g.textBaseline = 'middle';
     const barY = SIG_H + (RULER - SIG_H) / 2;
-    if (region) { // loop region: a band in the bar number row
-      const xa = Math.round(xOf(region.start));
-      const xb = Math.round(xOf(region.end));
-      g.fillStyle = `rgba(${LOOP}, ${looping ? 0.15 : 0.35})`;
-      g.fillRect(xa, SIG_H, xb - xa, RULER - SIG_H);
-      g.fillStyle = `rgba(${LOOP}, ${looping ? 0.4 : 0.95})`;
-      g.fillRect(xa, SIG_H, 2, RULER - SIG_H);
-      g.fillRect(xb - 2, SIG_H, 2, RULER - SIG_H);
-    }
     g.lineWidth = 2;
     let labelEnd = -Infinity;
     for (const b of bars) {
@@ -761,7 +747,7 @@ export function createArranger(host, ctx) {
     if (sb !== sbHover) { sbHover = sb; s.redraw(); }
     const h = hit(x, y);
     const id = h?.clip.id ?? null;
-    cv.style.cursor = bar ? 'default' : laneBtnAt(x, y) ? 'pointer' : !h ? (y < RULER && x >= x0 ? (sigAt(x, y) || restartAt(x, y) ? 'pointer' : 'text') : 'default') : h.part === 'body' ? 'grab' : 'ew-resize';
+    cv.style.cursor = bar ? 'default' : laneBtnAt(x, y) ? 'pointer' : !h ? (y < RULER && x >= x0 ? (restartAt(x, y) ? 'ew-resize' : sigAt(x, y) ? 'pointer' : 'text') : 'default') : h.part === 'body' ? 'grab' : 'ew-resize';
     if (id !== hoverId) { hoverId = id; s.redraw(); }
   }
 
@@ -783,10 +769,33 @@ export function createArranger(host, ctx) {
     { label: 'Remove restart point', disabled: !Number.isFinite(ctx.song().restart), action: removeRestart },
   ];
 
-  // the loop region under local x (ruler), or null
-  function loopAt(x) {
-    const r = ctx.song().loop;
-    return r && x >= xOf(r.start) && x <= xOf(r.end) ? r : null;
+  // drag the restart marker along the ruler (snapped); released at time zero it is removed
+  function restartDrag(e) {
+    const song = ctx.song();
+    const before = song.restart;
+    const grab = timeAt(s.local(e).x) - before; // keep the grab offset (the label is beside the |)
+    const st = step();
+    let p = s.local(e);
+    let moved = false;
+    const apply = () => {
+      setRestart(song, Math.max(0, snapRound(timeAt(clamp(p.x, x0, right())) - grab, st)));
+      s.redraw();
+    };
+    const auto = areaScroll(apply, { vertical: false });
+    dragging = true;
+    capture(cv, e, (ev) => {
+      p = s.local(ev);
+      if (!moved && Math.abs(p.x - s.local(e).x) < 3) return;
+      moved = true;
+      apply();
+      auto.update(p);
+    }, (ev) => {
+      auto.stop();
+      dragging = false;
+      if (ev.type === 'pointercancel') setRestart(song, before);
+      else if (song.restart !== before) ctx.changed();
+      s.redraw();
+    });
   }
 
   cv.addEventListener('pointerdown', (e) => {
@@ -811,11 +820,10 @@ export function createArranger(host, ctx) {
       const box = sigAt(x, y);
       if (y < RULER || x < x0) {
         lastRight = null;
-        // right-click a time signature: remove it; the restart marker or the loop region: remove that;
+        // right-click a time signature: remove it; the restart marker: remove it;
         // elsewhere on the ruler: the restart point menu
         if (box) rightHold(cv, e, { onShort: () => { if (removeSig(ctx.song(), box.at)) { ctx.changed(); s.redraw(); } } });
         else if (x >= x0 && restartAt(x, y)) rightHold(cv, e, { onShort: removeRestart });
-        else if (x >= x0 && loopAt(x)) rightHold(cv, e, { onShort: () => { ctx.song().loop = null; ctx.changed(); s.redraw(); } });
         else if (x >= x0) menu({ x: e.clientX, y: e.clientY, items: restartItems() });
         return;
       }
@@ -848,45 +856,24 @@ export function createArranger(host, ctx) {
       capture(cv, e, (ev) => { p = s.local(ev); seek(); auto.update(p); }, () => { auto.stop(); dragging = false; });
       return;
     }
-    if (y < RULER) { // ruler: a click sets the play position, a drag selects the loop region
+    if (y < RULER) { // bar numbers: drag the restart marker, else a click sets the play position
       if (x < x0) return;
-      const at = (p) => Math.max(0, snapRound(timeAt(clamp(p.x, x0, right())), st));
-      const a = at({ x });
-      ctx.transport.seek(a);
+      if (restartAt(x, y)) { e.preventDefault(); restartDrag(e); return; }
+      ctx.transport.seek(Math.max(0, snapRound(timeAt(x), st)));
       s.redraw();
-      const before = song.loop;
-      let region = false;
-      let p = null;
-      const apply = () => {
-        if (!p) return;
-        if (!setLoop(song, a, at(p))) song.loop = before; // zero width: keep the old region for now
-        s.redraw();
-      };
-      const auto = areaScroll(apply, { vertical: false });
-      dragging = true;
-      capture(cv, e, (ev) => {
-        if (!region && Math.abs(s.local(ev).x - x) < 3) return;
-        region = true;
-        p = s.local(ev);
-        apply();
-        auto.update(p);
-      }, (ev) => {
-        auto.stop();
-        dragging = false;
-        if (!region) return;
-        if (ev.type === 'pointercancel') song.loop = before;
-        else if (song.loop !== before) {
-          if (!ctx.transport.playing) ctx.transport.seek(song.loop.start);
-          ctx.changed();
-        }
-        s.redraw();
-      });
       return;
     }
     if (x < x0) return;
     const additive = e.ctrlKey || e.metaKey;
     const h = hit(x, y);
-    if (!h) { selectRect(e, x, y, additive); return; }
+    if (!h) { // empty space: drag pans the view; Shift (or Ctrl/Cmd, adding) + drag: selection rectangle
+      if (e.shiftKey || additive) selectRect(e, x, y, additive);
+      else {
+        dragging = true;
+        startPan(s, e, (dx, dy) => { view.sx -= dx; view.sy -= dy; s.redraw(); }, () => { dragging = false; });
+      }
+      return;
+    }
     e.preventDefault();
     const source = h.clip;
     if (additive && !e.altKey && !e.shiftKey) { // Ctrl/Cmd + click: toggle the clip in the selection
@@ -1149,9 +1136,16 @@ export function createArranger(host, ctx) {
     const { x, y } = s.local(e);
     if (x < x0 || barAt(x, y)) return;
     const song = ctx.song();
-    if (y < RULER) { // time signature change at the nearest bar line (or the one double-clicked)
+    if (y < SIG_H) { // time signature change at the nearest bar line (or the one double-clicked)
       const box = sigAt(x, y);
       ctx.editSig(box ? box.at : barRound(song, Math.max(0, timeAt(x))));
+      return;
+    }
+    if (y < RULER) { // bar numbers: the restart point here (snapped; time zero removes it)
+      if (restartAt(x, y)) return;
+      setRestart(song, Math.max(0, snapRound(timeAt(x), step())));
+      ctx.changed();
+      s.redraw();
       return;
     }
     if (hit(x, y)) return;

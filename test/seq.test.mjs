@@ -408,7 +408,7 @@ for (const reverse of [false, true]) {
   const other = addClip(song, { start: 8, length: 4, y: 34, target: 7 });
   click(cv, ax(20), ay(200));
   assert.equal(song.selected, clip.id, 'empty click');
-  drag(cv, ax(20), ay(200), ax(24), ay(240));
+  drag(cv, ax(20), ay(200), ax(24), ay(240), { shiftKey: true });
   assert.equal(song.selected, clip.id, 'empty rectangle');
   click(cv, ax(1), ay(0), { ctrlKey: true });
   assert.equal(song.selected, clip.id, 'Ctrl/Cmd + click cannot deselect the last clip');
@@ -721,7 +721,7 @@ for (const how of ['wheel', 'edge']) {
 }
 
 // Every drag along the time axis scrolls the view along near / past an edge: bend points, velocity
-// curve points, automation points, the TimeLine selection rectangle and the loop region.
+// curve points, automation points, the TimeLine selection rectangle and the restart marker.
 {
   mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
   try {
@@ -786,10 +786,10 @@ for (const how of ['wheel', 'edge']) {
       const cv = arranger.surface.cv;
       clip.length = 4;
       const far = addClip(song, { start: 60, length: 4 });
-      point(cv, 'pointerdown', ax(5), ay(60), { buttons: 1 });
-      point(cv, 'pointermove', 478, ay(0), { buttons: 1 });
+      point(cv, 'pointerdown', ax(5), ay(60), { buttons: 1, shiftKey: true });
+      point(cv, 'pointermove', 478, ay(0), { buttons: 1, shiftKey: true });
       mock.timers.tick(2000); flush();
-      point(cv, 'pointerup', 478, ay(0));
+      point(cv, 'pointerup', 478, ay(0), { shiftKey: true });
       assert.ok(arranger.getView().sx > 500, 'the rectangle scrolled the TimeLine');
       key(cv, 'Delete');
       assert.deepEqual(song.clips, [clip], 'the far clip was selected by the scrolled rectangle');
@@ -797,12 +797,13 @@ for (const how of ['wheel', 'edge']) {
       mock.timers.tick(1000);
       arranger.setView({ sx: 0 }); flush();
       const RY = 27;
+      point(cv, 'dblclick', ax(4), RY);
+      assert.equal(song.restart, 4);
       point(cv, 'pointerdown', ax(4), RY, { buttons: 1 });
       point(cv, 'pointermove', 478, RY, { buttons: 1 });
       mock.timers.tick(2000); flush();
       point(cv, 'pointerup', 478, RY);
-      assert.equal(song.loop.start, 4);
-      assert.ok(song.loop.end > 40, `the loop region scrolled along (${song.loop.end})`);
+      assert.ok(song.restart > 40, `the dragged restart marker scrolled along (${song.restart})`);
     }
   } finally {
     mock.timers.reset();
@@ -1234,33 +1235,43 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   ctx.transport.playing = false;
 }
 
-// The ruler: a click sets the play position, a drag selects the loop region, right-click removes it.
+// The ruler: a click sets the play position; a double-click on the bar numbers inserts the restart
+// point (snapped), dragging the marker moves it, right-click removes it.
 {
   const { song, arranger, ctx, changes } = setup();
   const cv = arranger.surface.cv;
   const RY = 27; // bar number row
   click(cv, ax(5.37), RY);
   assert.equal(ctx.transport.pos, 5.25);
-  assert.equal(song.loop, null, 'a click is no region');
-  const c0 = changes();
   drag(cv, ax(4.1), RY, ax(8.05), RY);
-  assert.deepEqual(song.loop, { start: 4, end: 8 });
-  assert.equal(ctx.transport.pos, 4, 'stopped: the playhead goes to the region start');
+  assert.equal(song.restart, undefined, 'dragging the bar numbers makes nothing');
+  assert.equal('loop' in song, false, 'there is no loop region');
+  const c0 = changes();
+  point(cv, 'dblclick', ax(4.1), RY);
+  assert.equal(song.restart, 4, 'a double-click inserts the restart point (snapped)');
   assert.equal(changes(), c0 + 1, 'one undo step');
-  drag(cv, ax(12), RY, ax(10), RY); // right to left
-  assert.deepEqual(song.loop, { start: 10, end: 12 });
-  drag(cv, ax(12), RY, ax(12.05), RY); // zero width after snapping: keeps the region
-  assert.deepEqual(song.loop, { start: 10, end: 12 });
-  drag(cv, ax(2), RY, ax(6), RY, {}, 'pointercancel');
-  assert.deepEqual(song.loop, { start: 10, end: 12 }, 'cancel restores the region');
-  point(cv, 'pointerdown', ax(5), RY, { button: 2, buttons: 2 });
-  point(cv, 'pointerup', ax(5), RY, { button: 2 });
-  assert.ok(song.loop, 'right-click beside the region keeps it');
+  point(cv, 'dblclick', ax(6.05), RY);
+  assert.equal(song.restart, 6, 'another double-click moves it there');
+  const sigEdits = [];
+  ctx.editSig = (at) => sigEdits.push(at);
+  point(cv, 'dblclick', ax(3), 8);
+  assert.equal(song.restart, 6, 'the signature row double-click edits signatures instead');
+  assert.equal(sigEdits.length, 1);
   const c1 = changes();
-  point(cv, 'pointerdown', ax(11), RY, { button: 2, buttons: 2 });
-  point(cv, 'pointerup', ax(11), RY, { button: 2 });
-  assert.equal(song.loop, null, 'right-click on the region removes it');
-  assert.equal(changes(), c1 + 1);
+  const pos = ctx.transport.pos;
+  drag(cv, ax(6), RY, ax(10.05), RY);
+  assert.equal(song.restart, 10, 'drag the marker to move it (snapped)');
+  assert.equal(ctx.transport.pos, pos, 'moving the marker leaves the play position');
+  assert.equal(changes(), c1 + 1, 'one undo step');
+  drag(cv, ax(10), RY, ax(3), RY, {}, 'pointercancel');
+  assert.equal(song.restart, 10, 'cancel puts it back');
+  drag(cv, ax(10), RY, ax(-3), RY);
+  assert.equal(song.restart, undefined, 'dropped at time zero it is removed');
+  point(cv, 'dblclick', ax(8), RY);
+  point(cv, 'pointerdown', ax(8), RY, { button: 2, buttons: 2 });
+  point(cv, 'pointerup', ax(8), RY, { button: 2 });
+  assert.equal(song.restart, undefined, 'right-click on the marker removes it');
+  assert.equal(normalizeSong({ loop: { start: 0, end: 4 } }).loop, undefined, 'old loop regions are dropped');
 }
 
 // The scrollbars below (time) and right (lanes) of the TimeLine pan it by track click or thumb drag.
@@ -1367,21 +1378,22 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(arranger.getView().sx, 40, 'middle-drag still pans');
 }
 
-// The mouse wheel scrolls the piano roll by exactly one snap step per wheel event.
+// The wheel / trackpad scrolls the piano roll by its own pixel distance (no snap steps); sideways
+// deltas pan the keys when zoomed in on pitch.
 {
-  const { song, roll } = setup();
+  const { roll } = setup();
   const cv = roll.surface.cv;
-  const wheel = (deltaY, deltaMode = 0) => { fire(cv, 'wheel', { clientX: 200, clientY: 100, deltaX: 0, deltaY, deltaMode }); flush(); };
-  const st = snapStep(song.snap);
+  roll.setView({ sy: 0 }); flush();
+  const wheel = (deltaY, deltaMode = 0, deltaX = 0) => { fire(cv, 'wheel', { clientX: 200, clientY: 100, deltaX, deltaY, deltaMode }); flush(); };
   wheel(3);
-  assert.equal(roll.getView().sy, st * 48, 'a tiny wheel delta still moves one snap step');
-  wheel(400);
-  assert.equal(roll.getView().sy, 2 * st * 48, 'a large delta moves one snap step too');
-  wheel(-1, 1);
-  assert.equal(roll.getView().sy, st * 48, 'wheeling up moves one step back');
-  song.snap = { base: 4, div: 3 };
-  wheel(10);
-  assert.equal(roll.getView().sy, st * 48 + snapStep(song.snap) * 48, 'follows the selected snap');
+  assert.equal(roll.getView().sy, 3, 'a small trackpad delta scrolls just that far');
+  wheel(100);
+  assert.equal(roll.getView().sy, 103, 'a mouse wheel click scrolls its pixel distance');
+  wheel(-2, 1);
+  assert.equal(roll.getView().sy, 71, 'line deltas are 16 px each');
+  wheel(0, 0, 40);
+  assert.equal(roll.getView().sy, 71, 'a sideways delta without pitch zoom leaves time alone');
+  assert.equal(roll.getView().hx ?? 0, 0);
 }
 
 // Lane mute buttons (M) left of the lane numbers: a click toggles one lane, dragging over more
@@ -1607,7 +1619,6 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(ctx.transport.pos, 3, 'a click in the signature row sets the play position');
   drag(cv, ax(3.1), 8, ax(5.1), 8);
   assert.equal(ctx.transport.pos, 5, 'dragging there scrubs');
-  assert.equal(song.loop, null, 'and makes no loop region');
   holdRightClick(cv, ax(1), ay(0));
   pick(menus, 'Split at playhead');
   assert.equal(song.clips.length, 3);
@@ -1771,14 +1782,20 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(blocker.y, 0);
 }
 
-// TimeLine: rectangle selection, group move, delete; a click on empty space clears the selection.
+// TimeLine: Shift + drag on empty space draws a selection rectangle; a plain drag there pans the
+// view (like the patcher) and keeps the selection; group move, delete.
 {
   const { song, clip, arranger } = setup();
   const cv = arranger.surface.cv;
   clip.length = 4;
   const b = addClip(song, { start: 6, length: 4 });
   const c = addClip(song, { start: 20, length: 4 });
+  const view = { ...arranger.getView() };
   drag(cv, ax(0.5), ay(60), ax(7), ay(0));
+  assert.deepEqual([arranger.getView().sx, arranger.getView().sy], [view.sx - (ax(7) - ax(0.5)), view.sy + 60], 'a plain drag pans');
+  assert.equal(song.selected, clip.id, 'and keeps the selection');
+  arranger.setView({ sx: view.sx, sy: view.sy }); flush();
+  drag(cv, ax(0.5), ay(60), ax(7), ay(0), { shiftKey: true });
   point(cv, 'pointerdown', ax(1), ay(0), { buttons: 1 });
   point(cv, 'pointermove', ax(3), ay(0), { buttons: 1 });
   point(cv, 'pointerup', ax(3), ay(0));
@@ -2973,7 +2990,7 @@ for (const notes of [
   key(cv, 'Delete');
   assert.equal(clip.notes.length, 0, 'selection can start in the margin to catch the first note');
   fire(cv, 'wheel', { clientX: nx(60), clientY: 100, deltaY: 16, deltaX: 0, deltaMode: 0 });
-  assert.equal(roll.getView().sy, -128 + snapStep(song.snap) * 48, 'margin scrolls away one snap step');
+  assert.equal(roll.getView().sy, -128 + 16, 'margin scrolls away by the wheel distance');
   roll.reveal(); flush();
   assert.equal(roll.getView().sy, -128, 'revealing a clip restores the margin');
   const saved = JSON.parse(JSON.stringify(roll.getView()));

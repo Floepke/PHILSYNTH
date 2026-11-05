@@ -7,7 +7,7 @@ import { dspTestHost } from './dsphost.mjs';
 const { dsp } = dspTestHost();
 const { PatchRuntime, songLayers } = await import('../src/patch.js');
 const { Transport } = await import('../src/transport.js');
-const { emptySong, addClip, addAutoClip, normalizeSong, setLoop, setSig } = await import('../src/song.js');
+const { emptySong, addClip, addAutoClip, normalizeSong, setRestart, setSig } = await import('../src/song.js');
 const { paramsOf, fromNorm } = await import('../src/params.js');
 
 const engine = {
@@ -25,13 +25,13 @@ const inner = box.inst.patch;
 const osc = await inner.addModule('OSC');
 assert.ok(inner.connect(osc.id, 0));
 
-// ---- the inner song: own clips, meter and loop region ----
+// ---- the inner song: own clips, meter and restart point ----
 assert.equal(inner.song.clips.length, 0, 'a new layer has an empty TimeLine');
 setSig(engine.song, 4, 3, 4);
 assert.equal(inner.song.sigs.length, 1, 'meter of a layer is its own');
-setLoop(inner.song, 0, 8);
-assert.equal(engine.song.loop, null, 'loop region of a layer is its own');
-inner.song.loop = null;
+setRestart(inner.song, 4);
+assert.equal(engine.song.restart, undefined, 'restart point of a layer is its own');
+setRestart(inner.song, null);
 const clip = addClip(inner.song, { start: 4, length: 4, target: osc.id });
 clip.notes.push({ pitch: 60, start: 0, length: 1, vel: 0.8 });
 const auto = addAutoClip(inner.song, { start: 0, length: 4, target: osc.id, controller: 0 });
@@ -111,13 +111,12 @@ assert.equal(t.clipSong, null);
 inner.setParam(0, 'bpm', 240);
 root.setParam(0, 'bpm', 60);
 assert.equal(inner.bpm, 240);
-setLoop(engine.song, 0, 2);
 const mainClip = addClip(engine.song, { start: 0, length: 4, target: mainOsc.id });
 mainClip.notes.push({ pitch: 48, start: 0, length: 1, vel: 0.8 });
 scope = [box.id];
 played.length = 0;
 mainPlayed.length = 0;
-assert.deepEqual(t.songBounds(), [0, 8], 'own bounds: the main loop region does not apply');
+assert.deepEqual(t.songBounds(), [0, 8], 'own bounds: the inner song');
 assert.ok(t.play({ fromStart: true }));
 assert.deepEqual(t.scope, [box.id]);
 scope = []; // navigating while playing changes nothing
@@ -135,9 +134,8 @@ t.play();
 scope = [];
 t.play();
 assert.deepEqual(t.scope, [], 'play from another level restarts there');
-assert.deepEqual(t.songBounds(), [0, 2], 'main loop region');
+assert.deepEqual(t.songBounds(), [0, 4], 'main song bounds');
 t.stop();
-engine.song.loop = null;
 engine.song.clips = [];
 
 // ---- Global Transpose / Cents Offset: every level's Output has them; the playing level's apply ----

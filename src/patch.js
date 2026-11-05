@@ -60,7 +60,7 @@ export class PatchRuntime {
   }
 
   // Every layer (a Patch's inside) has its own TimeLine: clips that play / automate modules of this
-  // runtime, with its own meter and loop region. Playing from inside a Patch plays that layer at
+  // runtime, with its own meter and restart point. Playing from inside a Patch plays that layer at
   // its own Output BPM. The main patch's song is engine.song (saved at the project's top level).
   get song() {
     this._song ??= normalizeSong(null);
@@ -75,7 +75,7 @@ export class PatchRuntime {
   songJSON() {
     const s = this._song;
     const plainSig = s?.sigs.length === 1 && s.sigs[0].num === 4 && s.sigs[0].den === 4;
-    if (!s || !(s.clips.length || s.mutes.length || s.solos.length || s.loop || !plainSig)) return null;
+    if (!s || !(s.clips.length || s.mutes.length || s.solos.length || Number.isFinite(s.restart) || !plainSig)) return null;
     const { selected, ...rest } = s;
     return structuredClone(rest);
   }

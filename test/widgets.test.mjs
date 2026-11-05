@@ -54,8 +54,10 @@ const integer = new NumberInput();
 const time = new NumberInput({ step: 'any', max: '', value: '1.5' });
 const root = { querySelectorAll: (selector) => selector === 'select' ? [select] : [integer, time] };
 initWidgets(root, { numberStep: () => 0.25 });
-const fire = (el, type, props = {}) => {
+let clock = 0;
+const fire = (el, type, { gap = 200, ...props } = {}) => { // gap: ms since the previous event (wheel clicks)
   const e = new Event(type, { cancelable: true });
+  Object.defineProperty(e, 'timeStamp', { value: clock += gap });
   Object.assign(e, { button: 0, deltaY: 0, deltaMode: 0, ctrlKey: false, metaKey: false, ...props });
   el.dispatchEvent(e);
   return e;
@@ -117,7 +119,13 @@ assert.equal(select.index, 0);
 select.options[1].hidden = false;
 
 // Small trackpad deltas accumulate rather than skipping entries on every event.
-for (let i = 0; i < 5; i++) fire(select, 'wheel', { deltaY: 20 });
+for (let i = 0; i < 5; i++) fire(select, 'wheel', { deltaY: 20, gap: 16 });
+// One click delivered as a burst of notch-sized events (some Wayland setups) moves one option.
+fire(select, 'wheel', { deltaY: 100 });
+fire(select, 'wheel', { deltaY: 100, gap: 3 });
+assert.equal(select.index, 3, 'a doubled wheel event does not skip an option (2 is disabled)');
+fire(select, 'wheel', { deltaY: -100 });
+assert.equal(select.index, 1);
 assert.equal(select.index, 1);
 
 // Mouse click does not focus a number. Double-click and Tab still allow explicit editing.
