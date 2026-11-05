@@ -11,7 +11,9 @@
 // (a chased note starts at its bent pitch).
 // Automation clips: while playing, setAuto(clipId, clip, value 0..1) is called every tick for each
 // automation clip under the playhead; setAuto(clipId, null, null) releases a clip when the
-// playhead leaves it or playback stops (the controller gets its own value back).
+// playhead leaves it or playback stops (the controller keeps its last value). Notes starting in a
+// tick are triggered in time order, each onset right after the automation at that time: a note
+// never starts on the controller value from before its automation clip.
 // Clips on muted lanes (song.mutes) are silent, the auditioned clip too; while lanes are soloed
 // (song.solos) only those play. Muting / soloing while playing cuts silenced notes right away.
 // Idea clips (above the first lane, see song.js) never play, except an idea auditioned with /:
@@ -253,6 +255,7 @@ export class Transport {
 
   // note-ons for notes already sounding at q (they end at their normal end)
   chaseAt(q) {
+    this.automate(q); // controllers first: a note must not start on a stale controller value
     for (const layer of this.layers()) {
       for (const ev of notesSounding(layer.song, q)) {
         if (!this.audible(ev.clip, layer.song)) continue;
@@ -275,7 +278,9 @@ export class Transport {
     this.active.push({ id, inst, pitch, off, end: ev.end, note: ev.note, start: ev.start, vel, clip: ev.clip, song: layer.song });
   }
 
-  // note-offs due by `to`, then note-ons starting in [from, to)
+  // note-offs due by `to`, then note-ons starting in [from, to) in time order. The automation is
+  // applied at each onset before its notes, so a note never starts on a stale controller value
+  // (e.g. an envelope or filter setting that jumps when an automation clip starts with the note).
   advance(from, to) {
     const layers = this.layers();
     const songs = new Set(layers.map((l) => l.song));
@@ -284,11 +289,17 @@ export class Transport {
       n.inst.noteOff(n.id);
       return false;
     });
+    const due = [];
     for (const layer of layers) {
       for (const ev of notesStarting(layer.song, from, to)) {
-        if (!this.audible(ev.clip, layer.song)) continue;
-        this.trigger(ev, ev.start, layer);
+        if (this.audible(ev.clip, layer.song)) due.push({ ev, layer });
       }
+    }
+    due.sort((a, b) => a.ev.start - b.ev.start); // stable: same onset keeps layer/clip order
+    let at = NaN;
+    for (const { ev, layer } of due) {
+      if (ev.start !== at) this.automate(at = ev.start);
+      this.trigger(ev, ev.start, layer);
     }
   }
 }

@@ -487,6 +487,30 @@ function setup() {
   void b;
 }
 
+// A note starting together with an automation clip starts on the clip's value: the controller is
+// set before the note-on (at playback start, mid-song and after the restart wrap).
+{
+  const song = emptySong();
+  const a0 = addAutoClip(song, { start: 0, length: 1, target: 5 });
+  a0.points.push({ t: 0, v: 0.2, r: 0 }, { t: 1, v: 0.2, r: 0 });
+  const a2 = addAutoClip(song, { start: 2, length: 1, target: 5 });
+  a2.points.push({ t: 0, v: 0.9, r: 0 }, { t: 1, v: 0.9, r: 0 });
+  const c = addClip(song, { start: 0, length: 4, target: 1 });
+  c.notes.push(note(60, 0, 0.5), note(62, 2, 0.5));
+  let now = 0;
+  let value = null;
+  const heard = [];
+  const transport = new Transport({
+    getSong: () => song, getBpm: () => 120,
+    getTarget: () => ({ noteOn: (id, pitch) => heard.push([pitch, value]), noteOff() {} }),
+    setAuto: (id, clip, v) => { if (clip) value = v; },
+    now: () => now, ticker: () => ({ start() {}, stop() {} }),
+  });
+  transport.play({ fromStart: true });
+  for (let i = 0; i < 300; i++) { now += 7; transport.tick(); } // 2.1 s: wraps once
+  assert.deepEqual(heard, [[60, 0.2], [62, 0.9], [60, 0.2]]);
+}
+
 // Velocity curves are followed with noteMod while notes sound; chased notes start on the curve.
 {
   const song = emptySong();

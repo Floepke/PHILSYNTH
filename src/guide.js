@@ -123,10 +123,11 @@ export const GUIDE = [
       {
         title: 'Create an automation clip',
         items: [
-          `${k('Double right-click')} empty TimeLine space: an automation clip (<i>Auto 1</i>, <i>Auto 2</i> …) appears and the automation editor replaces the piano roll.`,
+          `${k('Double right-click')} empty TimeLine space: an automation clip (<i>Automation</i>) appears and the automation editor replaces the piano roll.`,
           'In the upper divider choose the module under <b>Send to</b> and the controller it drives under <b>Controller</b>.',
           `In the automation editor (time runs down, the value left = min to right = max): ${k('Double-click')} inserts a point, drag moves it (${k('Shift')} = fine value), the wheel on a point rounds its corner, a right-click or ${k('Backspace')} deletes it.`,
-          'While playing, the clip drives the controller like an LFO; outside the clip (or when stopped) the controller has its own value again.',
+          'While playing, the clip drives the controller like an LFO; after the clip the controller keeps the last value the clip gave it.',
+          'Automation goes first: a note that starts together with an automation clip (or anywhere inside it) already hears the clip\'s value, also in EXPORT WAV, so the controller does not jump just after the note starts.',
         ],
       },
       {
