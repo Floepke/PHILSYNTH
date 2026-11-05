@@ -408,6 +408,20 @@ body.panel-collapsed #panel { visibility: hidden; }
     rgba(255, 255, 255, 0.22) 0 1px, transparent 1px calc((100% - 1px) / var(--steps)));
   pointer-events: none;
 }
+/* ticks at uneven fixed values (controller.js snapValues, e.g. a synced LFO Frequency) */
+.ctl.ticked::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background-image: var(--tick-img);
+  background-position: var(--tick-pos);
+  background-size: 1px 100%;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
 .ctl > span:not(.ctl-fill), .ctl output { position: relative; z-index: 1; pointer-events: none; }
 .ctl-label {
   flex: 1;
@@ -735,6 +749,8 @@ body.panel-collapsed #panel { visibility: hidden; }
 .seq-field { display: inline-flex; align-items: center; gap: 5px; }
 .seq-field[hidden] { display: none; }
 .seq-field > span { color: var(--beam-ink); font-size: 11px; font-weight: 600; letter-spacing: 0.03em; }
+/* field names on the upper divider are part of the rod: they drag it */
+.seq-field > .seq-grab { cursor: move; }
 #seq-bar input, #seq-bar select, #sig-dialog .sig-fields input, #sig-dialog .sig-fields select {
   height: var(--control-height);
   padding: 0 6px;

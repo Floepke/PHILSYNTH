@@ -1,5 +1,5 @@
 // LFO: modulates one controller of every module it is cabled to (control cable, no audio).
-//   Frequency + Freq Unit: Hz, or cycles per note value synced to the BPM of this patch's Output,
+//   Frequency + Frequency Unit: Hz, or cycles per note value synced to the BPM of this patch's Output,
 //   or MIDI Pitch: runs at the frequency of the incoming note (Frequency ignored). Notes come from a
 //   clip sent to it or a MULTIMIDI cabled into it, never from the MIDI keyboard (liveMidi: false).
 //   Phase: where in its cycle the wave starts, on project load, after a panic (' twice: stop, then
@@ -7,15 +7,24 @@
 //   Amplitude: depth of the wave around its centre (100 % = full swing, 0 % = steady at the middle).
 //   Out Controller: controller number (0..) of the connected module(s) to modulate.
 //   Out Min / Out Max: modulation range in % of that controller's slider range (applied after Amplitude).
+// Audio input (tremolo): with sound cabled in, its cables to modules that take audio carry that sound
+// with its volume following the wave (Out Min..Out Max = 0..100 % volume); cables to modules
+// without an audio input stay control cables (see PatchRuntime.syncThrough, lfo.dsp.js).
 import { modulatorParams, outParams, pct } from './modtarget.js';
-import { syncedPeriod, MIDI_UNIT } from './lfo.dsp.js';
+import { syncedPeriod, MIDI_UNIT, SYNCED_FREQS } from './lfo.dsp.js';
 
 export { lfoRateHz, syncedPeriod, pitchHz, MIDI_UNIT } from './lfo.dsp.js';
 
-// appended last: saved Freq Unit values keep their meaning
+// appended last: saved Frequency Unit values keep their meaning
 const UNITS = ['Hz', '1/4', '1/8', '1/16', 'MIDI Pitch (use incoming MIDI pitch)'];
 const FRACTIONS = { 0.75: '3/4', 0.667: '2/3', 0.5: '1/2', 0.333: '1/3', 0.25: '1/4' };
 export const phaseLabel = (v) => `${Math.round(v * 100)} % (${Math.round(v * 360)}°)`;
+
+// Frequency with a synced Frequency Unit snaps to the note-value periods (Hz and MIDI Pitch: continuous)
+export const freqSnaps = (values) => {
+  const unit = values?.unit | 0;
+  return unit && unit !== MIDI_UNIT ? SYNCED_FREQS : null;
+};
 
 export function formatFreq(v, values) {
   const unit = values?.unit | 0;
@@ -30,15 +39,16 @@ export default {
   type: 'LFO',
   color: '#05a6de',
   label: 'LFO (modulator)',
-  acceptsMidi: true, // notes restart its phase; with Freq Unit MIDI Pitch they also set the rate
+  acceptsMidi: true, // notes restart its phase; with Frequency Unit MIDI Pitch they also set the rate
   liveMidi: false, // not played by the MIDI device (selecting it does not take the keyboard)
-  hasInput: false,
+  hasInput: true, // sound in: tremolo
   hasOutput: true,
   modulator: true, // its cables are control cables: they modulate a controller instead of carrying audio
+  audioThrough: true, // ...except, with sound cabled in, those to modules that take audio (tremolo)
   params: [
     { id: 'wave', label: 'Waveform', min: 0, max: 4, default: 0, step: 1, options: ['Sine', 'Triangle', 'Saw', 'Square', 'Random'] },
-    { id: 'unit', label: 'Freq Unit', min: 0, max: UNITS.length - 1, default: 0, step: 1, options: UNITS },
-    { id: 'freq', label: 'Frequency', min: 0.01, max: 50, default: 1, scale: 'log', format: formatFreq },
+    { id: 'unit', label: 'Frequency Unit', min: 0, max: UNITS.length - 1, default: 0, step: 1, options: UNITS },
+    { id: 'freq', label: 'Frequency', min: 0.01, max: 50, default: 1, scale: 'log', format: formatFreq, snapValues: freqSnaps },
     { id: 'phase', label: 'Phase', min: 0, max: 1, default: 0, step: 0.01, format: phaseLabel },
     { id: 'amp', label: 'Amplitude', min: 0, max: 100, default: 100, step: 1, format: pct },
     ...outParams(),
@@ -49,7 +59,7 @@ export default {
     const send = (m) => node.send(m);
     const inst = {
       node,
-      input: null,
+      input: node,
       getTargets: () => [], // set by the patch: modules this LFO is cabled to
       params: () => modulatorParams(inst, def),
       setParam: (id, v) => node.param(id, v),

@@ -4,7 +4,7 @@
 export const pct = (v) => `${Math.round(v)} %`;
 
 export const outParams = () => [
-  { id: 'outController', label: 'Out Controller', min: 0, max: 31, default: 0, step: 1 },
+  { id: 'outController', label: 'Out Controller', min: 0, max: 127, default: 0, step: 1 },
   { id: 'outMin', label: 'Out Min', min: 0, max: 100, default: 0, step: 1, format: pct },
   { id: 'outMax', label: 'Out Max', min: 0, max: 100, default: 100, step: 1, format: pct },
 ];

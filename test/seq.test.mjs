@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { setMaxListeners } from 'node:events';
-import { notePitchAt, emptySong, addClip, addAutoClip, isAuto, cloneClip, normalizeSong, setLaneMute, snapStep, clipFileText, parseClipFile } from '../src/song.js';
+import { notePitchAt, setSig, emptySong, addClip, addAutoClip, isAuto, cloneClip, normalizeSong, setLaneMute, snapStep, clipFileText, parseClipFile } from '../src/song.js';
 import { createAutomationLane } from '../src/seq/automation.js';
-import { createPianoRoll, TOP_MARGIN } from '../src/seq/pianoroll.js';
+import { createPianoRoll, TOP_MARGIN, GRID_MIN_PX } from '../src/seq/pianoroll.js';
 import { createArranger } from '../src/seq/arranger.js';
 import { clipsOverlap } from '../src/seq/clipplacement.js';
 import { createSequencer } from '../src/seq/index.js';
@@ -447,11 +447,13 @@ for (const reverse of [false, true]) {
   const { clip, roll, previews, menus } = setup();
   const cv = roll.surface.cv;
   drag(cv, nx(60), ny(1), nx(60), ny(2));
-  assert.deepEqual(clip.notes, [note(60, 1)]);
+  const end = (length, v = 0.8) => ({ vels: [{ t: length, v, r: 0 }] });
+  assert.deepEqual(clip.notes, [{ ...note(60, 1), ...end(1) }], 'a new note has a velocity point at its end');
   drag(cv, nx(60), ny(1.5), nx(60), ny(2.5));
   assert.equal(clip.notes[0].length, 1.5, 'the end jumps to the snapped pointer');
+  assert.deepEqual(clip.notes[0].vels, end(1.5).vels, 'the end velocity point follows the note end');
   drag(cv, nx(60), ny(1) + 5, nx(62), ny(2) + 5);
-  assert.deepEqual(clip.notes, [note(62, 2, 1.5)]);
+  assert.deepEqual(clip.notes, [{ ...note(62, 2, 1.5), ...end(1.5) }]);
   assert.equal(previews(), 0);
   click(cv, nx(62), ny(2) + 5, { button: 2 });
   assert.equal(clip.notes.length, 0);
@@ -870,9 +872,9 @@ for (const how of ['wheel', 'edge']) {
   assert.equal(changes(), 0);
   drag(cv, nx(60), ny(1) + 5, nx(61), ny(3) + 5);
   assert.deepEqual(clip.notes.map((n) => [n.pitch, n.start]), [[61, 3], [63, 4], [70, 1]]);
-  // body drag changes every selected note's length by the same amount
-  drag(cv, nx(61), ny(3.5), nx(61), ny(4.5));
-  assert.deepEqual(clip.notes.map((n) => n.length), [1.5, 1.5, 1]);
+  // body drag puts every selected note's end on the pointer, whatever its own length
+  drag(cv, nx(61), ny(3.5), nx(61), ny(5.5));
+  assert.deepEqual(clip.notes.map((n) => n.length), [2.5, 1.5, 1]);
   // Shift + click toggles a note in the selection
   click(cv, nx(70), ny(1) + 5, { shiftKey: true });
   key(cv, 'Delete');
@@ -1880,7 +1882,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   // double-click inside the selection adds a point at the snapped time; drag it to 1
   dbl(cv, vx(0.5), ny(3.05));
   assert.deepEqual(b.vels?.map((p) => p.t), [1], 'shared point at t=3 lands inside the second note');
-  assert.equal(b.vels[0].r, 1, 'new points start fully rounded');
+  assert.equal(b.vels[0].r, 0.5, 'new points start half rounded');
   drag(cv, vx(b.vels[0].v), ny(3), vx(1), ny(3));
   assert.equal(b.vels[0].v, 1);
   assert.equal(b.vel, 0.5, 'the shared point at t=2 keeps the start of the second note');
@@ -1892,6 +1894,9 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.ok(b.vel > 0.5 && b.vel < 1, 'second note starts on the line');
   // wheel rounds the point; right click offers deletion without deleting immediately
   point(cv, 'wheel', vx(1), ny(3), { deltaY: -100 });
+  assert.equal(b.vels[0].r, 0.55);
+  b.vels[0].r = 1;
+  point(cv, 'wheel', vx(1), ny(3), { deltaY: -100 });
   assert.equal(b.vels[0].r, 1, 'already at maximum rounding');
   point(cv, 'wheel', vx(1), ny(3), { deltaY: 100 });
   assert.equal(b.vels[0].r, 0.95);
@@ -1901,6 +1906,41 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   pick(menus, 'Delete point');
   assert.equal('vels' in b, false);
   assert.ok(changes() > 4);
+}
+
+// Velocity strip: Ctrl+drag draws a dashed line; on release the velocities under it snap onto it
+{
+  const { clip, roll, changes } = setup();
+  const cv = roll.surface.cv;
+  const vx = (v) => 7 + v * 70;
+  const a = note(60, 0, 1, 0.5);
+  const b = note(62, 2, 2, 0.5);
+  const c = note(64, 6, 1, 0.5);
+  b.vels = [{ t: 1, v: 0.5, r: 0 }];
+  clip.notes.push(a, b, c);
+  flush();
+  const c0 = changes();
+  point(cv, 'pointerdown', vx(0), ny(0), { buttons: 1, ctrlKey: true });
+  point(cv, 'pointermove', vx(1), ny(4), { buttons: 1, ctrlKey: true });
+  cv.drawing.length = 0;
+  roll.redraw?.();
+  flush();
+  assert.equal(a.vel, 0.5, 'nothing changes while drawing');
+  assert.ok(cv.drawing.some(([op, dash]) => op === 'setLineDash' && dash?.join() === '5,4'), 'the line is dashed');
+  point(cv, 'pointerup', vx(1), ny(4), { ctrlKey: true });
+  assert.ok(Math.abs(a.vel) < 1e-6, `start of the line: ${a.vel}`);
+  assert.ok(Math.abs(b.vel - 0.5) < 1e-6, `half way: ${b.vel}`);
+  assert.ok(Math.abs(b.vels[0].v - 0.75) < 1e-6, `curve point at t=3: ${b.vels[0].v}`);
+  assert.equal(c.vel, 0.5, 'beyond the line: untouched');
+  assert.ok(changes() > c0);
+  // with a selection only the selected notes snap
+  key(cv, 'a', { ctrlKey: true });
+  key(cv, 'Escape');
+  click(cv, vx(c.vel), ny(6));
+  const before = a.vel;
+  drag(cv, vx(1), ny(0), vx(1), ny(7), { ctrlKey: true });
+  assert.equal(a.vel, before, 'unselected note untouched');
+  assert.ok(Math.abs(c.vel - 1) < 1e-6, `selected note snapped: ${c.vel}`);
 }
 
 // Pitch bend: double-click a selected note's body inserts a bend point that drags at once; points
@@ -1932,7 +1972,7 @@ for (const free of [false, true]) {
   clip.notes.push(n);
   flush();
   dbl(cv, nx(60), ny(2)); // first press selects, the second inserts
-  assert.deepEqual(n.bends, [{ t: 2, d: 0, r: 1 }], 'inserted at the pointer\'s time, the pitch under the pointer');
+  assert.deepEqual(n.bends, [{ t: 2, d: 0, r: 0.5 }], 'inserted at the pointer\'s time, the pitch under the pointer, half rounded');
   assert.equal(n.length, 4, 'the double-click did not resize the note');
   const c0 = changes();
   drag(cv, nx(60), ny(2), nx(62) + 7, ny(2.5));
@@ -2153,7 +2193,7 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   assert.equal(clip.notes[0].length, 0.25, 'never shorter than one snap step');
   key(cv, 'a', { ctrlKey: true });
   drag(cv, nx(64), ny(5), nx(64), ny(4));
-  assert.deepEqual(clip.notes.map((n) => n.length), [0.25, 3], 'selection keeps the anchor\'s delta (minimum one step)');
+  assert.deepEqual(clip.notes.map((n) => n.length), [3, 3], 'every selected note ends at the pointer');
 }
 
 // Right-button hold threshold: under 5 px still opens the menu, 5 px cancels.
@@ -2446,6 +2486,50 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   const atPointer = (96 + roll.getView().sy) / roll.getView().ppq;
   fire(cv, 'wheel', { clientX: nx(72), clientY: 96, deltaY: -100, deltaMode: 0, ctrlKey: true });
   assert.ok(Math.abs((96 + roll.getView().sy) / roll.getView().ppq - atPointer) < 1e-9);
+}
+
+// Zoomed out in time, grid lines closer than GRID_MIN_PX disappear: beat lines as a whole, bar
+// lines thinned (the same ones while scrolling), so no two drawn lines get closer than that.
+{
+  const { song, clip, roll } = setup();
+  const cv = roll.surface.cv;
+  const render = (v) => { roll.setView({ ...roll.getView(), ...v }); cv.drawing.length = 0; roll.redraw(); flush(); };
+  const dashed = () => cv.drawing.some(([op, dash]) => op === 'setLineDash' && JSON.stringify(dash) === '[12,12]');
+  // grid lines: full-width horizontal strokes inside the grid (bar lines are 4 px wide)
+  const barYs = () => {
+    const ys = [];
+    for (let i = 2; i < cv.drawing.length; i++) {
+      const [op, color, width] = cv.drawing[i];
+      const to = cv.drawing[i - 1];
+      const from = cv.drawing[i - 2];
+      if (op === 'stroke' && color === '#111216' && width === 4 && from[0] === 'moveTo' && to[0] === 'lineTo' && from[2] === to[2] && from[1] >= nx(22) - 20) ys.push(from[2]);
+    }
+    return [...new Set(ys)].sort((a, b) => a - b);
+  };
+  render({ ppq: 48, sy: 0 });
+  assert.ok(dashed(), 'beat lines at 48 px per beat');
+  render({ ppq: GRID_MIN_PX - 1 });
+  assert.ok(!dashed(), 'beat lines closer than GRID_MIN_PX disappear');
+  // 1/8: a bar is half a quarter, 3 px at the widest zoom out
+  clip.length = 64;
+  setSig(song, 0, 1, 8);
+  render({ ppq: 6, sy: 0 });
+  const ys = barYs();
+  assert.ok(ys.length > 10, `bar lines still drawn: ${ys.length}`);
+  for (let i = 1; i < ys.length; i++) assert.ok(ys[i] - ys[i - 1] >= GRID_MIN_PX - 1, `bar lines ${ys[i - 1]} / ${ys[i]} too close`);
+  // scrolling keeps the same bars (no flicker): the times of the drawn lines match after a scroll
+  const timesAt = (list) => { const { sy } = roll.getView(); return list.map((y) => (y - 0.5 + sy) / 6); };
+  const times = timesAt(ys);
+  const sy0 = roll.getView().sy;
+  render({ ppq: 6, sy: sy0 + 20 });
+  assert.equal(roll.getView().sy, sy0 + 20, 'scrolled');
+  const shifted = timesAt(barYs());
+  const common = shifted.filter((t) => t <= times.at(-1));
+  assert.ok(common.length > 5);
+  for (const t of common) assert.ok(times.some((u) => Math.abs(u - t) < 0.3), `bar at ${t} newly drawn after scrolling`);
+  render({ ppq: 600, sy: 0 });
+  const close = barYs();
+  assert.ok(close.length >= 2 && close[1] - close[0] >= 290, 'zoomed in: every bar');
 }
 
 // Arrow keys transpose/move just the selection, preserving timing, intervals, lengths and velocities.
@@ -3166,6 +3250,31 @@ for (const notes of [
   near(seq.viewState().top, 0.5);
   assert.equal(seq.viewState().bottom, 0.75);
   assert.equal(viewChanges, changesBeforeStackDrag + 2, 'save once per drag');
+
+  // The field names (Clip:, Send to:, Input Grid:) on the upper divider drag it too; their fields do not.
+  {
+    const at = (target, type, y) => {
+      const e = new Event(type, { cancelable: true });
+      Object.assign(e, { button: 0, buttons: 1, pointerId: 1, clientX: 300, clientY: y });
+      Object.defineProperty(e, 'target', { value: target });
+      upper.dispatchEvent(e);
+      return e;
+    };
+    const fieldName = { closest: (s) => (s === '.seq-grab' || s.includes('label') ? fieldName : null) };
+    const field = { closest: (s) => (s === '.seq-grab' ? null : field) };
+    const before = seq.viewState().top;
+    at(field, 'pointerdown', 360);
+    at(field, 'pointermove', 410);
+    at(field, 'pointerup', 410);
+    assert.equal(seq.viewState().top, before, 'the select / input does not drag');
+    at(fieldName, 'pointerdown', 360);
+    at(fieldName, 'pointermove', 410);
+    at(fieldName, 'pointerup', 410);
+    near(seq.viewState().top, before + 0.1);
+    assert.equal(at(fieldName, 'click', 410).defaultPrevented, true, 'the click does not focus / open the field');
+    assert.equal(at(field, 'click', 410).defaultPrevented, false);
+    seq.applyView({ top: 0.5, bottom: 0.75 });
+  }
 
   // Once the patcher is collapsed, either divider pushes the other, without crossing.
   drag(upper, 300, 360, 300, 560);

@@ -675,7 +675,7 @@ function drawCables() {
     // a Patch cable looks like what its inside sends out: control or MIDI unless it sends sound too
     const out = a.inst.outSignals?.();
     const soundy = signals.audio && (!out || out.audio || !(out.mod || out.midi));
-    const isMod = !!a.def.modulator || (signals.mod && !soundy);
+    const isMod = (!!a.def.modulator && !signals.audio) || (signals.mod && !soundy);
     const ra = boxOf(a);
     const rb = boxOf(b);
     const { from, to } = visibleSegment(ra, rb); // arrow and audio wave go on the visible part
@@ -1150,6 +1150,8 @@ function select(s) {
       panel.append(hint(names.length
         ? `Control cable: <b>Value</b> drives ${names.join(', ')}.`
         : 'Control cable: no controller of this module is routed yet. Select the MULTICTL and pick one under <b>Routes</b>.'));
+    } else if (lfo?.def.audioThrough && patch.signals(lfo, patch.modules.get(s.cable.to)).audio) {
+      panel.append(hint('Audio cable (tremolo): carries the sound cabled into this LFO, its volume following the wave (Amplitude, Out Min..Out Max = 0..100 % volume).'));
     } else if (lfo?.def.modulator) {
       const t = patch.modules.get(s.cable.to);
       const n = lfo.values.outController | 0;
@@ -1236,6 +1238,7 @@ function select(s) {
     const ctl = createController(p, {
       index,
       value: entry.values[p.id],
+      values: () => entry.values,
       format,
       onBegin: () => undoHistory?.begin(),
       onEnd: () => undoHistory?.end(),

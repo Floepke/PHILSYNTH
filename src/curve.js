@@ -3,8 +3,10 @@
 // corner replaced by a quadratic Bézier that starts/ends r/2 of the way along its two segments
 // (r = 1: the curve touches the midpoints of both segments, so neighbours never overlap).
 export const MIN_GAP = 0.002; // smallest x distance between points
-// rounding of a point inserted by double-click in any curve editor (waveshaper, velocity, automation): fully round
+// rounding of a point inserted by double-click in the waveshaper/envelope editor or automation lane: fully round
 export const NEW_POINT_ROUND = 1;
+// rounding of a point added in the piano roll (velocity lane, glide/pitch bends): half round
+export const NEW_NOTE_POINT_ROUND = 0.5;
 
 export const defaultCurve = () => ({ points: [{ x: 0, y: 0, r: 0 }, { x: 1, y: 1, r: 0 }] });
 // ENVELOPE default: a quick rise and a rounded fall back to 0

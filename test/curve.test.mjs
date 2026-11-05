@@ -1,8 +1,12 @@
 // Run: node test/curve.test.mjs   (WAVESHAPER curve maths)
 import assert from 'node:assert/strict';
-import { curvePolyline, curveTable, defaultCurve, normalizeCurve, sampleAt } from '../src/curve.js';
+import { curvePolyline, curveTable, defaultCurve, NEW_NOTE_POINT_ROUND, NEW_POINT_ROUND, normalizeCurve, sampleAt } from '../src/curve.js';
 
 const close = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`);
+
+// new piano-roll velocity/glide points start half round; other curve editors stay fully round
+assert.equal(NEW_NOTE_POINT_ROUND, 0.5);
+assert.equal(NEW_POINT_ROUND, 1);
 
 // identity in both ranges
 for (const sym of [true, false]) {

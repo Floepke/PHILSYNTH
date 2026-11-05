@@ -16,11 +16,11 @@
     <div id="seq-split" class="splitter horizontal" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Piano roll / patcher divider" aria-controls="seq patcher" title="Drag the exposed divider to resize the piano roll and controller panel; pushes the lower divider when they meet. Arrow keys resize; Home/End move to an edge.">
       <div id="seq-bar" role="toolbar" aria-label="Sequencer controls">
         <div id="seq-bar-content">
-          <label class="seq-field seq-clip" title="Name of the selected clip"><span>Clip:</span><input id="seq-name" type="text" spellcheck="false"></label>
-          <label class="seq-field" id="seq-target-field" title="Module number (main patch) that plays the notes of this clip"><span>Send to:</span><select id="seq-target"></select></label>
-          <label class="seq-field" id="seq-ctl-field" title="Controller of the target module that this automation clip drives" hidden><span>Controller</span><select id="seq-ctl"></select></label>
+          <label class="seq-field seq-clip" title="Name of the selected clip"><span class="seq-grab">Clip:</span><input id="seq-name" type="text" spellcheck="false"></label>
+          <label class="seq-field" id="seq-target-field" title="Module number (main patch) that plays the notes of this clip"><span class="seq-grab">Send to:</span><select id="seq-target"></select></label>
+          <label class="seq-field" id="seq-ctl-field" title="Controller of the target module that this automation clip drives" hidden><span class="seq-grab">Controller</span><select id="seq-ctl"></select></label>
           <span class="seq-sep"></span>
-          <label class="seq-field" title="Time grid: visual guide; snaps piano-roll editing when Free timing is off"><span>Input Grid:</span><select id="seq-snap-base"></select></label>
+          <label class="seq-field" title="Time grid: visual guide; snaps piano-roll editing when Free timing is off"><span class="seq-grab">Input Grid:</span><select id="seq-snap-base"></select></label>
           <span class="seq-div" title="…divided by">÷</span>
           <input id="seq-snap-div" class="seq-div-input" type="number" min="1" max="64" step="1" value="1" aria-label="Grid divider">
           <label class="seq-field" title="Draw, move, resize and paste notes and edit velocity-curve times without snapping. The dark/light grid remains visible; timeline and automation keep snapping."><input id="seq-free-time" type="checkbox"><span>Free timing</span></label>

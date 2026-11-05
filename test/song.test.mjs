@@ -5,7 +5,7 @@ import {
   trimClipStart, loopEnd, notesStarting, isBlack, inPiano, formatPos, noteName, clean,
   meter, barLines, beatLines, barRound, barCeil, barLength, setSig, removeSig, normalizeSigs,
   addAutoClip, isAuto, autoValue, automationAt, pointIndex,
-  notePoints, noteVelAt, groupVelCurve, applyVelCurve, canConsolidate, consolidateClips, splitClip,
+  notePoints, noteVelAt, groupVelCurve, applyVelCurve, applyVelLine, withVelEnd, velsForLength, canConsolidate, consolidateClips, splitClip,
   clipFileText, parseClipFile, CLIP_FORMAT,
   basePitch, centsOf, withCents, centsLabel, isIdea, ideaY, clipSilent, songEnd,
 } from '../src/song.js';
@@ -288,6 +288,44 @@ t.stop();
   // points beyond a note's end inside its own curve are cut at the end
   const long = { pitch: 60, start: 0, length: 1, vel: 0, vels: [{ t: 2, v: 1, r: 0 }] };
   assert.deepEqual(groupVelCurve([long]), [{ t: 0, v: 0, r: 0 }, { t: 1, v: 0.5, r: 0 }]);
+}
+
+// new piano-roll notes carry a velocity point at their end; it follows length edits
+{
+  const n = withVelEnd({ pitch: 60, start: 2, length: 1, vel: 0.7 });
+  assert.deepEqual(n.vels, [{ t: 1, v: 0.7, r: 0 }]);
+  assert.deepEqual(velsForLength(n.vels, 1, 2), [{ t: 2, v: 0.7, r: 0 }]);
+  const inner = [{ t: 0.5, v: 0.2, r: 0.5 }, { t: 1, v: 0.9, r: 0 }];
+  assert.deepEqual(velsForLength(inner, 1, 0.5), [{ t: 0.5, v: 0.9, r: 0 }], 'a swallowed point gives way to the end');
+  assert.deepEqual(velsForLength(inner, 1, 0.75), [{ t: 0.5, v: 0.2, r: 0.5 }, { t: 0.75, v: 0.9, r: 0 }]);
+  const free = [{ t: 0.5, v: 0.2, r: 0 }];
+  assert.equal(velsForLength(free, 1, 2), free, 'no point at the end: unchanged');
+  // flat notes with end points stay points in the shared strip curve (no collapse that drops them)
+  const a = withVelEnd({ pitch: 60, start: 0, length: 1, vel: 0.5 });
+  const b = withVelEnd({ pitch: 60, start: 1, length: 1, vel: 0.5 });
+  assert.deepEqual(groupVelCurve([a, b]).map((p) => p.t), [0, 1, 2]);
+  applyVelCurve([a, b], groupVelCurve([a, b]));
+  assert.deepEqual(b.vels, [{ t: 1, v: 0.5, r: 0 }]);
+  // a line over both ramps each note from its start to its end
+  applyVelLine([a, b], { t: 0, v: 0 }, { t: 2, v: 1 });
+  assert.deepEqual([a.vel, a.vels[0].v, b.vel, b.vels[0].v], [0, 0.5, 0.5, 1]);
+}
+
+// Ctrl+drag line in the velocity strip: note starts and curve points it spans snap onto it
+{
+  const a = { pitch: 60, start: 0, length: 1, vel: 0.8 };
+  const b = { pitch: 62, start: 2, length: 2, vel: 0.8, vels: [{ t: 1, v: 0.2, r: 0.5 }, { t: 3, v: 0.4, r: 0 }] };
+  const c = { pitch: 64, start: 6, length: 1, vel: 0.3 };
+  // drawn backwards (end first): from t=4 / v=1 to t=0 / v=0
+  assert.equal(applyVelLine([a, b, c], { t: 4, v: 1 }, { t: 0, v: 0 }), true);
+  assert.equal(a.vel, 0);
+  assert.equal(b.vel, 0.5);
+  assert.deepEqual(b.vels, [{ t: 1, v: 0.75, r: 0.5 }, { t: 3, v: 0.4, r: 0 }], 'points past the line keep their value, rounding stays');
+  assert.equal(c.vel, 0.3, 'notes outside the line are untouched');
+  assert.equal(applyVelLine([a, b, c], { t: 0, v: 0 }, { t: 4, v: 1 }), false, 'nothing left to change');
+  // a vertical line (one time) sets the value there
+  assert.equal(applyVelLine([c], { t: 6, v: 0.2 }, { t: 6, v: 0.9 }), true);
+  assert.equal(c.vel, 0.9);
 }
 
 console.log('song tests passed');

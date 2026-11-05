@@ -14,7 +14,7 @@ import { curveTable, defaultCurve } from '../curve.js';
 import { imageCache } from './imagecache.js';
 import { BLOCK_SIZES, DEFAULT_FRAME, builtinTable } from '../modules/wavetable.dsp.js';
 
-export const WASM_VERSION = 15;
+export const WASM_VERSION = 16;
 
 // kind = Kind in cpp/engine.cpp; params in the order of the kernel's enum
 export const SPECS = {
@@ -33,7 +33,7 @@ export const SPECS = {
   sampler: { kind: 17, params: ['polyphony', 'selStart', 'selLength', 'playMode', 'transpose', 'finetune', 'interpolation', 'attack', 'decay', 'sustain', 'release', 'gain'] },
   wavetable: { kind: 18, params: ['polyphony', 'block', 'position', 'interpolation', 'attack', 'decay', 'sustain', 'release', 'gain'] },
   bus: { kind: 5, params: [], passive: true },
-  amp: { kind: 6, params: ['amp', 'inverse', 'pan'], passive: true },
+  amp: { kind: 6, params: ['amp', 'inverse', 'pan', 'fine'], passive: true },
   out: { kind: 7, params: ['volume', 'bpm'], passive: true },
   dcblock: { kind: 8, params: [] },
   eq: { kind: 9, params: [...Array.from({ length: 16 }, (_, i) => `b${i}`), 'q', 'level'] },

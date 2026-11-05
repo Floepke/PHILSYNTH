@@ -445,9 +445,13 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
     }
     onChange();
   }
+  // Field names on the upper divider (Clip:, Send to:, Input Grid:, …; class seq-grab) drag it
+  // too; a click on one does not focus or open its field.
+  const grabs = (target) => !!target?.closest?.('.seq-grab');
+  upper.addEventListener('click', (e) => { if (grabs(e.target)) e.preventDefault(); });
   for (const [handle, boundary] of [[controller, 'top'], [upper, 'top'], [lower, 'bottom']]) {
     handle.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0 || e.target.closest?.('button, input, select, label, .spinbox')) return;
+      if (e.button !== 0 || (!grabs(e.target) && e.target.closest?.('button, input, select, label, .spinbox'))) return;
       e.preventDefault();
       const space = room();
       const panelHandle = controller.getBoundingClientRect();

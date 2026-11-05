@@ -119,7 +119,7 @@ export default {
       inGain.disconnect();
       for (const rt of runtimes()) {
         const t = rt.modules.get(target);
-        if (t?.inst.input) inGain.connect(t.inst.input);
+        if (t?.inst.input && !t.def.audioThrough) inGain.connect(t.inst.input); // LFO tremolo: by cable only
       }
     };
     patch.listeners.add(route);
@@ -127,7 +127,7 @@ export default {
     // OPERATOR's input is modulation, not a replacement for its MIDI-triggered voice.
     const midiTarget = () => {
       const t = patch.modules.get(target);
-      return !!t && t.def.acceptsMidi && (!t.def.hasInput || t.def.type === 'OPERATOR');
+      return !!t && t.def.acceptsMidi && (!t.def.hasInput || t.def.audioThrough || t.def.type === 'OPERATOR');
     };
     const wanted = () => (midiTarget() ? instances : 1);
 
@@ -227,6 +227,7 @@ export default {
         ...(p.wheelStep ? { wheelStep: p.wheelStep } : {}),
         ...(p.scale ? { scale: p.scale } : {}),
         ...(p.options ? { options: p.options } : {}),
+        ...(p.snapValues ? { snapValues: () => p.snapValues(t.values) } : {}),
         format: (v) => (p.format ? p.format(v, t.values) : p.options ? p.options[v] : String(+(+v).toFixed(3))),
         map: m,
         routes: () => runtimes().flatMap((rt) => rt.routesTo(m.module, m.param)),

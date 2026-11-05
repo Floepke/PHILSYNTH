@@ -1,14 +1,16 @@
 // Panel controller: a tall rectangle whose fill shows the value.
 //   drag sideways     move the value (relative, a click does not jump; Shift while dragging = fine)
 //   mouse wheel       ±1 % per notch, Shift + wheel ±0.1 %; stepped controllers move one step
+// Controllers with p.snapValues(values) (fixed values depending on the other controllers, e.g. a
+// synced LFO Frequency) snap drags to them, move one per wheel click and show a tick at each.
 //   double-click      reset to the default
 // Bipolar ranges (min < 0 < max) fill from the zero point. Option lists show a tick per entry.
 // The element never takes keyboard focus, so keyboard shortcuts keep working.
-import { toNorm, fromNorm, nudge, wheelAccumulator, wheelDelta } from './params.js';
+import { toNorm, fromNorm, nudge, snapNearest, snapStep, wheelAccumulator, wheelDelta } from './params.js';
 
 const FINE_DRAG = 0.1; // Shift-drag speed relative to normal
 
-export function createController(p, { index, value, onInput, format, onBegin, onEnd }) {
+export function createController(p, { index, value, onInput, format, onBegin, onEnd, values }) {
   const el = document.createElement('div');
   el.className = 'ctl';
   el.setAttribute('role', 'slider');
@@ -38,8 +40,22 @@ export function createController(p, { index, value, onInput, format, onBegin, on
     el.style.setProperty('--steps', steps);
   }
 
+  // fixed values of the moment (null: continuous), ticks at their slider positions
+  let snaps = null;
+  const updateSnaps = () => {
+    const next = p.snapValues?.(values?.()) ?? null;
+    if (next === snaps) return;
+    snaps = next?.length ? next : null;
+    el.classList.toggle('ticked', !!snaps);
+    if (!snaps) return;
+    const at = snaps.map((s) => `${(Math.min(1, Math.max(0, toNorm(p, s))) * 100).toFixed(3)}%`);
+    el.style.setProperty('--tick-img', at.map(() => 'linear-gradient(rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.22))').join(', '));
+    el.style.setProperty('--tick-pos', at.map((x) => `${x} 0`).join(', '));
+  };
+
   let v = value;
   const show = (nv) => {
+    updateSnaps();
     v = nv;
     const x = Math.min(1, Math.max(0, toNorm(p, v)));
     el.style.setProperty('--pos', x);
@@ -76,7 +92,8 @@ export function createController(p, { index, value, onInput, format, onBegin, on
     const width = el.getBoundingClientRect().width || 1;
     drag.norm = Math.min(1, Math.max(0, drag.norm + ((e.clientX - drag.x) / width) * (e.shiftKey ? FINE_DRAG : 1)));
     drag.x = e.clientX;
-    set(fromNorm(p, drag.norm));
+    const nv = fromNorm(p, drag.norm);
+    set(snaps ? snapNearest(p, snaps, nv) : nv);
   });
   function end() {
     if (!drag) return;
@@ -94,16 +111,18 @@ export function createController(p, { index, value, onInput, format, onBegin, on
   el.addEventListener('dblclick', () => set(p.default ?? p.min));
 
   // ---- wheel ----
-  const take = wheelAccumulator({ whole: !!p.step }); // stepped controllers wait for a whole notch
+  const takeAny = wheelAccumulator({ whole: !!p.step }); // stepped controllers wait for a whole notch
+  const takeWhole = wheelAccumulator({ whole: true });
   el.addEventListener('wheel', (e) => {
     if (e.ctrlKey) return; // keep Ctrl + wheel for zoom
     e.preventDefault();
     // Shift + wheel is horizontal scrolling on some systems: use whichever axis moved
     const { dx, dy } = wheelDelta(e);
     const delta = Math.abs(dy) >= Math.abs(dx) ? dy : dx;
-    const n = take(e, delta);
+    updateSnaps();
+    const n = (snaps ? takeWhole : takeAny)(e, delta);
     if (!n) return;
-    set(nudge(p, v, n, e.shiftKey));
+    set(snaps ? snapStep(snaps, v, n) : nudge(p, v, n, e.shiftKey));
     el.classList.add('wheel');
     clearTimeout(el._wheelTimer);
     el._wheelTimer = setTimeout(() => el.classList.remove('wheel'), 400);

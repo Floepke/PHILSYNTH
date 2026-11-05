@@ -23,17 +23,39 @@ export function initWidgets(root, { numberStep = () => 1 } = {}) {
     }, { passive: false });
   };
 
+  // whether a select's picker is open (:open); null where the browser cannot tell
+  const isOpen = (el) => { try { return el.matches(':open'); } catch { return null; } };
+
   for (const select of root.querySelectorAll('select')) {
     let mouse = false;
+    // A click on the select while its list is open closes it. The browser closes the list before
+    // the click arrives, so `shown` remembers it was open (checked every frame; Escape, a pick or
+    // a click elsewhere end it) and the click then does not open it again.
+    let shown = false;
+    const watch = () => {
+      if (!shown) return;
+      if (isOpen(select) === false) shown = false;
+      else requestAnimationFrame(watch);
+    };
     select.addEventListener('mousedown', (e) => {
       if (e.button !== 0 || select.disabled) return;
       if (e.target.closest?.('option, optgroup')) return;
       releaseWidgetFocus();
       mouse = true;
+      if (shown) {
+        shown = false;
+        e.preventDefault();
+        if (isOpen(select)) { select.disabled = true; select.disabled = false; } // still open: close it
+        return;
+      }
       // showPicker opens the native, scrollable list without focusing the closed control.
       if (select.showPicker) {
         e.preventDefault();
         select.showPicker();
+        if (isOpen(select) !== null && typeof requestAnimationFrame === 'function') {
+          shown = true;
+          requestAnimationFrame(watch);
+        }
       }
     });
     select.addEventListener('keydown', () => { mouse = false; });

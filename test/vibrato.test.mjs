@@ -13,7 +13,7 @@ const NativeVibrato = wasmKernels(instantiateDsp(readFileSync(new URL('../src/ds
 
 const def = getModule('VIBRATO');
 assert.deepEqual(def.params.map((p) => p.id), ['wave', 'unit', 'freq', 'phase', 'amp'], 'LFO-like controller order');
-assert.deepEqual(def.params.map((p) => p.label), ['Waveform', 'Freq Unit', 'Frequency', 'Set Phase', 'Amp']);
+assert.deepEqual(def.params.map((p) => p.label), ['Waveform', 'Frequency Unit', 'Frequency', 'Set Phase', 'Amp']);
 assert.deepEqual(def.params[0].options, ['Sine', 'Triangle']);
 assert.deepEqual(def.params[1].options, ['Hz', '1/4', '1/8', '1/16'], 'no MIDI Pitch: VIBRATO receives no notes');
 assert.equal(def.acceptsMidi, false);
@@ -93,7 +93,7 @@ for (const rate of [1, 12]) {
   for (let i = 2; i < 128; i++) assert.ok(Math.abs(out[0][0][i] - L[i - 2]) < 1e-6);
 }
 
-// Freq Unit synced to BPM, like the LFO: 1 × 1/4 at 120 BPM = 2 Hz; slow rates stay within the line
+// Frequency Unit synced to BPM, like the LFO: 1 × 1/4 at 120 BPM = 2 Hz; slow rates stay within the line
 {
   const k = fresh({ unit: 1, freq: 1 });
   assert.equal(k.rate, 2);

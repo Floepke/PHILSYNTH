@@ -41,6 +41,34 @@ assert.deepEqual(WebAssembly.Module.imports(new WebAssembly.Module(bytes)), [], 
   src.destroy(); ctl.destroy(); target.destroy();
 }
 
+// LFO tremolo (JS) between native kernels: mixed render while sound goes in, native again after.
+{
+  const { dsp, graph, render } = dspTestHost({ kernels: WASM, heap });
+  const src = dsp.create('osc');
+  const lfo = dsp.create('lfo');
+  const amp = dsp.create('amp');
+  for (const [id, v] of [['amp', 0], ['outMin', 50], ['outMax', 50]]) lfo.param(id, v);
+  amp.connect(dsp.destination);
+  src.send({ type: 'noteOn', id: 1, pitch: 60, velocity: 1 });
+  render();
+  assert.ok(graph.prog, 'native render while the LFO only modulates');
+  src.connect(lfo);
+  lfo.connect(amp);
+  render();
+  assert.equal(graph.prog, 0, 'mixed JS/native render for the tremolo');
+  const s = graph.nodes.get(src.h).outs[0][0];
+  const t = graph.nodes.get(lfo.h).outs[0][0];
+  assert.ok(Math.abs(s[64]) > 1e-3 && Math.abs(t[64] - 0.5 * s[64]) < 1e-6, 'native sound at 50 % volume');
+  const a = graph.nodes.get(amp.h).outs[0][0];
+  assert.ok(Math.abs(a[64] - t[64]) < 1e-6, 'into the native AMP');
+  src.disconnect(lfo);
+  lfo.disconnect(amp);
+  render();
+  assert.ok(graph.prog, 'native rendering restored');
+  assert.equal(graph.nodes.get(lfo.h).audio, false);
+  src.destroy(); lfo.destroy(); amp.destroy();
+}
+
 // PANIC through the host: echo tail with feedback into a reverb, in the JS graph and the native graph
 for (const opts of [{}, { kernels: WASM, heap }]) {
   const { dsp, graph, render } = dspTestHost(opts);

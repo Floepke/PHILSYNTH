@@ -35,6 +35,7 @@ const ctx = { currentTime: 0 };
 const { dsp, graph, render, kernel } = dspTestHost();
 
 const { PatchRuntime } = await import('../src/patch.js');
+const { getModule } = await import('../src/modules/index.js');
 const engine = {
   ctx, dsp,
   createPatch(sink) { return PatchRuntime.create(this, sink); },
@@ -175,6 +176,26 @@ assert.equal((await c2.inst.patch.addModule('OSC')).id, 1, 'numbering is per pat
   assert.deepEqual(panGains(0.5), [0.5, 1]);
   const pan = amp.def.params.find((q) => q.id === 'pan');
   assert.deepEqual([pan.format(0), pan.format(-1), pan.format(0.25)], ['Center', '100 % L', '25 % R']);
+  // Fine Volume: last controller, 0..1 in 2 × 16384 steps, multiplied into the gain
+  {
+    const { fromNorm, nudge } = await import('../src/params.js');
+    const fine = amp.def.params.at(-1);
+    assert.equal(fine.id, 'fine');
+    assert.equal((fine.max - fine.min) / fine.step, 32768);
+    assert.equal(amp.values.fine, 1, 'unity by default');
+    const tiny = fromNorm(fine, 3 / 32768);
+    assert.ok(Math.abs(tiny - 3 / 32768) < 1e-6 && tiny !== fromNorm(fine, 2 / 32768), 'every step is its own value, also via modulation');
+    assert.ok(nudge(fine, 0.5, 1) > 0.5, 'the wheel moves it');
+    assert.equal(fine.format(0.5), '50.000 % (-6.0 dB)');
+    assert.equal(fine.format(0), '0.000 % (−∞ dB)');
+    r.setParam(amp.id, 'fine', 0.25);
+    assert.deepEqual(k.t, [0.5, 0.5], 'Amplification × Fine Volume');
+    r.setParam(amp.id, 'inverse', 1);
+    assert.deepEqual(k.t, [-0.5, -0.5]);
+    r.setParam(amp.id, 'inverse', 0);
+    r.setParam(amp.id, 'fine', 1);
+    assert.deepEqual(k.t, [2, 2]);
+  }
   // audio: the AMP output is twice its input (after smoothing settles)
   const ga = graph.nodes.get(amp.inst.node.h);
   const go = graph.nodes.get(osc.inst.node.h);
@@ -297,8 +318,11 @@ const set = (e, x) => { hold(e, x); render(1); };
   engine.onDrive = (e, id, v) => shown.push([e.id, id, v]);
 
   assert.ok(r.connect(lfo.id, osc.id), 'LFO may connect to a module without audio input');
-  assert.equal(r.connect(osc.id, lfo.id), false, 'LFO has no audio input');
+  assert.ok(r.connect(osc.id, lfo.id), 'sound may go into an LFO (tremolo)');
+  assert.deepEqual(r.signals(lfo, osc), { audio: false, midi: false, mod: true }, 'its cable back stays control: audio would loop');
+  r.disconnect(r.cables.find((c) => c.from === osc.id && c.to === lfo.id));
   assert.equal(lfo.inst.params().find((p) => p.id === 'outController').max, 10, 'Out Controller range follows the target (11 OSC controllers)');
+  assert.equal(getModule('LFO').params.find((p) => p.id === 'outController').max, 127, 'unconnected Out Controller spans 0..127');
   assert.match(lfo.inst.params().find((p) => p.id === 'outController').format(10), /Gain/);
 
   r.setParam(lfo.id, 'outController', 10); // OSC gain 0..1
@@ -915,7 +939,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   restored.destroy();
 }
 
-// ---- LFO Freq Unit MIDI Pitch: the LFO runs at the frequency of the notes cabled into it ----
+// ---- LFO Frequency Unit MIDI Pitch: the LFO runs at the frequency of the notes cabled into it ----
 {
   const { lfoRateHz, MIDI_UNIT } = await import('../src/modules/lfo.js');
   const r = await PatchRuntime.create(engine, dsp.destination);
@@ -941,6 +965,43 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.equal(k.rate, 7, 'back to Hz: Frequency counts again');
   r.setParam(lfo.id, 'unit', MIDI_UNIT);
   assert.equal(k.rate, 110);
+
+  // with sound cabled in too: a tremolo at the note frequency (audio-rate amplitude modulation)
+  const src = await r.addModule('OSC');
+  kernel(src.inst.node).process = (_i, o) => { o[0][0].fill(1); o[0][1].fill(1); return true; };
+  assert.ok(r.connect(src.id, lfo.id));
+  assert.ok(r.connect(lfo.id, 0));
+  assert.equal(r.signals(lfo, r.modules.get(0)).audio, true);
+  mm.inst.noteOn(2, 69, 1); // 440 Hz
+  const g = [];
+  for (let b = 0; b < 75; b++) { render(1); g.push(...graph.nodes.get(lfo.inst.node.h).outs[0][0]); } // 0.2 s
+  let rises = 0;
+  for (let j = 1; j < g.length; j++) if (g[j - 1] < 0.5 && g[j] >= 0.5) rises++;
+  assert.ok(Math.abs(rises - 88) <= 1, `MIDI + audio: the sound pulses at 440 Hz (${rises} in 0.2 s)`);
+  mm.inst.noteOff(2);
+
+  // projects saved before the labels were renamed (Freq Unit, Freq Hz, Drift Freq, Filter Freq):
+  // values are saved by controller id, which stayed the same
+  const old = {
+    modules: [
+      { id: 0, type: 'OUTPUT', x: 0, y: 0, values: {} },
+      { id: 1, type: 'LFO', x: 0, y: 0, values: { unit: MIDI_UNIT, freq: 3 } },
+      { id: 2, type: 'DISTORTION', x: 0, y: 0, values: { frequency: 8000 } },
+      { id: 3, type: 'MULTIMIDI', x: 0, y: 0, values: { driftFreq: 4, velDriftFreq: 5 } },
+      { id: 4, type: 'ECHO', x: 0, y: 0, values: { cutoff: 2000 } },
+      { id: 5, type: 'VIBRATO', x: 0, y: 0, values: { unit: 2 } },
+    ],
+    cables: [],
+  };
+  const loaded = await PatchRuntime.create(engine, dsp.destination);
+  await loaded.load(old);
+  const val = (id, pid) => loaded.modules.get(id).values[pid];
+  assert.deepEqual([val(1, 'unit'), val(1, 'freq'), val(2, 'frequency'), val(3, 'driftFreq'), val(3, 'velDriftFreq'), val(4, 'cutoff'), val(5, 'unit')], [MIDI_UNIT, 3, 8000, 4, 5, 2000, 2]);
+  const label = (id, pid) => loaded.modules.get(id).def.params.find((p) => p.id === pid).label;
+  assert.deepEqual([label(1, 'unit'), label(2, 'frequency'), label(3, 'driftFreq'), label(4, 'cutoff'), label(5, 'unit')],
+    ['Frequency Unit', 'Frequency', 'Drift Frequency', 'Filter Frequency', 'Frequency Unit']);
+  loaded.destroy();
+  r.destroy();
 }
 
 // ---- VELOCITY2CTL: the newest note's velocity drives a controller (through Out Min..Out Max) ----
@@ -1599,6 +1660,63 @@ const set = (e, x) => { hold(e, x); render(1); };
   const copy = await PatchRuntime.create(engine, dsp.destination);
   await copy.load(r.toJSON());
   assert.equal(copy.cables.length, r.cables.length, 'all cables come back');
+  copy.destroy();
+  r.destroy();
+}
+
+const paramsOfKey = (e, i) => e.inst.params?.()?.[i]?.id ?? e.def.params[i].id;
+
+// LFO tremolo: with sound cabled in, its cables to modules that take audio carry that sound (volume
+// following the wave); others stay control cables; one that would close an audio loop stays control.
+{
+  const r = await PatchRuntime.create(engine, dsp.destination);
+  const src = await r.addModule('OSC');
+  const lfo = await r.addModule('LFO');
+  const amp = await r.addModule('AMP');
+  const adsr = await r.addModule('ADSR');
+  const out = r.modules.get(0);
+  const ks = kernel(src.inst.node);
+  ks.process = (_i, o) => { o[0][0].fill(1); o[0][1].fill(1); return true; };
+  assert.ok(r.connect(lfo.id, amp.id));
+  assert.ok(r.connect(lfo.id, adsr.id));
+  r.setParam(lfo.id, 'outController', 1); // AMP Amplification
+  assert.deepEqual(r.signals(lfo, amp), { audio: false, midi: false, mod: true }, 'no sound in: control cable');
+  assert.equal(lfo.modTargets.size, 2);
+  assert.ok(r.connect(src.id, lfo.id), 'sound into the LFO');
+  assert.deepEqual(r.signals(lfo, amp), { audio: true, midi: false, mod: false }, 'now an audio cable');
+  assert.ok(lfo.inst.node.out.has(amp.inst.input));
+  assert.equal(r.signals(lfo, adsr).audio, false, 'ADSR takes no audio: still control');
+  assert.deepEqual([...lfo.modTargets.keys()], [`${adsr.id} ${paramsOfKey(adsr, 1)}`], 'AMP is no longer modulated');
+  assert.equal(r.connect(amp.id, src.id), false, 'OSC has no input anyway');
+  const fx = await r.addModule('DELAY');
+  assert.ok(r.connect(amp.id, fx.id));
+  assert.equal(r.connect(fx.id, lfo.id), false, 'sound back into the tremolo would loop');
+  assert.ok(r.connect(lfo.id, out.id));
+  assert.ok(r.connect(src.id, out.id) && r.removeModule(fx.id));
+  r.disconnect(r.cables.find((c) => c.from === src.id && c.to === out.id));
+  r.setParam(lfo.id, 'outMin', 50);
+  r.setParam(lfo.id, 'outMax', 50);
+  render(2);
+  const g = graph.nodes.get(out.inst.input.h);
+  assert.ok(g.srcs.includes(graph.nodes.get(lfo.inst.node.h)), 'the Output gets the tremolo sound');
+  assert.ok(Math.abs(graph.nodes.get(lfo.inst.node.h).outs[0][0][64] - 0.5) < 1e-6, 'at 50 % volume');
+  assert.ok(!g.silent && g.outs[0][0][64] > 0, 'and plays it');
+  // saved cable order does not matter: the LFO's cables become audio once sound comes in
+  const json = r.toJSON();
+  json.cables.reverse();
+  const copy = await PatchRuntime.create(engine, dsp.destination);
+  await copy.load(json);
+  const [cl, ca] = [lfo.id, amp.id].map((id) => copy.modules.get(id));
+  assert.equal(copy.signals(cl, ca).audio, true);
+  assert.ok(cl.inst.node.out.has(ca.inst.input));
+  assert.ok(!('audio' in json.cables[0]), 'nothing extra saved');
+  // sound out: back to control cables, controllers driven again
+  r.disconnect(r.cables.find((c) => c.from === src.id && c.to === lfo.id));
+  assert.equal(r.signals(lfo, amp).mod, true);
+  assert.ok(!lfo.inst.node.out.has(amp.inst.input));
+  assert.equal(lfo.modTargets.size, 3, 'AMP, ADSR and the Output modulated again');
+  render(1);
+  assert.equal(graph.nodes.get(lfo.inst.node.h).audio, false, 'the graph runs it as a plain modulator again');
   copy.destroy();
   r.destroy();
 }

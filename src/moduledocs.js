@@ -274,7 +274,7 @@ export const DOCS = {
       frequency: 'Sample-and-hold updates per second, 1–48000 Hz. Lower values hold each processed sample longer for a lo-fi effect. 0 (Off) disables sample-rate reduction. Values at or above the actual audio engine sample rate process every sample; this does not change the engine sample rate.',
     },
     notes: [
-      'Cable an audio source → <b>DISTORTION</b> → Output. Defaults: Clipping, Power 1×, Bit Depth 16, Freq Hz 48000.',
+      'Cable an audio source → <b>DISTORTION</b> → Output. Defaults: Clipping, Power 1×, Bit Depth 16, Frequency 48000 Hz.',
       '<b>Type chart</b> (below the controllers): every row is one Type, fed by a sine that grows from 0.25× to 4× from left to right (one cycle per band). The selected Type is highlighted, the dashed line marks the current Power (clamped to the chart range) and the current Bit Depth is applied. Click a row to select that Type.',
       'The types follow the supplied distortion chart; the fold and wrap variants are defined above, not a claim of bit-identical emulation of another synthesizer.',
       'Shaping, bit crushing and sample-rate reduction deliberately allow aliasing. Use a FILTER afterwards to tame harshness and a DC BLOCKER if the output has DC offset. Original can exceed ±1 when amplified.',
@@ -287,6 +287,7 @@ export const DOCS = {
       amp: 'Gain, 0–4× (1× = unchanged).',
       pan: 'Stereo balance: centre leaves both channels untouched; panning left fades the right channel out (and vice versa) without boosting the other side.',
       inverse: 'Flips the polarity of the signal (multiplies it by −1). Useful to cancel or combine signals.',
+      fine: 'Extra volume factor, 0–100 % in 2 × 16384 steps (multiplied with Amplification). Automate or modulate it for smooth fades: near silence its steps stay inaudible where Amplification\'s 0.01 steps are heard.',
     },
     notes: [],
   },
@@ -347,7 +348,7 @@ export const DOCS = {
     params: {
       wave: 'Shape the pitch follows. <i>Sine</i> sweeps smoothly and slows down at the top and bottom. <i>Triangle</i> moves the pitch at a constant speed and turns sharply at the top and bottom.',
       unit: '<i>Hz</i>: Frequency is in cycles per second. <i>1/4, 1/8, 1/16</i>: Frequency picks a length in note values, synced to the BPM of this patch\'s Output, like the LFO.',
-      freq: 'Vibrato rate, 0.01–50 Hz (or a synced note length with Freq Unit).',
+      freq: 'Vibrato rate, 0.01–50 Hz (or a synced note length with Frequency Unit; the slider then snaps to the note lengths).',
       phase: 'Where in its cycle the vibrato starts (0–100 % = 0–360°; 0 % = centre pitch, rising; 25 % = top). Applied when the project loads and after a panic (<kbd>\'</kbd> twice: stop, then panic), so a song always starts the vibrato at the same point. Turning it while running does not jump.',
       amp: 'Pitch depth, 0–200 cents up and about as much down (100 cents = one semitone). The depth stays the same at any Frequency.',
     },
@@ -389,16 +390,16 @@ export const DOCS = {
   },
 
   LFO: {
-    summary: 'Low-frequency oscillator: a repeating control wave that modulates one controller of every module it is cabled to (vibrato, tremolo, filter sweeps, …). It makes no sound.',
+    summary: 'Low-frequency oscillator: a repeating control wave that modulates one controller of every module it is cabled to (vibrato, tremolo, filter sweeps, …). With audio cabled into it, it is a tremolo: it passes that sound on with its volume following the wave.',
     params: {
-      freq: 'Speed of the wave: 0.01–50 Hz, or (with a synced Freq Unit) a cycle length in note values. Ignored with Freq Unit MIDI Pitch.',
+      freq: 'Speed of the wave: 0.01–50 Hz, or (with a synced Frequency Unit) a cycle length in note values, which the slider snaps to. Ignored with Frequency Unit MIDI Pitch.',
       unit: 'Hz runs freely; 1/4, 1/8 or 1/16 syncs the cycle to note lengths at the BPM of this patch level\'s Output. <i>MIDI Pitch</i> runs the wave at the frequency of the incoming note (A4 = 440 Hz), following pitch bends; Frequency is ignored. Notes come from a clip sent to the LFO or a MULTIMIDI (or other MIDI module) cabled into it. With no note held it keeps the last pitch; before the first note it stands still.',
       wave: 'Shape of the wave: Sine, Triangle, Saw, Square, or Random (glides smoothly to a new random value every cycle).',
       ...MOD_PARAMS,
       amp: 'Depth of the wave around its centre: 100 % = full swing between Out Min and Out Max, 0 % = steady in the middle.',
       phase: 'Where in its cycle the wave starts (0–100 % = 0–360°). The LFO jumps there when the project loads, after a panic (<kbd>\'</kbd> twice: stop, then panic) and on every incoming note; a note\'s own phase (from a MULTIMIDI\'s Phase / Random Phase) is added to it. Turning it while running does not make the wave jump.',
     },
-    notes: [MOD_CABLE, 'Modulation is applied once per 128-sample block (~375 times a second), so with MIDI Pitch only low notes (below about 90 Hz, F♯2) give a clean wave; higher notes alias into a slower, stepped movement.'],
+    notes: [MOD_CABLE, 'Tremolo: cable a sound module into the LFO. Its cables to modules that take audio (effects, the Output, …) then carry that sound, its volume following the wave: Amplitude sets the depth, Out Min / Out Max the volume range (0–100 %). Cables to modules without an audio input stay control cables, and so does a cable that would close an audio loop. The wave is computed for every sample, so with Frequency Unit <i>MIDI Pitch</i> and notes cabled in, the sound pulses at the note frequency (audio-rate amplitude modulation). Square and Saw edges take about 1 ms, so slow ones do not click.', 'Control cables: modulation is applied once per 128-sample block (~375 times a second), so with MIDI Pitch only low notes (below about 90 Hz, F♯2) give a clean wave; higher notes alias into a slower, stepped movement.'],
   },
 
   ADSR: {

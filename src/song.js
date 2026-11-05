@@ -292,6 +292,18 @@ const velsOf = (n) => {
 // All points of a note's velocity curve, the start point (note.vel) first.
 export const notePoints = (note) => [{ t: 0, v: note.vel, r: 0 }, ...(note.vels ?? [])];
 
+// A new note drawn in the piano roll: its velocity curve gets an ordinary point at the note end
+// (same value as the start), so a line drawn in the velocity strip can ramp each note.
+export const withVelEnd = (note) => ({ ...note, vels: [{ t: note.length, v: note.vel, r: 0 }] });
+
+// Velocity points after a length change from `from` to `to`: a point at the old end follows the
+// end; points the shorter note swallows (at or after the new end) give way to it.
+export function velsForLength(vels, from, to) {
+  const i = vels?.findIndex((p) => Math.abs(p.t - from) <= 1e-9) ?? -1;
+  if (i < 0) return vels;
+  return [...vels.filter((p, j) => j !== i && p.t < to - 1e-9), { ...vels[i], t: to }];
+}
+
 // Velocity of a note t quarters after its start.
 export function noteVelAt(note, t) {
   if (!note.vels?.length) return note.vel;
@@ -328,7 +340,7 @@ export function notePitchAt(note, t, poly = bendPolyline(note)) {
 
 // One shared curve (absolute clip times) through the velocity curves of several notes: every
 // note contributes its points up to its end; points at the same time are averaged. Notes that all
-// have the same constant velocity give a single point.
+// have the same constant velocity (and no curve points) give a single point.
 export function groupVelCurve(notes) {
   if (!notes.length) return [];
   const byT = new Map();
@@ -344,7 +356,7 @@ export function groupVelCurve(notes) {
   }
   const pts = [...byT.values()].sort((a, b) => a.t - b.t).map((e) => ({ t: e.t, v: e.v / e.k, r: e.r }));
   pts[0].r = 0;
-  if (pts.every((p) => Math.abs(p.v - pts[0].v) < 1e-9)) return [pts[0]];
+  if (!notes.some((n) => n.vels?.length) && pts.every((p) => Math.abs(p.v - pts[0].v) < 1e-9)) return [pts[0]];
   return pts;
 }
 
@@ -371,6 +383,23 @@ export function applyVelCurve(notes, points) {
     if (vels.length) n.vels = vels;
     else delete n.vels;
   }
+}
+
+// Snap velocities onto a straight line from a = {t, v} to b = {t, v} (absolute clip times): every
+// note start and velocity curve point whose time the line spans takes the line's value there.
+// Returns whether any note changed.
+export function applyVelLine(notes, a, b) {
+  const [p, q] = a.t <= b.t ? [a, b] : [b, a];
+  const inside = (t) => t >= p.t - 1e-9 && t <= q.t + 1e-9;
+  const at = (t) => clamp01(q.t - p.t > 1e-9 ? p.v + ((q.v - p.v) * (t - p.t)) / (q.t - p.t) : q.v);
+  let changed = false;
+  for (const n of notes) {
+    if (inside(n.start) && at(n.start) !== n.vel) { n.vel = at(n.start); changed = true; }
+    if (!n.vels?.some((pt) => inside(n.start + pt.t) && at(n.start + pt.t) !== pt.v)) continue;
+    n.vels = n.vels.map((pt) => (inside(n.start + pt.t) ? { ...pt, v: at(n.start + pt.t) } : pt));
+    changed = true;
+  }
+  return changed;
 }
 
 // ---- automation ----

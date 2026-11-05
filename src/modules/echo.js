@@ -17,7 +17,7 @@ export default {
     delayParam('delay', 'Delay'),
     { id: 'feedback', label: 'Feedback', min: 0, max: 0.99, default: 0.5, step: 0.01, format: pct },
     { id: 'filter', label: 'Filter', min: 0, max: FILTERS.length - 1, default: 0, step: 1, options: FILTERS },
-    { id: 'cutoff', label: 'Filter Freq', min: 20, max: 20000, default: 4000, scale: 'log', format: (v) => `${Math.round(v)} Hz` },
+    { id: 'cutoff', label: 'Filter Frequency', min: 20, max: 20000, default: 4000, scale: 'log', format: (v) => `${Math.round(v)} Hz` },
     { id: 'dry', label: 'Dry', min: 0, max: 1, default: 1, step: 0.01, format: pct },
     { id: 'wet', label: 'Wet', min: 0, max: 1, default: 0.5, step: 0.01, format: pct },
   ],

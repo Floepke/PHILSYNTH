@@ -213,7 +213,7 @@ export const GUIDE = [
       {
         title: 'Edit notes',
         items: [
-          'Drag a note\'s coloured <b>body</b> more than 10 pixels to start setting its length (the end jumps to the snapped pointer); drag its <b>circle</b> to change pitch (sideways) and start time (up / down).',
+          'Drag a note\'s coloured <b>body</b> more than 10 pixels to start setting its length (the end jumps to the snapped pointer; with several notes selected, all their ends do); drag its <b>circle</b> to change pitch (sideways) and start time (up / down).',
           'Every drag along time (note lengths and moves, bend and velocity points, the clip end, selection rectangles, automation points) scrolls the view along when you hold the pointer near / past the top or bottom edge, faster further out; the wheel scrolls along too.',
           `${k('Alt')} + drag a note (body or circle) moves a clone of it.`,
           `<b>Micropitch</b>: ${k('Shift')} + drag a note\'s circle sideways to tune it up or down (slowly, in 0.1 cent steps); a slider shows the cents while you drag and the note sounds along. With several notes selected, all of them change by the same amount. The note stays on its key (from −50 to just under +50 cents); the whole note (circle and coloured body) shifts sideways to show the tuning; menu → <b>Reset tuning</b> puts the selection back on its keys.`,
@@ -306,7 +306,7 @@ export const GUIDE = [
         title: 'Layout',
         items: [
           'Piano roll, patcher and TimeLine are stacked top to bottom. Drag a divider up / down to resize the panes (to an edge hides a pane), left / right to resize this controller panel. Arrow keys, Home and End move a focused divider. Positions are saved with the project.',
-          'The upper divider holds the clip name, <i>Send to</i>, the Grid and Free timing; when it is too narrow, move the pointer along it to reveal its controls. The lower divider shows the patch path on the left and the TimeLine transport buttons and play position immediately left of the clock on the right.',
+          'The upper divider holds the clip name, <i>Send to</i>, the Grid and Free timing; their names (<i>Clip:</i>, <i>Send to:</i>, <i>Input Grid:</i>) drag the divider too. When it is too narrow, move the pointer along it to reveal its controls. The lower divider shows the patch path on the left and the TimeLine transport buttons and play position immediately left of the clock on the right.',
         ],
       },
     ],

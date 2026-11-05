@@ -36,6 +36,11 @@ export const cableSignals = (a, b) => ({
 // A MULTICTL (it picks controllers per module) also keeps driving the Output's own controllers.
 const passesMod = (m) => !!m.def.modulator && !m.def.routeParams;
 
+// An audio-through modulator (LFO, def.audioThrough) with sound cabled into it is a tremolo: its
+// cables to modules that take audio carry that sound instead of control; its other cables (and
+// all of them while nothing sounds into it) stay control cables. So does one that would close an
+// audio loop.
+
 export class PatchRuntime {
   constructor(engine, sink, salt = 0) {
     this.engine = engine;
@@ -46,6 +51,7 @@ export class PatchRuntime {
     this.host = { salt, dsp: engine.dsp, mics: engine.mics ?? null, createPatch: (s, k = 0) => PatchRuntime.create(engine, s, instanceSalt(salt, k)) };
     this.modules = new Map(); // id -> { id, def, inst, x, y, values }
     this.cables = []; // { from, to } module ids
+    this.audioLinks = new Set(); // cables out of an audio-through modulator that carry audio now
     this.reserved = new Set(); // ids claimed by inserts still being created
     this.listeners = new Set(); // called whenever modules/cables change
     this.midiLock = null; // module number live MIDI is locked onto in this layer (saved), or null
@@ -301,6 +307,10 @@ export class PatchRuntime {
   // What a cable from module `a` to module `b` carries: { audio, midi, mod }. A Patch module
   // carries what its inside sends into its Output (see passesMod above).
   signals(a, b) {
+    if (a.def.audioThrough) {
+      const c = this.cables.find((q) => q.from === a.id && q.to === b.id);
+      if (c ? this.audioLinks.has(c) : this.wantsAudio(a, b)) return { audio: true, midi: false, mod: false };
+    }
     const s = cableSignals(a.def, b.def);
     const out = a.inst.outSignals?.();
     const passing = b.def.isOutput && this.passesOut;
@@ -310,6 +320,42 @@ export class PatchRuntime {
       midi: s.midi || !!(midiOut && (b.def.acceptsMidi || passing)),
       mod: a.def.modulator ? paramsOf(b).length > 0 : !!(out?.mod && (paramsOf(b).length > 0 || passing)),
     };
+  }
+
+  // true if sound is cabled into audio-through modulator `m` (a tremolo LFO in front counts too)
+  throughAudio(m) {
+    return !!m.def.audioThrough && this.cables.some((c) => {
+      if (c.to !== m.id) return false;
+      if (this.audioLinks.has(c)) return true;
+      const a = this.modules.get(c.from);
+      return !!a && cableSignals(a.def, m.def).audio;
+    });
+  }
+
+  // whether a cable from audio-through modulator `m` to `t` carries tremolo sound
+  wantsAudio(m, t) {
+    return !!(m.def.audioThrough && t?.def.hasInput && this.throughAudio(m) && !this.reaches(t.id, m.id));
+  }
+
+  // after the cables into audio-through modulator `m` changed: its cables switch between audio and
+  // control (and so may those of an LFO it feeds)
+  syncThrough(m, seen = new Set()) {
+    if (!m?.def.audioThrough || seen.has(m)) return;
+    seen.add(m);
+    for (const c of this.cables) {
+      if (c.from !== m.id) continue;
+      const t = this.modules.get(c.to);
+      const audio = this.wantsAudio(m, t);
+      if (audio === this.audioLinks.has(c)) continue;
+      if (audio) { this.audioLinks.add(c); m.inst.node.connect(t.inst.input); }
+      else { this.audioLinks.delete(c); m.inst.node.disconnect(t.inst.input); }
+      this.syncThrough(t, seen);
+    }
+    this.updateRoutes(m);
+  }
+
+  syncAllThrough() {
+    for (const m of [...this.modules.values()]) if (m.def.audioThrough) this.syncThrough(m);
   }
 
   // The modules a control cable from modulator `m` into module `t` drives: `t` itself, or inside a
@@ -325,7 +371,7 @@ export class PatchRuntime {
     const set = new Set();
     if (!this.passesOut) return set;
     for (const c of this.cables) {
-      if (c.to !== 0) continue;
+      if (c.to !== 0 || this.audioLinks.has(c)) continue;
       const e = this.modules.get(c.from);
       if (!e) continue;
       if (passesMod(e)) set.add(e.values.outController | 0);
@@ -354,7 +400,7 @@ export class PatchRuntime {
     const driven = new Map(); // `${target id} ${controller id}` -> [target id, controller id]
     const list = [];
     for (const c of this.cables) {
-      if (c.from !== m.id) continue;
+      if (c.from !== m.id || this.audioLinks.has(c)) continue;
       const t = this.modules.get(c.to);
       if (!t?.ctl) continue;
       const passed = this.controlTargets(t, m);
@@ -463,7 +509,9 @@ export class PatchRuntime {
       if (id === to) return true;
       if (seen.has(id)) return false;
       seen.add(id);
-      return this.cables.some((c) => c.from === id && !this.modules.get(id)?.def.modulator && walk(c.to));
+      const a = this.modules.get(id);
+      const through = (c) => !a?.def.modulator || this.audioLinks.has(c); // tremolo LFO cables carry sound
+      return this.cables.some((c) => c.from === id && through(c) && walk(c.to));
     };
     return walk(from);
   }
@@ -479,7 +527,11 @@ export class PatchRuntime {
     const b = this.modules.get(toId);
     if (!a || !b || fromId === toId) return false;
     if (this.cables.some((c) => c.from === fromId && c.to === toId)) return false;
-    if (a.def.modulator) {
+    const cable = { from: fromId, to: toId };
+    if (a.def.modulator && this.wantsAudio(a, b)) {
+      a.inst.node.connect(b.inst.input);
+      this.audioLinks.add(cable);
+    } else if (a.def.modulator) {
       if (!paramsOf(b).length) return false; // control cable: target only needs controllers
     } else {
       const signals = this.signals(a, b);
@@ -487,8 +539,9 @@ export class PatchRuntime {
       if ((signals.audio || signals.midi) && this.reaches(toId, fromId)) return false; // audio or notes would circle forever
       if (signals.audio) a.inst.node.connect(b.inst.input);
     }
-    this.cables.push({ from: fromId, to: toId });
+    this.cables.push(cable);
     a.def.connected?.(a, b, a.inst.getTargets?.() ?? []); // e.g. MULTICTL copies routes to a module of a routed type
+    this.syncAllThrough(); // sound into an LFO: its cables become tremolo audio cables
     this.emit();
     return true;
   }
@@ -499,7 +552,8 @@ export class PatchRuntime {
     this.cables.splice(i, 1);
     const a = this.modules.get(cable.from);
     const b = this.modules.get(cable.to);
-    if (a.def.modulator) {
+    if (this.audioLinks.delete(cable)) a.inst.node.disconnect(b.inst.input);
+    else if (a.def.modulator) {
       a.def.disconnected?.(a, b); // e.g. MULTICTL forgets its routes to that module
       this.updateRoutes(a); // gives the controller back its own value
     }
@@ -508,6 +562,7 @@ export class PatchRuntime {
       if (signals.midi || a.inst.outSignals) a.inst.releaseTarget?.(b.inst);
       if (signals.audio) a.inst.node.disconnect(b.inst.input);
     }
+    this.syncAllThrough();
     if (notify) this.emit();
   }
 

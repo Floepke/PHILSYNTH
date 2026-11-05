@@ -1,28 +1,37 @@
 // LFO kernel (see src/dsp/kernel.js), control rate: steps once per render quantum on the audio
 // clock (keeps running in background tabs). Its unipolar value (0..1) is mapped by the engine
 // graph onto the controllers its cables point to.
-// Freq Unit MIDI Pitch (MIDI_UNIT): the rate is the frequency of the newest held note (its pitch
+// Frequency Unit MIDI Pitch (MIDI_UNIT): the rate is the frequency of the newest held note (its pitch
 // curve included, via noteMod); Frequency is ignored. When that note ends the previous held one
 // takes over; with none held the last pitch keeps running. Before the first note it stands still.
 // Being control rate, notes above ~half the block rate (sampleRate / 256, ~187 Hz) alias.
 // Phase (0..1): where in its cycle the wave starts. Applied when the kernel is created (project
 // load / new module), on panic, and on every noteOn: there the note's MODMIDI phase (e.g. from a
 // MULTIMIDI's Phase / Random Phase) is added to it. Turning it while running does not jump.
+// Audio input (tremolo): with sound cabled into it the graph renders it in audio order and its
+// output is that sound times the wave, mapped like a controller: Amplitude around the middle, then
+// onto Out Min..Out Max (in %, 0..100 = silent..unchanged). The wave is computed per sample here,
+// so with Frequency Unit MIDI Pitch it runs at the note frequency (audio-rate amplitude modulation).
+// Square and Saw edges ramp over EDGE_S (at most a quarter / half cycle) so slow ones do not click.
 import { Kernel } from '../dsp/kernel.js';
 
 const BEATS_PER_UNIT = [0, 1, 0.5, 0.25];
 export const MIDI_UNIT = 4;
 const wrap = (p) => p - Math.floor(p); // into [0, 1)
+const EDGE_S = 0.001; // tremolo: length of a Square / Saw edge
 export const pitchHz = (pitch) => 440 * 2 ** ((pitch - 69) / 12);
 // Synced cycle lengths, in units (e.g. 4 × 1/4 = one bar of 4/4).
 const PERIODS = [64, 48, 32, 24, 16, 12, 8, 6, 4, 3, 2, 1.5, 1, 3 / 4, 2 / 3, 1 / 2, 1 / 3, 1 / 4];
+
+// the Frequency values that pick each period exactly (ascending), see freqSnaps in lfo.js
+export const SYNCED_FREQS = PERIODS.map((p) => 1 / p);
 
 export function syncedPeriod(freq) {
   const want = Math.log(1 / freq);
   return PERIODS.reduce((best, p) => (Math.abs(Math.log(p) - want) < Math.abs(Math.log(best) - want) ? p : best));
 }
 
-// Frequency + Freq Unit (0 = Hz, MIDI_UNIT = `pitch` (MIDI note number, null = no note yet: 0 Hz),
+// Frequency + Frequency Unit (0 = Hz, MIDI_UNIT = `pitch` (MIDI note number, null = no note yet: 0 Hz),
 // else cycles per note value synced to `bpm`) -> Hz
 export function lfoRateHz(freq, unit, bpm, pitch = null) {
   if (!unit) return freq;
@@ -30,8 +39,12 @@ export function lfoRateHz(freq, unit, bpm, pitch = null) {
   return bpm / (60 * BEATS_PER_UNIT[unit] * syncedPeriod(freq));
 }
 
+// gain of the tremolo for wave value x (0..1): the position the graph would give a controller
+export const tremoloGain = (x, amp, outMin, outMax) => (outMin + (outMax - outMin) * (0.5 + (x - 0.5) * (amp / 100))) / 100;
+
 export default class LfoKernel extends Kernel {
   static modulator = true;
+  static audioThrough = true; // sound cabled in: audio order, output = input × wave (see graph.js)
 
   constructor() {
     super();
@@ -45,6 +58,9 @@ export default class LfoKernel extends Kernel {
     this.phase = 0;
     this.startPhase = 0; // the Phase controller
     this.ran = false; // until the first block, a Phase setting moves the wave there
+    this.amp = 100; // tremolo mapping (the graph maps the same controllers for control cables)
+    this.outMin = 0;
+    this.outMax = 100;
     // Random: every cycle glides (smoothstep) from the previous target to a new random one
     this.from = 0.5;
     this.to = Math.random();
@@ -59,6 +75,8 @@ export default class LfoKernel extends Kernel {
       v |= 0;
       if (v === 4 && this.wave !== 4) this.from = this.to = this.at(); // continue from where the wave is
       this.wave = v;
+    } else if (id === 'amp' || id === 'outMin' || id === 'outMax') {
+      this[id] = Number(v) || 0;
     } else if (id === 'phase') {
       this.startPhase = wrap(Number(v) || 0);
       if (!this.ran) this.restart(0);
@@ -114,16 +132,54 @@ export default class LfoKernel extends Kernel {
     }
   }
 
-  process(_inputs, outputs) {
-    const n = outputs[0]?.[0]?.length ?? 128;
-    this.ran = true;
-    this.value = this.at();
+  // the wave for audio: like at(), with the Square / Saw jumps ramped over `w` cycles
+  smoothAt(w) {
+    const ph = this.phase;
+    if (w > 0 && this.wave === 3) {
+      // signed distance (in cycles) to the nearest edge: + inside the high half
+      const d = ph < 0.5 ? Math.min(ph, 0.5 - ph) : -Math.min(ph - 0.5, 1 - ph);
+      return Math.min(1, Math.max(0, 0.5 + d / w));
+    }
+    if (w > 0 && this.wave === 2) {
+      const u = ph < 0.5 ? ph : ph - 1; // around the wrap at 0
+      if (Math.abs(u) < w / 2) return 1 - w / 2 + ((u + w / 2) / w) * (w - 1);
+    }
+    return this.at();
+  }
+
+  // advances `n` samples; a new Random target every cycle
+  advance(n) {
     this.phase += (this.rate * n) / sampleRate;
     if (this.phase >= 1) {
       this.from = this.to;
       this.to = Math.random();
     }
     this.phase -= Math.floor(this.phase);
-    return false;
+  }
+
+  process(inputs, outputs) {
+    const n = outputs[0]?.[0]?.length ?? 128;
+    this.ran = true;
+    this.value = this.at();
+    const i = inputs[0];
+    if (!i || !i.length) {
+      this.advance(n);
+      return false;
+    }
+    const [L, R] = outputs[0];
+    const iL = i[0];
+    const iR = i[1] ?? iL;
+    // tremoloGain, per sample: lo + span * x
+    const depth = this.amp / 100;
+    const span = ((this.outMax - this.outMin) / 100) * depth;
+    const lo = this.outMin / 100 + ((this.outMax - this.outMin) / 100) * 0.5 * (1 - depth);
+    const w = Math.min(this.wave === 3 ? 0.25 : 0.5, EDGE_S * this.rate);
+    for (let j = 0; j < n; j++) {
+      const g = lo + span * this.smoothAt(w);
+      L[j] = iL[j] * g;
+      R[j] = iR[j] * g;
+      this.advance(1);
+    }
+    return true;
   }
 }

@@ -49,7 +49,7 @@
 // The bar ruler between them is a divider: drag it sideways to widen the strip (the note grid
 // scales to the rest), double-click it to reset. The width is saved with the project view.
 // Free timing bypasses time snapping; the visual grid (base note ÷ divider) stays visible.
-import { basePitch, centsOf, bendPolyline, notePitchAt, BEND_MAX, withCents, centsLabel, isBlack, inPiano, clipSilent, isIdea, snapStep, pianoTimeStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, clean, meter, barLines, beatLines, barLength } from '../song.js';
+import { basePitch, centsOf, bendPolyline, notePitchAt, BEND_MAX, withCents, centsLabel, isBlack, inPiano, clipSilent, isIdea, snapStep, pianoTimeStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, withVelEnd, velsForLength, clean, meter, barLines, beatLines, barLength } from '../song.js';
 import {
   createSurface, capture, startPan, onWheel, clamp, snapBands, mutedMark, edgeScroll, RIGHT_HOLD_MS, RIGHT_HOLD_SLOP,
   SB, SB_TRACK, scrollThumb, scrollValue, paintThumb,
@@ -58,7 +58,7 @@ import { createVelocityStrip, VEL_W } from './velocity.js';
 import { clipResizeBounds } from './clipplacement.js';
 import { showMenu, shortcut } from './menu.js';
 import { doublePress } from '../doublepress.js';
-import { NEW_POINT_ROUND } from '../curve.js';
+import { NEW_NOTE_POINT_ROUND } from '../curve.js';
 import { wheelNotches } from '../params.js';
 
 const CENTRAL = [61, 63]; // C#4 and D#4, the black keys next to middle C
@@ -90,6 +90,9 @@ const HZ_MAX = 24; // pitch (x) zoom: 1 = all 128 keys fit
 const HZ_STEP = 1.15; // per wheel notch
 const NOTE_MAX_W = 24; // px, notes stop growing with the pitch zoom (unless unzoomed keys are wider)
 const ROUND_STEP = 0.05; // rounding change per wheel step on a bend point
+// px, zooming out (time axis): grid lines closer together than this disappear. Beat lines go as a
+// whole, bar lines are thinned so the ones left stay at least this far apart (snap bands unaffected).
+export const GRID_MIN_PX = 30;
 
 // ctx: { song(), clip(), color(clip), preview: { on(clip, pitch) -> handle, key(pitch) -> handle,
 //        bend?(handle, pitch) (micropitch drag), off(handle) }, changed(), transport,
@@ -182,6 +185,19 @@ export function createPianoRoll(host, ctx) {
   });
 
   const minBeat = (m) => Math.min(...m.map((x) => x.beat));
+  const beatsShown = (m) => minBeat(m) * view.ppq >= GRID_MIN_PX;
+  // the bar lines (song time) drawn between t0 and t1: zoomed out, a bar closer than GRID_MIN_PX to
+  // the previous drawn one is skipped; counted from `from` (the clip start) so scrolling keeps the choice
+  function spacedBars(m, from, t0, t1) {
+    const out = [];
+    let last = -Infinity;
+    for (const b of barLines(null, Math.min(from, t0), t1, m)) {
+      if ((b.t - last) * view.ppq < GRID_MIN_PX - 1e-9) continue;
+      last = b.t;
+      if (b.t >= t0 - TIME_EPSILON) out.push(b);
+    }
+    return out;
+  }
 
   function syncSelection() {
     const clip = ctx.clip();
@@ -419,7 +435,8 @@ export function createPianoRoll(host, ctx) {
       const m = meter(ctx.song());
       const off = clip.start;
       const bars = [...barLines(null, off + t0, off + t1, m)].map((b) => b.t - off);
-      if (minBeat(m) * view.ppq >= 5) {
+      const drawnBars = spacedBars(m, off, off + t0, off + t1).map((b) => b.t - off);
+      if (beatsShown(m)) {
         g.setLineDash([12, 12]);
         g.lineDashOffset = 0; // dashes travel with their A#0 anchor
         for (const t of beatLines(null, off + t0, off + t1, m)) {
@@ -431,7 +448,7 @@ export function createPianoRoll(host, ctx) {
         g.setLineDash([]);
         g.lineDashOffset = 0;
       }
-      for (const t of bars) line(t, BAR_LINE, 1, true);
+      for (const t of drawnBars) line(t, BAR_LINE, 1, true);
       line(0, BOUNDARY, 1, true);
       line(clip.length, endHover || drag?.kind === 'clipEnd' ? SELECT : BOUNDARY, 2, true);
 
@@ -579,12 +596,12 @@ export function createPianoRoll(host, ctx) {
       g.strokeStyle = BEAT;
       g.lineWidth = 2;
       g.beginPath();
-      if (minBeat(m) * view.ppq >= 5) {
+      if (beatsShown(m)) {
         for (const t of beatLines(null, t0, t1, m)) { const y = Math.round(yOf(t - off)) + 0.5; g.moveTo(gridX() - 6, y); g.lineTo(gridX(), y); }
       }
       g.stroke();
       let lastY = -Infinity;
-      for (const b of barLines(null, t0, t1, m)) {
+      for (const b of spacedBars(m, off, t0, t1)) {
         const y = Math.round(yOf(b.t - off)) + 0.5;
         g.strokeStyle = BAR_LINE;
         g.beginPath(); g.moveTo(velW(), y); g.lineTo(gridX(), y); g.stroke();
@@ -899,7 +916,7 @@ export function createPianoRoll(host, ctx) {
     let i = 0;
     while (i < pts.length && pts[i].t < t - 1e-9) i++;
     if (pts[i] && Math.abs(pts[i].t - t) <= 1e-9) pts[i] = { ...pts[i], d };
-    else pts.splice(i, 0, { t, d, r: NEW_POINT_ROUND });
+    else pts.splice(i, 0, { t, d, r: NEW_NOTE_POINT_ROUND });
     note.bends = pts;
     dragBend(e, clip, note, i, x, y, before);
     return true;
@@ -1168,7 +1185,7 @@ export function createPianoRoll(host, ctx) {
     const inSelection = !!h && selected.has(h.note) && selected.size > 1;
     let group = inSelection ? selectedNotes() : h ? [h.note] : [];
     const anchor = h ? group.indexOf(h.note) : 0;
-    const origs = group.map((n) => ({ pitch: n.pitch, start: n.start, length: n.length }));
+    const origs = group.map((n) => ({ pitch: n.pitch, start: n.start, length: n.length, vels: n.vels }));
     let cloned = false;
     let moved = false;
     let pv = null;
@@ -1178,7 +1195,7 @@ export function createPianoRoll(host, ctx) {
       drag = { kind: 'move', t0: timeAt(y), p0: pitchAt(x) };
       pv = ctx.preview.on(clip, h.note.pitch);
     } else {
-      const note = { pitch: pitchAt(x), start: Math.max(0, snapFloor(timeAt(y), st)), length: lastLength ?? gridStep(), vel: DEFAULT_VEL };
+      const note = withVelEnd({ pitch: pitchAt(x), start: Math.max(0, snapFloor(timeAt(y), st)), length: lastLength ?? gridStep(), vel: DEFAULT_VEL });
       clip.notes.push(note);
       group = [note];
       drag = { kind: 'new' };
@@ -1231,11 +1248,18 @@ export function createPianoRoll(host, ctx) {
       const a = origs[anchor];
       const end = timeAt(clamp(p.y, 0, gridBottom())); // past the grid edge the time stays at the edge while it scrolls
       if (drag.kind === 'new') {
-        group[0].length = Math.max(minLength, clean(snapRound(end, st) - group[0].start));
+        const n = group[0];
+        const length = Math.max(minLength, clean(snapRound(end, st) - n.start));
+        n.vels = velsForLength(n.vels, n.length, length);
+        n.length = length;
       } else if (drag.kind === 'length') {
-        // the end jumps to the snapped pointer position; the rest of the selection changes by the same amount
-        const dl = Math.max(minLength, snapRound(end, st) - a.start) - a.length;
-        group.forEach((n, i) => { n.length = Math.max(minLength, clean(origs[i].length + dl)); });
+        // every selected note's end jumps to the snapped pointer position
+        const to = snapRound(end, st);
+        // a velocity point at a note's end follows it (from the original, so swallowed points come back)
+        group.forEach((n, i) => {
+          n.length = Math.max(minLength, clean(to - origs[i].start));
+          if (origs[i].vels) n.vels = velsForLength(origs[i].vels, origs[i].length, n.length);
+        });
       } else {
         // whole semitones that keep every (tuned) pitch inside 0..PITCH_MAX
         const dp = clamp(pitchAt(clampX(p.x)) - drag.p0, Math.ceil(-Math.min(...origs.map((o) => o.pitch)) - 1e-9), Math.floor(PITCH_MAX - Math.max(...origs.map((o) => o.pitch)) + 1e-9));

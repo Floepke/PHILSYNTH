@@ -19,9 +19,9 @@ struct Bus : Kernel {
 };
 
 struct Amp : Kernel {
-  enum { AMP, INVERSE, PAN, PARAMS };
+  enum { AMP, INVERSE, PAN, FINE, PARAMS };
   static constexpr double SMOOTH_S = 0.005;
-  double amp = 1, inverse = 0, pan = 0;
+  double amp = 1, inverse = 0, pan = 0, fine = 1;
   double t[2] = {1, 1}, g[2] = {1, 1};
   double k;
 
@@ -31,8 +31,9 @@ struct Amp : Kernel {
     if (id == AMP) amp = v;
     else if (id == INVERSE) inverse = v;
     else if (id == PAN) pan = v;
+    else if (id == FINE) fine = v;
     else return;
-    const double a = amp * (inverse >= 0.5 ? -1 : 1);
+    const double a = amp * fine * (inverse >= 0.5 ? -1 : 1);
     t[0] = a * mind(1, 1 - pan);
     t[1] = a * mind(1, 1 + pan);
   }

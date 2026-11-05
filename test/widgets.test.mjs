@@ -183,4 +183,41 @@ fire(up(time), 'click');
 assert.equal(time.value, '0');
 assert.equal(fire(time, 'wheel', { deltaY: -100 }).defaultPrevented, false);
 
+// A click on an open select closes it: the browser closes the list before the click arrives (as
+// Chromium does), and the select must not open it again. Escape / a click elsewhere end the open
+// state, so the next click opens it at once.
+{
+  const frames = [];
+  globalThis.requestAnimationFrame = (f) => frames.push(f);
+  const frame = () => frames.splice(0).forEach((f) => f());
+  class OpenSelect extends Select {
+    open = false;
+    matches(selector) { return selector === ':open' ? this.open : super.matches(selector); }
+    showPicker() { super.showPicker(); this.open = true; }
+  }
+  const s = new OpenSelect();
+  initWidgets({ querySelectorAll: (q) => (q === 'select' ? [s] : []) });
+  const press = () => fire(s, 'mousedown');
+  press();
+  assert.equal(s.open, true);
+  frame();
+  s.open = false; // the browser closes the list on the click on the select...
+  assert.ok(press().defaultPrevented, '...which is not passed on to open the select');
+  assert.equal(s.pickerCalls, 1, 'no new picker: the list stays closed');
+  press();
+  assert.equal(s.pickerCalls, 2, 'the next click opens it again');
+  frame();
+  s.open = false; // Escape or a click elsewhere
+  frame();
+  press();
+  assert.equal(s.pickerCalls, 3, 'after it closed by itself, one click opens it');
+  frame();
+  let toggled = 0;
+  Object.defineProperty(s, 'disabled', { get: () => false, set(v) { if (v) { toggled++; s.open = false; } } });
+  press(); // a browser that leaves it open until the click arrives
+  assert.equal(s.pickerCalls, 3);
+  assert.deepEqual([s.open, toggled], [false, 1], 'still open at the click: closed');
+  delete globalThis.requestAnimationFrame;
+}
+
 console.log('widget interaction tests passed');

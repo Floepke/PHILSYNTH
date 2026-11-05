@@ -15,7 +15,7 @@ export default {
     ] },
     { id: 'power', label: 'Power', min: 0, max: 100, default: 1, step: 0.01, format: (v) => `${v.toFixed(2)} ×` },
     { id: 'bits', label: 'Bit Depth', min: 1, max: 16, default: 16, step: 1, format: (v) => `${Math.round(v)} bit` },
-    { id: 'frequency', label: 'Freq Hz', min: 0, max: 48000, default: 48000, step: 1, format: (v) => v === 0 ? 'Off' : `${Math.round(v)} Hz` },
+    { id: 'frequency', label: 'Frequency', min: 0, max: 48000, default: 48000, step: 1, format: (v) => v === 0 ? 'Off' : `${Math.round(v)} Hz` },
   ],
   view(entry, api) {
     return createDistortionView({

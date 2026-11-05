@@ -92,6 +92,7 @@ export class Graph {
       modulator: !!K.modulator,
       audio: K.audio !== false && (!K.modulator || !!K.audioInput),
       audioInput: !!K.audioInput,
+      through: !!K.audioThrough, // LFO: audio node only while sound is cabled in (see rebuild)
       passive: !!K.passive,
       carrierInputs: K.carrierInput ? [[], []] : null,
       outs: null,
@@ -209,6 +210,8 @@ export class Graph {
     this.dirty = false;
     const x = this.x;
     if (this.prog) for (const n of this.nodes.values()) if (n.rec) n.silent = !!x.ms_node_silent(n.rec);
+    // audio-through modulators (LFO tremolo) render in audio order only while sound comes in
+    for (const n of this.nodes.values()) if (n.through) n.audio = n.audioInput = n.srcs.length > 0;
     const order = [];
     const seen = new Set();
     const visit = (n) => {
@@ -331,7 +334,7 @@ export class Graph {
     for (let i = 0; i < nH; i++) {
       const n = this.nodes.get(H[i]);
       let a = null, b = null, c = 0;
-      if (n?.modulator) {
+      if (n?.modulator && !(n.through && n.audio)) {
         const x = n.k.value;
         if (x !== null && x !== undefined) c = n.kind === 'lfo' ? 2 * x - 1 : x;
         if (!Number.isFinite(c)) c = 0;

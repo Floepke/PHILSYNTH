@@ -32,6 +32,23 @@ export function nudge(p, v, notches, fine = false) {
   return next;
 }
 
+// Fixed values a controller snaps to, depending on the other controllers: p.snapValues(values)
+// returns an ascending list (or null: continuous). E.g. LFO Frequency with a synced Frequency Unit.
+// The value of `list` nearest to v on the slider (log controllers: by ratio).
+export function snapNearest(p, list, v) {
+  const x = toNorm(p, v);
+  return list.reduce((best, s) => (Math.abs(toNorm(p, s) - x) < Math.abs(toNorm(p, best) - x) ? s : best));
+}
+// `notches` whole wheel clicks along `list` (a value between two entries first goes to the next one)
+export function snapStep(list, v, notches) {
+  const n = Math.round(notches);
+  if (!n) return v;
+  let i = n > 0 ? list.findIndex((s) => s > v + 1e-9) - 1 : list.findIndex((s) => s >= v - 1e-9);
+  if (n > 0 && i === -2) i = list.length - 1;
+  if (n < 0 && i === -1) i = list.length;
+  return list[Math.min(list.length - 1, Math.max(0, i + n))];
+}
+
 // Wheel deltas as finite numbers. Firefox on macOS can deliver non-finite deltas (some
 // trackpad / smooth-scrolling mouse events); a NaN would poison zoom and scroll positions.
 const finite = (v) => (Number.isFinite(v) ? v : 0);

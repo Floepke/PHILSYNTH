@@ -13,11 +13,14 @@
 //   Shift + drag                       fine velocity
 //   double-click inside the selection  insert a curve point (hold the second press to drag it)
 //   mouse wheel on a point             round the corner
+//   Ctrl/Cmd + drag                    draw a straight dashed line; on release every note start and
+//                                       curve point it spans snaps onto it (the selected notes, or
+//                                       every note of the clip when nothing is selected)
 //   right-click                        menu: toggle velocity snapping (1/16 increments, shown as
 //                                       alternating light/dark bands between the levels);
 //                                       on a curve point, the menu also offers Delete point (not the first)
-import { pianoTimeStep, snapRound, clean, notePoints, noteVelAt, groupVelCurve, applyVelCurve } from '../song.js';
-import { curvePolyline, NEW_POINT_ROUND } from '../curve.js';
+import { pianoTimeStep, snapRound, clean, notePoints, noteVelAt, groupVelCurve, applyVelCurve, applyVelLine } from '../song.js';
+import { curvePolyline, NEW_NOTE_POINT_ROUND } from '../curve.js';
 import { doublePress } from '../doublepress.js';
 import { capture, clamp } from './surface.js';
 
@@ -36,6 +39,7 @@ export function createVelocityStrip(o) {
   let group = null; // { notes, points (absolute clip times), start, end, sig }
   let hover = null; // { kind: 'point', i } | { kind: 'note', note }
   let drag = null;
+  let line = null; // Ctrl+drag: { a: {t, v}, b: {t, v} } (absolute clip times)
   const presses = doublePress(); // double-click = down-up-DOWN: the new point drags at once
 
   const W = () => o.width?.() ?? VEL_W;
@@ -187,6 +191,17 @@ export function createVelocityStrip(o) {
         });
       }
     }
+    // Ctrl+drag: the straight line the velocities snap onto on release
+    if (line) {
+      g.strokeStyle = '#fff';
+      g.lineWidth = 1.5;
+      g.setLineDash([5, 4]);
+      g.beginPath();
+      g.moveTo(xv(line.a.v), o.yOf(line.a.t));
+      g.lineTo(xv(line.b.v), o.yOf(line.b.t));
+      g.stroke();
+      g.setLineDash([]);
+    }
     g.restore();
     // label strip under the velocity area (the keyboard strip of the roll; below the roll's
     // horizontal scrollbar row when that shows)
@@ -199,7 +214,8 @@ export function createVelocityStrip(o) {
     g.textAlign = 'center';
     const p = drag ? group?.points[drag.i] : hover?.kind === 'point' ? group?.points[hover.i] : null;
     const v = drag?.note ? drag.note.vel : p ? p.v : hover?.kind === 'note' ? hover.note.vel : null;
-    g.fillText(v === null ? 'VELOCITY' : `VEL ${Math.round(v * 127)}`, W() / 2, labelTop + (h - labelTop) / 2);
+    const label = line ? `${Math.round(line.a.v * 127)} → ${Math.round(line.b.v * 127)}` : v === null ? 'VELOCITY' : `VEL ${Math.round(v * 127)}`;
+    g.fillText(label, W() / 2, labelTop + (h - labelTop) / 2);
     g.strokeStyle = '#34363e';
     g.lineWidth = 2;
     g.beginPath(); g.moveTo(W(), 0); g.lineTo(W(), h); g.stroke();
@@ -278,6 +294,40 @@ export function createVelocityStrip(o) {
     return n && o.selected().has(n) ? n : null;
   };
 
+  // Ctrl+drag: draw a straight line; on release the velocities under it snap onto it
+  function dragLine(e, x, y) {
+    const clip = o.clip();
+    const sel = o.selected();
+    const picked = clip.notes.filter((n) => sel.has(n));
+    const notes = picked.length ? picked : clip.notes;
+    const at = (q) => ({ t: Math.max(0, o.timeAt(clamp(q.y, 0, o.bottom()))), v: snapVelocity(vx(q.x)) });
+    line = { a: at({ x, y }), b: at({ x, y }) };
+    const state = line;
+    let q = { x, y };
+    let moved = false;
+    const update = () => {
+      if (line !== state) return;
+      line.b = at(q);
+      o.redraw();
+    };
+    const auto = o.edgeScroll?.(update);
+    o.redraw();
+    capture(o.cv, e, (ev) => {
+      q = o.local(ev);
+      if (!moved && Math.hypot(q.x - x, q.y - y) < 2) return;
+      moved = true;
+      presses.reset();
+      update();
+      auto?.update(q);
+    }, (ev) => {
+      auto?.stop();
+      const { a, b } = state;
+      line = null;
+      if (moved && ev.type !== 'pointercancel' && applyVelLine(notes, a, b)) o.changed();
+      o.redraw();
+    });
+  }
+
   // a curve point at the snapped time under y (an existing one there takes the value): its index,
   // or -1 outside the selection
   function insert(x, y) {
@@ -287,7 +337,7 @@ export function createVelocityStrip(o) {
     let i = 0;
     while (i < pts.length && pts[i].t <= t) i++;
     const v = snapVelocity(vx(x));
-    if (pts[i - 1]?.t === t) { pts[i - 1].v = v; i--; } else pts.splice(i, 0, { t, v, r: NEW_POINT_ROUND });
+    if (pts[i - 1]?.t === t) { pts[i - 1].v = v; i--; } else pts.splice(i, 0, { t, v, r: NEW_NOTE_POINT_ROUND });
     apply();
     o.changed();
     return i;
@@ -324,6 +374,7 @@ export function createVelocityStrip(o) {
         return true;
       }
       if (e.button !== 0) return true;
+      if ((e.ctrlKey || e.metaKey) && o.clip()) { presses.reset(); dragLine(e, x, y); return true; }
       const second = presses.press(e);
       const many = groupHandleAt(x, y, e);
       if (many) { dragNotes(e, many, x, y); return true; }
@@ -384,7 +435,7 @@ export function createVelocityStrip(o) {
         return { cursor: i ? 'move' : 'ew-resize', title: `Velocity ${Math.round(p.v * 127)} (${Math.round(p.v * 100)} %)${p.r ? `  rounding ${Math.round(p.r * 100)} %` : ''}` };
       }
       if (n) return { cursor: 'pointer', title: `Velocity ${Math.round(n.vel * 127)} — drag to change` };
-      return { cursor: group ? 'crosshair' : 'default', title: group ? 'Double-click to add a velocity point' : 'Select notes to edit their velocity' };
+      return { cursor: 'crosshair', title: group ? 'Double-click to add a velocity point · Ctrl+drag: draw a line the velocities snap to' : 'Select notes to edit their velocity · Ctrl+drag: draw a line the velocities snap to' };
     },
     leave() { if (hover) { hover = null; o.redraw(); } },
   };

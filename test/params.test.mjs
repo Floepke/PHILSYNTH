@@ -1,6 +1,6 @@
 // Run: node test/params.test.mjs   (controller value math: wheel nudging)
 import assert from 'node:assert/strict';
-import { nudge, wheelNotches, toNorm, wheelAccumulator, wheelDelta } from '../src/params.js';
+import { nudge, wheelNotches, toNorm, wheelAccumulator, wheelDelta, snapNearest, snapStep } from '../src/params.js';
 
 const lin = { min: 0, max: 1, step: 0.01 };
 const amp = { min: 0, max: 4, step: 0.01 };
@@ -79,6 +79,25 @@ assert.ok(Math.abs(wheelNotches(-10, 0) - 0.1) < 1e-9, 'trackpad: small fraction
   assert.equal(nudgeBy(bpm, 120, -3), 117);
   assert.equal(nudgeBy(bpm, 120, 1, true), 121, 'Shift: still 1 BPM');
   assert.equal(nudgeBy(bpm, 1000, 1), 1000, 'clamped to the range');
+  // REVERB Seed: one seed per click
+  const reverbSeed = getModule('REVERB').params.find((x) => x.id === 'seed');
+  assert.equal(nudgeBy(reverbSeed, 1, 1), 2);
+  assert.equal(nudgeBy(reverbSeed, 500, -1), 499);
+  assert.equal(nudgeBy(reverbSeed, 999, 1), 999);
+}
+// fixed snap values (e.g. synced LFO Frequency): nearest on the slider, whole clicks along the list
+{
+  const list = [0.25, 0.5, 1, 2, 4];
+  assert.equal(snapNearest(log, [100, 1000, 10000], 300), 100, 'log: nearest by ratio');
+  assert.equal(snapNearest(log, [100, 1000, 10000], 330), 1000);
+  assert.equal(snapStep(list, 1, 1), 2);
+  assert.equal(snapStep(list, 1, -1), 0.5);
+  assert.equal(snapStep(list, 1.5, 1), 2, 'between entries: the next one up');
+  assert.equal(snapStep(list, 1.5, -1), 1, 'and down');
+  assert.equal(snapStep(list, 4, 3), 4, 'clamped');
+  assert.equal(snapStep(list, 0.1, 1), 0.25);
+  assert.equal(snapStep(list, 9, -1), 4);
+  assert.equal(snapStep(list, 0.25, -2), 0.25);
 }
 // Firefox can deliver non-finite wheel deltas; they must not poison views or values (NaN%).
 assert.ok(wheelNotches(NaN, 0) === 0 && wheelNotches(undefined, 1) === 0);

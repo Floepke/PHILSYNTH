@@ -1,4 +1,4 @@
-// AMP kernel: gain (Amplification × ±1 for Inverse) and balance panning, all smoothed.
+// AMP kernel: gain (Amplification × Fine Volume × ±1 for Inverse) and balance panning, all smoothed.
 import { Kernel } from '../dsp/kernel.js';
 
 const SMOOTH_S = 0.005; // avoids zipper noise and clicks when sliders move
@@ -12,6 +12,7 @@ export default class AmpKernel extends Kernel {
   constructor() {
     super();
     this.amp = 1;
+    this.fine = 1;
     this.inverse = 0;
     this.pan = 0;
     this.t = [1, 1]; // target L/R gains
@@ -20,9 +21,9 @@ export default class AmpKernel extends Kernel {
   }
 
   param(id, v) {
-    if (id === 'amp' || id === 'inverse' || id === 'pan') this[id] = v;
+    if (id === 'amp' || id === 'inverse' || id === 'pan' || id === 'fine') this[id] = v;
     else return;
-    const a = this.amp * (this.inverse >= 0.5 ? -1 : 1);
+    const a = this.amp * this.fine * (this.inverse >= 0.5 ? -1 : 1);
     const [l, r] = panGains(this.pan);
     this.t = [a * l, a * r];
   }
