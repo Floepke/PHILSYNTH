@@ -1204,6 +1204,7 @@ export function createArranger(host, ctx) {
     place,
     setLength,
     reveal,
+    selectedClips,
     getView: () => ({ ...view }),
     setView(v) {
       if (!v) return;

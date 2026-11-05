@@ -3273,6 +3273,53 @@ for (const notes of [
     flush();
   }
 
+  // Send to applies to the selected MIDI clips in one edit, preserving automation and clone routing.
+  {
+    const a = addClip(song, { start: 0, length: 2, y: 0, target: 3 });
+    const b = addClip(song, { start: 4, length: 2, y: 34, target: 5 });
+    const clone = cloneClip(song, b);
+    clone.start = 8;
+    clone.y = 102;
+    const unselected = addClip(song, { start: 12, length: 2, y: 0, target: 9 });
+    const auto = addAutoClip(song, { start: 0, length: 2, y: 68, target: 11, controller: 4 });
+    song.selected = a.id;
+    seq.applyView({ arranger: { sx: 0, sy: 0, ppq: 16 } });
+    elements.get('seq-name').dispatchEvent(new Event('change')); // baseline for undo
+    const cv = elements.get('arranger').children[0];
+    click(cv, ax(0.5), ay(0));
+    click(cv, ax(4.5), ay(34), { ctrlKey: true });
+    click(cv, ax(0.5), ay(68), { ctrlKey: true });
+    click(cv, ax(0.5), ay(0), { ctrlKey: true }); // remove, then make MIDI primary again
+    click(cv, ax(0.5), ay(0), { ctrlKey: true });
+    assert.equal(song.selected, a.id);
+    const before = viewChanges;
+    elements.get('seq-target').value = '7';
+    elements.get('seq-target').dispatchEvent(new Event('change'));
+    assert.deepEqual([a, b, clone].map((c) => c.target), [7, 7, 7]);
+    assert.equal(unselected.target, 9);
+    assert.deepEqual([auto.target, auto.controller], [11, 4], 'selected automation is untouched');
+    assert.equal(viewChanges, before + 1, 'one edit notification for the group');
+    undoKey({ ctrlKey: true });
+    assert.deepEqual(engine.song.clips.map((c) => c.target), [3, 5, 5, 9, 11], 'one undo restores every destination');
+    undoKey({ ctrlKey: true, shiftKey: true });
+    assert.deepEqual(engine.song.clips.map((c) => c.target), [7, 7, 7, 9, 11], 'one redo restores the group edit');
+    engine.song = song;
+    seq.reload(); flush();
+    elements.get('seq-target').value = '';
+    elements.get('seq-target').dispatchEvent(new Event('change'));
+    assert.deepEqual([a, b, clone].map((c) => c.target), [null, null, null], 'none also applies to the group');
+    assert.equal(unselected.target, 9);
+    song.selected = auto.id;
+    seq.reload(); flush();
+    elements.get('seq-target').value = '13';
+    elements.get('seq-target').dispatchEvent(new Event('change'));
+    assert.deepEqual([auto.target, auto.controller], [13, 0], 'automation keeps its existing single-clip behavior');
+    assert.deepEqual([a, b].map((c) => c.target), [null, null]);
+    song.clips = [];
+    song.selected = null;
+    seq.reload(); flush();
+  }
+
   // S maximizes the middle patcher and restores both horizontal boundaries.
   seq.applyView({ top: 0.37, bottom: 0.81 });
   press('S');

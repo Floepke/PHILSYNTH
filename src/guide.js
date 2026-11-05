@@ -117,7 +117,7 @@ export const GUIDE = [
         title: 'Create a note clip',
         items: [
           `${k('Double-click')} empty TimeLine space: a one-bar clip appears on that lane, at the grid position under the pointer, and opens in the piano roll.`,
-          'Pick the module that plays it under <b>Send to</b> in the upper divider (the bar between the piano roll and the patcher).',
+          'Pick the module that plays it under <b>Send to</b> in the upper divider (the bar between the piano roll and the patcher). With multiple MIDI clips selected in the TimeLine, this changes all their destinations in one undoable edit; selected automation clips are left unchanged. Linked clones still share their destination.',
         ],
       },
       {

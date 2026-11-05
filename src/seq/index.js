@@ -185,7 +185,7 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
     // automation: which controller of the target
     ui.ctlField.hidden = !auto;
     const where = patch() === engine.root ? 'main patch' : 'this Patch level';
-    ui.targetField.title = auto ? `Module number (${where}) whose controller this automation clip drives` : `Module number (${where}) that plays the notes of this clip`;
+    ui.targetField.title = auto ? `Module number (${where}) whose controller this automation clip drives` : `Module number (${where}) that plays the notes of all selected MIDI clips`;
     if (auto) {
       const e = entryOf(c.target);
       const params = e ? paramsOf(e) : [];
@@ -243,7 +243,9 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
     const c = clip();
     if (!c) return;
     const target = ui.target.value === '' ? null : +ui.target.value;
-    for (const l of linkedClips(song(), c)) { // clones share where they send to
+    const clips = isAuto(c) ? [c] : arranger.selectedClips().filter((l) => !isAuto(l));
+    const linked = new Set(clips.flatMap((l) => linkedClips(song(), l)));
+    for (const l of linked) { // clones share where they send to
       l.target = target;
       if (isAuto(l)) l.controller = 0;
     }
