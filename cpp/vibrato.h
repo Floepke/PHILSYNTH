@@ -83,6 +83,8 @@ struct Vibrato : Kernel {
     const bool has = inL != nullptr;
     ran = true;
     const double inc = rate / sr;
+    const bool silentTail = !has && idle >= BASE
+      + (depth > target ? depth : target) * maxOffset(wave) + fabs(corr) + 2;
     if (!has) idle += n; else idle = 0;
     if (idle >= size) {
       idle = size;
@@ -94,10 +96,26 @@ struct Vibrato : Kernel {
     }
     const float* src[2] = {inL, inR ? inR : inL};
     float* out[2] = {outL, outR};
+    if (silentTail) {
+      // Retain old history in case a later delay increase makes it audible again.
+      const int first = n < size - pos ? n : size - pos;
+      for (auto b : buf) {
+        memset(b + pos, 0, first * sizeof(float));
+        if (n > first) memset(b, 0, (n - first) * sizeof(float));
+      }
+      memset(outL, 0, n * sizeof(float));
+      if (outR != outL) memset(outR, 0, n * sizeof(float));
+    }
     bool live = false;
     for (int i = 0; i < n; i++) {
       depth += (target - depth) * smooth;
       corr -= corr * smooth;
+      if (silentTail) {
+        phase += inc;
+        if (phase >= 1) phase -= 1;
+        pos = pos + 1 == size ? 0 : pos + 1;
+        continue;
+      }
       const double d = BASE + depth * offset(phase, wave) + corr;
       double at = pos - d;
       if (at < 0) at += size;

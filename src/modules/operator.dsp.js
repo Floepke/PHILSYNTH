@@ -133,11 +133,14 @@ export default class OperatorKernel extends OscKernel {
           this.tail = TAPS;
         } else if (this.tail) this.tail--;
         this.history[this.pos] = y;
-        this.pos = (this.pos + 1) % TAPS;
+        if (++this.pos === TAPS) this.pos = 0;
       }
       this.prevInput = input;
       let sum = 0;
-      for (let t = 0; t < TAPS; t++) sum += FILTER[t] * this.history[(this.pos - 1 - t + TAPS) % TAPS];
+      // Traverse the ring in two contiguous spans, retaining the original summation order.
+      let t = 0;
+      for (let h = this.pos - 1; h >= 0; h--) sum += FILTER[t++] * this.history[h];
+      for (let h = TAPS - 1; t < TAPS; h--) sum += FILTER[t++] * this.history[h];
       buf[i] = sum;
     }
     v.inc = inc;

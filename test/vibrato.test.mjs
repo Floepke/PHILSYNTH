@@ -1,5 +1,7 @@
 // Run: node test/vibrato.test.mjs   (VIBRATO DSP kernel and module)
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { instantiateDsp, wasmKernels } from '../src/dsp/wasm.js';
 import { getModule } from '../src/modules/index.js';
 import { dspTestHost } from './dsphost.mjs';
 import { PatchRuntime } from '../src/patch.js';
@@ -7,6 +9,7 @@ import { PatchRuntime } from '../src/patch.js';
 const SR = 48000;
 globalThis.sampleRate = SR;
 const { default: Vibrato, vibratoOffset, MAX_OFFSET, MAX_DELAY } = await import('../src/modules/vibrato.dsp.js');
+const NativeVibrato = wasmKernels(instantiateDsp(readFileSync(new URL('../src/dsp/modsynth.wasm', import.meta.url))), SR).kernels.vibrato;
 
 const def = getModule('VIBRATO');
 assert.deepEqual(def.params.map((p) => p.id), ['wave', 'unit', 'freq', 'phase', 'amp'], 'LFO-like controller order');
@@ -125,6 +128,47 @@ for (const rate of [1, 12]) {
   assert.ok(blocks > 0, 'the tail plays');
   assert.equal(k.process([[]], [[new Float32Array(128), new Float32Array(128)]]), false, 'then silent');
   assert.notEqual(k.phase, p0, 'phase moved on while silent');
+}
+
+// Explicit zero input is a continuously processed reference for the silent-input fast path.
+for (const K of [Vibrato, NativeVibrato]) for (const wave of [0, 1]) {
+  const k = new K({});
+  for (const [id, value] of Object.entries({ wave, freq: 5, amp: 5, phase: 0.25 })) k.param(id, value);
+  const reference = fresh({ wave, freq: 5, amp: 5, phase: 0.25 });
+  const input = [[Float32Array.from({ length: 128 }, (_, i) => Math.sin(i * 0.1)), new Float32Array(128).fill(0.3)]];
+  const zero = [[new Float32Array(128), new Float32Array(128)]];
+  const a = [[new Float32Array(128), new Float32Array(128)]];
+  const b = [[new Float32Array(128), new Float32Array(128)]];
+  let resumedHistory = false;
+  for (let block = 0; block < 500; block++) {
+    // Increase the delay while old samples are still in the ring, then switch waveform.
+    if (block === 10) for (const fx of [k, reference]) { fx.param('amp', 200); fx.param('freq', 0.03); }
+    if (block === 80) for (const fx of [k, reference]) fx.param('wave', 1 - wave);
+    if (block === 160) for (const fx of [k, reference]) { fx.param('amp', 0); fx.param('freq', 20); }
+    const active = block < 4 || block >= 250 && block < 254;
+    if (k.process(active ? input : [[]], a) === false) for (const ch of a[0]) ch.fill(0);
+    if (reference.process(active ? input : zero, b) === false) for (const ch of b[0]) ch.fill(0);
+    for (let ch = 0; ch < 2; ch++) assert.deepEqual(a[0][ch], b[0][ch], `silent fast path, wave ${wave}, block ${block}`);
+    if (K === Vibrato) {
+      assert.equal(k.phase, reference.phase, 'phase advances identically while skipping interpolation');
+      assert.equal(k.depth, reference.depth, 'depth glide stays identical');
+    }
+    if (block >= 10 && block < 160 && a[0][0].some(v => v !== 0)) resumedHistory = true;
+  }
+  assert.ok(resumedHistory, 'increasing delay can still read retained history');
+  k.destroy?.();
+}
+{
+  const k = fresh({ amp: 5, freq: 5 });
+  measure(k, 0.01);
+  const out = [[new Float32Array(128), new Float32Array(128)]];
+  for (let i = 0; i < 10; i++) k.process([[]], out);
+  const cos = Math.cos;
+  let calls = 0;
+  Math.cos = (v) => { calls++; return cos(v); };
+  try { k.process([[]], out); }
+  finally { Math.cos = cos; }
+  assert.equal(calls, 0, 'short silent tail skips per-sample cosine/interpolation before the two-second buffer expires');
 }
 
 // Switching Waveform, Amp or Frequency while playing glides: no click

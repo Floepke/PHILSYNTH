@@ -97,6 +97,8 @@ export default class VibratoKernel extends Kernel {
     const has = !!(inp && inp.length);
     this.ran = true;
     const inc = this.rate / sampleRate;
+    const silentTail = !has && this.idle >= BASE
+      + Math.max(this.depth, this.target) * MAX_OFFSET[this.wave] + Math.abs(this.corr) + 2;
     if (!has) this.idle += n; else this.idle = 0;
     if (this.idle >= this.size) {
       // nothing in the line: only the clock moves on
@@ -108,10 +110,25 @@ export default class VibratoKernel extends Kernel {
     }
     const src = has ? [inp[0], inp[1] ?? inp[0]] : null;
     const size = this.size;
+    if (silentTail) {
+      // Keep old history until overwritten: increasing the delay can make it audible again.
+      for (const b of this.buf) {
+        b.fill(0, this.pos, Math.min(size, this.pos + n));
+        if (this.pos + n > size) b.fill(0, 0, this.pos + n - size);
+      }
+      out[0].fill(0);
+      out[1].fill(0);
+    }
     let live = false;
     for (let i = 0; i < n; i++) {
       this.depth += (this.target - this.depth) * this.smooth;
       this.corr -= this.corr * this.smooth;
+      if (silentTail) {
+        this.phase += inc;
+        if (this.phase >= 1) this.phase -= 1;
+        this.pos = this.pos + 1 === size ? 0 : this.pos + 1;
+        continue;
+      }
       const d = BASE + this.depth * vibratoOffset(this.phase, this.wave) + this.corr;
       let at = this.pos - d;
       if (at < 0) at += size;

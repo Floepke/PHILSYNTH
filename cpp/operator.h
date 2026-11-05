@@ -134,11 +134,14 @@ struct Operator : Osc {
           tail = TAPS;
         } else if (tail) tail--;
         history[pos] = y;
-        pos = (pos + 1) % TAPS;
+        if (++pos == TAPS) pos = 0;
       }
       prevInput = input;
       double sum = 0;
-      for (int t = 0; t < TAPS; t++) sum += filter[t] * history[(pos - 1 - t + TAPS) % TAPS];
+      // Traverse the ring in two contiguous spans, retaining the original summation order.
+      int t = 0;
+      for (int h = pos - 1; h >= 0; h--) sum += filter[t++] * history[h];
+      for (int h = TAPS - 1; t < TAPS; h--) sum += filter[t++] * history[h];
       outL[i] = (float)sum;
     }
     v.inc = inc;

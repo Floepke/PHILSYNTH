@@ -40,6 +40,37 @@ assert.deepEqual(def.linked({ sustain: 0 }, 'decay', 0.2, def.params), { release
 const one = [new Float32Array(N).fill(1)];
 assert.equal(peak(render(make(), 4, () => [one])), 0, 'audio alone never triggers or passes through');
 
+// Compare the FIR against circular indexing at every ring position, including release and panic.
+{
+  const taps = 65, weights = new Float64Array(taps);
+  let total = 0;
+  for (let t = 0; t < taps; t++) {
+    const x = t - (taps - 1) / 2, fc = 0.45 / 4;
+    weights[t] = (x ? Math.sin(2 * Math.PI * fc * x) / (Math.PI * x) : 2 * fc)
+      * (0.54 - 0.46 * Math.cos(2 * Math.PI * t / (taps - 1)));
+    total += weights[t];
+  }
+  for (let t = 0; t < taps; t++) weights[t] /= total;
+  const k = make({ feedback: 31, modulation: 168 });
+  const input = [[new Float32Array(1), new Float32Array(1)]];
+  const output = [[new Float32Array(1), new Float32Array(1)]];
+  const positions = new Set();
+  k.noteOn(1, 60.375, 0.8, 0.23);
+  for (let i = 0; i < 600; i++) {
+    if (i === 180) k.noteMod(1, 81.2, 0.3);
+    if (i === 250) k.noteOff(1);
+    if (i === 400) { k.panic(); k.noteOn(2, 48, 0.7, 0.1); }
+    input[0][0][0] = Math.sin(i * 0.31);
+    input[0][1][0] = Math.cos(i * 0.17);
+    k.process(input, output);
+    positions.add(k.pos);
+    let expected = 0;
+    for (let t = 0; t < taps; t++) expected += weights[t] * k.history[(k.pos - 1 - t + taps) % taps];
+    assert.equal(output[0][0][0], Math.fround(expected), 'FIR retains exact circular summation');
+  }
+  assert.equal(positions.size, taps, 'every wrap position is exercised');
+}
+
 // Fractional pitch and MIDI phase, with the FIR's eight-sample group delay.
 for (const pitch of [21, 60.375, 69, 108.1]) {
   for (const phase of [0, 0.23, -0.3, 1.4]) {

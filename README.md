@@ -4,6 +4,14 @@ Modular synthesizer for the browser and Electron.
 
 ## Module CPU benchmarks
 
+OPERATOR retains its 4x oversampling and 65-tap anti-aliasing FIR. Both playback
+backends traverse the FIR history in two contiguous spans, avoiding per-tap
+modulo operations while preserving coefficients and summation order.
+VIBRATO skips delay interpolation during silent input once all retained audio
+is beyond the current smoothed delay's reach. Buffer clearing, phase and depth
+smoothing continue; increasing the delay can still recover older buffered audio.
+This avoids unnecessary two-second tail processing without cutting audible tails.
+
 Run `npm run bench:modules` for every registered module, including Output.
 It compares isolated DSP kernels in JavaScript and C++/Wasm where available,
 with active input, sample/image fixtures, and one/eight-voice synth workloads.
