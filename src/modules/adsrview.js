@@ -6,7 +6,9 @@
 // handle to reset its controllers. Times use a log axis per stage (1 ms .. the controller's maximum,
 // e.g. 10 s, in a fixed lane), the sustain plateau has a fixed width. The ranges come from the
 // module's params, so OSC (Sustain 0..1) and ADSR (Sustain 0..100 %, Release up to 20 s) share it.
+// Right-click: Copy / Paste ADSR between the envelope editors of all modules (app-internal clipboard).
 import { attackLevel, decayLevel, releaseLevel } from './adsrcurve.js';
+import { showMenu } from '../seq/menu.js';
 
 const T_MIN = 0.001;
 const T_MAX = 10; // default lane range (OSC)
@@ -112,13 +114,37 @@ export function handleText(p, vals) {
   return `${p.label.replace(/ \(s\)$/, '')} ${v}${secs ? ' s' : ''}`;
 }
 
+// App-internal ADSR clipboard: times in seconds, Sustain as a level 0..1 (OSC 0..1 vs ADSR 0..100 %)
+let clipboard = null;
+export const adsrClipboard = () => clipboard;
+
+export function copyAdsr(values, params) {
+  const R = adsrRanges(params);
+  const c = { sustain: values.sustain / R.sustain };
+  for (const id of ['attack', 'decay', 'release', 'atkCurve', 'decCurve', 'relCurve']) if (typeof values[id] === 'number') c[id] = values[id];
+  return c;
+}
+
+// Controller changes for pasting `clip` into a module with `params`, clamped and stepped to its ranges.
+// Order matters (envlink.js links Decay and Release at Sustain 0): Sustain first, Decay last, so
+// with a pasted Sustain of 0 the copied Decay wins.
+export function pasteAdsr(clip, params) {
+  const out = {};
+  for (const id of ['sustain', 'attack', 'atkCurve', 'release', 'relCurve', 'decay', 'decCurve']) {
+    const p = params.find((q) => q.id === id);
+    if (!p || typeof clip[id] !== 'number') continue;
+    out[id] = stepValue(p, id === 'sustain' ? clip.sustain * adsrRanges(params).sustain : clip[id]);
+  }
+  return out;
+}
+
 export function createAdsrView({ color = '#db7c3d', values, params, setParam, beginEdit, endEdit }) {
   const el = document.createElement('div');
   el.className = 'wave-view adsr-view';
   const cv = document.createElement('canvas');
   cv.setAttribute('role', 'img');
   cv.setAttribute('aria-label', 'ADSR envelope editor');
-  cv.title = 'Drag the peak (Attack), the corner (Decay, Sustain), the end (Release) or a curve dot (up/down = Curve); double-click resets';
+  cv.title = 'Drag the peak (Attack), the corner (Decay, Sustain), the end (Release) or a curve dot (up/down = Curve); double-click resets; right-click: copy / paste the envelope';
   el.append(cv);
   const g = cv.getContext('2d');
   let vals = { ...values };
@@ -227,6 +253,29 @@ export function createAdsrView({ color = '#db7c3d', values, params, setParam, be
     beginEdit?.();
     apply(Object.fromEntries(RESET[h].map((id) => [id, params.find((q) => q.id === id).default])));
     endEdit?.();
+  });
+
+  cv.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    showMenu({
+      x: ev.clientX,
+      y: ev.clientY,
+      items: [
+        { label: 'Copy ADSR', action: () => { clipboard = copyAdsr(vals, params); } },
+        {
+          label: 'Paste ADSR',
+          disabled: !clipboard || !setParam,
+          action: () => {
+            beginEdit?.();
+            const changes = pasteAdsr(clipboard, params);
+            for (const [id, v] of Object.entries(changes)) { vals[id] = v; setParam(id, v); }
+            draw();
+            endEdit?.();
+          },
+        },
+      ],
+    });
   });
 
   new ResizeObserver(draw).observe(cv);

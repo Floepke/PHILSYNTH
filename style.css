@@ -1455,6 +1455,9 @@ dialog .sig-ok { order: 1; }
 .ctx-item:disabled kbd {
   color: var(--text-faint);
 }
+.ctx-item kbd:empty {
+  display: none;
+}
 .ctx-sep {
   height: 1px;
   margin: 4px 6px;

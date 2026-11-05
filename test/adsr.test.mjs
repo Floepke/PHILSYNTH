@@ -120,3 +120,40 @@ console.log('adsr tests passed');
   assert.equal(handleText(osc.params.find((p) => p.id === 'attack'), { attack: 0.25 }), 'Attack 0.25 s');
   console.log('adsr editor ok');
 }
+
+// ---- Copy / Paste ADSR between modules (right-click menu of the editor) ----
+{
+  const adsr = (await import('../src/modules/adsr.js')).default;
+  const osc = (await import('../src/modules/osc.js')).default;
+  const operator = (await import('../src/modules/operator.js')).default;
+  const { copyAdsr, pasteAdsr } = await import('../src/modules/adsrview.js');
+  const { linkDecayRelease } = await import('../src/modules/envlink.js');
+  const defaults = (m) => Object.fromEntries(m.params.map((p) => [p.id, p.default]));
+  // set the changes one by one like PatchRuntime.setParam, including the Decay/Release link
+  const apply = (m, values, changes) => {
+    for (const [id, v] of Object.entries(changes)) {
+      values[id] = v;
+      Object.assign(values, linkDecayRelease(values, id, v, m.params) ?? {});
+    }
+    return values;
+  };
+
+  const a = { ...defaults(adsr), attack: 0.05, decay: 1.2, sustain: 35, release: 15, atkCurve: 40, decCurve: -20, relCurve: 60 };
+  const clip = copyAdsr(a, adsr.params);
+  assert.equal(clip.sustain, 0.35, 'Sustain copied as a level');
+  const o = apply(osc, defaults(osc), pasteAdsr(clip, osc.params));
+  assert.deepEqual([o.attack, o.decay, o.sustain, o.release, o.atkCurve, o.decCurve, o.relCurve], [0.05, 1.2, 0.35, 10, 40, -20, 60], 'ADSR -> OSC: Sustain rescaled, Release clamped to 10 s');
+  const back = apply(adsr, defaults(adsr), pasteAdsr(copyAdsr(o, osc.params), adsr.params));
+  assert.equal(back.sustain, 35, 'OSC -> ADSR: Sustain in %');
+  assert.equal(back.release, 10);
+  assert.equal(pasteAdsr(clip, osc.params).gain, undefined, 'only envelope controllers');
+
+  // pasting Sustain 0 (Decay and Release linked): the copied Decay wins, also into a target already at Sustain 0
+  const pure = copyAdsr({ ...defaults(osc), sustain: 0, decay: 0.8, release: 0.8, decCurve: 30, relCurve: 30 }, osc.params);
+  const t = apply(operator, { ...defaults(operator), sustain: 0, decay: 3, release: 3 }, pasteAdsr(pure, operator.params));
+  assert.deepEqual([t.sustain, t.decay, t.release, t.decCurve, t.relCurve], [0, 0.8, 0.8, 30, 30]);
+  // a target at Sustain 0 gets an independent Decay and Release when the pasted Sustain is not 0
+  const u = apply(operator, { ...defaults(operator), sustain: 0, decay: 3, release: 3 }, pasteAdsr(copyAdsr(o, osc.params), operator.params));
+  assert.deepEqual([u.sustain, u.decay, u.release], [0.35, 1.2, 10]);
+  console.log('adsr copy/paste ok');
+}
