@@ -35,6 +35,8 @@ struct Kernel {
   virtual float* data(int, int) { return nullptr; }
   // MIDI/audio panic: drop all sounding state at once, keep the controller values.
   virtual void panic() {}
+  // Opt-in: no autonomous audio work remains, including pending controller settling.
+  virtual bool dormant() const { return false; }
   // inL == nullptr: nothing connected. outR may equal outL (mono). Returns 0 for a silent output.
   virtual int process(const float* inL, const float* inR, float* outL, float* outR, int n) = 0;
   // Carrier-aware kernels get the selected input and the sum of all other inputs separately.

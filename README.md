@@ -11,6 +11,10 @@ VIBRATO skips delay interpolation during silent input once all retained audio
 is beyond the current smoothed delay's reach. Buffer clearing, phase and depth
 smoothing continue; increasing the delay can still recover older buffered audio.
 This avoids unnecessary two-second tail processing without cutting audible tails.
+Audio graphs skip dormant OPERATORs only after envelope and FIR tails finish,
+with no incoming audio and no controller settling left. Notes, controller
+changes and incoming audio automatically resume processing. This does not
+suspend PATCH clocks, free-running modulators or pending MIDI events.
 
 Run `npm run bench:modules` for every registered module, including Output.
 It compares isolated DSP kernels in JavaScript and C++/Wasm where available,

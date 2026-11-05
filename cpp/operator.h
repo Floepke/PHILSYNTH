@@ -68,6 +68,12 @@ struct Operator : Osc {
     return st;
   }
 
+  bool dormant() const override {
+    return !voices[0].stage && !tail && prevInput == 0
+      && smooth[0] == amount / 100 && smooth[1] == feedback / 100
+      && smooth[2] == velocity / 100 && smooth[3] == p[GAIN];
+  }
+
   int process(const float* inL, const float* inR, float* outL, float* outR, int n) override {
     Voice& v = voices[0];
     if (!inR) inR = inL;

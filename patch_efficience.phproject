@@ -24,14 +24,14 @@
       {
         "id": 1,
         "type": "PATCH",
-        "x": 79,
-        "y": 233,
+        "x": 51,
+        "y": 256,
         "values": {
           "inputModule": 1,
           "instances": 16
         },
         "color": "#ff2300",
-        "name": "Synth",
+        "name": "Synth001",
         "state": {
           "maps": []
         },
@@ -80,8 +80,8 @@
             {
               "id": 2,
               "type": "OPERATOR",
-              "x": 0,
-              "y": -243,
+              "x": -3,
+              "y": -245,
               "values": {
                 "modulation": 35.6,
                 "feedback": 0,
@@ -206,35 +206,14 @@
             {
               "id": 8,
               "type": "VIBRATO",
-              "x": -117,
-              "y": -434,
+              "x": -25,
+              "y": -432,
               "values": {
                 "wave": 0,
                 "unit": 0,
                 "freq": 0.22872934507543297,
                 "phase": 0,
                 "amp": 5
-              },
-              "color": null
-            },
-            {
-              "id": 9,
-              "type": "FILTER",
-              "x": 153,
-              "y": -132,
-              "values": {
-                "type": 0,
-                "slope": 1,
-                "cutoff": 1200.9016105646929,
-                "vowel": 0,
-                "resonance": 0.1,
-                "gain": 0,
-                "drive": 0,
-                "lfoShape": 0,
-                "lfoRate": 1,
-                "lfoDepth": 0,
-                "mix": 1,
-                "level": 1
               },
               "color": null
             },
@@ -315,20 +294,12 @@
               "to": 4
             },
             {
-              "from": 9,
-              "to": 4
-            },
-            {
               "from": 1,
               "to": 10
             },
             {
               "from": 10,
               "to": 11
-            },
-            {
-              "from": 2,
-              "to": 9
             },
             {
               "from": 11,
@@ -341,6 +312,10 @@
             {
               "from": 4,
               "to": 0
+            },
+            {
+              "from": 2,
+              "to": 4
             }
           ],
           "midiLock": 1
@@ -349,10 +324,10 @@
       {
         "id": 2,
         "type": "MULTIMIDI",
-        "x": -142,
-        "y": 351,
+        "x": -76,
+        "y": 359,
         "values": {
-          "routeMode": 0,
+          "routeMode": 1,
           "transpose": 0,
           "finetune": 0,
           "overtone": 0,
@@ -759,9 +734,9 @@
       }
     ],
     "seq": {
-      "top": 0.5304093354334137,
+      "top": 0.012343331479856556,
       "bottom": 1,
-      "panelWidth": 525.289436340332,
+      "panelWidth": 476.6719741821289,
       "restoreTop": 0,
       "restoreBottom": 0.75,
       "roll": {

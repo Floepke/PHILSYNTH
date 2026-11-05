@@ -293,6 +293,7 @@ export class Graph {
       let last = null;
       for (const s of n.srcs) if (!s.silent) { live++; last = s; }
       if (!live && n.passive) { n.silent = true; continue; }
+      if (!live && n.k.dormant) { n.silent = true; continue; }
       let ins = NO_INPUT;
       if (live === 1) ins = last.outs;
       else if (live > 1) ins = this.sum(n);

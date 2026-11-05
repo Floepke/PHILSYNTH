@@ -65,6 +65,12 @@ export default class OperatorKernel extends OscKernel {
     else super.message(m);
   }
 
+  get dormant() {
+    return !this.voices[0].stage && !this.tail && this.prevInput === 0
+      && this.s.modulation === this.p.modulation / 100 && this.s.feedback === this.p.feedback / 100
+      && this.s.velocity === this.p.velocity / 100 && this.s.gain === this.p.gain;
+  }
+
   process(inputs, outputs) {
     const out = outputs[0], buf = out[0], n = buf.length;
     const v = this.voices[0], p = this.p;

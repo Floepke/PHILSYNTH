@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { instantiateDsp, wasmKernels } from '../src/dsp/wasm.js';
 import Operator from '../src/modules/operator.dsp.js';
 import def from '../src/modules/operator.js';
 import { getModule } from '../src/modules/index.js';
@@ -29,6 +31,49 @@ function render(k, blocks, input = () => [[]]) {
 }
 const peak = (a) => Math.max(...a.map(Math.abs));
 const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) < tol, `${msg}: ${a} vs ${b}`);
+
+// Sleeping graphs match continuously processed operators across tails, idle edits and wake-up.
+for (const backend of ['js', 'mixed', 'native']) {
+  const native = () => wasmKernels(instantiateDsp(readFileSync(new URL('../src/dsp/modsynth.wasm', import.meta.url))), SR);
+  const aOpts = backend === 'js' ? {} : { ...native(), native: backend === 'native' };
+  const bOpts = backend === 'js' ? {} : { ...native(), native: false };
+  const Base = bOpts.kernels?.operator ?? Operator;
+  bOpts.kernels = { ...bOpts.kernels, operator: class extends Base { get dormant() { return false; } } };
+  const a = dspTestHost(aOpts), b = dspTestHost(bOpts);
+  const nodes = [a, b].map(h => {
+    const op = h.dsp.create('operator');
+    op.connect(h.dsp.destination);
+    op.param('release', 0.02);
+    return op;
+  });
+  const sources = [a, b].map((h, i) => {
+    const src = h.dsp.create('osc');
+    src.connect(nodes[i]);
+    return src;
+  });
+  let calls = 0;
+  const k = a.kernel(nodes[0]), process = k.process;
+  k.process = function (...args) { calls++; return process.apply(this, args); };
+  for (let block = 0; block < 400; block++) {
+    for (const op of nodes) {
+      if (block === 40 || block === 200) op.send({ type: 'noteOn', id: block, pitch: 60.3, velocity: 0.7, phase: 0.2 });
+      if (block === 60) op.send({ type: 'noteOff', id: 40 });
+      if (block === 150) { op.param('feedback', 35); op.param('modulation', 168); op.param('gain', 0.3); }
+      if (block === 220) op.send({ type: 'noteMod', notes: [[200, 80.1, 0.3]] });
+      if (block === 250) op.send({ type: 'allOff' });
+      if (block === 330) op.send({ type: 'noteOn', id: 330, pitch: 72, velocity: 0.8, phase: 0 });
+    }
+    if (block === 280) for (const src of sources) src.send({ type: 'noteOn', id: 1, pitch: 57, velocity: 0.8, phase: 0 });
+    if (block === 350) for (const src of sources) src.send({ type: 'allOff' });
+    const x = a.render(), y = b.render();
+    assert.deepEqual(x.L, y.L, `${backend}: dormant/reference left block ${block}`);
+    assert.deepEqual(x.R, y.R, `${backend}: dormant/reference right block ${block}`);
+    if (block === 30 && backend !== 'native') assert.ok(calls < 3, 'idle graph skips processor calls');
+  }
+  if (backend === 'native') assert.ok(a.graph.prog, 'exercise native graph sleeping');
+  nodes.forEach(op => op.destroy());
+  sources.forEach(src => src.destroy());
+}
 
 assert.equal(getModule('OPERATOR'), def);
 assert.ok(def.hasInput && def.hasOutput && def.acceptsMidi && !def.midiOut);

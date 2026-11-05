@@ -14,7 +14,7 @@ import { curveTable, defaultCurve } from '../curve.js';
 import { imageCache } from './imagecache.js';
 import { BLOCK_SIZES, DEFAULT_FRAME, builtinTable } from '../modules/wavetable.dsp.js';
 
-export const WASM_VERSION = 14;
+export const WASM_VERSION = 15;
 
 // kind = Kind in cpp/engine.cpp; params in the order of the kernel's enum
 export const SPECS = {
@@ -173,6 +173,8 @@ function kernelClass(name, spec, x, heap, sr) {
       if (oR !== oL && !inR) oR.set(heap.f32(dr, n));
       return true;
     }
+
+    get dormant() { return name === 'operator' && !!x.ms_dormant(this.ptr); }
 
     destroy() {
       if (this.ptr) x.ms_destroy(this.ptr);
