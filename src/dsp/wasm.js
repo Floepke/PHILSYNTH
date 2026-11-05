@@ -14,7 +14,7 @@ import { curveTable, defaultCurve } from '../curve.js';
 import { imageCache } from './imagecache.js';
 import { BLOCK_SIZES, DEFAULT_FRAME, builtinTable } from '../modules/wavetable.dsp.js';
 
-export const WASM_VERSION = 17;
+export const WASM_VERSION = 18;
 
 // kind = Kind in cpp/engine.cpp; params in the order of the kernel's enum
 export const SPECS = {

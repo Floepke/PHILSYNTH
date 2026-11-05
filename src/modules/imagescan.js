@@ -2,7 +2,10 @@
 // (imagesampler.dsp.js, audio thread: no DOM here) and the photo editor (imageview.js), so the
 // drawn scanner is exactly what plays.
 // Coordinates are image pixels (pixel centres 0..width-1, 0..height-1, y down). X / Y (0..100 %)
-// place the scanner's centre on the image, Length (0..100 %) is a share of the image diagonal,
+// place the scanner's centre on the image. Length (0..100 %): for the Line a share of the image
+// measured edge to edge in the Line's direction (lineSpan: 100 % = the full width when horizontal,
+// the full height when vertical, the diagonal at the diagonal's angle; a centred Line at 100 %
+// reaches exactly both edges), for the Propellor a share of the diagonal (a constant length while it spins);
 // angles are degrees counterclockwise on screen (0 = horizontal, start on the left).
 // Every voice runs over the scanner from its start to its end once per cycle of its note (Line,
 // Propellor), or once around it (counterclockwise on screen; a closed path, so the cycle has no
@@ -19,10 +22,23 @@ export const TRI_DEFAULT = [50, 15, 15, 85, 85, 85];
 
 export const diagonal = (w, h) => Math.hypot(Math.max(0, w - 1), Math.max(0, h - 1));
 
-// Centre (px) and length (px) of the scanner from the X / Y / Length controllers
-export function scanCenter(x, y, length, w, h) {
+// Length (px) of the image edge to edge through its centre at angle `deg` (what Length 100 % is
+// for the Line)
+export function lineSpan(w, h, deg) {
+  const a = (deg * Math.PI) / 180;
+  const c = Math.abs(Math.cos(a));
+  const s = Math.abs(Math.sin(a));
+  const sx = c > 1e-12 ? Math.max(0, w - 1) / c : Infinity;
+  const sy = s > 1e-12 ? Math.max(0, h - 1) / s : Infinity;
+  return Math.min(sx, sy);
+}
+
+// Centre (px) and length (px) of the scanner from the X / Y / Length controllers; `deg` given
+// (the Line's angle): Length is a share of lineSpan, else of the diagonal (Propellor)
+export function scanCenter(x, y, length, w, h, deg) {
   const c = (v) => Math.min(100, Math.max(0, Number(v) || 0)) / 100;
-  return { cx: c(x) * Math.max(0, w - 1), cy: c(y) * Math.max(0, h - 1), len: c(length) * diagonal(w, h) };
+  const full = deg === undefined ? diagonal(w, h) : lineSpan(w, h, deg);
+  return { cx: c(x) * Math.max(0, w - 1), cy: c(y) * Math.max(0, h - 1), len: c(length) * full };
 }
 
 // Start / end point of the scanner at angle `deg`

@@ -447,6 +447,21 @@ for (const [width, height] of [[1, 1], [3, 5], [256, 256]]) {
   }
 }
 
+// IMAGESAMPLER Propellor: every voice turned by its note's phase (own tables), voice reuse, phase 0
+// sharing the table, switching scanner types mid-note.
+for (const speed of [0, 2.7]) {
+  compare('imagesampler', {
+    blocks: 60, tol: 2e-6, inHeap: true,
+    script: [
+      [0, param('scanType', 1)], [0, param('speed', speed)], [0, param('polyphony', 3)], [0, param('resolution', 48)],
+      [0, imageMessage(40, 30)], [0, noteOn(1, 50, 0.7, 0.13)], [0, noteOn(2, 57.3, 0.6, 0.71)],
+      [3, noteOn(3, 62, 0.5, 0)], [6, param('length', 60)], [8, noteOn(4, 66, 0.5, 0.42)],
+      [12, param('scanType', 0)], [16, param('scanType', 1)], [20, { type: 'noteOff', id: 2 }],
+      [24, noteOn(5, 45, 0.9, 0.9)], [30, param('x', 30)], [36, 'panic'], [38, noteOn(6, 60, 0.8, 0.5)],
+    ],
+  });
+}
+
 // Content-sharing survives cloned messages and releases only the replaced/deleted owner's ref.
 for (const K of [KERNELS.imagesampler, WASM.imagesampler]) {
   const a = new K(), b = new K();

@@ -1,4 +1,5 @@
-// Panel display of the IMAGE SAMPLER (below the controllers): Load Image, what is loaded, the photo
+// Panel display of the IMAGE SAMPLER (below the controllers): Load Image (+ Stock Image, back to the
+// built-in stock picture of imagestock.js, shown while an own picture is loaded), what is loaded, the photo
 // with the scanner on it, and the ADSR editor (adsrview.js, as OSC). The scanner editor moves the
 // real controllers (api.setParam, stepped like the sliders; one undo step per drag):
 //   drag the centre dot, or anywhere on the photo   X / Y (the centre jumps there)
@@ -20,10 +21,11 @@
 // Modulated controllers (LFO, ADSR, automation) move the scanner live. Dropping a picture on the
 // photo loads it too.
 import { addImage, getImage, onSample, MAX_IMAGE } from '../samples.js';
+import { stockImageId, STOCK_NAME } from './imagestock.js';
 import { createAdsrView, stepValue } from './adsrview.js';
 import { hasMediaDialog, openMediaFile } from '../filedialog.js';
 import { errorText } from '../filepicker.js';
-import { SCAN, TRI, sized, scanCenter, scanEnds, angleTo, diagonal, ovalAxes, ovalPoint, rectCorners, triCorners, polyPath, wrapDeg, resPoints } from './imagescan.js';
+import { SCAN, TRI, sized, scanCenter, scanEnds, angleTo, diagonal, lineSpan, ovalAxes, ovalPoint, rectCorners, triCorners, polyPath, wrapDeg, resPoints } from './imagescan.js';
 
 const POINT_DOTS = 128;
 
@@ -96,12 +98,11 @@ export function fitImage(iw, ih, w, h) {
 // pixel (px, py): Length (and Rotation for the Line scanner)
 export function dragEnd(values, img, end, px, py) {
   const { cx, cy } = scanCenter(values.x, values.y, values.length, img.width, img.height);
-  const d = diagonal(img.width, img.height);
+  const line = (values.scanType | 0) === SCAN.LINE;
+  const a = angleTo(cx, cy, px, py);
+  const d = line ? lineSpan(img.width, img.height, a) : diagonal(img.width, img.height);
   const out = { length: d > 0 ? Math.min(100, ((2 * Math.hypot(px - cx, py - cy)) / d) * 100) : values.length };
-  if ((values.scanType | 0) === SCAN.LINE) {
-    const a = angleTo(cx, cy, px, py);
-    out.rotation = end ? a : (a <= 0 ? a + 180 : a - 180); // the start sits opposite the end
-  }
+  if (line) out.rotation = end ? a : (a <= 0 ? a + 180 : a - 180); // the start sits opposite the end
   return out;
 }
 
@@ -148,6 +149,14 @@ export function createImageView(entry, api) {
   button.type = 'button';
   button.className = 'sample-load';
   button.textContent = 'Load Image';
+  const stock = document.createElement('button');
+  stock.type = 'button';
+  stock.className = 'sample-load';
+  stock.textContent = 'Stock Image';
+  stock.title = 'Play the built-in stock picture again';
+  const buttons = document.createElement('div');
+  buttons.className = 'image-buttons';
+  buttons.append(button, stock);
   const input = Object.assign(document.createElement('input'), { type: 'file', hidden: true, accept: 'image/*' });
   const info = document.createElement('div');
   info.className = 'sample-info';
@@ -158,7 +167,7 @@ export function createImageView(entry, api) {
   cv.className = 'image-scan';
   box.append(cv);
   const adsr = createAdsrView({ color: api.color, values: entry.values, params: entry.def.params, ...api });
-  el.append(button, input, info, box, adsr.el);
+  el.append(buttons, input, info, box, adsr.el);
   const g = cv.getContext('2d');
   const params = Object.fromEntries(entry.def.params.map((p) => [p.id, p]));
   let values = { ...entry.values };
@@ -166,15 +175,19 @@ export function createImageView(entry, api) {
   let last = 0;
   let raf = 0;
 
-  const image = () => getImage(entry.state?.imageId);
+  const own = () => entry.state?.imageId ?? null;
+  const imageId = () => own() ?? stockImageId();
+  const shownName = () => (own() ? entry.state.name : STOCK_NAME);
+  const image = () => getImage(imageId());
   const angle = () => ((values.scanType | 0) === SCAN.PROPELLOR ? spin : values.rotation ?? 0);
 
   const describe = () => {
     info.classList.remove('error');
     const img = image();
-    if (img) info.textContent = `${entry.state.name} · ${img.width} × ${img.height} px`;
-    else if (entry.state?.imageId) info.textContent = `${entry.state.name}: image data missing, load it again`;
-    else info.textContent = 'No image loaded: notes stay silent. Load one or drop a picture here.';
+    stock.hidden = !own();
+    if (!own()) info.textContent = `${STOCK_NAME} (built in, ${img.width} × ${img.height} px): every row is one wave cycle, Y morphs from sine to noise. Load Image or drop a picture to play your own.`;
+    else if (img) info.textContent = `${entry.state.name} · ${img.width} × ${img.height} px`;
+    else info.textContent = `${entry.state.name}: image data missing, load it again`;
   };
 
   // the box takes the image's aspect ratio (up to MAX_H px high)
@@ -188,7 +201,7 @@ export function createImageView(entry, api) {
   // scanner in canvas px
   const geometry = (w, h, img) => {
     const fit = fitImage(img.width, img.height, w, h);
-    const c = scanCenter(values.x, values.y, values.length, img.width, img.height);
+    const c = scanCenter(values.x, values.y, values.length, img.width, img.height, (values.scanType | 0) === SCAN.LINE ? angle() : undefined);
     const e = scanEnds(c, angle());
     const G = { fit, c: fit.toCanvas(c.cx, c.cy), a: fit.toCanvas(e.x0, e.y0), b: fit.toCanvas(e.x1, e.y1), r: (c.len / 2) * fit.sc };
     const type = values.scanType | 0;
@@ -268,7 +281,7 @@ export function createImageView(entry, api) {
     if (!img) { cv.setAttribute('aria-label', 'No image'); return; }
     const G = geometry(w, h, img);
     g.imageSmoothingEnabled = G.fit.sc < 2;
-    g.drawImage(pictureOf(entry.state.imageId, img), G.fit.ox, G.fit.oy, img.width * G.fit.sc, img.height * G.fit.sc);
+    g.drawImage(pictureOf(imageId(), img), G.fit.ox, G.fit.oy, img.width * G.fit.sc, img.height * G.fit.sc);
     const prop = (values.scanType | 0) === SCAN.PROPELLOR;
     if (G.oval) { drawOval(G); return; }
     if (G.tri) { drawTri(G); return; }
@@ -325,7 +338,7 @@ export function createImageView(entry, api) {
     g.arc(G.c.x, G.c.y, 5, 0, 2 * Math.PI);
     g.fill();
     g.stroke();
-    cv.setAttribute('aria-label', `Image ${entry.state.name}, ${prop ? 'propellor' : 'line'} scanner at ${values.x.toFixed(1)} %, ${values.y.toFixed(1)} %, length ${values.length.toFixed(1)} %`);
+    cv.setAttribute('aria-label', `Image ${shownName()}, ${prop ? 'propellor' : 'line'} scanner at ${values.x.toFixed(1)} %, ${values.y.toFixed(1)} %, length ${values.length.toFixed(1)} %`);
   };
 
   const dot = (q, r, fill, stroke = 'rgba(0, 0, 0, 0.6)', lw = 1) => {
@@ -401,7 +414,7 @@ export function createImageView(entry, api) {
     });
     dot(G.c, 5, api.color, '#fff', 2);
     const v = (id) => (+values[id]).toFixed(1);
-    cv.setAttribute('aria-label', `Image ${entry.state.name}, triangle scanner with corners ${v('triX1')} % ${v('triY1')} %, ${v('triX2')} % ${v('triY2')} %, ${v('triX3')} % ${v('triY3')} %`);
+    cv.setAttribute('aria-label', `Image ${shownName()}, triangle scanner with corners ${v('triX1')} % ${v('triY1')} %, ${v('triX2')} % ${v('triY2')} %, ${v('triX3')} % ${v('triY3')} %`);
   };
   const drawOval = (G) => {
     const O = G.oval;
@@ -444,7 +457,7 @@ export function createImageView(entry, api) {
     square(O.wh);
     dot(O.knob, 4.5, 'rgba(0, 0, 0, 0.35)', '#fff', 2);
     dot(G.c, 5, api.color, '#fff', 2);
-    cv.setAttribute('aria-label', `Image ${entry.state.name}, ${O.rect ? 'rectangle' : 'oval'} scanner at ${values.x.toFixed(1)} %, ${values.y.toFixed(1)} %, width ${(+values.ovalWidth).toFixed(1)} %, height ${(+values.ovalHeight).toFixed(1)} %, rotation ${(+O.deg).toFixed(1)}°`);
+    cv.setAttribute('aria-label', `Image ${shownName()}, ${O.rect ? 'rectangle' : 'oval'} scanner at ${values.x.toFixed(1)} %, ${values.y.toFixed(1)} %, width ${(+values.ovalWidth).toFixed(1)} %, height ${(+values.ovalHeight).toFixed(1)} %, rotation ${(+O.deg).toFixed(1)}°`);
   };
 
   // the propellor turns on the picture while the panel shows it
@@ -594,6 +607,13 @@ export function createImageView(entry, api) {
       info.classList.add('error');
     }
   };
+  stock.onclick = () => {
+    if (!own()) return;
+    api.beginEdit?.();
+    api.setState({ imageId: null, name: '' });
+    api.endEdit?.();
+    show();
+  };
   input.onchange = () => { load(input.files[0]); input.value = ''; };
   el.addEventListener('dragover', (e) => { if (e.dataTransfer?.types.includes('Files')) { e.preventDefault(); el.classList.add('drop'); } });
   el.addEventListener('dragleave', () => el.classList.remove('drop'));
@@ -608,7 +628,7 @@ export function createImageView(entry, api) {
   let unsub = null;
   unsub = onSample((id) => {
     if (!el.isConnected) { unsub(); return; }
-    if (id === entry.state?.imageId) show();
+    if (id === own()) show();
   });
   describe();
   queueMicrotask(show);

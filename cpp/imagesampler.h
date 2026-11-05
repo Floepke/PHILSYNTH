@@ -1,5 +1,7 @@
 // Native twin of imagesampler.dsp.js. Images are immutable and shared; scanners, tables and
-// voices belong to each instance. All render-time storage is allocated at construction.
+// voices belong to each instance. All render-time storage is allocated at construction, except a
+// voice's own Propellor tables (a note with a phase other than 0), made the first time it needs
+// them and kept until the instance is destroyed.
 #pragma once
 #include "osc.h"
 
@@ -57,7 +59,7 @@ struct ImageSampler : Osc {
     float buf[(2 * RES_MAX + 2 * MAX_LEVELS) * 3] = {};
     int off[MAX_LEVELS] = {}, len[MAX_LEVELS] = {}, count = 0;
   };
-  double q[PARAMS] = {8, 0, 50, 50, 70, 0, 0.5, 60, 60, 0, 64,
+  double q[PARAMS] = {8, 0, 50, 50, 100, 0, 0.5, 60, 60, 0, 64,
     100, 50, 0, 0, 50, 100, 0.005, 0.2, 1, 0.3, 0, 0, 0, 0.5, 50, 15, 15, 85, 85, 85};
   ImagePyramid* image = nullptr;
   Table tables[2];
@@ -67,8 +69,25 @@ struct ImageSampler : Osc {
   double px[5] = {}, py[5] = {}, cum[6] = {};
   int corners = 0;
   bool built = false, wasActive = false, haveG = false, haveWeights = false;
+  // per voice: the Propellor's turn from the note's phase (degrees) and its own tables (2, or null)
+  struct Own { Table tables[2]; int current; double key[15]; bool built; };
+  double spin[MAX_VOICES] = {};
+  bool fresh[MAX_VOICES] = {}; // nothing played yet: its first table needs no crossfade
+  Own* own[MAX_VOICES] = {};
 
   explicit ImageSampler(double sr) : Osc(sr, 1) {}
+  ~ImageSampler() override { for (auto* o : own) free(o); }
+
+  void note(int type, double id, double pitch, double vel, double phase) override {
+    Osc::note(type, id, pitch, vel, phase);
+    if (type != NOTE_ON) return;
+    Voice* v = voiceOf(id);
+    if (!v) return;
+    const int i = (int)(v - voices);
+    spin[i] = v->phase * 360;
+    fresh[i] = true;
+    if (own[i]) own[i]->built = false;
+  }
   void setImage(ImagePyramid* value) { image = value; revision++; }
 
   void param(int id, double value) override {
@@ -190,9 +209,11 @@ struct ImageSampler : Osc {
   }
 
   void build(int type, double cx, double cy, double len, double a, double b, int points, double span) {
-    Table& t = tables[current];
+    build(tables[current], angle, type, cx, cy, len, a, b, points, span);
+  }
+  void build(Table& t, double deg, int type, double cx, double cy, double len, double a, double b, int points, double span) {
     const double lv = mind(image->count - 1, maxd(0, log2(maxd(1, span / points))));
-    const double r = angle * PI / 180, dx = cos(r), dy = -sin(r);
+    const double r = deg * PI / 180, dx = cos(r), dy = -sin(r);
     double sum[3] = {}, out[3];
     for (int j = 0; j < points; j++) {
       const double u = (double)j / points;
@@ -246,7 +267,12 @@ struct ImageSampler : Osc {
     }
     if (!sounding) { wasActive = false; return 0; }
     const double cx = percent(g[0]) * (w - 1), cy = percent(g[1]) * (h - 1);
-    const double len = percent(g[2]) * hypot(w - 1, h - 1);
+    double full = hypot(w - 1, h - 1); // Propellor: the diagonal
+    if (type == LINE) { // imagescan.js lineSpan: edge to edge in the Line's direction
+      const double r = angle * PI / 180, c = fabs(cos(r)), s = fabs(sin(r));
+      full = mind(c > 1e-12 ? (w - 1) / c : INFINITY, s > 1e-12 ? (h - 1) / s : INFINITY);
+    }
+    const double len = percent(g[2]) * full;
     const double a = percent(g[3]) * (w - 1) / 2, b = percent(g[4]) * (h - 1) / 2;
     const double resolution = q[RESOLUTION] == q[RESOLUTION] && q[RESOLUTION] ? q[RESOLUTION] : 64;
     const int points = (int)clampd(jsRound(resolution), 2, RES_MAX);
@@ -275,6 +301,7 @@ struct ImageSampler : Osc {
     }
     const Table& cur = tables[current];
     const Table& prev = tables[1 - current];
+    const bool prop = type == PROPELLOR;
     double w0[6], dw[6];
     for (int side = 0; side < 2; side++) {
       double wt[3], total = 0;
@@ -298,8 +325,37 @@ struct ImageSampler : Osc {
       if (v.vel != v.velT) v.vel = fabs(v.velT - v.vel) < 1e-6 ? v.velT : v.vel + (v.velT - v.vel) * k;
       const double velStep = (v.vel - vel) / n;
       const double inc = incOf(v.pitch);
-      const double lc = mind(cur.count - 1, maxd(0, log2(maxd(1, inc * cur.len[0]))));
-      const double lp = fade ? mind(prev.count - 1, maxd(0, log2(maxd(1, inc * prev.len[0])))) : 0;
+      // the voice's tables: the shared ones, or its own Propellor turned by its phase
+      const Table* vc = &cur;
+      const Table* vp = &prev;
+      bool vf = fade;
+      if (prop && spin[vi]) {
+        if (!own[vi]) own[vi] = (Own*)calloc(1, sizeof(Own));
+        Own* S = own[vi];
+        if (S) {
+          double ok[15];
+          memcpy(ok, nk, sizeof(ok));
+          ok[6] = wrap(angle + spin[vi]);
+          bool changed = !S->built;
+          for (int i = 0; i < 15 && !changed; i++) changed = ok[i] != S->key[i];
+          vf = changed && !(fresh[vi] && !S->built);
+          if (changed) {
+            if (S->built) S->current = 1 - S->current;
+            build(S->tables[S->current], ok[6], type, cx, cy, len, a, b, points, len);
+            vp = S->built ? &S->tables[1 - S->current] : &cur; // mid-note to the Propellor: from the shared table
+            memcpy(S->key, ok, sizeof(ok));
+            S->built = true;
+          }
+          vc = &S->tables[S->current];
+        }
+      } else if (own[vi] && own[vi]->built) { // back to the shared table: crossfade from its own
+        vf = true;
+        vp = &own[vi]->tables[own[vi]->current];
+        own[vi]->built = false;
+      }
+      fresh[vi] = false;
+      const double lc = mind(vc->count - 1, maxd(0, log2(maxd(1, inc * vc->len[0]))));
+      const double lp = vf ? mind(vp->count - 1, maxd(0, log2(maxd(1, inc * vp->len[0])))) : 0;
       const Stage* st = v.stage == 1 ? &A : v.stage == 2 ? &D : v.stage == 4 ? &R : nullptr;
       if (st) v.e = st->k ? exp(-st->k * v.u) : 1;
       for (int i = 0; i < n; i++) {
@@ -324,9 +380,9 @@ struct ImageSampler : Osc {
         if (!v.stage) break;
         vel += velStep;
         double out[3];
-        tap(cur, lc, v.phase, out);
-        if (fade) {
-          double t[3]; tap(prev, lp, v.phase, t);
+        tap(*vc, lc, v.phase, out);
+        if (vf) {
+          double t[3]; tap(*vp, lp, v.phase, t);
           const double x = (i + 1.0) / n;
           for (int c = 0; c < 3; c++) out[c] = t[c] + (out[c] - t[c]) * x;
         }

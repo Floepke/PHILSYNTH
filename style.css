@@ -278,6 +278,9 @@ body.panel-collapsed #panel { visibility: hidden; }
 .p2c-tools button.p2c-zoom { flex: 0 0 34px; }
 .sample-view { margin-top: 10px; }
 .sample-view .sample-load { width: 100%; }
+.image-view .image-buttons { display: flex; gap: 6px; }
+.image-view .image-buttons .sample-load { flex: 1 1 0; min-width: 0; }
+.image-view .image-buttons .sample-load[hidden] { display: none; }
 .sample-view .sample-info { margin: 6px 0 0; font-size: 11px; color: var(--text-dim); overflow-wrap: anywhere; }
 .sample-view .sample-info.error { color: #e06666; }
 .sample-view .sample-edit { touch-action: none; }

@@ -8,11 +8,13 @@
 // is chosen). Resolution: how many points along the scanner make the waveform (2..1024, the
 // straight lines between them; few = coarse and jumpy). Then the colour amounts per speaker (Left, then Right), the envelope with its curves, and Gain last.
 // Load Image (or drop a picture on the photo): it is scaled to 256 px at most and saved with the
-// project (sample pool, src/samples.js). ADSR with stage curves and the ADSR editor as OSC.
+// project (sample pool, src/samples.js). Without a picture of its own (imageId null) the module
+// plays the stock wavetable picture (imagestock.js; built in, not saved). ADSR with stage curves and the ADSR editor as OSC.
 import { linkDecayRelease } from './envlink.js';
 import { curveParams } from './adsrcurve.js';
 import { SCAN, SCAN_TYPES, TRI, TRI_DEFAULT, sized, RES_MIN, RES_MAX, RES_DEFAULT, resPoints } from './imagescan.js';
 import { createImageView } from './imageview.js';
+import { stockImageId } from './imagestock.js';
 import { sampleFeeder, noteMessages } from './sampler.js';
 
 const percent = (v) => `${v.toFixed(1)} %`;
@@ -42,7 +44,7 @@ export default {
     { id: 'scanType', label: 'Scanner Type', min: 0, max: SCAN_TYPES.length - 1, default: 0, step: 1, options: SCAN_TYPES },
     { id: 'x', label: 'X', min: 0, max: 100, default: 50, step: 0.1, format: percent, visible: (v) => (v.scanType | 0) !== SCAN.TRIANGLE },
     { id: 'y', label: 'Y', min: 0, max: 100, default: 50, step: 0.1, format: percent, visible: (v) => (v.scanType | 0) !== SCAN.TRIANGLE },
-    { id: 'length', label: 'Length', min: 0, max: 100, default: 70, step: 0.1, format: percent, visible: (v) => (v.scanType | 0) <= SCAN.PROPELLOR },
+    { id: 'length', label: 'Length', min: 0, max: 100, default: 100, step: 0.1, format: percent, visible: (v) => (v.scanType | 0) <= SCAN.PROPELLOR },
     // per scanner type (below the shared ones)
     { id: 'rotation', label: 'Rotation', min: -180, max: 180, default: 0, step: 0.1, format: (v) => `${+v.toFixed(1)}°`, visible: (v) => (v.scanType | 0) === SCAN.LINE },
     { id: 'speed', label: 'Propellor Speed', min: -20, max: 20, default: 0.5, step: 0.01, format: (v) => `${v > 0 ? '+' : ''}${+v.toFixed(2)} turns/s`, visible: (v) => (v.scanType | 0) === SCAN.PROPELLOR },
@@ -77,7 +79,7 @@ export default {
       node,
       input: null,
       setParam: (id, value) => send({ type: 'param', id, value }),
-      setState: (st) => feed.set(st?.imageId ?? null),
+      setState: (st) => feed.set(st?.imageId ?? stockImageId()),
       ...midi,
       destroy: () => { midi.destroyNotes(); feed.destroy(); node.destroy(); },
     };

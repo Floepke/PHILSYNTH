@@ -5,7 +5,10 @@
 // glide per sample, so modulating them is click-free).
 //   Line       a straight scanner at Rotation (degrees)
 //   Propellor  the scanner spins around its centre at Propellor Speed (turns per second, negative
-//              = clockwise); one angle shared by all voices, so chords spin together
+//              = clockwise); one angle shared by all voices, so chords spin together, turned by
+//              each note's start phase (MODMIDI phase 0..1 = 0..360°): a voice with a phase other
+//              than 0 reads its own propellor (own tables, made on first use) at the shared angle
+//              plus its phase, e.g. MULTIMIDI's random phase gives every voice its own propellor
 //   Oval       once around an ellipse per cycle (Oval Width / Height, rotated by Oval Rotation): a
 //              closed path, so the waveform has no jump at the cycle wrap
 //   Triangle   once around the triangle of corners X1 / Y1, X2 / Y2, X3 / Y3 (closed, even speed)
@@ -23,7 +26,8 @@
 // table copy where it moves about one point per sample (blending the two nearest copies), so high
 // notes get smoother instead of aliasing.
 // The image arrives from the main thread: { type: 'image', width, height, rgb } (rgb: Uint8Array
-// of width * height * 3) or rgb null (no image: silent). ADSR with curves as OSC (poly.dsp.js).
+// of width * height * 3) or rgb null (no image: silent; the module sends the stock image of imagestock.js instead
+// when no picture is loaded, so this only happens while an own picture's data is missing). ADSR with curves as OSC (poly.dsp.js).
 import { PolyKernel, curveEnv, curveStart, curveRelease, curveBlock, curveTick } from './poly.dsp.js';
 import { SCAN, TRI, sized, scanCenter, ovalAxes, ovalPerimeter, rectCorners, triCorners, polyPath, unit, colorWeights, wrapDeg, resPoints, RES_MAX, RES_DEFAULT } from './imagescan.js';
 import { imageCache } from '../dsp/imagecache.js';
@@ -122,7 +126,7 @@ const images = imageCache(pyramid);
 
 export default class ImageSamplerKernel extends PolyKernel {
   constructor() {
-    super({ atkCurve: 0, decCurve: 0, relCurve: 0, scanType: SCAN.LINE, x: 50, y: 50, length: 70, rotation: 0, speed: 0.5,
+    super({ atkCurve: 0, decCurve: 0, relCurve: 0, scanType: SCAN.LINE, x: 50, y: 50, length: 100, rotation: 0, speed: 0.5,
       ovalWidth: 60, ovalHeight: 60, ovalRotation: 0, triX1: 50, triY1: 15, triX2: 15, triY2: 85, triX3: 85, triY3: 85, resolution: RES_DEFAULT,
       redLeft: 100, greenLeft: 50, blueLeft: 0, redRight: 0, greenRight: 50, blueRight: 100 });
     this.levels = null;
@@ -159,6 +163,9 @@ export default class ImageSamplerKernel extends PolyKernel {
 
   start(v, phase) {
     v.pos = Number.isFinite(phase) ? phase - Math.floor(phase) : 0;
+    v.spin = v.pos * 360; // the Propellor's turn for this voice (degrees)
+    v.fresh = true; // nothing played yet: its first table needs no crossfade
+    if (v.own) v.own.built = false;
     curveStart(v);
   }
 
@@ -219,8 +226,7 @@ export default class ImageSamplerKernel extends PolyKernel {
   // Reads the scanner at `points` points into this.cur (level 0, DC removed) + its halved copies.
   // g: { type, cx, cy, len, a, b, deg, path } (pixels, degrees; path: polyPath of a Triangle /
   // Rectangle), span: pixels per cycle
-  build(g, points, span) {
-    const T = this.cur;
+  build(g, points, span, T = this.cur) {
     const b = T.buf;
     const top = this.levels.length - 1;
     // the image copy where one point covers about one pixel: each point averages its stretch
@@ -299,7 +305,7 @@ export default class ImageSamplerKernel extends PolyKernel {
     }
 
     // the table of the scanner where it is at the end of this block (rebuilt when that changed)
-    const c1 = scanCenter(g1.x, g1.y, g1.length, W, H);
+    const c1 = scanCenter(g1.x, g1.y, g1.length, W, H, type === SCAN.LINE ? this.angle : undefined);
     const e1 = ovalAxes(g1.ow, g1.oh, W, H);
     const points = resPoints(p.resolution);
     const tri = type === SCAN.TRIANGLE ? triCorners(Object.fromEntries(TRI.map((id, i) => [id, g1.tri[i]])), W, H) : null;
@@ -324,6 +330,7 @@ export default class ImageSamplerKernel extends PolyKernel {
     }
     const cur = this.cur;
     const prev = this.prev;
+    const prop = type === SCAN.PROPELLOR;
 
     // colour -> speaker weights, gliding through the block
     const wT = colorWeights(p);
@@ -347,16 +354,40 @@ export default class ImageSamplerKernel extends PolyKernel {
       let vel = v.vel;
       const velStep = this.glide(v, k, n);
       const inc = Math.min(0.45, (440 * Math.pow(2, (v.pitch - 69) / 12)) / sampleRate);
-      const lc = levelOf(cur, inc);
-      const lp = fade ? levelOf(prev, inc) : 0;
+      // the voice's tables: the shared ones, or its own Propellor turned by its phase
+      let vc = cur;
+      let vp = prev;
+      let vf = fade;
+      if (prop && v.spin) {
+        const S = (v.own ??= { cur: table(), prev: table(), key: new Float64Array(KEY_LEN), built: false });
+        nk[6] = wrapDeg(this.angle + v.spin);
+        let changed = !S.built;
+        for (let i = 0; i < KEY_LEN && !changed; i++) changed = nk[i] !== S.key[i];
+        vf = changed && !(v.fresh && !S.built);
+        if (changed) {
+          if (S.built) { const t = S.prev; S.prev = S.cur; S.cur = t; }
+          this.build({ type, cx: c1.cx, cy: c1.cy, len: c1.len, deg: nk[6] }, points, c1.len, S.cur);
+          vp = S.built ? S.prev : cur; // mid-note to the Propellor: from the shared table
+          S.key.set(nk);
+          S.built = true;
+        }
+        vc = S.cur;
+      } else if (v.own?.built) { // back to the shared table (another scanner type): crossfade from its own
+        vf = true;
+        vp = v.own.cur;
+        v.own.built = false;
+      }
+      v.fresh = false;
+      const lc = levelOf(vc, inc);
+      const lp = vf ? levelOf(vp, inc) : 0;
       curveBlock(v, E);
       for (let i = 0; i < n; i++) {
         const lvl = curveTick(v, E);
         if (!v.stage) break;
         vel += velStep;
-        this.tap(cur, lc, v.pos, o);
-        if (fade) {
-          this.tap(prev, lp, v.pos, t);
+        this.tap(vc, lc, v.pos, o);
+        if (vf) {
+          this.tap(vp, lp, v.pos, t);
           const x = (i + 1) / n;
           o[0] = t[0] + (o[0] - t[0]) * x; o[1] = t[1] + (o[1] - t[1]) * x; o[2] = t[2] + (o[2] - t[2]) * x;
         }

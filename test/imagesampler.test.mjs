@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { loadKernel } from './kernelproc.mjs';
 import def from '../src/modules/imagesampler.js';
 import { pyramid, tableLevels } from '../src/modules/imagesampler.dsp.js';
-import { SCAN, SCAN_TYPES, TRI, scanCenter, scanEnds, unit, colorWeights, ovalAxes, ovalPoint, ovalPerimeter, rectCorners, triCorners, polyPath, resPoints } from '../src/modules/imagescan.js';
+import { SCAN, SCAN_TYPES, TRI, scanCenter, lineSpan, scanEnds, unit, colorWeights, ovalAxes, ovalPoint, ovalPerimeter, rectCorners, triCorners, polyPath, resPoints } from '../src/modules/imagescan.js';
 import { fitImage, dragEnd, dragCenter, dragOval, dragCorner, moveTriangle } from '../src/modules/imageview.js';
 import { curveEnv, curveStart, curveTick, curveRelease } from '../src/modules/poly.dsp.js';
 import { attackLevel, decayLevel, releaseLevel } from '../src/modules/adsrcurve.js';
@@ -11,6 +11,7 @@ import { addImage, getImage, getSample, exportSamples, importSamples, withSample
 import { imageCache } from '../src/dsp/imagecache.js';
 import { PatchRuntime } from '../src/patch.js';
 import { dspTestHost } from './dsphost.mjs';
+import { stockImage, stockImageId, stockWave, STOCK_SHAPES, STOCK_SIZE } from '../src/modules/imagestock.js';
 
 const SR = 48000;
 const close = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`);
@@ -44,16 +45,27 @@ assert.deepEqual(def.normalizeState({ imageId: 3 }), { imageId: null, name: '' }
 {
   const c = scanCenter(50, 50, 100, 101, 51);
   assert.deepEqual([c.cx, c.cy], [50, 25]);
-  close(c.len, Math.hypot(100, 50), 1e-9, 'length 100 % = the diagonal');
+  close(c.len, Math.hypot(100, 50), 1e-9, 'Propellor: length 100 % = the diagonal');
+  // Line: 100 % = edge to edge in its direction, so a centred Line at 100 % fits the image exactly
+  close(scanCenter(50, 50, 100, 101, 51, 0).len, 100, 1e-9, 'horizontal: the width');
+  close(scanCenter(50, 50, 100, 101, 51, 180).len, 100, 1e-9, 'horizontal backwards: the width');
+  close(scanCenter(50, 50, 100, 101, 51, 90).len, 50, 1e-9, 'vertical: the height');
+  close(scanCenter(50, 50, 50, 101, 51, -90).len, 25, 1e-9, 'half of the height');
+  close(lineSpan(101, 51, (Math.atan2(50, 100) * 180) / Math.PI), Math.hypot(100, 50), 1e-9, 'corner to corner: the diagonal');
+  close(lineSpan(101, 101, 30), 100 / Math.cos(Math.PI / 6), 1e-9, 'shallow: from the left to the right edge');
+  close(lineSpan(101, 101, 60), 100 / Math.sin(Math.PI / 3), 1e-9, 'steep: from the top to the bottom edge');
+  assert.equal(lineSpan(1, 1, 0), 0, 'a one-pixel image');
+  assert.equal(P.length.default, 100, 'the default Line spans the image');
   const e = scanEnds({ cx: 10, cy: 10, len: 8 }, 90);
   close(e.x1, 10, 1e-9, 'x'); close(e.y1, 6, 1e-9, '90° points up (y down on screen)');
   close(unit(255), 1, 1e-9, 'white'); close(unit(0), -1, 1e-9, 'black');
   // dragging: an end sets Length + Rotation, the start sets the opposite angle
   const img = { width: 101, height: 101 };
   const v = { x: 50, y: 50, length: 50, rotation: 0, scanType: 0 };
-  const d = Math.hypot(100, 100);
   const end = dragEnd(v, img, 1, 50, 20); // 30 px straight up
-  close(end.length, (60 / d) * 100, 1e-9, 'length'); close(end.rotation, 90, 1e-9, 'end up = 90°');
+  close(end.length, 60, 1e-9, 'Line length: of the height (it points up)');
+  close(dragEnd(v, img, 1, 100, 50).length, 100, 1e-9, 'Line to the right edge: 100 %');
+  close(dragEnd({ ...v, scanType: 1 }, img, 1, 50, 20).length, (60 / Math.hypot(100, 100)) * 100, 1e-9, 'Propellor length: of the diagonal'); close(end.rotation, 90, 1e-9, 'end up = 90°');
   close(dragEnd(v, img, 0, 50, 20).rotation, -90, 1e-9, 'start up = end down');
   close(dragEnd(v, img, 0, 20, 50).rotation, 0, 1e-9, 'start left = 0°');
   assert.equal(dragEnd({ ...v, scanType: 1 }, img, 1, 50, 20).rotation, undefined, 'Propellor: length only');
@@ -170,7 +182,7 @@ function make(params = {}, rgb = gradient()) {
   const k = new Proc();
   const m = (data) => k.port.onmessage({ data });
   m({ type: 'image', width: W, height: H, rgb });
-  for (const [id, value] of Object.entries({ attack: 0.001, sustain: 1, length: 100 * ((W - 1) / Math.hypot(W - 1, H - 1)), ...params })) m({ type: 'param', id, value });
+  for (const [id, value] of Object.entries({ attack: 0.001, sustain: 1, length: 100, ...params })) m({ type: 'param', id, value });
   return { k, m };
 }
 function render(k, blocks) {
@@ -212,17 +224,60 @@ const pitch = (hz) => 69 + 12 * Math.log2(hz / 440);
   r.m({ type: 'noteOn', id: 1, pitch: pitch(hz), velocity: 1 });
   const L2 = render(r.k, 20).L.slice(128 * 10, 128 * 11);
   assert.ok(L2.slice(1).filter((v, i) => v < L2[i]).length > 120, 'reversed: falling saw');
-  // Propellor at 0 turns/s from angle 0 = the Line at 0°
-  const pr = make({ scanType: 1, speed: 0 });
+  // Propellor at 0 turns/s from angle 0 = the Line at 0° (the same length: the width's share of the diagonal)
+  const across = 100 * ((W - 1) / Math.hypot(W - 1, H - 1));
+  const pr = make({ scanType: 1, speed: 0, length: across });
   pr.m({ type: 'noteOn', id: 1, pitch: pitch(hz), velocity: 1 });
   const L3 = render(pr.k, 20).L;
   assert.ok(Math.max(...L3.map((v, i) => Math.abs(v - L[i]))) < 1e-6, 'still propellor = line');
   // spinning half a turn per 1/4 s: after 0.5 turn the saw falls
-  const sp = make({ scanType: 1, speed: 2 });
+  const sp = make({ scanType: 1, speed: 2, length: across });
   sp.m({ type: 'noteOn', id: 1, pitch: pitch(hz), velocity: 1 });
   const L4 = render(sp.k, 94).L; // 0.25 s
   const c4 = L4.slice(-128);
   assert.ok(c4.slice(1).filter((v, i) => v < c4[i]).length > 100, 'half a turn later the scan runs backwards');
+}
+{ // Propellor + the note's phase: every voice its own propellor, turned by phase × 360°
+  let seed = 7;
+  const rgb = Uint8Array.from({ length: W * H * 3 }, () => ((seed = (seed * 1103515245 + 12345) >>> 0) >>> 24));
+  const hz = 375;
+  const play = (params, notes, blocks = 20) => {
+    const { k, m } = make({ resolution: 32, ...params }, rgb);
+    for (const [id, phase] of notes) m({ type: 'noteOn', id, pitch: pitch(hz + id), velocity: 0.5, phase });
+    return { k, m, out: render(k, blocks) };
+  };
+  const diffMax = (a, b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
+  // a still propellor at phase 0.25 = turned 90°: the vertical Line of the same length
+  const len = 10; // % of the diagonal
+  const still = play({ scanType: SCAN.PROPELLOR, speed: 0, length: len }, [[1, 0.25]]).out.L;
+  const vertical = play({ rotation: 90, length: (len * Math.hypot(W - 1, H - 1)) / (H - 1) }, [[1, 0.25]]).out.L;
+  assert.ok(Math.max(...still.map(Math.abs)) > 0.05, 'it plays');
+  assert.ok(diffMax(still, vertical) < 1e-5, `phase 0.25 = a quarter turn (${diffMax(still, vertical)})`);
+  const flat = play({ scanType: SCAN.PROPELLOR, speed: 0, length: len }, [[1, 0]]).out.L;
+  assert.ok(diffMax(still, flat) > 0.05, 'phase 0 is another angle');
+  // a chord with different phases = each voice alone (independent propellors), also spinning
+  for (const speed of [0, 3]) {
+    const P = { scanType: SCAN.PROPELLOR, speed };
+    const both = play(P, [[1, 0.1], [2, 0.6]]);
+    const one = play(P, [[1, 0.1]]).out;
+    const two = play(P, [[2, 0.6]]).out;
+    const sum = one.L.map((v, i) => v + two.L[i]);
+    assert.ok(diffMax(both.out.L, sum) < 1e-5, `speed ${speed}: voices spin apart (${diffMax(both.out.L, sum)})`);
+  }
+  // phase 0 voices share the one table (no extra work); others build their own
+  assert.equal(play({ scanType: SCAN.PROPELLOR, speed: 1 }, [[1, 0], [2, 0]], 10).k.rebuilds, 10, 'shared table');
+  assert.equal(play({ scanType: SCAN.PROPELLOR, speed: 1 }, [[1, 0], [2, 0.5]], 10).k.rebuilds, 20, 'one own table');
+  assert.equal(play({ scanType: SCAN.LINE }, [[1, 0.3], [2, 0.5]], 10).k.rebuilds, 1, 'Line: the phase only starts the wave');
+  // switching to and from the Propellor mid-note crossfades (no bigger jump than the wave itself has)
+  const sw = play({ scanType: SCAN.LINE }, [[1, 0.4]], 10);
+  const before = sw.out.L;
+  sw.m({ type: 'param', id: 'scanType', value: SCAN.PROPELLOR });
+  const mid = render(sw.k, 10).L;
+  sw.m({ type: 'param', id: 'scanType', value: SCAN.LINE });
+  const after = render(sw.k, 10).L;
+  const all = [...before, ...mid, ...after];
+  const steps = (x) => Math.max(...x.slice(1).map((v, i) => Math.abs(v - x[i])));
+  assert.ok(steps(all) <= Math.max(steps(before.slice(256)), steps(mid.slice(256)), steps(after.slice(256))) * 1.5 + 1e-6, 'switching is smooth');
 }
 { // X moves the line: a vertical line (rotation 90) at x reads one red value: silent after DC removal
   const { k, m } = make({ rotation: 90, x: 25 });
@@ -430,6 +485,52 @@ const pitch = (hz) => 69 + 12 * Math.log2(hz / 440);
   rt.setParam(1, 'resolution', 63.8);
   assert.equal(entry.values.resolution, 64, 'model holds integer point count');
   rt.destroy();
+}
+
+// ---- stock image: played without a picture of its own, never saved ----
+{
+  const img = stockImage();
+  assert.equal(img.width, STOCK_SIZE);
+  assert.equal(img.height, STOCK_SIZE);
+  assert.deepEqual(stockImage().rgb, img.rgb, 'the same picture every time');
+  const id = stockImageId();
+  assert.equal(stockImageId(), id, 'added to the pool once');
+  assert.deepEqual(getImage(id).rgb, img.rgb);
+  close(stockWave(0, 0.25), 1, 1e-9, 'top row: a sine');
+  close(stockWave(1, 0.5), STOCK_SHAPES.at(-1)[1](0.5), 1e-9, 'bottom row: the last shape');
+  for (let i = 0; i < STOCK_SHAPES.length; i++) {
+    const [name, f] = STOCK_SHAPES[i];
+    close(stockWave(i / (STOCK_SHAPES.length - 1), 0.3), f(0.3), 1e-9, `${name} held at its row`);
+    close(f(0), f(1), 0.05, `${name}: one whole cycle per row (no jump at the edge)`);
+  }
+  // every row sounds (no silent band); the bottom (noise) is brighter than the top (sine)
+  const bright = (rows) => {
+    let edge = 0;
+    let sum = 0;
+    for (const y of rows) for (let x = 1; x < STOCK_SIZE; x++) {
+      const k = (y * STOCK_SIZE + x) * 3;
+      edge += Math.abs(img.rgb[k] - img.rgb[k - 3]);
+      sum += Math.abs(img.rgb[k] - 127.5);
+    }
+    return { edge, sum: sum / rows.length / STOCK_SIZE };
+  };
+  for (let y = 0; y < STOCK_SIZE; y += 8) assert.ok(bright([y]).sum > 25, `row ${y} has a wave`);
+  assert.ok(bright([250, 255]).edge > bright([0, 5]).edge * 3, 'noise rows brighter than the sine rows');
+
+  // the module plays it while its state names no picture, an own picture replaces it
+  const sent = [];
+  const host = { dsp: { create: () => ({ send: (m) => sent.push(m), destroy() {} }), onClock: () => () => {} } };
+  const inst = def.create(null, def, host);
+  inst.setState(def.defaultState());
+  assert.equal(sent.at(-1).type, 'image');
+  assert.equal(sent.at(-1).width, STOCK_SIZE, 'no picture: the stock image');
+  const ownId = addImage({ width: 2, height: 1, rgb: [255, 0, 0, 0, 0, 255] });
+  inst.setState({ imageId: ownId, name: 'own' });
+  assert.equal(sent.at(-1).width, 2, 'an own picture');
+  inst.setState({ imageId: null, name: '' });
+  assert.equal(sent.at(-1).width, STOCK_SIZE, 'back to the stock image');
+  inst.destroy();
+  assert.deepEqual(exportSamples({ modules: [{ type: 'IMAGESAMPLER', state: def.defaultState() }] }), {}, 'the stock image is not saved');
 }
 
 // ---- image pool: saved with the project ----
