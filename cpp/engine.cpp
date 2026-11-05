@@ -29,7 +29,7 @@ using namespace ms;
 enum Kind { KIND_OSC = 1, KIND_FILTER = 2, KIND_REVERB = 3, KIND_WAVESHAPER = 4, KIND_BUS = 5, KIND_AMP = 6, KIND_OUT = 7, KIND_DCBLOCK = 8, KIND_EQ = 9, KIND_DELAY = 10, KIND_ECHO = 11, KIND_MODULATOR = 12, KIND_OPERATOR = 13, KIND_IMAGESAMPLER = 14, KIND_DISTORTION = 15, KIND_VIBRATO = 16, KIND_SAMPLER = 17, KIND_WAVETABLE = 18 };
 
 // Bumped when the API changes; src/dsp/wasm.js refuses other versions.
-EXPORT(ms_version) int ms_version() { return 16; }
+EXPORT(ms_version) int ms_version() { return 17; }
 
 EXPORT(ms_param_count) int ms_param_count(int kind) {
   switch (kind) {

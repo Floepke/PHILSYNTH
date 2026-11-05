@@ -49,18 +49,23 @@ struct ImagePyramid {
 struct ImageSampler : Osc {
   enum { POLY, SCAN_TYPE, X, Y, LENGTH, ROTATION, SPEED, OVAL_WIDTH, OVAL_HEIGHT, OVAL_ROTATION,
          RESOLUTION, RED_LEFT, GREEN_LEFT, BLUE_LEFT, RED_RIGHT, GREEN_RIGHT, BLUE_RIGHT,
-         IMG_ATTACK, IMG_DECAY, IMG_SUSTAIN, IMG_RELEASE, IMG_ATK_CURVE, IMG_DEC_CURVE, IMG_REL_CURVE, IMG_GAIN, PARAMS };
+         IMG_ATTACK, IMG_DECAY, IMG_SUSTAIN, IMG_RELEASE, IMG_ATK_CURVE, IMG_DEC_CURVE, IMG_REL_CURVE, IMG_GAIN,
+         TRI_X1, TRI_Y1, TRI_X2, TRI_Y2, TRI_X3, TRI_Y3, PARAMS };
+  enum { LINE, PROPELLOR, OVAL, TRIANGLE, RECTANGLE };
   static constexpr int RES_MAX = 1024, MAX_LEVELS = 16;
   struct Table {
     float buf[(2 * RES_MAX + 2 * MAX_LEVELS) * 3] = {};
     int off[MAX_LEVELS] = {}, len[MAX_LEVELS] = {}, count = 0;
   };
   double q[PARAMS] = {8, 0, 50, 50, 70, 0, 0.5, 60, 60, 0, 64,
-    100, 50, 0, 0, 50, 100, 0.005, 0.2, 1, 0.3, 0, 0, 0, 0.5};
+    100, 50, 0, 0, 50, 100, 0.005, 0.2, 1, 0.3, 0, 0, 0, 0.5, 50, 15, 15, 85, 85, 85};
   ImagePyramid* image = nullptr;
   Table tables[2];
   int current = 0, revision = 0;
-  double key[9] = {}, g[5] = {}, angle = 0, weights[6] = {};
+  double key[15] = {}, g[11] = {}, angle = 0, weights[6] = {};
+  // closed polygon of the Triangle / Rectangle (corners, cumulative edge lengths)
+  double px[5] = {}, py[5] = {}, cum[6] = {};
+  int corners = 0;
   bool built = false, wasActive = false, haveG = false, haveWeights = false;
 
   explicit ImageSampler(double sr) : Osc(sr, 1) {}
@@ -160,6 +165,30 @@ struct ImageSampler : Osc {
     t.count = l + 1;
   }
 
+  // polygon of `n` corners in px / py: cum + its perimeter
+  double setPolygon(int n) {
+    corners = n;
+    cum[0] = 0;
+    for (int i = 0; i < n; i++) {
+      const int j = (i + 1) % n;
+      cum[i + 1] = cum[i] + hypot(px[j] - px[i], py[j] - py[i]);
+    }
+    return cum[n];
+  }
+  // point at progress u (0..1) of the polygon, at an even speed (imagescan.js polyPath)
+  void polyAt(double u, double& x, double& y) const {
+    const double length = cum[corners];
+    if (!(length > 0)) { x = px[0]; y = py[0]; return; }
+    const double d = (u - floor(u)) * length;
+    int i = 0;
+    while (i < corners - 1 && cum[i + 1] <= d) i++;
+    const double seg = cum[i + 1] - cum[i];
+    const double f = seg > 0 ? (d - cum[i]) / seg : 0;
+    const int j = (i + 1) % corners;
+    x = px[i] + (px[j] - px[i]) * f;
+    y = py[i] + (py[j] - py[i]) * f;
+  }
+
   void build(int type, double cx, double cy, double len, double a, double b, int points, double span) {
     Table& t = tables[current];
     const double lv = mind(image->count - 1, maxd(0, log2(maxd(1, span / points))));
@@ -167,7 +196,11 @@ struct ImageSampler : Osc {
     double sum[3] = {}, out[3];
     for (int j = 0; j < points; j++) {
       const double u = (double)j / points;
-      if (type == 2) {
+      if (type == TRIANGLE || type == RECTANGLE) {
+        double x, y;
+        polyAt(u, x, y);
+        sample(lv, x, y, out);
+      } else if (type == OVAL) {
         const double lx = a * cos(2 * PI * u), ly = b * sin(2 * PI * u);
         sample(lv, cx + lx * dx + ly * dy, cy + lx * dy - ly * dx, out);
       } else {
@@ -198,13 +231,15 @@ struct ImageSampler : Osc {
     bool sounding = false;
     for (int i = 0; i < poly && !sounding; i++) sounding = voices[i].stage != 0;
     const int type = toInt32(q[SCAN_TYPE]);
-    const bool oval = type == 2, rest = !wasActive;
-    const double target[5] = {q[X], q[Y], q[LENGTH], q[OVAL_WIDTH], q[OVAL_HEIGHT]};
-    for (int i = 0; i < 5; i++) g[i] = glide(!rest && haveG ? g[i] : target[i], target[i], k);
+    const bool oval = type == OVAL, box = type == OVAL || type == RECTANGLE, tri = type == TRIANGLE;
+    const bool line = type == LINE || type == PROPELLOR, rest = !wasActive;
+    const double target[11] = {q[X], q[Y], q[LENGTH], q[OVAL_WIDTH], q[OVAL_HEIGHT],
+      q[TRI_X1], q[TRI_Y1], q[TRI_X2], q[TRI_Y2], q[TRI_X3], q[TRI_Y3]};
+    for (int i = 0; i < 11; i++) g[i] = glide(!rest && haveG ? g[i] : target[i], target[i], k);
     haveG = true;
-    const double rot = q[oval ? OVAL_ROTATION : ROTATION];
-    if (rest && type != 1) angle = wrap(rot);
-    if (type == 1) angle = wrap(angle + q[SPEED] * 360 / sr * n);
+    const double rot = q[box ? OVAL_ROTATION : ROTATION];
+    if (rest && type != PROPELLOR) angle = wrap(rot);
+    if (type == PROPELLOR) angle = wrap(angle + q[SPEED] * 360 / sr * n);
     else {
       const double d = wrap(rot - angle);
       angle = wrap(fabs(d) < 1e-6 ? angle + d : angle + d * k);
@@ -215,13 +250,25 @@ struct ImageSampler : Osc {
     const double a = percent(g[3]) * (w - 1) / 2, b = percent(g[4]) * (h - 1) / 2;
     const double resolution = q[RESOLUTION] == q[RESOLUTION] && q[RESOLUTION] ? q[RESOLUTION] : 64;
     const int points = (int)clampd(jsRound(resolution), 2, RES_MAX);
-    const double nk[9] = {(double)type, cx, cy, oval ? 0 : len, oval ? a : 0, oval ? b : 0, angle, (double)points, (double)revision};
+    double tx[3] = {}, ty[3] = {};
+    if (tri) for (int i = 0; i < 3; i++) { tx[i] = percent(g[5 + 2 * i]) * (w - 1); ty[i] = percent(g[6 + 2 * i]) * (h - 1); }
+    const double nk[15] = {(double)type, tri ? 0 : cx, tri ? 0 : cy, line ? len : 0, box ? a : 0, box ? b : 0, tri ? 0 : angle,
+      (double)points, (double)revision, tx[0], tx[1], tx[2], ty[0], ty[1], ty[2]};
     bool changed = !built, fade = false;
-    for (int i = 0; i < 9 && !changed; i++) changed = nk[i] != key[i];
+    for (int i = 0; i < 15 && !changed; i++) changed = nk[i] != key[i];
     if (changed) {
       fade = built && !rest;
       if (fade) current = 1 - current;
-      const double span = oval ? PI * (3 * (a + b) - sqrt(maxd(0, (3 * a + b) * (a + 3 * b)))) : len;
+      double span = oval ? PI * (3 * (a + b) - sqrt(maxd(0, (3 * a + b) * (a + 3 * b)))) : len;
+      if (tri) {
+        for (int i = 0; i < 3; i++) { px[i] = tx[i]; py[i] = ty[i]; }
+        span = setPolygon(3);
+      } else if (type == RECTANGLE) { // imagescan.js rectCorners
+        const double r = angle * PI / 180, c = cos(r), s = sin(r);
+        const double lx[5] = {a, a, -a, -a, a}, ly[5] = {0, b, b, -b, -b};
+        for (int i = 0; i < 5; i++) { px[i] = cx + lx[i] * c - ly[i] * s; py[i] = cy - (lx[i] * s + ly[i] * c); }
+        span = setPolygon(5);
+      }
       build(type, cx, cy, len, a, b, points, span);
       memcpy(key, nk, sizeof(key));
       built = true;

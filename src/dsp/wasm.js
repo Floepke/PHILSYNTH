@@ -14,7 +14,7 @@ import { curveTable, defaultCurve } from '../curve.js';
 import { imageCache } from './imagecache.js';
 import { BLOCK_SIZES, DEFAULT_FRAME, builtinTable } from '../modules/wavetable.dsp.js';
 
-export const WASM_VERSION = 16;
+export const WASM_VERSION = 17;
 
 // kind = Kind in cpp/engine.cpp; params in the order of the kernel's enum
 export const SPECS = {
@@ -45,6 +45,7 @@ export const SPECS = {
     'polyphony', 'scanType', 'x', 'y', 'length', 'rotation', 'speed', 'ovalWidth', 'ovalHeight', 'ovalRotation', 'resolution',
     'redLeft', 'greenLeft', 'blueLeft', 'redRight', 'greenRight', 'blueRight',
     'attack', 'decay', 'sustain', 'release', 'atkCurve', 'decCurve', 'relCurve', 'gain',
+    'triX1', 'triY1', 'triX2', 'triY2', 'triX3', 'triY3',
   ] },
 };
 

@@ -8,7 +8,10 @@
 //              = clockwise); one angle shared by all voices, so chords spin together
 //   Oval       once around an ellipse per cycle (Oval Width / Height, rotated by Oval Rotation): a
 //              closed path, so the waveform has no jump at the cycle wrap
-// X / Y / Length / Rotation / the oval's size glide per block while voices sound (no zipper noise when modulated).
+//   Triangle   once around the triangle of corners X1 / Y1, X2 / Y2, X3 / Y3 (closed, even speed)
+//   Rectangle  once around a rectangle (Width / Height / Rotation as the Oval; closed, even speed)
+// X / Y / Length / Rotation / the size / the corners glide per block while voices sound (no zipper
+// noise when modulated).
 // Resolution: the scanner is read at that many points (point j at progress j / points), once per
 // block and shared by every voice; the waveform is the straight lines between them (a wavetable).
 // Few points = a coarse, jumpy wave; many = every detail. Each point reads the image copy that
@@ -22,12 +25,12 @@
 // The image arrives from the main thread: { type: 'image', width, height, rgb } (rgb: Uint8Array
 // of width * height * 3) or rgb null (no image: silent). ADSR with curves as OSC (poly.dsp.js).
 import { PolyKernel, curveEnv, curveStart, curveRelease, curveBlock, curveTick } from './poly.dsp.js';
-import { SCAN, scanCenter, ovalAxes, ovalPerimeter, unit, colorWeights, wrapDeg, resPoints, RES_MAX, RES_DEFAULT } from './imagescan.js';
+import { SCAN, TRI, sized, scanCenter, ovalAxes, ovalPerimeter, rectCorners, triCorners, polyPath, unit, colorWeights, wrapDeg, resPoints, RES_MAX, RES_DEFAULT } from './imagescan.js';
 import { imageCache } from '../dsp/imagecache.js';
 
 const SMOOTH_S = 0.01;
 const MAX_TLEVELS = 16;
-const KEY_LEN = 9;
+const KEY_LEN = 15;
 
 // A wavetable with halved copies: level l has len[l] points at off[l] (r, g, b interleaved).
 function table() {
@@ -120,7 +123,7 @@ const images = imageCache(pyramid);
 export default class ImageSamplerKernel extends PolyKernel {
   constructor() {
     super({ atkCurve: 0, decCurve: 0, relCurve: 0, scanType: SCAN.LINE, x: 50, y: 50, length: 70, rotation: 0, speed: 0.5,
-      ovalWidth: 60, ovalHeight: 60, ovalRotation: 0, resolution: RES_DEFAULT,
+      ovalWidth: 60, ovalHeight: 60, ovalRotation: 0, triX1: 50, triY1: 15, triX2: 15, triY2: 85, triX3: 85, triY3: 85, resolution: RES_DEFAULT,
       redLeft: 100, greenLeft: 50, blueLeft: 0, redRight: 0, greenRight: 50, blueRight: 100 });
     this.levels = null;
     this.imageEntry = null;
@@ -214,7 +217,8 @@ export default class ImageSamplerKernel extends PolyKernel {
   }
 
   // Reads the scanner at `points` points into this.cur (level 0, DC removed) + its halved copies.
-  // g: { type, cx, cy, len, a, b, deg } (pixels, degrees), span: pixels per cycle
+  // g: { type, cx, cy, len, a, b, deg, path } (pixels, degrees; path: polyPath of a Triangle /
+  // Rectangle), span: pixels per cycle
   build(g, points, span) {
     const T = this.cur;
     const b = T.buf;
@@ -226,9 +230,13 @@ export default class ImageSamplerKernel extends PolyKernel {
     const dy = -Math.sin(r);
     const o = this.o;
     let s0 = 0; let s1 = 0; let s2 = 0;
+    const q = [0, 0];
     for (let j = 0; j < points; j++) {
       const u = j / points;
-      if (g.type === SCAN.OVAL) { // local (a cos, b sin), rotated; y down on the image
+      if (g.path) {
+        g.path.at(u, q);
+        this.sample(lv, q[0], q[1]);
+      } else if (g.type === SCAN.OVAL) { // local (a cos, b sin), rotated; y down on the image
         const lx = g.a * Math.cos(2 * Math.PI * u);
         const ly = g.b * Math.sin(2 * Math.PI * u);
         this.sample(lv, g.cx + lx * dx + ly * dy, g.cy + lx * dy - ly * dx);
@@ -270,12 +278,14 @@ export default class ImageSamplerKernel extends PolyKernel {
     // turns on while silent too
     const type = p.scanType | 0;
     const oval = type === SCAN.OVAL;
+    const box = sized(type); // Oval / Rectangle: Width, Height, Rotation
     const rest = !this.wasActive;
-    const g0 = !rest && this.g ? this.g : { x: p.x, y: p.y, length: p.length, ow: p.ovalWidth, oh: p.ovalHeight };
+    const g0 = !rest && this.g ? this.g : { x: p.x, y: p.y, length: p.length, ow: p.ovalWidth, oh: p.ovalHeight, tri: TRI.map((id) => p[id]) };
     const glide = (a, b) => (Math.abs(b - a) < 1e-6 ? b : a + (b - a) * k);
-    const g1 = { x: glide(g0.x, p.x), y: glide(g0.y, p.y), length: glide(g0.length, p.length), ow: glide(g0.ow, p.ovalWidth), oh: glide(g0.oh, p.ovalHeight) };
+    const g1 = { x: glide(g0.x, p.x), y: glide(g0.y, p.y), length: glide(g0.length, p.length), ow: glide(g0.ow, p.ovalWidth), oh: glide(g0.oh, p.ovalHeight),
+      tri: TRI.map((id, i) => glide(g0.tri[i], p[id])) };
     this.g = g1;
-    const rotT = Number(oval ? p.ovalRotation : p.rotation) || 0;
+    const rotT = Number(box ? p.ovalRotation : p.rotation) || 0;
     if (rest && type !== SCAN.PROPELLOR) this.angle = wrapDeg(rotT);
     const a0 = this.angle;
     if (type === SCAN.PROPELLOR) this.angle = wrapDeg(a0 + (((Number(p.speed) || 0) * 360) / sampleRate) * n);
@@ -292,17 +302,23 @@ export default class ImageSamplerKernel extends PolyKernel {
     const c1 = scanCenter(g1.x, g1.y, g1.length, W, H);
     const e1 = ovalAxes(g1.ow, g1.oh, W, H);
     const points = resPoints(p.resolution);
+    const tri = type === SCAN.TRIANGLE ? triCorners(Object.fromEntries(TRI.map((id, i) => [id, g1.tri[i]])), W, H) : null;
     const nk = this.nextKey;
-    nk[0] = type; nk[1] = c1.cx; nk[2] = c1.cy; nk[3] = oval ? 0 : c1.len; nk[4] = oval ? e1.a : 0; nk[5] = oval ? e1.b : 0;
-    nk[6] = this.angle; nk[7] = points; nk[8] = this.image;
+    const line = type <= SCAN.PROPELLOR;
+    nk[0] = type; nk[1] = tri ? 0 : c1.cx; nk[2] = tri ? 0 : c1.cy; nk[3] = line ? c1.len : 0; nk[4] = box ? e1.a : 0; nk[5] = box ? e1.b : 0;
+    nk[6] = tri ? 0 : this.angle; nk[7] = points; nk[8] = this.image;
+    for (let i = 0; i < 3; i++) { nk[9 + i] = tri ? tri.xs[i] : 0; nk[12 + i] = tri ? tri.ys[i] : 0; }
     let changed = !this.built;
     for (let i = 0; i < KEY_LEN && !changed; i++) changed = nk[i] !== this.key[i];
     let fade = false;
     if (changed) {
       fade = this.built && !rest;
       if (fade) { const t = this.prev; this.prev = this.cur; this.cur = t; }
-      const span = oval ? ovalPerimeter(e1.a, e1.b) : c1.len;
-      this.build({ type, cx: c1.cx, cy: c1.cy, len: c1.len, a: e1.a, b: e1.b, deg: this.angle }, points, span);
+      let path = null;
+      if (tri) path = polyPath(tri.xs, tri.ys);
+      else if (type === SCAN.RECTANGLE) { const r = rectCorners(c1.cx, c1.cy, e1.a, e1.b, this.angle); path = polyPath(r.xs, r.ys); }
+      const span = path ? path.length : oval ? ovalPerimeter(e1.a, e1.b) : c1.len;
+      this.build({ type, cx: c1.cx, cy: c1.cy, len: c1.len, a: e1.a, b: e1.b, deg: this.angle, path }, points, span);
       this.key.set(nk);
       this.built = true;
     }

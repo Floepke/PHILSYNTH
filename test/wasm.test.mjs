@@ -419,7 +419,7 @@ function imageMessage(width, height, seed = 123) {
   return { type: 'image', width, height, rgb: Uint8Array.from({ length: width * height * 3 }, () => Math.floor((random() + 1) * 127.5)) };
 }
 for (const [width, height] of [[1, 1], [3, 5], [256, 256]]) {
-  for (const scanType of [0, 1, 2]) {
+  for (const scanType of [0, 1, 2, 3, 4]) {
     for (const resolution of [2, 3, 64, 1024, 2048]) {
       compare('imagesampler', {
         blocks: 100, tol: 2e-6, inHeap: true,
@@ -430,11 +430,12 @@ for (const [width, height] of [[1, 1], [3, 5], [256, 256]]) {
           [6, param('x', 21)], [7, param('y', 80)], [8, param('length', 20)],
           [9, param('rotation', 179)], [10, param('speed', -3.1)],
           [11, param('ovalWidth', 30)], [12, param('ovalHeight', 90)], [13, param('ovalRotation', -175)],
+          [13, param('triX1', 3)], [13, param('triY3', 97.5)], [14, param('triX2', 60)],
           [14, param('redLeft', -80)], [15, param('blueRight', 30)], [16, param('greenRight', -50)],
           [17, { type: 'noteMod', notes: [[4, 70.34, 0.3]] }],
           [18, param('atkCurve', -75)], [19, param('decCurve', 100)], [20, param('sustain', 0.2)],
           [22, param('relCurve', -100)], [23, param('release', 0.01)], [24, { type: 'noteOff', id: 4 }],
-          [30, param('scanType', (scanType + 1) % 3)], [35, param('resolution', 7)],
+          [30, param('scanType', (scanType + 1) % 5)], [35, param('resolution', 7)],
           [40, imageMessage(7, 3, 321)], [45, param('polyphony', 1)], [50, 'panic'],
           [55, noteOn(5, 65.5)], [60, { type: 'allOff' }], [65, noteOn(6, 48)],
           [70, { type: 'image', width: 0, height: 0, rgb: null }],

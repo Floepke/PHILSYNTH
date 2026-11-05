@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { loadKernel } from './kernelproc.mjs';
 import def from '../src/modules/imagesampler.js';
 import { pyramid, tableLevels } from '../src/modules/imagesampler.dsp.js';
-import { SCAN, SCAN_TYPES, scanCenter, scanEnds, unit, colorWeights, ovalAxes, ovalPoint, ovalPerimeter, resPoints } from '../src/modules/imagescan.js';
-import { fitImage, dragEnd, dragCenter, dragOval } from '../src/modules/imageview.js';
+import { SCAN, SCAN_TYPES, TRI, scanCenter, scanEnds, unit, colorWeights, ovalAxes, ovalPoint, ovalPerimeter, rectCorners, triCorners, polyPath, resPoints } from '../src/modules/imagescan.js';
+import { fitImage, dragEnd, dragCenter, dragOval, dragCorner, moveTriangle } from '../src/modules/imageview.js';
 import { curveEnv, curveStart, curveTick, curveRelease } from '../src/modules/poly.dsp.js';
 import { attackLevel, decayLevel, releaseLevel } from '../src/modules/adsrcurve.js';
 import { addImage, getImage, getSample, exportSamples, importSamples, withSamples, MAX_IMAGE } from '../src/samples.js';
@@ -18,11 +18,12 @@ const Proc = await loadKernel('imagesampler.dsp.js', SR);
 
 // ---- controllers: scanner, colour mix, envelope, gain last ----
 assert.deepEqual(def.params.map((p) => p.id), [
-  'polyphony', 'scanType', 'x', 'y', 'length', 'rotation', 'speed', 'ovalWidth', 'ovalHeight', 'ovalRotation', 'resolution',
+  'polyphony', 'scanType', 'x', 'y', 'length', 'rotation', 'speed', 'ovalWidth', 'ovalHeight', 'ovalRotation',
+  'triX1', 'triY1', 'triX2', 'triY2', 'triX3', 'triY3', 'resolution',
   'redLeft', 'greenLeft', 'blueLeft', 'redRight', 'greenRight', 'blueRight',
   'attack', 'decay', 'sustain', 'release', 'atkCurve', 'decCurve', 'relCurve', 'gain',
 ]);
-assert.deepEqual(SCAN_TYPES, ['Line', 'Propellor', 'Oval']);
+assert.deepEqual(SCAN_TYPES, ['Line', 'Propellor', 'Oval', 'Triangle', 'Rectangle']);
 const P = Object.fromEntries(def.params.map((p) => [p.id, p]));
 assert.equal(P.polyphony.max, 32);
 assert.ok(def.acceptsMidi && def.hasOutput && !def.hasInput);
@@ -31,8 +32,12 @@ assert.ok(shown(0).includes('rotation') && !shown(0).includes('speed'), 'Line: R
 assert.ok(shown(1).includes('speed') && !shown(1).includes('rotation'), 'Propellor: Propellor Speed');
 assert.deepEqual(shown(2).slice(2, 7), ['x', 'y', 'ovalWidth', 'ovalHeight', 'ovalRotation'], 'Oval: Width / Height / Rotation, no Length');
 assert.ok(shown(0).includes('length') && !shown(0).includes('ovalWidth'), 'Line: no oval controllers');
+assert.deepEqual(shown(SCAN.RECTANGLE).slice(2, 7), ['x', 'y', 'ovalWidth', 'ovalHeight', 'ovalRotation'], 'Rectangle: X / Y / Width / Height / Rotation');
+assert.deepEqual(shown(SCAN.TRIANGLE).slice(2, 8), TRI, 'Triangle: its 6 corners only (no X / Y / Length)');
+assert.deepEqual(TRI.map((id) => P[id].label), ['X1', 'Y1', 'X2', 'Y2', 'X3', 'Y3']);
+assert.ok(!shown(SCAN.OVAL).some((id) => TRI.includes(id)), 'Oval: no corners');
 const typed = def.params.map((p, i) => (p.visible ? i : -1)).filter((i) => i >= 0);
-assert.deepEqual(typed, [4, 5, 6, 7, 8, 9], 'scanner type controllers grouped right after Scanner Type / X / Y');
+assert.deepEqual(typed, [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], 'scanner type controllers grouped right after Scanner Type');
 assert.deepEqual(def.normalizeState({ imageId: 3 }), { imageId: null, name: '' });
 
 // ---- geometry ----
@@ -122,6 +127,34 @@ assert.deepEqual(def.normalizeState({ imageId: 3 }), { imageId: null, name: '' }
   close(dragOval(v, img, 'height', 40, 25).ovalHeight, 40, 1e-9, 'height');
   close(dragOval(v, img, 'rotation', 60, 15).ovalRotation, 45, 1e-9, 'rotation knob');
   close(dragOval(v, img, 'rotation', 40, 35, true).ovalRotation, 45, 1e-9, 'flipped knob (beyond the far end)');
+}
+
+// ---- rectangle / triangle geometry + editor helpers ----
+{
+  // rectangle: from the middle of the Width side, counterclockwise on screen (up first)
+  let r = rectCorners(50, 25, 20, 10, 0);
+  assert.deepEqual([r.xs, r.ys], [[70, 70, 30, 30, 70], [25, 15, 15, 35, 35]]);
+  r = rectCorners(50, 25, 20, 10, 90); // rotated: the width side points up
+  close(r.xs[0], 50, 1e-9, 'rotated start x'); close(r.ys[0], 5, 1e-9, 'rotated start y');
+  const path = polyPath([0, 10, 10, 0], [0, 0, 10, 10]);
+  close(path.length, 40, 1e-9, 'square perimeter');
+  const q = [0, 0];
+  path.at(0.125, q); assert.deepEqual(q, [5, 0], 'even speed: an eighth = half the first side');
+  path.at(0.5, q); assert.deepEqual(q, [10, 10]);
+  path.at(-0.125, q); assert.deepEqual(q, [0, 5], 'wraps (negative progress)');
+  polyPath([3, 3, 3], [4, 4, 4]).at(0.7, q); assert.deepEqual(q, [3, 4], 'a point-sized triangle');
+  const t = triCorners({ triX1: 0, triY1: 0, triX2: 100, triY2: 50, triX3: 50, triY3: 100 }, 101, 51);
+  assert.deepEqual([t.xs, t.ys], [[0, 100, 50], [0, 25, 50]]);
+  const img = { width: 101, height: 51 };
+  assert.deepEqual(dragCorner(img, 1, 50, 25), { triX2: 50, triY2: 50 });
+  const tri = { triX1: 50, triY1: 15, triX2: 15, triY2: 85, triX3: 85, triY3: 85 };
+  const moved = moveTriangle(tri, img, 10, -5);
+  close(moved.triX1, 60, 1e-9, 'moved x'); close(moved.triY1, 5, 1e-9, 'moved y');
+  const edge = moveTriangle(tri, img, 100, 100); // stops at the right / bottom edges, the shape kept
+  close(edge.triX3, 100, 1e-9, 'stopped at the right'); close(edge.triY2, 100, 1e-9, 'stopped at the bottom');
+  close(edge.triX3 - edge.triX2, 70, 1e-9, 'shape kept');
+  // the Rectangle's handles are the Oval's (same controllers)
+  close(dragOval({ x: 50, y: 50, ovalRotation: 0, scanType: SCAN.RECTANGLE }, img, 'width', 75, 25).ovalWidth, 50, 1e-9, 'rectangle width');
 }
 
 // ---- kernel ----
@@ -277,6 +310,21 @@ const pitch = (hz) => 69 + 12 * Math.log2(hz / 440);
   // rotated 90° with no height: the oval is a vertical line on one column of the ramp -> quiet
   const flat = run({ scanType: SCAN.OVAL, ovalWidth: 20, ovalHeight: 0, ovalRotation: 90 });
   assert.ok(flat.pp < oval.pp * 0.1, `oval along a constant column: quiet (${flat.pp})`);
+  // Rectangle and Triangle: closed too, one turn per cycle
+  const rect = run({ scanType: SCAN.RECTANGLE, ovalWidth: 90, ovalHeight: 60 });
+  assert.ok(rect.pp > 0.2, `rectangle sounds (${rect.pp})`);
+  assert.ok(rect.step < rect.pp * 0.06, `rectangle: no jump at the wrap (${rect.step} of ${rect.pp})`);
+  close(rect.lag, 256, 2, 'rectangle: one turn per cycle');
+  const tri = run({ scanType: SCAN.TRIANGLE });
+  assert.ok(tri.pp > 0.2, `triangle sounds (${tri.pp})`);
+  assert.ok(tri.step < tri.pp * 0.06, `triangle: no jump at the wrap (${tri.step} of ${tri.pp})`);
+  close(tri.lag, 256, 2, 'triangle: one turn per cycle');
+  // a rectangle turned 90° with no height is a vertical line on one column -> quiet
+  const thin = run({ scanType: SCAN.RECTANGLE, ovalWidth: 20, ovalHeight: 0, ovalRotation: 90 });
+  assert.ok(thin.pp < rect.pp * 0.1, `rectangle along a constant column: quiet (${thin.pp})`);
+  // all three corners in one column: quiet (the ramp is constant vertically)
+  const col = run({ scanType: SCAN.TRIANGLE, triX1: 40, triX2: 40, triX3: 40, triY1: 0, triY2: 50, triY3: 100 });
+  assert.ok(col.pp < tri.pp * 0.1, `triangle in one column: quiet (${col.pp})`);
 }
 
 // ---- Resolution: points along the scanner, straight lines between them ----

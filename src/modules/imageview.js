@@ -6,12 +6,15 @@
 //                                                   grab between centre and end scales the length,
 //                                                   so ends outside the photo can be reached too
 //   double-click the centre / an end                reset X, Y / Length, Rotation
-// The Oval has three handles instead: the Width handle (on the end of the width axis, where every
-// cycle starts and ends), the Height handle (on the height axis) and the rotation knob (the small
-// ring on a stalk beyond the Width handle: drag it around the centre to turn the oval); a
-// double-click on one resets its controller.
-// The arrow marks where every cycle ends (Line / Propellor: it starts at the other end; Oval: the
-// direction the scan runs round). Small dots mark the Resolution's points (up to POINT_DOTS, when
+// The Oval and the Rectangle have three handles instead: the Width handle (on the end of the
+// width axis, where every cycle starts and ends), the Height handle (on the height axis) and the
+// rotation knob (the small ring on a stalk beyond the Width handle: drag it around the centre to
+// turn the shape); a double-click on one resets its controller.
+// The Triangle has a numbered handle on each corner (X1 / Y1 … X3 / Y3) and its centre dot (the
+// centroid) moves all three corners together; a click elsewhere moves the triangle there. A
+// double-click resets a corner, on the centre all three.
+// The arrow marks where every cycle ends (Line / Propellor: it starts at the other end; Oval,
+// Rectangle, Triangle: the direction the scan runs round). Small dots mark the Resolution's points (up to POINT_DOTS, when
 // they are apart enough to see). The Propellor spins on the
 // photo at Propellor Speed (this picture's own clock: same speed, not the voices' exact angle).
 // Modulated controllers (LFO, ADSR, automation) move the scanner live. Dropping a picture on the
@@ -20,7 +23,7 @@ import { addImage, getImage, onSample, MAX_IMAGE } from '../samples.js';
 import { createAdsrView, stepValue } from './adsrview.js';
 import { hasMediaDialog, openMediaFile } from '../filedialog.js';
 import { errorText } from '../filepicker.js';
-import { SCAN, scanCenter, scanEnds, angleTo, diagonal, ovalAxes, ovalPoint, wrapDeg, resPoints } from './imagescan.js';
+import { SCAN, TRI, sized, scanCenter, scanEnds, angleTo, diagonal, ovalAxes, ovalPoint, rectCorners, triCorners, polyPath, wrapDeg, resPoints } from './imagescan.js';
 
 const POINT_DOTS = 128;
 
@@ -120,6 +123,24 @@ export function dragCenter(img, px, py) {
   return { x: pct(px, img.width), y: pct(py, img.height) };
 }
 
+// Triangle: corner k (0..2) to image pixel (px, py) -> { triXk, triYk }
+export function dragCorner(img, k, px, py) {
+  const { x, y } = dragCenter(img, px, py);
+  return { [TRI[2 * k]]: x, [TRI[2 * k + 1]]: y };
+}
+
+// Triangle: all corners of `start` (controller values) moved by (dx, dy) image px, stopped at the
+// image edges so the shape stays the same -> { triX1 … triY3 }
+export function moveTriangle(start, img, dx, dy) {
+  const W = Math.max(1, img.width - 1);
+  const H = Math.max(1, img.height - 1);
+  const xs = [0, 2, 4].map((i) => Number(start[TRI[i]]) || 0);
+  const ys = [1, 3, 5].map((i) => Number(start[TRI[i]]) || 0);
+  const ddx = Math.min(100 - Math.max(...xs), Math.max(-Math.min(...xs), (dx / W) * 100));
+  const ddy = Math.min(100 - Math.max(...ys), Math.max(-Math.min(...ys), (dy / H) * 100));
+  return Object.fromEntries(TRI.map((id, i) => [id, (i % 2 ? ys[i >> 1] + ddy : xs[i >> 1] + ddx)]));
+}
+
 export function createImageView(entry, api) {
   const el = document.createElement('div');
   el.className = 'sample-view image-view';
@@ -170,10 +191,31 @@ export function createImageView(entry, api) {
     const c = scanCenter(values.x, values.y, values.length, img.width, img.height);
     const e = scanEnds(c, angle());
     const G = { fit, c: fit.toCanvas(c.cx, c.cy), a: fit.toCanvas(e.x0, e.y0), b: fit.toCanvas(e.x1, e.y1), r: (c.len / 2) * fit.sc };
-    if ((values.scanType | 0) === SCAN.OVAL) {
+    const type = values.scanType | 0;
+    if (type === SCAN.TRIANGLE) {
+      const t = triCorners(values, img.width, img.height);
+      const path = polyPath(t.xs, t.ys);
+      const q = [0, 0];
+      const at = (u) => { path.at(u, q); return fit.toCanvas(q[0], q[1]); };
+      const corners = [0, 1, 2].map((i) => fit.toCanvas(t.xs[i], t.ys[i]));
+      G.c = fit.toCanvas((t.xs[0] + t.xs[1] + t.xs[2]) / 3, (t.ys[0] + t.ys[1] + t.ys[2]) / 3);
+      G.tri = { corners, at, span: path.length * fit.sc };
+      return G;
+    }
+    if (sized(type)) {
       const { a, b } = ovalAxes(values.ovalWidth, values.ovalHeight, img.width, img.height);
       const deg = Number(values.ovalRotation) || 0;
-      const at = (u) => { const q = ovalPoint(c.cx, c.cy, a, b, deg, u); return fit.toCanvas(q.x, q.y); };
+      let at = (u) => { const q = ovalPoint(c.cx, c.cy, a, b, deg, u); return fit.toCanvas(q.x, q.y); };
+      let span = Math.PI * (a + b) * fit.sc;
+      let rect = null;
+      if (type === SCAN.RECTANGLE) {
+        const r = rectCorners(c.cx, c.cy, a, b, deg);
+        const path = polyPath(r.xs, r.ys);
+        const q = [0, 0];
+        at = (u) => { path.at(u, q); return fit.toCanvas(q[0], q[1]); };
+        span = path.length * fit.sc;
+        rect = [1, 2, 3, 4].map((i) => fit.toCanvas(r.xs[i], r.ys[i]));
+      }
       const rad = (deg * Math.PI) / 180;
       const ux = Math.cos(rad);
       const uy = -Math.sin(rad); // the width axis on the canvas (the height axis: (uy, -ux))
@@ -206,7 +248,7 @@ export function createImageView(entry, api) {
       const hs = B <= up || up >= dn ? 1 : -1;
       const hd = Math.min(B, hs > 0 ? up : dn);
       const fh = hd > 0.5 ? B / hd : 1;
-      G.oval = { a: A, b: B, deg, at, wh: along(wd, ux, uy), hh: along(hs * hd, uy, -ux), knob, flip: sgn < 0, stalk, fw, fh };
+      G.oval = { a: A, b: B, deg, at, span, rect, wh: along(wd, ux, uy), hh: along(hs * hd, uy, -ux), knob, flip: sgn < 0, stalk, fw, fh };
     }
     return G;
   };
@@ -229,6 +271,7 @@ export function createImageView(entry, api) {
     g.drawImage(pictureOf(entry.state.imageId, img), G.fit.ox, G.fit.oy, img.width * G.fit.sc, img.height * G.fit.sc);
     const prop = (values.scanType | 0) === SCAN.PROPELLOR;
     if (G.oval) { drawOval(G); return; }
+    if (G.tri) { drawTri(G); return; }
     if (prop) { // the propellor's sweep
       g.strokeStyle = 'rgba(255, 255, 255, 0.35)';
       g.setLineDash([3, 4]);
@@ -310,9 +353,60 @@ export function createImageView(entry, api) {
     g.fill();
     g.stroke();
   };
+  // a closed polygon (canvas px) as a white ring with a dark edge
+  const outline = (pts, width, color) => {
+    g.strokeStyle = color;
+    g.lineWidth = width;
+    g.lineJoin = 'round';
+    g.beginPath();
+    pts.forEach((q, i) => (i ? g.lineTo(q.x, q.y) : g.moveTo(q.x, q.y)));
+    g.closePath();
+    g.stroke();
+  };
+  // arrow on a closed path at(u), arriving at its start (where every cycle ends)
+  const loopArrow = (at) => {
+    const p = at(-0.03);
+    const e = at(0);
+    const dx = e.x - p.x;
+    const dy = e.y - p.y;
+    const L = Math.hypot(dx, dy);
+    if (L <= 2) return;
+    const ux = dx / L;
+    const uy = dy / L;
+    const t = at(-0.015);
+    g.fillStyle = '#fff';
+    g.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(t.x + ux * 5, t.y + uy * 5);
+    g.lineTo(t.x - ux * 5 - uy * 5, t.y - uy * 5 + ux * 5);
+    g.lineTo(t.x - ux * 5 + uy * 5, t.y - uy * 5 - ux * 5);
+    g.closePath();
+    g.fill();
+    g.stroke();
+  };
+  const drawTri = (G) => {
+    const T = G.tri;
+    outline(T.corners, 4, 'rgba(0, 0, 0, 0.6)');
+    outline(T.corners, 2, '#fff');
+    points(T.at, T.span);
+    loopArrow(T.at);
+    g.font = 'bold 9px sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    T.corners.forEach((q, i) => {
+      dot(q, 6, '#fff', 'rgba(0, 0, 0, 0.7)', 1);
+      g.fillStyle = '#000';
+      g.fillText(String(i + 1), q.x, q.y + 0.5);
+    });
+    dot(G.c, 5, api.color, '#fff', 2);
+    const v = (id) => (+values[id]).toFixed(1);
+    cv.setAttribute('aria-label', `Image ${entry.state.name}, triangle scanner with corners ${v('triX1')} % ${v('triY1')} %, ${v('triX2')} % ${v('triY2')} %, ${v('triX3')} % ${v('triY3')} %`);
+  };
   const drawOval = (G) => {
     const O = G.oval;
     const ring = (width, color) => {
+      if (O.rect) { outline(O.rect, width, color); return; }
       g.strokeStyle = color;
       g.lineWidth = width;
       g.beginPath();
@@ -330,34 +424,14 @@ export function createImageView(entry, api) {
     g.setLineDash([]);
     ring(4, 'rgba(0, 0, 0, 0.6)');
     ring(2, '#fff');
-    points(O.at, Math.PI * (O.a + O.b));
+    points(O.at, O.span);
     g.strokeStyle = 'rgba(0, 0, 0, 0.6)';
     g.lineWidth = 3;
     g.beginPath(); g.moveTo(O.stalk.x, O.stalk.y); g.lineTo(O.knob.x, O.knob.y); g.stroke();
     g.strokeStyle = '#fff';
     g.lineWidth = 1;
     g.beginPath(); g.moveTo(O.stalk.x, O.stalk.y); g.lineTo(O.knob.x, O.knob.y); g.stroke();
-    // arrow: the scan's direction, arriving at the Width handle (where every cycle ends)
-    const p = O.at(-0.03);
-    const e = O.at(0);
-    const dx = e.x - p.x;
-    const dy = e.y - p.y;
-    const L = Math.hypot(dx, dy);
-    if (L > 2) {
-      const ux = dx / L;
-      const uy = dy / L;
-      const t = O.at(-0.015);
-      g.fillStyle = '#fff';
-      g.strokeStyle = 'rgba(0, 0, 0, 0.6)';
-      g.lineWidth = 1;
-      g.beginPath();
-      g.moveTo(t.x + ux * 5, t.y + uy * 5);
-      g.lineTo(t.x - ux * 5 - uy * 5, t.y - uy * 5 + ux * 5);
-      g.lineTo(t.x - ux * 5 + uy * 5, t.y - uy * 5 - ux * 5);
-      g.closePath();
-      g.fill();
-      g.stroke();
-    }
+    loopArrow(O.at); // the scan's direction, arriving at the Width handle (where every cycle ends)
     // handles: width / height (squares read as size), rotation (a ring), centre
     const square = (q) => {
       g.fillStyle = '#fff';
@@ -370,7 +444,7 @@ export function createImageView(entry, api) {
     square(O.wh);
     dot(O.knob, 4.5, 'rgba(0, 0, 0, 0.35)', '#fff', 2);
     dot(G.c, 5, api.color, '#fff', 2);
-    cv.setAttribute('aria-label', `Image ${entry.state.name}, oval scanner at ${values.x.toFixed(1)} %, ${values.y.toFixed(1)} %, width ${(+values.ovalWidth).toFixed(1)} %, height ${(+values.ovalHeight).toFixed(1)} %, rotation ${(+O.deg).toFixed(1)}°`);
+    cv.setAttribute('aria-label', `Image ${entry.state.name}, ${O.rect ? 'rectangle' : 'oval'} scanner at ${values.x.toFixed(1)} %, ${values.y.toFixed(1)} %, width ${(+values.ovalWidth).toFixed(1)} %, height ${(+values.ovalHeight).toFixed(1)} %, rotation ${(+O.deg).toFixed(1)}°`);
   };
 
   // the propellor turns on the picture while the panel shows it
@@ -421,6 +495,11 @@ export function createImageView(entry, api) {
   // 'center', 'start' / 'end' (+ f: the grab's share of the half length, 1 = on the end), or null
   const hitAt = (p, G) => {
     const d = (q) => Math.hypot(p.x - q.x, p.y - q.y);
+    if (G.tri) {
+      const hits = [...G.tri.corners.map((q, k) => ({ kind: 'corner', k, d: d(q) })), { kind: 'center', d: d(G.c) }]
+        .filter((h) => h.d <= HIT).sort((x, y) => x.d - y.d);
+      return hits[0] ?? null;
+    }
     if (G.oval) { // the nearest handle within reach
       const hits = [['rotation', G.oval.knob], ['width', G.oval.wh], ['height', G.oval.hh], ['center', G.c]]
         .map(([kind, q]) => ({ kind, d: d(q) })).filter((h) => h.d <= HIT).sort((x, y) => x.d - y.d);
@@ -443,7 +522,7 @@ export function createImageView(entry, api) {
     const img = image();
     const hit = img ? hitAt(pointer(e), geometry(cv.clientWidth, cv.clientHeight, img)) : null;
     cv.style.cursor = !img ? 'default' : hit?.kind === 'center' ? 'move' : hit ? 'grab' : 'crosshair';
-    cv.title = hit?.kind === 'rotation' ? 'Rotation' : hit?.kind === 'width' ? 'Width' : hit?.kind === 'height' ? 'Height' : '';
+    cv.title = hit?.kind === 'rotation' ? 'Rotation' : hit?.kind === 'width' ? 'Width' : hit?.kind === 'height' ? 'Height' : hit?.kind === 'corner' ? `X${hit.k + 1} / Y${hit.k + 1}` : '';
   });
   cv.addEventListener('pointerdown', (e) => {
     const img = image();
@@ -453,12 +532,20 @@ export function createImageView(entry, api) {
     const p0 = pointer(e);
     const hit = hitAt(p0, G);
     // grabbing the centre keeps its offset; a click elsewhere puts the centre there
-    const held = hit?.kind === 'center' ? G.c : G.oval && hit ? { width: G.oval.wh, height: G.oval.hh, rotation: G.oval.knob }[hit.kind] : null;
+    const held = hit?.kind === 'center' ? G.c : hit?.kind === 'corner' ? G.tri.corners[hit.k] : G.oval && hit ? { width: G.oval.wh, height: G.oval.hh, rotation: G.oval.knob }[hit.kind] : null;
     const off = held ? { x: held.x - p0.x, y: held.y - p0.y } : { x: 0, y: 0 };
     const f = Math.max(0.15, hit?.f ?? 1); // not too close to the centre (the length would explode)
     api.beginEdit?.();
+    const start = { ...values };
     const apply = (p) => {
-      if (G.oval && hit && hit.kind !== 'center') {
+      if (G.tri) { // a corner, or the whole triangle (its centre follows the pointer)
+        const at = G.fit.toImage(p.x + off.x, p.y + off.y);
+        if (hit?.kind === 'corner') set(dragCorner(img, hit.k, at.px, at.py));
+        else {
+          const c0 = G.fit.toImage(G.c.x, G.c.y);
+          set(moveTriangle(start, img, at.px - c0.px, at.py - c0.py));
+        }
+      } else if (G.oval && hit && hit.kind !== 'center') {
         const f = { width: G.oval.fw, height: G.oval.fh }[hit.kind] ?? 1; // a handle slid inwards
         const at = G.fit.toImage(G.c.x + (p.x + off.x - G.c.x) * f, G.c.y + (p.y + off.y - G.c.y) * f);
         set(dragOval(values, img, hit.kind, at.px, at.py, G.oval.flip));
@@ -488,7 +575,9 @@ export function createImageView(entry, api) {
     if (!img) return;
     const hit = hitAt(pointer(e), geometry(cv.clientWidth, cv.clientHeight, img));
     const oval = { width: ['ovalWidth'], height: ['ovalHeight'], rotation: ['ovalRotation'] };
-    const reset = hit?.kind === 'center' ? ['x', 'y'] : oval[hit?.kind] ?? (hit ? ['length', 'rotation'] : null);
+    const tri = (values.scanType | 0) === SCAN.TRIANGLE;
+    const reset = hit?.kind === 'corner' ? TRI.slice(2 * hit.k, 2 * hit.k + 2)
+      : hit?.kind === 'center' ? (tri ? TRI : ['x', 'y']) : oval[hit?.kind] ?? (hit ? ['length', 'rotation'] : null);
     if (!reset) return;
     api.beginEdit?.();
     set(Object.fromEntries(reset.map((id) => [id, params[id].default])));
@@ -530,7 +619,7 @@ export function createImageView(entry, api) {
       const was = values;
       values = { ...v };
       adsr.refresh(v);
-      if (['x', 'y', 'length', 'rotation', 'scanType', 'speed', 'ovalWidth', 'ovalHeight', 'ovalRotation'].some((id) => v[id] !== was[id])) { draw(); kick(); }
+      if (['x', 'y', 'length', 'rotation', 'scanType', 'speed', 'ovalWidth', 'ovalHeight', 'ovalRotation', ...TRI].some((id) => v[id] !== was[id])) { draw(); kick(); }
     },
   };
 }
