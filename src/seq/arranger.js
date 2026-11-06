@@ -44,6 +44,7 @@
 //   right-click the marker     remove it; elsewhere on the ruler: menu insert at the playhead / remove
 //                              (the clip and empty-space menus have these items too)
 // Trimming the start of a linked clone trims all its clones (they share the notes).
+import { MOUSE_FORWARD } from '../mousebuttons.js';
 import {
   snapStep, snapFloor, snapRound, loopEnd, getClip, addClip, addAutoClip, isAuto, autoPolyline, duplicateClip, removeClip, trimClipStart, BAR, clean,
   meter, barLines, barRound, barLength, removeSig, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource,
@@ -815,6 +816,12 @@ export function createArranger(host, ctx) {
     }
     const { x, y } = s.local(e);
     const song = ctx.song();
+    if (e.button === MOUSE_FORWARD) {
+      e.preventDefault();
+      lastRight = null;
+      if (y >= RULER && x >= x0) selectRect(e, x, y, e.ctrlKey || e.metaKey);
+      return;
+    }
     if (e.button === 2) {
       e.preventDefault();
       const box = sigAt(x, y);

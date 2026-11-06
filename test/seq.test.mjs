@@ -9,6 +9,38 @@ import { clipsOverlap } from '../src/seq/clipplacement.js';
 import { createSequencer } from '../src/seq/index.js';
 import { rightHold } from '../src/seq/surface.js';
 import { Transport } from '../src/transport.js';
+import { initMouseNavigation } from '../src/mousebuttons.js';
+
+{
+  const target = new EventTarget();
+  let backs = 0;
+  initMouseNavigation(target, () => backs++);
+  const dispatch = (type, button) => {
+    const event = new Event(type, { cancelable: true });
+    event.button = button;
+    target.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  assert.ok(dispatch('pointerdown', 3));
+  assert.ok(dispatch('pointerup', 3));
+  assert.ok(dispatch('mouseup', 3));
+  assert.equal(backs, 1, 'pointer navigation works without mousedown and does not repeat on mouseup');
+  dispatch('mousedown', 3);
+  dispatch('mouseup', 3);
+  assert.equal(backs, 2, 'mouse-only navigation still works');
+  dispatch('pointerdown', 3);
+  dispatch('mousedown', 3);
+  dispatch('pointerup', 3);
+  dispatch('mouseup', 3);
+  assert.equal(backs, 3, 'compatibility events go up exactly one level');
+  for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'auxclick']) assert.ok(dispatch(type, 4), `${type}: Forward navigation suppressed`);
+  assert.equal(backs, 3, 'Forward never navigates up');
+  dispatch('pointerdown', 3);
+  target.dispatchEvent(new Event('pointercancel'));
+  dispatch('pointerup', 3);
+  assert.equal(backs, 3, 'cancelled Back presses do not navigate');
+  assert.equal(dispatch('auxclick', 0), false, 'ordinary buttons remain unchanged');
+}
 
 const frames = [];
 const resizes = [];
@@ -1806,6 +1838,38 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
 }
 
 // Ctrl/Cmd + click toggles; Alt + drag copies keep the name (no " copy" suffix).
+for (const onClip of [false, true]) {
+  const { song, clip, arranger, changes } = setup();
+  const cv = arranger.surface.cv;
+  clip.length = 4;
+  const b = addClip(song, { start: 6, length: 4 });
+  const c = addClip(song, { start: 20, length: 4 });
+  const before = structuredClone(song.clips);
+  const view = { ...arranger.getView() };
+  drag(cv, ax(0.5), ay(onClip ? 5 : 60), ax(7), ay(onClip ? 20 : 0), { button: 4, buttons: 16 });
+  assert.deepEqual(song.clips, before, 'Forward selection never moves clips');
+  assert.deepEqual([arranger.getView().sx, arranger.getView().sy], [view.sx, view.sy], 'Forward selection does not pan');
+  assert.equal(changes(), 0, 'selection does not edit song data');
+  key(cv, 'Delete');
+  assert.deepEqual(song.clips, [c], 'Forward-drag selects both intersected clips');
+  assert.ok(!song.clips.includes(b));
+}
+
+for (const cancelled of [false, true]) {
+  const { song, clip, arranger } = setup();
+  const cv = arranger.surface.cv;
+  clip.length = 4;
+  const b = addClip(song, { start: 6, length: 4 });
+  const c = addClip(song, { start: 20, length: 4 });
+  point(cv, 'pointerdown', ax(5), ay(5), { button: 4, buttons: 16, ctrlKey: true });
+  point(cv, 'pointermove', ax(11), ay(20), { button: -1, buttons: 16, ctrlKey: true });
+  point(cv, cancelled ? 'pointercancel' : 'pointerup', ax(11), ay(20), { button: 4, buttons: 0, ctrlKey: true });
+  key(cv, 'Delete');
+  assert.deepEqual(song.clips, cancelled ? [b, c] : [c], cancelled
+    ? 'cancelled Forward selection keeps the original selection'
+    : 'Ctrl + Forward selection adds to the original selection');
+}
+
 {
   const { song, clip, arranger, ctx } = setup();
   const cv = arranger.surface.cv;
@@ -1950,7 +2014,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   dbl(cv, vx(0.5), ny(3.05));
   assert.deepEqual(b.vels?.map((p) => p.t), [1], 'shared point at t=3 lands inside the second note');
   assert.equal(b.vels[0].r, 0.5, 'new points start half rounded');
-  drag(cv, vx(b.vels[0].v), ny(3), vx(1), ny(3));
+  drag(cv, vx(b.vels[0].v), ny(3), vx(1), ny(3), { altKey: true });
   assert.equal(b.vels[0].v, 1);
   assert.equal(b.vel, 0.5, 'the shared point at t=2 keeps the start of the second note');
   assert.equal('vels' in a, false, 'flat before t=2: the first note stays constant');
@@ -2105,7 +2169,7 @@ for (const free of [false, true]) {
 }
 
 // Several selected notes: dragging one selected note's start handle moves every selected start
-// velocity by the same amount (each clamped); unselected notes and the curves after the start stay.
+// velocity and every curve point by the same amount; unselected notes stay unchanged.
 {
   const { clip, roll, changes } = setup();
   const cv = roll.surface.cv;
@@ -2122,18 +2186,40 @@ for (const free of [false, true]) {
   click(cv, vx(0.9), ny(4), { shiftKey: true });
   const c0 = changes();
   drag(cv, vx(0.3), ny(2), vx(0.5), ny(2.4)); // grab the middle note: +0.2, vertical motion ignored
-  assert.deepEqual([a, b, c].map((n) => Math.round(n.vel * 1e9) / 1e9), [0.7, 0.5, 1], 'all moved, clamped at 1');
+  assert.deepEqual([a, b, c].map((n) => Math.round(n.vel * 1e9) / 1e9), [0.6, 0.4, 1], 'shared offset stops at 1');
   assert.equal(other.vel, 0.4, 'unselected note unchanged');
-  assert.deepEqual(b.vels, [{ t: 1, v: 0.8, r: 0 }], 'the curve after the start stays');
+  assert.deepEqual(b.vels, [{ t: 1, v: 0.9, r: 0 }], 'curve points move with start velocities');
   assert.equal(changes(), c0 + 1, 'one undo step');
   // dragging back down: notes keep their distance (the clamped one restarts from its value)
-  drag(cv, vx(0.5), ny(2), vx(0.1), ny(2));
-  assert.deepEqual([a, b, c].map((n) => Math.round(n.vel * 1e9) / 1e9), [0.3, 0.1, 0.6]);
+  drag(cv, vx(0.4), ny(2), vx(0.1), ny(2));
+  assert.deepEqual([a, b, c].map((n) => Math.round(n.vel * 1e9) / 1e9), [0.3, 0.1, 0.7]);
+  assert.deepEqual(b.vels, [{ t: 1, v: 0.6, r: 0 }]);
   key(cv, 'Backspace');
   assert.deepEqual(clip.notes, [other], 'the selection was kept');
 }
 
 // Velocity snapping: all sixteen intervals, including both endpoints.
+{
+  const { clip, roll, changes } = setup();
+  const cv = roll.surface.cv;
+  const vx = (v) => 7 + v * 70;
+  const a = note(60, 1, 3, 0.5);
+  const b = note(64, 1, 3, 0.5);
+  for (const n of [a, b]) n.vels = [{ t: 1, v: 0.8, r: 0.5 }, { t: 2, v: 0.6, r: 0.2 }];
+  clip.notes.push(a, b);
+  key(cv, 'a', { ctrlKey: true });
+  const before = structuredClone(clip.notes);
+  drag(cv, vx(0.8), ny(2), vx(0.6), ny(2.5), {}, 'pointercancel');
+  assert.deepEqual(clip.notes, before, 'cancel restores every velocity and point');
+  const count = changes();
+  drag(cv, vx(0.8), ny(2), vx(0.6), ny(2.5));
+  for (const n of clip.notes) {
+    assert.equal(n.vel, 0.3, 'point drag lowers start velocity too');
+    assert.deepEqual(n.vels, [{ t: 1, v: 0.6, r: 0.5 }, { t: 2, v: 0.4, r: 0.2 }], 'all points shift equally without changing time or rounding');
+  }
+  assert.equal(changes(), count + 1, 'one undoable edit');
+}
+
 for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 16), 0.531249, 0.53125, 0.531251, 1.2]) {
   const { clip, roll } = setup({ snapVelocity: true });
   const cv = roll.surface.cv;
@@ -2208,7 +2294,7 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
     assert.equal(n.vels[0].v, 0.6875, 'new shared curve point snaps');
     assert.equal(n.vels[0].t, 1, 'time snapping unchanged');
   }
-  drag(cv, vx(0.6875), ny(2), vx(0.91), ny(2.5));
+  drag(cv, vx(0.6875), ny(2), vx(0.91), ny(2.5), { altKey: true });
   for (const n of clip.notes) {
     assert.equal(n.vels[0].v, 0.9375, 'existing curve point snaps');
     assert.equal(n.vels[0].t, 1.5);

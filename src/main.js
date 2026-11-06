@@ -35,6 +35,7 @@ import { PROJECT_FORMAT, MODULE_FORMAT, MODULE_EXT, isFormat } from './fileforma
 import { moduleDocs } from './moduledocs.js';
 import { createPatchMonitor } from './patchmonitor.js';
 import { songFacts } from './songfacts.js';
+import { initMouseNavigation, MOUSE_FORWARD } from './mousebuttons.js';
 
 const engine = new Engine();
 let transport = null; // song playback (created after the engine)
@@ -795,10 +796,12 @@ function startCable(e, entry) {
 // Shift + drag: selection rectangle, modules touching it get selected (Ctrl/⌘ + drag adds to the
 // current selection). The TimeLine works the same way.
 canvas.addEventListener('pointerdown', (e) => {
-  if (e.button !== 0 || (e.target !== canvas && e.target !== svg && e.target !== world)) return;
+  const forward = e.button === MOUSE_FORWARD;
+  if ((!forward && e.button !== 0) || (!forward && e.target !== canvas && e.target !== svg && e.target !== world)) return;
+  if (forward && e.target.closest('input, textarea, button, select, .module-rename')) return;
   e.preventDefault();
   const additive = e.ctrlKey || e.metaKey;
-  if (!e.shiftKey && !additive) { backgroundPan(e); return; }
+  if (!forward && !e.shiftKey && !additive) { backgroundPan(e); return; }
   const base = additive ? selectedEntries() : [];
   if (!additive) select(null);
   const c = canvas.getBoundingClientRect();
@@ -1055,16 +1058,12 @@ canvas.addEventListener('contextmenu', (e) => {
 
 // Mouse back button (button 3): one patch level up. Its default (history back) is
 // suppressed so the page never navigates away.
-const MOUSE_BACK = 3;
-window.addEventListener('mousedown', (e) => { if (e.button === MOUSE_BACK) e.preventDefault(); }, true);
-window.addEventListener('mouseup', (e) => {
-  if (e.button !== MOUSE_BACK) return;
-  e.preventDefault();
+initMouseNavigation(window, () => {
   if (path.length > 1 && !document.querySelector('dialog[open]')) {
     path.pop();
     render();
   }
-}, true);
+});
 
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !document.querySelector('dialog[open]')) {

@@ -33,7 +33,7 @@ export const GUIDE = [
         title: 'Select',
         items: [
           'Click a module to select it: the controller panel shows its controllers, their descriptions and usage notes.',
-          `Drag on empty canvas to pan the view (also on a trackpad); ${k('Shift')} + drag there draws a selection rectangle, ${k('Ctrl')} + drag adds to the selection, ${k('Ctrl')} + click toggles one module, ${k(CMD, 'A')} selects all.`,
+          `Drag on empty canvas to pan the view (also on a trackpad); ${k('Shift')} + drag there or the mouse <b>Forward</b> button + drag draws a selection rectangle. Forward-drag can also start over a module. ${k('Ctrl')} + drag adds to the selection, ${k('Ctrl')} + click toggles one module, ${k(CMD, 'A')} selects all.`,
         ],
       },
       {
@@ -152,7 +152,7 @@ export const GUIDE = [
       {
         title: 'Arrange clips',
         items: [
-          `Click a clip to select it (when stopped the playhead jumps to its start). Drag on empty space to pan the view (like the patcher); ${k('Shift')} + drag there draws a selection rectangle (${k(CMD)} + drag adds); ${k(CMD)} + click toggles a clip. One clip always stays selected (a new project starts with one empty bar, selected), so the piano roll always shows a clip.`,
+          `Click a clip to select it (when stopped the playhead jumps to its start). Drag on empty space to pan the view (like the patcher); ${k('Shift')} + drag there or the mouse <b>Forward</b> button + drag draws a selection rectangle (${k(CMD)} + drag adds). Forward-drag can also start over a clip. ${k(CMD)} + click toggles a clip. One clip always stays selected (a new project starts with one empty bar, selected), so the piano roll always shows a clip.`,
           'Drag a clip (or the selection) to move it in time and up / down over the lanes; drag its left / right edge to trim the start / set the length. Every drag (clips, the selection rectangle, the restart marker, scrubbing, the M / S buttons) scrolls the TimeLine along near / past an edge of the view.',
           'Clips never overlap: a moved, pasted or new clip snaps to the nearest free position, and resizing stops at neighbours. Use separate lanes for clips that play together.',
           `${k('Alt')} + drag copies; ${k('Shift')} + drag makes <i>linked clones</i> (hatched, ⧉) that share their notes: editing one edits all. ${k(CMD, 'D')} clones the selection right after itself, ${k(CMD, 'Shift', 'D')} duplicates it.`,
@@ -245,7 +245,7 @@ export const GUIDE = [
       {
         title: 'Velocity',
         items: [
-          'The strip left of the notes shows each note\'s velocity (stick) and how it changes while the note sounds. Drag a note\'s dot to set its velocity; with several notes selected, dragging one dot moves the start velocity of all of them.',
+          'The strip left of the notes shows each note\'s velocity (stick) and how it changes while the note sounds. With several notes selected, dragging a start dot or curve point sideways shifts all their start velocities and curve points equally. Movement stops at 0 or 100 % to preserve velocity differences; point times and rounding stay unchanged.',
           `The selected notes share one velocity curve: ${k('Double-click')} inside them adds a point, drag points (${k('Shift')} = fine), the wheel on a point rounds it. ${k('Alt')} + drag moves only the curve point.`,
           'Right-click the strip for <b>Snap velocity values</b> (1/16 steps, shown as alternating light/dark bands while on) and <b>Delete point</b>. Drag the bar ruler beside the strip to make it wider (double-click resets).',
         ],
