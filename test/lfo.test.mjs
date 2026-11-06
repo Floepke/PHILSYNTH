@@ -5,6 +5,74 @@ import { loadKernel } from './kernelproc.mjs';
 const SR = 48000;
 const Proc = await loadKernel('lfo.dsp.js', SR);
 
+// On/Off pauses both control-rate and audio-rate LFOs without losing phase or random state.
+for (const audio of [false, true]) for (const wave of [0, 1, 2, 3, 4]) {
+  const k = new Proc();
+  const m = (data) => k.port.onmessage({ data });
+  const output = [[new Float32Array(128), new Float32Array(128)]];
+  const input = audio ? [[new Float32Array(128).fill(1), new Float32Array(128).fill(0.5)]] : [];
+  const run = () => k.process(input, output);
+  assert.equal(k.enabled, true);
+  m({ type: 'param', id: 'wave', value: wave });
+  run();
+  const phase = k.phase;
+  const from = k.from, to = k.to;
+  m({ type: 'param', id: 'enabled', value: 0 });
+  for (let i = 0; i < 400; i++) run();
+  assert.equal(k.phase, phase);
+  assert.equal(k.from, from);
+  assert.equal(k.to, to, 'paused Random does not draw new targets');
+  assert.equal(k.value, k.at(), 'paused wave level remains available for live trimming');
+  if (audio) {
+    assert.ok(output[0][0].every(v => v === output[0][0][0]), 'paused tremolo holds its gain');
+  }
+  m({ type: 'param', id: 'phase', value: 0.2 });
+  assert.equal(k.phase, phase, 'Phase controller does not discard remembered phase');
+  m({ type: 'noteOn', id: 1, pitch: 60, phase: 0.3 });
+  assert.equal(k.phase, 0.5, 'MIDI phase resets even while Off');
+  run();
+  assert.equal(k.phase, 0.5);
+  m({ type: 'param', id: 'enabled', value: 1 });
+  run();
+  assert.ok(Math.abs(k.phase - (0.5 + 128 / SR)) < 1e-9, 'On resumes from stored phase');
+}
+
+// VELOCITY2CTL can drive On/Off; the setting persists when the patch is saved/loaded.
+{
+  const { dspTestHost } = await import('./dsphost.mjs');
+  const { PatchRuntime } = await import('../src/patch.js');
+  const { dsp, kernel, render } = dspTestHost();
+  const engine = { ctx: { currentTime: 0 }, dsp };
+  const root = await PatchRuntime.create(engine, dsp.destination);
+  const lfo = await root.addModule('LFO');
+  assert.equal(lfo.values.enabled, 1);
+  assert.equal(lfo.def.params.at(-1).id, 'enabled', 'append without renumbering existing controllers');
+  const vel = await root.addModule('VELOCITY2CTL', { values: {
+    outController: lfo.def.params.findIndex(p => p.id === 'enabled'), noteOffAction: 1,
+  } });
+  root.connect(vel.id, lfo.id);
+  vel.inst.noteOn(1, 60, 1);
+  render(2);
+  assert.equal(kernel(lfo.inst.node).enabled, true);
+  vel.inst.noteOff(1);
+  render(2);
+  assert.equal(kernel(lfo.inst.node).enabled, false);
+  const phase = kernel(lfo.inst.node).phase;
+  render(30);
+  assert.equal(kernel(lfo.inst.node).phase, phase);
+  const saved = root.toJSON();
+  const copy = await PatchRuntime.create(engine, dsp.destination);
+  await copy.load(saved);
+  render(2);
+  assert.equal(kernel(copy.modules.get(lfo.id).inst.node).enabled, false, 'saved Off is restored');
+  vel.inst.noteOn(2, 60, 1);
+  render(3);
+  assert.equal(kernel(lfo.inst.node).enabled, true);
+  assert.notEqual(kernel(lfo.inst.node).phase, phase);
+  root.destroy();
+  copy.destroy();
+}
+
 const l = new Proc();
 const msg = (data) => l.port.onmessage({ data });
 const values = [];

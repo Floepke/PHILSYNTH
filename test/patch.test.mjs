@@ -52,8 +52,8 @@ const engine = {
   for (const type of types) {
     const m = await r.addModule(type);
     const ps = paramsOf(m);
-    assert.equal(ps.at(-1).id, 'outSmooth', `${type}: appended after all existing controllers`);
-    assert.deepEqual(ps.slice(-4, -1).map(p => p.id), ['outController', 'outMin', 'outMax']);
+    const outIndex = ps.findIndex(p => p.id === 'outController');
+    assert.deepEqual(ps.slice(outIndex, outIndex + 4).map(p => p.id), ['outController', 'outMin', 'outMax', 'outSmooth'], `${type}: stable Out controller block`);
     assert.equal(m.values.outSmooth, 0, `${type}: old patches keep smoothing off`);
     r.setParam(m.id, 'outSmooth', 50);
     assert.equal(g.nodes.get(m.ctl.h).depth.outSmooth, 50);

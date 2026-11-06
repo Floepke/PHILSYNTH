@@ -327,7 +327,10 @@ export default {
       },
       allOff() {
         notes.clear();
-        runtimes().forEach((rt) => midiOf(rt).forEach((i) => i.allOff()));
+        runtimes().forEach((rt) => {
+          midiOf(rt).forEach((i) => i.allOff());
+          for (const e of rt.modules.values()) if (e.def.midiOut && !e.def.acceptsMidi) e.inst.allOff();
+        });
       },
       destroy() {
         destroyed = true;

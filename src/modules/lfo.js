@@ -7,6 +7,7 @@
 //   Amplitude: depth of the wave around its centre (100 % = full swing, 0 % = steady at the middle).
 //   Out Controller: controller number (0..) of the connected module(s) to modulate.
 //   Out Min / Out Max: modulation range in % of that controller's slider range (applied after Amplitude).
+//   LFO On/Off: pauses/resumes the wave at its remembered phase; MIDI notes still reset it while Off.
 // Audio input (tremolo): with sound cabled in, its cables to modules that take audio carry that sound
 // with its volume following the wave (Out Min..Out Max = 0..100 % volume); cables to modules
 // without an audio input stay control cables (see PatchRuntime.syncThrough, lfo.dsp.js).
@@ -52,6 +53,7 @@ export default {
     { id: 'phase', label: 'Phase', min: 0, max: 1, default: 0, step: 0.01, format: phaseLabel },
     { id: 'amp', label: 'Amplitude', min: 0, max: 100, default: 100, step: 1, format: pct },
     ...outParams(),
+    { id: 'enabled', label: 'LFO On/Off', min: 0, max: 1, default: 1, step: 1, options: ['Off', 'On'] },
   ],
   create(_ctx, def, host) {
     // DSP: lfo.dsp.js; the engine graph maps its value onto the controllers it is cabled to

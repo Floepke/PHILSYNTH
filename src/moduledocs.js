@@ -403,6 +403,7 @@ export const DOCS = {
   LFO: {
     summary: 'Low-frequency oscillator: a repeating control wave that modulates one controller of every module it is cabled to (vibrato, tremolo, filter sweeps, …). With audio cabled into it, it is a tremolo: it passes that sound on with its volume following the wave.',
     params: {
+      enabled: 'On (default) runs the LFO. Off pauses it at its current phase and holds the wave level, including audio tremolo; output trimming remains live. On resumes from the remembered phase. Incoming MIDI notes still set Phase plus the note phase while paused; changing the Phase controller alone does not reset an already-running LFO.',
       freq: 'Speed of the wave: 0.01–50 Hz, or (with a synced Frequency Unit) a cycle length in note values, which the slider snaps to. Ignored with Frequency Unit MIDI Pitch.',
       unit: 'Hz runs freely; 1/4, 1/8 or 1/16 syncs the cycle to note lengths at the BPM of this patch level\'s Output. <i>MIDI Pitch</i> runs the wave at the frequency of the incoming note (A4 = 440 Hz), following pitch bends; Frequency is ignored. Notes come from a clip sent to the LFO or a MULTIMIDI (or other MIDI module) cabled into it. With no note held it keeps the last pitch; before the first note it stands still.',
       wave: 'Shape of the wave: Sine, Triangle, Saw, Square, or Random (glides smoothly to a new random value every cycle).',
@@ -444,6 +445,22 @@ export const DOCS = {
       '<b>Curve editor</b> (below the controllers): left to right is time over Envelope Length, bottom = Out Min, top = Out Max. While the envelope plays, a white dot follows the curve.',
       '<b>Start phase</b>: a note starts the curve at its phase (from a MULTIMIDI\'s Phase / Random Phase): 0 % = the start of the curve, 50 % = halfway. Notes without a phase start at the beginning. In the loop modes only the note that starts the loop sets it.',
       MOD_CABLE, NOTES_IN,
+    ],
+  },
+
+  CTL2NOTE: {
+    summary: 'Generates one MIDI note from controllers, without incoming notes. Use a control cable or automation to switch its Note State and set the pitch and velocity; MIDI cables carry the generated note to synths or MIDI processors.',
+    params: {
+      pitch: 'Base MIDI pitch, 0-127, snapped to whole semitones. Finetune is added separately. Changes bend the existing note live without retriggering it.',
+      noteState: 'Off releases the generated note; switching to On starts one note with the current pitch, finetune, velocity and phase. Repeated On values do not retrigger. The default is Off.',
+      finetune: 'Fine pitch offset from -100 to +100 cents, added to MIDI Pitch. Changes update the sounding note live.',
+      velocity: 'Outgoing velocity, 0-100%. Changes update the sounding note live; zero is silent but does not release the note.',
+      phase: 'Waveform start phase, 0-100%. Captured only when Note State switches to On; changes while On affect the next note, not the current one.',
+    },
+    notes: [
+      'Use <kbd>Shift</kbd> + drag from CTL2NOTE to OSC, SAMPLER, a MIDI processor or a Patch. It generates notes; it does not accept notes or audio.',
+      'Controller modulation received together is applied at the audio clock, so a new note uses the latest pitch, velocity and phase from that report.',
+      'Saved On notes start after their MIDI cables are restored. Removing a cable releases only this module\'s note on that target. Panic releases the note and requires a fresh Off-to-On transition.',
     ],
   },
 

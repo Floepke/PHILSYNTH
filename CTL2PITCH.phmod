@@ -1,0 +1,156 @@
+{
+  "format": "philsynth-module",
+  "version": 1,
+  "modules": [
+    {
+      "id": 9,
+      "type": "PATCH",
+      "x": 417,
+      "y": 832,
+      "values": {
+        "inputModule": 5,
+        "instances": 1
+      },
+      "color": "#7f8488",
+      "state": {
+        "maps": []
+      },
+      "patch": {
+        "modules": [
+          {
+            "id": 0,
+            "type": "OUT",
+            "x": 800,
+            "y": 136,
+            "values": {
+              "bpm": 120,
+              "transpose": 0,
+              "cents": 0,
+              "volume": 0.8
+            },
+            "color": null,
+            "state": {
+              "songName": "",
+              "creator": "",
+              "comment": ""
+            }
+          },
+          {
+            "id": 1,
+            "type": "CTL2NOTE",
+            "x": 278,
+            "y": 196,
+            "values": {
+              "pitch": 64,
+              "noteState": 0,
+              "finetune": 0,
+              "velocity": 0.61,
+              "phase": 0
+            },
+            "color": null
+          },
+          {
+            "id": 3,
+            "type": "OSC",
+            "x": 564,
+            "y": 173,
+            "values": {
+              "polyphony": 8,
+              "wave": 1,
+              "duty": 87.1,
+              "attack": 0.001,
+              "decay": 0.001,
+              "sustain": 1,
+              "release": 0.001,
+              "atkCurve": 100,
+              "decCurve": 100,
+              "relCurve": 100,
+              "gain": 0.5
+            },
+            "color": null
+          },
+          {
+            "id": 5,
+            "type": "MULTIMIDI",
+            "x": -11,
+            "y": 455,
+            "values": {
+              "routeMode": 0,
+              "transpose": 0,
+              "finetune": 0,
+              "overtone": 0,
+              "drift": 0,
+              "driftFreq": 1,
+              "velSense": 1,
+              "velocity": 1,
+              "velDrift": 0,
+              "velDriftFreq": 0,
+              "phase": 0,
+              "randomPhase": 0,
+              "randomDelay": 0
+            },
+            "color": null
+          },
+          {
+            "id": 7,
+            "type": "VELOCITY2CTL",
+            "x": -19,
+            "y": 200,
+            "values": {
+              "noteOffAction": 1,
+              "smooth": 0,
+              "outController": 1,
+              "outMin": 0,
+              "outMax": 100,
+              "outSmooth": 0
+            },
+            "color": null
+          },
+          {
+            "id": 4,
+            "type": "VELOCITY2CTL",
+            "x": 271,
+            "y": 452,
+            "values": {
+              "noteOffAction": 0,
+              "smooth": 0,
+              "outController": 3,
+              "outMin": 0,
+              "outMax": 100,
+              "outSmooth": 0
+            },
+            "color": null
+          }
+        ],
+        "cables": [
+          {
+            "from": 1,
+            "to": 3
+          },
+          {
+            "from": 3,
+            "to": 0
+          },
+          {
+            "from": 5,
+            "to": 7
+          },
+          {
+            "from": 7,
+            "to": 1
+          },
+          {
+            "from": 5,
+            "to": 4
+          },
+          {
+            "from": 4,
+            "to": 1
+          }
+        ],
+        "midiLock": 5
+      }
+    }
+  ],
+  "cables": []
+}

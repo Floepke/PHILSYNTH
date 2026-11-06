@@ -178,6 +178,29 @@ lengths even for very short notes. MIDI phase and onset metadata survive chainin
 Cable removal, module deletion, and Panic cancel pending notes and release only
 the processor's own voices. WAV export includes delayed MIDI in its bounded tail.
 
+## CTL2NOTE generator
+
+The LFO's **LFO On/Off** controller defaults to On. Off pauses its cycle and
+holds the output level (also for audio tremolo), while output trimming remains
+live. On resumes at the remembered phase. A MIDI note received while paused
+still resets the phase to Phase plus the incoming note phase. The controller
+can be automated or driven by VELOCITY2CTL to start/stop a controller machine.
+
+**CTL2NOTE** generates one MIDI note from controllers, with no incoming MIDI or
+audio. Shift + drag its output to a synth, MIDI processor or Patch.
+
+- **MIDI Pitch**: 0-127, snapped to whole MIDI pitches.
+- **Note State**: Off (default) releases the note; switching to On starts it.
+- **Finetune**: -100 to +100 cents, added to MIDI Pitch.
+- **Velocity**: 0-100%; zero is silent but keeps the note On.
+- **Phase**: 0-100%, captured only at note-on, not changed while the note sounds.
+
+Pitch, finetune and velocity update the existing note live without retriggering.
+All controllers can be automated or modulated. Values from one modulation report
+are applied together at the audio clock. Saved On notes start after cables are
+restored; removing a cable releases the note on that target. Panic stops the note
+until Note State is switched Off then On again.
+
 ## ENVELOPE modulator
 
 All single **Out Controller** modulators (LFO, ADSR, ENVELOPE, VELOCITY2CTL,

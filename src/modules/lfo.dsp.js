@@ -1,6 +1,7 @@
 // LFO kernel (see src/dsp/kernel.js), control rate: steps once per render quantum on the audio
 // clock (keeps running in background tabs). Its unipolar value (0..1) is mapped by the engine
 // graph onto the controllers its cables point to.
+// Off pauses advancement (including tremolo), retaining phase and Random targets. MIDI still resets phase.
 // Frequency Unit MIDI Pitch (MIDI_UNIT): the rate is the frequency of the newest held note (its pitch
 // curve included, via noteMod); Frequency is ignored. When that note ends the previous held one
 // takes over; with none held the last pitch keeps running. Before the first note it stands still.
@@ -52,6 +53,7 @@ export default class LfoKernel extends Kernel {
     this.unit = 0;
     this.bpm = 120;
     this.rate = 1; // Hz
+    this.enabled = true;
     this.held = new Map(); // MIDI Pitch: id -> pitch of the held notes, oldest first
     this.pitch = null; // MIDI Pitch: the pitch followed (null until the first note)
     this.wave = 0;
@@ -68,7 +70,8 @@ export default class LfoKernel extends Kernel {
   }
 
   param(id, v) {
-    if (id === 'freq' || id === 'unit') {
+    if (id === 'enabled') this.enabled = v >= 0.5;
+    else if (id === 'freq' || id === 'unit') {
       this[id] = id === 'unit' ? v | 0 : v;
       this.updateRate();
     } else if (id === 'wave') {
@@ -149,6 +152,7 @@ export default class LfoKernel extends Kernel {
 
   // advances `n` samples; a new Random target every cycle
   advance(n) {
+    if (!this.enabled) return;
     this.phase += (this.rate * n) / sampleRate;
     if (this.phase >= 1) {
       this.from = this.to;
