@@ -118,6 +118,20 @@ fire(select, 'wheel', { deltaY: -100 });
 assert.equal(select.index, 0);
 select.options[1].hidden = false;
 
+// Accelerated browser deltas still move exactly one enabled option in either direction.
+select.options[2].disabled = false;
+for (const [deltaY, deltaMode] of [[200, 0], [300, 0], [6, 1], [9, 1], [2, 2]]) {
+  select.index = 1;
+  const before = changes;
+  fire(select, 'wheel', { deltaY, deltaMode });
+  assert.equal(select.index, 2, `one option down for delta ${deltaY}, mode ${deltaMode}`);
+  fire(select, 'wheel', { deltaY: -deltaY, deltaMode });
+  assert.equal(select.index, 1, `one option up for delta ${deltaY}, mode ${deltaMode}`);
+  assert.equal(changes, before + 2, 'one change notification per scroll');
+}
+select.options[2].disabled = true;
+select.index = 0;
+
 // Small trackpad deltas accumulate rather than skipping entries on every event.
 for (let i = 0; i < 5; i++) fire(select, 'wheel', { deltaY: 20, gap: 16 });
 // One click delivered as a burst of notch-sized events (some Wayland setups) moves one option.

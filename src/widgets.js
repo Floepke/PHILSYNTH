@@ -64,7 +64,8 @@ export function initWidgets(root, { numberStep = () => 1 } = {}) {
       const options = [...select.options].filter((o) => !o.disabled && !o.hidden && !o.parentElement?.disabled);
       if (!options.length) return;
       const index = options.indexOf(select.selectedOptions[0]);
-      const next = options[Math.max(0, Math.min(options.length - 1, index - steps))];
+      // Browser wheel acceleration must not skip options; the accumulator still handles trackpads and bursts.
+      const next = options[Math.max(0, Math.min(options.length - 1, index - Math.sign(steps)))];
       if (next.selected) return;
       next.selected = true;
       notify(select);
