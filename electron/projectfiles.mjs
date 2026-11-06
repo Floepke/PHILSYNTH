@@ -65,13 +65,15 @@ export function createDirMemory(file) {
 }
 
 // Write to a temp file next to the target, then rename: a crash never leaves half a project.
-export async function atomicWrite(path, text) {
+export async function atomicWrite(path, text, { signal } = {}) {
   const tmp = join(dirname(path), `.${basename(path)}.${process.pid}.${Date.now()}.tmp`);
   try {
-    await writeFile(tmp, text, 'utf8');
+    signal?.throwIfAborted();
+    await writeFile(tmp, text, { encoding: 'utf8', signal });
+    signal?.throwIfAborted();
     await rename(tmp, path);
   } catch (err) {
-    await rm(tmp, { force: true }).catch(() => {});
+    await rm(tmp, { force: true }).catch((cleanupError) => console.error('Could not remove temporary export/project file:', cleanupError));
     throw err;
   }
 }
@@ -123,6 +125,11 @@ export function registerProjectFiles(isLocal) {
     return readFile(path, 'utf8');
   };
   const written = (path) => notifyFolderChanged(dirname(path));
+  const audioWrites = new Map();
+  const audioKey = (e, id) => {
+    if (typeof id !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(id)) throw new Error('Invalid audio export id');
+    return `${e.sender.id}:${id}`;
+  };
 
   // ---- the in-app file dialog ----
   // -> { dir, places }: the folder last used for that dialog (else Documents) and the sidebar
@@ -208,14 +215,29 @@ export function registerProjectFiles(isLocal) {
   });
 
   // ---- Export Audio: the WAV bytes ----
-  ipcMain.handle('audio:save', async (e, path, data) => {
+  ipcMain.handle('audio:cancel', (e, id) => {
     check(e);
+    audioWrites.get(audioKey(e, id))?.abort();
+  });
+  ipcMain.handle('audio:save', async (e, path, data, id) => {
+    check(e);
+    const key = audioKey(e, id);
+    if (audioWrites.has(key)) throw new Error('Audio export already running');
     const p = fileOf(withExtension(checkPath(path), 'wav'), ['.wav']);
     const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : null;
     if (!bytes || bytes.byteLength > MAX_AUDIO) throw new Error('Invalid audio data');
-    await atomicWrite(p, bytes);
-    written(p);
-    await dirs.remember('audio', p);
-    return { name: basename(p) };
+    const controller = new AbortController();
+    audioWrites.set(key, controller);
+    try {
+      await atomicWrite(p, bytes, { signal: controller.signal });
+      written(p);
+      await dirs.remember('audio', p);
+      return { name: basename(p) };
+    } catch (err) {
+      if (controller.signal.aborted) return { cancelled: true };
+      throw err;
+    } finally {
+      audioWrites.delete(key);
+    }
   });
 }

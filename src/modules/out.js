@@ -71,7 +71,32 @@ export default {
     field('Song/Patch Name', songName);
     field('Creator', creator);
     field('Comments', text);
-    return { el };
+    const facts = document.createElement('section');
+    facts.className = 'out-facts';
+    const heading = document.createElement('h3');
+    heading.textContent = 'Song facts';
+    const list = document.createElement('dl');
+    const values = new Map();
+    for (const label of ['Song Length', 'Notes in project', 'Measures in project', 'Average frequency', 'Top 5 pitches']) {
+      const name = document.createElement('dt');
+      name.textContent = label;
+      const value = document.createElement('dd');
+      values.set(label, value);
+      list.append(name, value);
+    }
+    facts.append(heading, list);
+    el.append(facts);
+    const refresh = () => {
+      if (!api.songFacts) return;
+      const data = api.songFacts();
+      values.get('Song Length').textContent = data.duration;
+      values.get('Notes in project').textContent = String(data.notes);
+      values.get('Measures in project').textContent = String(data.measures);
+      values.get('Average frequency').textContent = data.averageFrequency === null ? '—' : `${data.averageFrequency.toFixed(2)} Hz`;
+      values.get('Top 5 pitches').textContent = data.topPitches.map(({ label, count }) => `${label}: ${count}`).join('\n') || '—';
+    };
+    refresh();
+    return { el, refresh };
   },
   create(_ctx, def, host) {
     const input = host.dsp.create('out'); // DSP: out.dsp.js (sum × Master volume)

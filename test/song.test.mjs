@@ -10,6 +10,35 @@ import {
   basePitch, centsOf, withCents, centsLabel, isIdea, ideaY, clipSilent, songEnd, newSong, nearestClip,
 } from '../src/song.js';
 import { Transport } from '../src/transport.js';
+import { songFacts } from '../src/songfacts.js';
+
+{
+  const song = emptySong();
+  const layer = { song, rt: { bpm: 120 } };
+  assert.deepEqual(songFacts([layer]), { duration: '00:00:00', notes: 0, measures: 0, averageFrequency: null, topPitches: [] });
+  const clip = addClip(song, { start: 0, length: 4 });
+  clip.notes.push({ pitch: 69 }, { pitch: 81 });
+  cloneClip(song, clip).start = 4;
+  const nested = emptySong();
+  setSig(nested, 0, 3, 4);
+  const idea = addClip(nested, { start: -4, length: 4, y: -LANE_H });
+  idea.notes.push({ pitch: 69.25 }, { pitch: 60 });
+  addClip(nested, { start: 0, length: 6 });
+  const result = songFacts([layer, { song: nested, rt: { bpm: 60 } }]);
+  assert.equal(result.duration, '00:00:04');
+  assert.equal(result.notes, 6, 'linked occurrences and nested idea notes count once per clip');
+  assert.equal(result.measures, 4, 'two 4/4 bars and two 3/4 bars');
+  assert.ok(Math.abs(result.averageFrequency - (440 * 2 + 880 * 2 + 440 * 2 ** (0.25 / 12) + 440 * 2 ** (-9 / 12)) / 6) < 1e-8);
+  assert.deepEqual(result.topPitches.slice(0, 2).map(({ label, count }) => [label, count]), [['A4', 2], ['A5', 2]]);
+  assert.equal(result.topPitches.at(-1).label, 'A4 (+25 ct)');
+  clip.length = 7200;
+  layer.rt.bpm = 60;
+  assert.equal(songFacts([layer]).duration, '02:00:00');
+  const many = emptySong();
+  const pitches = addClip(many, { length: 4 });
+  pitches.notes = [65, 64, 63, 62, 61, 60].map((pitch) => ({ pitch }));
+  assert.deepEqual(songFacts([{ song: many, rt: { bpm: 120 } }]).topPitches.map((x) => x.pitch), [60, 61, 62, 63, 64]);
+}
 
 // ---- snap grid: base note value ÷ divider ----
 assert.equal(snapStep({ base: 4, div: 1 }), 1);

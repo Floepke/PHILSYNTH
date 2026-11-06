@@ -22,6 +22,13 @@ clip.notes.push({ pitch: 69, start: 0, length: 1, vel: 0.8 });
 const project = { format: 'modsynth', version: 1, patch: root.toJSON(), song };
 const rate = 48000;
 const secondsPerQuarter = 60 / root.bpm;
+await assert.rejects(renderSong(project, { signal: AbortSignal.abort() }), { name: 'AbortError' });
+const cancellation = new AbortController();
+await assert.rejects(renderSong(project, {
+  signal: cancellation.signal,
+  onProgress: () => cancellation.abort(),
+}), { name: 'AbortError' });
+assert.equal(globalThis.sampleRate, 48000, 'cancelled renders restore the sample rate');
 
 for (const wasm of [null, await readFile(new URL('../src/dsp/modsynth.wasm', import.meta.url))]) {
   const progress = [];
@@ -203,4 +210,5 @@ assert.equal(clip.notes.length, 1);
   assert.equal(s24(4, 1), 0, 'NaN becomes silence');
 }
 
+await import('./audioexport.test.mjs');
 console.log('render tests passed');

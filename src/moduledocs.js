@@ -39,6 +39,7 @@ export const DOCS = {
     },
     notes: [
       'Below the controllers: <b>Song/Patch Name</b>, <b>Creator</b> (the name of whoever made it) and a <b>Comments</b> box for notes about the song or patch; all are saved with the project.',
+      '<b>Song facts</b> below Comments shows the main song\'s length (HH:MM:SS at its current Output tempo), project note and measure counts, average note frequency and the five most used pitches. Counts cover all project TimeLines; each linked-clip occurrence and stored idea note counts, but generated notes and hidden Patch instances do not. Measures follow each TimeLine\'s time signatures. Pitch statistics use stored note pitches (A4 = 440 Hz), equally weighted per note.',
       'Inside a Patch, MIDI cables (MULTIMIDI, STRUM, TRILL) and modulator cables (LFO, ADSR, ENVELOPE, VELOCITY2CTL, PITCH2CTL, SOUND2CTL) into the Output pass out over the Patch module\'s cables. At the top level a modulator cabled into the Output drives the Output\'s own controllers.',
     ],
   },

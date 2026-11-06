@@ -40,6 +40,7 @@ function nextTask() {
 // project: Engine.saveProject() data. Returns { left, right, length, sampleRate, peak, seconds }.
 // onProgress(fraction 0..1); signal: AbortSignal; wasm: modsynth.wasm bytes (null = JS kernels).
 export async function renderSong(project, { sampleRate = 48000, wasm = null, onProgress = null, signal = null } = {}) {
+  signal?.throwIfAborted();
   const hadRate = 'sampleRate' in globalThis;
   const prevRate = globalThis.sampleRate;
   globalThis.sampleRate = sampleRate; // DSP kernels read the AudioWorkletGlobalScope global
@@ -60,6 +61,7 @@ export async function renderSong(project, { sampleRate = 48000, wasm = null, onP
     root = await PatchRuntime.create(engine, dsp.destination);
     await root.load(project.patch);
     await prepareInstances(root);
+    signal?.throwIfAborted();
     const song = normalizeSong(structuredClone(project.song));
     const transport = new Transport({
       getSong: () => song,
@@ -90,6 +92,7 @@ export async function renderSong(project, { sampleRate = 48000, wasm = null, onP
     let quiet = 0;
     let lastYield = performance.now();
     for (;;) {
+      signal?.throwIfAborted();
       if (playing) {
         if (transport.pos + (dt * root.bpm) / 60 >= end) {
           transport.advance(transport.from, end); // note-offs and note-ons up to the exact end
@@ -122,12 +125,13 @@ export async function renderSong(project, { sampleRate = 48000, wasm = null, onP
         onProgress?.(playing ? Math.min(0.99, (transport.pos - start) / (end - start)) : 0.99);
         await nextTask();
         lastYield = performance.now();
-        if (signal?.aborted) throw new DOMException('Export cancelled', 'AbortError');
+        signal?.throwIfAborted();
       }
     }
     // drop the trailing silence (keep a short fade-out margin of SILENT_TAIL_S)
     length = Math.max(BLOCK, length - Math.max(0, quiet - Math.round(SILENT_TAIL_S * sampleRate * 0.2)));
     onProgress?.(1);
+    signal?.throwIfAborted();
     return { left: left.subarray(0, length), right: right.subarray(0, length), length, sampleRate, peak, seconds: length / sampleRate };
   } finally {
     try { root?.destroy(); } catch { /* the render result is what matters */ }

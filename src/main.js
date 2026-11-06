@@ -25,7 +25,7 @@ import { snapToGrid } from './grid.js';
 import { createNoiseBackground } from './noisebg.js';
 import { renderGuide } from './guide.js';
 import { createHistory } from './history.js';
-import { renderSong, encodeWav } from './render.js';
+import { renderAudio, writeAudio } from './audioexport.js';
 import { withSamples, importSamples } from './samples.js';
 import { createProjectFile, pickBackend } from './projectfile.js';
 import { initStatusTips } from './statustips.js';
@@ -34,6 +34,7 @@ import { pickFile } from './filepicker.js';
 import { PROJECT_FORMAT, MODULE_FORMAT, MODULE_EXT, isFormat } from './fileformat.js';
 import { moduleDocs } from './moduledocs.js';
 import { createPatchMonitor } from './patchmonitor.js';
+import { songFacts } from './songfacts.js';
 
 const engine = new Engine();
 let transport = null; // song playback (created after the engine)
@@ -237,6 +238,7 @@ const persist = createPersistence({
 engine.onChange = () => {
   persist.schedule();
   undoHistory?.record();
+  if (sel?.entry?.def.isOutput) panelRefresh?.();
 };
 
 function viewState() {
@@ -1283,6 +1285,7 @@ function select(s) {
 
   // display below the controllers (e.g. the OSC waveform preview)
   view = entry.def.view?.(entry, {
+    songFacts: () => songFacts(songLayers(engine.root, engine.song)),
     color: colorOf(entry) ?? entry.def.color,
     setParam: (id, v) => { current().setParam(entry.id, id, v); refresh(); }, // e.g. dragging an EQ band
     setState: (st) => current().setState(entry.id, st), // e.g. the Output's comments
@@ -1468,9 +1471,13 @@ let exporting = false;
 const exportDialog = $('export-dialog');
 const exportMessage = $('export-message');
 const exportProgress = $('export-progress');
-const exportDone = $('export-done');
-exportDone.onclick = () => exportDialog.close();
-exportDialog.addEventListener('cancel', (e) => { if (exporting) e.preventDefault(); });
+const exportCancel = $('export-cancel');
+let exportController = null;
+exportCancel.onclick = () => {
+  exportController?.abort(new DOMException('Export cancelled', 'AbortError'));
+  exportDialog.close();
+};
+exportDialog.addEventListener('cancel', (e) => { e.preventDefault(); exportCancel.onclick(); });
 
 function showExportProgress(message, percent) {
   exportMessage.textContent = message;
@@ -1506,29 +1513,35 @@ async function exportAudio() {
     }
   }
   exporting = true;
-  exportDone.disabled = true;
+  const controller = new AbortController();
+  exportController = controller;
+  const { signal } = controller;
+  exportCancel.textContent = 'Cancel';
   exportProgress.hidden = false;
   $('export-title').textContent = 'Export Audio';
   showExportProgress('Preparing audio…', 0);
-  exportDialog.showModal();
+  exportDialog.show();
   try {
     await paintExportProgress();
-    const project = JSON.parse(JSON.stringify(engine.saveProject()));
+    signal.throwIfAborted();
+    const project = withSamples(engine.saveProject());
     const sampleRate = engine.ctx?.sampleRate || 48000;
     const wasm = engine.dspInfo?.dsp === 'wasm' ? engine.wasm : null;
     showExportProgress('Rendering audio… 0%', 0);
-    const out = await renderSong(project, {
+    const out = await renderAudio(project, {
       sampleRate,
       wasm,
+      signal,
       onProgress: (f) => { showExportProgress(`Rendering audio… ${Math.round(f * 90)}%`, f * 90); },
+      onEncoding: () => showExportProgress('Encoding WAV…', 90),
     });
-    showExportProgress('Encoding WAV…', 90);
-    await paintExportProgress();
-    const wav = encodeWav(out.left, out.right, sampleRate);
+    signal.throwIfAborted();
+    const { wav } = out;
     const blob = new Blob([wav], { type: 'audio/wav' });
     const name = desktop?.name ?? handle?.name ?? suggestedName;
     let downloaded = false;
     const download = () => {
+      signal.throwIfAborted();
       const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name });
       a.click();
       downloaded = true;
@@ -1536,33 +1549,45 @@ async function exportAudio() {
     };
     showExportProgress(`Writing ${name}…`, null);
     await paintExportProgress();
+    signal.throwIfAborted();
     if (desktop) {
-      await files.saveAudio(desktop.path, wav);
+      const id = crypto.randomUUID();
+      const cancelWrite = () => {
+        files.cancelAudio(id).catch((err) => console.error('Could not cancel audio file write:', err));
+      };
+      signal.addEventListener('abort', cancelWrite, { once: true });
+      try { await files.saveAudio(desktop.path, wav, id); }
+      finally { signal.removeEventListener('abort', cancelWrite); }
     } else if (handle) {
       try {
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
+        await writeAudio(handle, blob, signal);
       } catch (err) {
+        signal.throwIfAborted();
         // write access refused (e.g. by the platform): save it as a download instead
         console.warn('Writing the chosen file failed, downloading instead:', err);
         download();
       }
     } else download();
+    signal.throwIfAborted();
     const secs = Math.round(out.seconds);
     const length = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
     const clipped = out.peak > 1 ? ` Clipped: peak +${(20 * Math.log10(out.peak)).toFixed(1)} dBFS, lower the Output level.` : '';
     $('export-title').textContent = downloaded ? 'Audio ready' : 'Export complete';
     showExportProgress(`${downloaded ? 'Download started for' : 'Exported'} ${name} (${length}, ${sampleRate} Hz, 24-bit stereo).${downloaded ? ' Check your browser downloads for completion.' : ''}${clipped}`, 100);
   } catch (err) {
-    console.error('Audio export failed:', err);
-    $('export-title').textContent = 'Export failed';
-    exportProgress.hidden = true;
-    showExportProgress(`Export failed: ${err.message}`, 0);
+    if (signal.aborted) {
+      showExportProgress('Export cancelled.', 0);
+      exportDialog.close();
+    } else {
+      console.error('Audio export failed:', err);
+      $('export-title').textContent = 'Export failed';
+      exportProgress.hidden = true;
+      showExportProgress(`Export failed: ${err.message}`, 0);
+    }
   } finally {
     exporting = false;
-    exportDone.disabled = false;
-    exportDone.focus();
+    exportController = null;
+    exportCancel.textContent = 'Close';
   }
 }
 function emptyProject() {
@@ -1631,7 +1656,10 @@ seq = createSequencer({
     record: () => undoHistory?.record(),
     travel: (direction) => undoHistory ? undoHistory.travel(direction) : false,
   },
-  onChange: () => persist.schedule(),
+  onChange: () => {
+    persist.schedule();
+    if (sel?.entry?.def.isOutput) panelRefresh?.();
+  },
 });
 undoHistory = createHistory({
   capture() {
