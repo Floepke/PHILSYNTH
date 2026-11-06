@@ -2,7 +2,7 @@
 // redraws on resize, plus middle-mouse panning and wheel handling.
 import { wheelNotches, wheelDelta } from '../params.js';
 
-export function createSurface(host, paint) {
+export function createSurface(host, paint, { onResize } = {}) {
   const cv = document.createElement('canvas');
   cv.tabIndex = 0; // focusable, so Backspace / Delete reach the view that was clicked last
   host.append(cv);
@@ -20,6 +20,7 @@ export function createSurface(host, paint) {
     s.dpr = window.devicePixelRatio || 1;
     s.w = host.clientWidth;
     s.h = host.clientHeight;
+    onResize?.(s.w, s.h);
     cv.width = Math.max(1, Math.round(s.w * s.dpr));
     cv.height = Math.max(1, Math.round(s.h * s.dpr));
     cv.style.width = `${s.w}px`;

@@ -115,7 +115,20 @@ export function createArranger(host, ctx) {
     return Math.floor(now / BLINK_MS) % 2 === 0;
   }
 
-  const s = createSurface(host, paint);
+  let viewportWidth = 0;
+  let viewportHeight = 0;
+  const s = createSurface(host, paint, {
+    onResize(w, h) {
+      // Remember the last visible size across hiding/restoring the pane.
+      if (w <= 0 || h <= 0) return;
+      if (viewportWidth > 0 && viewportHeight > 0) {
+        view.sx -= (w - viewportWidth) / 2;
+        view.sy -= (h - viewportHeight) / 2;
+      }
+      viewportWidth = w;
+      viewportHeight = h;
+    },
+  });
   const { cv } = s;
   cv.title = 'Wheel scrolls sideways, Shift + wheel scrolls the lanes; middle-drag or the scrollbars pan';
   const xOf = (t) => x0 + t * view.ppq - view.sx;

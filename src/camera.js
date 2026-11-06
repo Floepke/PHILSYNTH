@@ -17,6 +17,11 @@ export const clampZoom = (z) => (Number.isFinite(z) ? Math.min(ZOOM_MAX, Math.ma
 export const toWorld = (cam, sx, sy) => ({ x: (sx - cam.x) / cam.z, y: (sy - cam.y) / cam.z });
 export const toScreen = (cam, wx, wy) => ({ x: wx * cam.z + cam.x, y: wy * cam.z + cam.y });
 
+// Keep the same world point at the centre when the viewport changes size.
+export function resizeCam(cam, oldWidth, oldHeight, width, height) {
+  return { x: cam.x + (width - oldWidth) / 2, y: cam.y + (height - oldHeight) / 2, z: cam.z };
+}
+
 // Zoom by `factor` keeping the world point under screen point (sx, sy) fixed.
 export function zoomAt(cam, sx, sy, factor) {
   const z = clampZoom(cam.z * factor);

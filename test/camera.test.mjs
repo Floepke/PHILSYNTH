@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { clampZoom, defaultCam, validCam, toWorld, toScreen, zoomAt, fitBox, clampCam, ZOOM_MIN, ZOOM_MAX } from '../src/camera.js';
+import { clampZoom, defaultCam, validCam, toWorld, toScreen, zoomAt, fitBox, clampCam, resizeCam, ZOOM_MIN, ZOOM_MAX } from '../src/camera.js';
 
 const near = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 
@@ -8,6 +8,24 @@ const cam = { x: 120, y: -40, z: 1.7 };
 const w = toWorld(cam, 300, 200);
 const s = toScreen(cam, w.x, w.y);
 near(s.x, 300); near(s.y, 200);
+
+// Divider and window resizing keep the world-space centre fixed without changing zoom.
+for (const z of [0.15, 1, 1.7, 3]) {
+  let c = { x: 120, y: -40, z };
+  let width = 800;
+  let height = 600;
+  const centre = toWorld(c, width / 2, height / 2);
+  for (const [w, h] of [[800, 300], [400, 300], [1200, 900], [800, 600]]) {
+    c = resizeCam(c, width, height, w, h);
+    const point = toWorld(c, w / 2, h / 2);
+    near(point.x, centre.x);
+    near(point.y, centre.y);
+    assert.equal(c.z, z);
+    width = w;
+    height = h;
+  }
+  assert.deepEqual(c, { x: 120, y: -40, z }, 'resizing back does not accumulate drift');
+}
 
 // zooming keeps the point under the cursor fixed
 for (const f of [1.15, 1 / 1.15, 4, 0.01]) {

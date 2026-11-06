@@ -149,10 +149,11 @@ function setup({ snapVelocity = false } = {}) {
   const roll = createPianoRoll(rollHost, ctx);
   const initialView = roll.getView();
   const initialSnap = initialView.snapVelocity;
-  const arranger = createArranger(host(), ctx);
+  const arrangerHost = host();
+  const arranger = createArranger(arrangerHost, ctx);
   roll.setView({ sy: 0, ppq: 48, snapVelocity });
   flush();
-  return { song, clip, roll, rollHost, arranger, ctx, menus, initialSnap, initialView, changes: () => changes, previews: () => previews };
+  return { song, clip, roll, rollHost, arranger, arrangerHost, ctx, menus, initialSnap, initialView, changes: () => changes, previews: () => previews };
 }
 // runs the action of the last opened context menu's item with this label
 const pick = (menus, label) => {
@@ -172,6 +173,33 @@ const assertNoOverlap = (song) => {
     for (let j = i + 1; j < song.clips.length; j++) assert.equal(clipsOverlap(song.clips[i], song.clips[j]), false);
   }
 };
+
+// TimeLine resizing retains the time/lane at its centre, including hide/restore.
+{
+  const { arranger, arrangerHost, changes } = setup();
+  arranger.setView({ sx: 170, sy: -90, ppq: 32 });
+  flush();
+  const centre = () => {
+    const v = arranger.getView();
+    return { time: (arrangerHost.clientWidth / 2 + v.sx) / v.ppq, lane: arrangerHost.clientHeight / 2 + v.sy };
+  };
+  const before = centre();
+  for (const [w, h] of [[480, 200], [800, 200], [320, 600], [480, 400]]) {
+    arrangerHost.clientWidth = w;
+    arrangerHost.clientHeight = h;
+    arrangerHost.resize();
+    flush();
+    assert.deepEqual(centre(), before, 'same time and lane remain centred');
+    assert.equal(arranger.getView().ppq, 32, 'zoom unchanged');
+  }
+  assert.deepEqual(arranger.getView(), { sx: 170, sy: -90, ppq: 32 }, 'no round-trip drift');
+  arrangerHost.clientHeight = 0;
+  arrangerHost.resize(); flush();
+  arrangerHost.clientHeight = 300;
+  arrangerHost.resize(); flush();
+  assert.deepEqual(centre(), before, 'restoring uses the last visible viewport');
+  assert.equal(changes(), 0, 'resizing is not a song edit');
+}
 
 // Free timing decouples piano-roll edits from the visual grid without changing other views.
 {

@@ -312,7 +312,7 @@ export const GUIDE = [
       {
         title: 'Layout',
         items: [
-          'Piano roll, patcher and TimeLine are stacked top to bottom. Drag a divider up / down to resize the panes (to an edge hides a pane), left / right to resize this controller panel. Arrow keys, Home and End move a focused divider. Positions are saved with the project.',
+          'Piano roll, patcher and TimeLine are stacked top to bottom. Drag a divider up / down to resize the panes (to an edge hides a pane), left / right to resize this controller panel. The patcher keeps the same patch position centred as its viewport resizes; the TimeLine likewise keeps the same time and lane position centred, without changing zoom. Arrow keys, Home and End move a focused divider. Positions are saved with the project.',
           'The upper divider holds the clip name, <i>Send to</i>, the Grid and Free timing; their names (<i>Clip:</i>, <i>Send to:</i>, <i>Input Grid:</i>) drag the divider too. When it is too narrow, move the pointer along it to reveal its controls. The lower divider shows the patch path on the left and the TimeLine transport buttons and play position immediately left of the clock on the right.',
         ],
       },

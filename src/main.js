@@ -13,7 +13,7 @@ import { Transport } from './transport.js';
 import { unsavedDialog } from './dialogs.js';
 import { exitToOS } from './exit.js';
 import { createSequencer } from './seq/index.js';
-import { defaultCam, validCam, toWorld, toScreen, zoomAt, fitBox, clampCam, ZOOM_STEP } from './camera.js';
+import { defaultCam, validCam, toWorld, toScreen, zoomAt, fitBox, clampCam, resizeCam, ZOOM_STEP } from './camera.js';
 import { edgeScroll } from './seq/surface.js';
 import { initWidgets } from './widgets.js';
 import { emptySong, getClip, newSong, snapStep } from './song.js';
@@ -122,6 +122,22 @@ const shown = () => path.at(-1)?.patch ?? engine.root; // current(), also before
 
 // ---- camera (pan / zoom), one per patch level ----
 const cam = () => (path[path.length - 1].cam ??= defaultCam());
+let cameraWidth = canvas.clientWidth;
+let cameraHeight = canvas.clientHeight;
+new ResizeObserver(() => {
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  // A collapsed pane retains its last visible size so restoring it preserves the centre.
+  if (width <= 0 || height <= 0) return;
+  if (path.length && cameraWidth > 0 && cameraHeight > 0 && (width !== cameraWidth || height !== cameraHeight)) {
+    // Resizing is not a pan: clamping here would displace the centre near the pan limits.
+    path[path.length - 1].cam = resizeCam(cam(), cameraWidth, cameraHeight, width, height);
+    applyCam();
+    persist.schedule();
+  }
+  cameraWidth = width;
+  cameraHeight = height;
+}).observe(canvas);
 // client (pointer) coordinates -> world coordinates of the current patch
 function clientToWorld(cx, cy) {
   const r = canvas.getBoundingClientRect();
