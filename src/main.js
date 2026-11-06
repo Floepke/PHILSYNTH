@@ -1465,6 +1465,29 @@ window.addEventListener('keydown', (e) => {
 // (src/filepicker.js) and the main process writes the file. Without the File System Access API
 // the file is downloaded instead.
 let exporting = false;
+const exportDialog = $('export-dialog');
+const exportMessage = $('export-message');
+const exportProgress = $('export-progress');
+const exportDone = $('export-done');
+exportDone.onclick = () => exportDialog.close();
+exportDialog.addEventListener('cancel', (e) => { if (exporting) e.preventDefault(); });
+
+function showExportProgress(message, percent) {
+  exportMessage.textContent = message;
+  if (percent === null) exportProgress.removeAttribute('value');
+  else exportProgress.value = percent;
+  $('status').textContent = message;
+}
+
+// Let the dialog paint before synchronous project copying or WAV encoding.
+const paintExportProgress = () => new Promise((resolve) => {
+  const frame = requestAnimationFrame(() => {
+    clearTimeout(fallback);
+    setTimeout(resolve, 0);
+  });
+  const fallback = setTimeout(() => { cancelAnimationFrame(frame); resolve(); }, 100);
+});
+
 async function exportAudio() {
   if (exporting) return;
   const suggestedName = `${projectFile.name.replace(/\.(phproject|mds|json)$/i, '') || 'modsynth-song'}.wav`;
@@ -1483,27 +1506,37 @@ async function exportAudio() {
     }
   }
   exporting = true;
-  const status = $('status');
+  exportDone.disabled = true;
+  exportProgress.hidden = false;
+  $('export-title').textContent = 'Export Audio';
+  showExportProgress('Preparing audio…', 0);
+  exportDialog.showModal();
   try {
+    await paintExportProgress();
     const project = JSON.parse(JSON.stringify(engine.saveProject()));
     const sampleRate = engine.ctx?.sampleRate || 48000;
     const wasm = engine.dspInfo?.dsp === 'wasm' ? engine.wasm : null;
-    status.textContent = 'Rendering audio… 0%';
+    showExportProgress('Rendering audio… 0%', 0);
     const out = await renderSong(project, {
       sampleRate,
       wasm,
-      onProgress: (f) => { status.textContent = `Rendering audio… ${Math.round(f * 100)}%`; },
+      onProgress: (f) => { showExportProgress(`Rendering audio… ${Math.round(f * 90)}%`, f * 90); },
     });
+    showExportProgress('Encoding WAV…', 90);
+    await paintExportProgress();
     const wav = encodeWav(out.left, out.right, sampleRate);
     const blob = new Blob([wav], { type: 'audio/wav' });
     const name = desktop?.name ?? handle?.name ?? suggestedName;
+    let downloaded = false;
     const download = () => {
       const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name });
       a.click();
+      downloaded = true;
       setTimeout(() => URL.revokeObjectURL(a.href), 10000);
     };
+    showExportProgress(`Writing ${name}…`, null);
+    await paintExportProgress();
     if (desktop) {
-      status.textContent = `Writing ${name}…`;
       await files.saveAudio(desktop.path, wav);
     } else if (handle) {
       try {
@@ -1519,12 +1552,17 @@ async function exportAudio() {
     const secs = Math.round(out.seconds);
     const length = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
     const clipped = out.peak > 1 ? ` Clipped: peak +${(20 * Math.log10(out.peak)).toFixed(1)} dBFS, lower the Output level.` : '';
-    status.textContent = `Exported ${name} (${length}, ${sampleRate} Hz, 24-bit stereo).${clipped}`;
+    $('export-title').textContent = downloaded ? 'Audio ready' : 'Export complete';
+    showExportProgress(`${downloaded ? 'Download started for' : 'Exported'} ${name} (${length}, ${sampleRate} Hz, 24-bit stereo).${downloaded ? ' Check your browser downloads for completion.' : ''}${clipped}`, 100);
   } catch (err) {
     console.error('Audio export failed:', err);
-    status.textContent = `Export failed: ${err.message}`;
+    $('export-title').textContent = 'Export failed';
+    exportProgress.hidden = true;
+    showExportProgress(`Export failed: ${err.message}`, 0);
   } finally {
     exporting = false;
+    exportDone.disabled = false;
+    exportDone.focus();
   }
 }
 function emptyProject() {
