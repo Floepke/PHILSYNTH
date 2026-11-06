@@ -8,7 +8,7 @@
 </head>
 <body>
   <input id="file" type="file" accept=".phproject,.mds,.json" hidden>
-  <button id="brand" class="brand" type="button" aria-haspopup="menu" aria-expanded="false" title="Main menu: New, Open, Save, Export Audio, MIDI Input…"><span class="logo"></span>PHILSYNTH</button>
+  <button id="brand" class="brand" type="button" aria-haspopup="menu" aria-expanded="false" title="Main menu: New, Open, Save, Export Audio, MIDI Input, Wood Tint…"><span class="logo"></span>PHILSYNTH</button>
   <div id="workspace">
     <section id="seq" aria-label="Piano roll">
       <div id="roll" class="seq-view"></div>
@@ -164,6 +164,25 @@
         <button type="button" id="fd-ok" class="primary">Open</button>
       </menu>
     </div>
+  </dialog>
+
+  <dialog id="wood-dialog" aria-labelledby="wood-title">
+    <form method="dialog">
+      <h3 id="wood-title">Wood Tint</h3>
+      <div class="color-sliders">
+        <label class="color-row"><span>R</span><input id="wood-r" type="range" min="0" max="255" step="1" aria-label="Wood red"><output id="wood-r-val" for="wood-r"></output></label>
+        <label class="color-row"><span>G</span><input id="wood-g" type="range" min="0" max="255" step="1" aria-label="Wood green"><output id="wood-g-val" for="wood-g"></output></label>
+        <label class="color-row"><span>B</span><input id="wood-b" type="range" min="0" max="255" step="1" aria-label="Wood blue"><output id="wood-b-val" for="wood-b"></output></label>
+      </div>
+      <p id="wood-note" class="dialog-note"></p>
+      <p class="dialog-note">Previewed on all wood surfaces. Saved for this browser or app, not the project. Extreme tints are softened to keep the grain visible.</p>
+      <p id="wood-error" class="dialog-note" role="alert"></p>
+      <menu>
+        <button type="button" id="wood-reset">Reset to gray</button>
+        <button value="cancel">Cancel</button>
+        <button value="ok" class="primary">OK</button>
+      </menu>
+    </form>
   </dialog>
 
   <script type="module" src="src/main.js"></script>

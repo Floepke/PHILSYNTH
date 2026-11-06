@@ -8,6 +8,7 @@ import { createController } from './controller.js';
 import { linePath, arrowPath, arrowPoints, centerOf, visibleSegment } from './cable.js';
 import { colorOf, stockColor } from './modcolor.js';
 import { openColorDialog } from './colordialog.js';
+import { initWoodTheme } from './woodtheme.js';
 import { Transport } from './transport.js';
 import { unsavedDialog } from './dialogs.js';
 import { exitToOS } from './exit.js';
@@ -44,6 +45,7 @@ let undoHistory = null;
 let scope = null; // live audio drawn on the cables (created after the engine)
 let patchMonitor = null;
 const $ = (id) => document.getElementById(id);
+const openWoodTint = initWoodTheme((message) => { $('status').textContent = message; });
 const canvas = $('canvas');
 const noiseBg = createNoiseBackground(canvas);
 const svg = $('cables');
@@ -1413,6 +1415,7 @@ function openMainMenu(focusFirst) {
       { label: 'Export Audio…', shortcut: shortcut('E'), disabled: exporting, action: exportAudio },
       '-',
       { label: 'MIDI Input…', disabled: !midi, action: openMidiMenu },
+      { label: 'Wood Tint…', action: openWoodTint },
       '-',
       { label: 'Exit', shortcut: 'Esc', action: () => exitToOS(persist, (message) => { $('status').textContent = message; }) },
     ],

@@ -15,10 +15,14 @@
   --radius-sm: 6px;
   --seq-divider: 48px;
   --window-frame: 6px;
-  --wood-ink: #f4e4c8;
-  --wood-border: #382313;
-  --wood-panel: linear-gradient(to bottom, rgba(255, 220, 170, 0.1), rgba(12, 6, 2, 0.45)), var(--wood-h);
-  --wood-shadow: inset 1px 1px 0 rgba(255, 220, 170, 0.3), inset -1px -1px 0 rgba(12, 6, 2, 0.8), 0 24px 64px rgba(0, 0, 0, 0.7);
+  --wood-tint: #585858;
+  --wood-base: color-mix(in srgb, var(--wood-tint) 84%, #000);
+  --wood-raised: color-mix(in srgb, var(--wood-tint) 58%, #000);
+  --wood-inset: color-mix(in srgb, var(--wood-tint) 35%, #000);
+  --wood-ink: #e5e5e5;
+  --wood-border: #262626;
+  --wood-panel: linear-gradient(to bottom, rgba(224, 224, 224, 0.1), rgba(7, 7, 7, 0.45)), var(--wood-h);
+  --wood-shadow: inset 1px 1px 0 rgba(224, 224, 224, 0.3), inset -1px -1px 0 rgba(7, 7, 7, 0.8), 0 24px 64px rgba(0, 0, 0, 0.7);
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.55), 0 1px 0 rgba(255, 255, 255, 0.04) inset;
   --font: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
@@ -37,7 +41,7 @@ body {
   background-size: 100% var(--window-frame), 100% var(--window-frame), var(--window-frame) 100%, var(--window-frame) 100%;
   background-position: top, bottom, left, right;
   background-repeat: no-repeat;
-  box-shadow: inset 1px 1px 0 rgba(255, 220, 170, 0.22), inset -1px -1px 0 rgba(12, 6, 2, 0.9);
+  box-shadow: inset 1px 1px 0 rgba(224, 224, 224, 0.22), inset -1px -1px 0 rgba(7, 7, 7, 0.9);
   color: var(--text);
   font: 13px/1.4 var(--font);
   -webkit-font-smoothing: antialiased;
@@ -58,7 +62,7 @@ body {
     padding: 4px;
     border: 2px solid var(--wood-border);
     border-radius: 12px;
-    background-color: #6a4429;
+    background-color: var(--wood-base);
     background-image: var(--wood-panel);
     color: var(--wood-ink);
     box-shadow: var(--wood-shadow);
@@ -72,7 +76,7 @@ body {
   }
   select:not([multiple]):not([size]) option:hover,
   select:not([multiple]):not([size]) option:checked {
-    background: rgba(12, 6, 2, 0.4);
+    background: rgba(7, 7, 7, 0.4);
   }
 }
 
@@ -753,7 +757,7 @@ body.panel-collapsed #panel { visibility: hidden; }
   color: var(--beam-ink);
   font: 500 12px var(--mono);
 }
-.seq-sep { width: 1px; height: 20px; background: rgba(12, 6, 2, 0.7); box-shadow: 1px 0 0 rgba(255, 220, 170, 0.2); }
+.seq-sep { width: 1px; height: 20px; background: rgba(7, 7, 7, 0.7); box-shadow: 1px 0 0 rgba(224, 224, 224, 0.2); }
 .seq-field { display: inline-flex; align-items: center; gap: 5px; }
 .seq-field[hidden] { display: none; }
 .seq-field > span { color: var(--beam-ink); font-size: 11px; font-weight: 600; letter-spacing: 0.03em; }
@@ -784,34 +788,34 @@ body.panel-collapsed #panel { visibility: hidden; }
 #seq-target { box-shadow: inset 3px 0 0 var(--clip-color); }
 .seq-div { color: var(--beam-ink); font-size: 16px; line-height: 1; }
 #seq-bar .seq-div-input { width: 48px; }
-/* the toolbar's controls are carved from the divider's oak, a shade darker: the play button, dropdowns
+/* the toolbar's controls are carved from the divider's charcoal wood, a shade darker: the play button, dropdowns
    and spin arrows are raised (the beam's rounded shading), the value fields are sunk into the wood */
 #seq-bar :is(select, .spin-buttons button),
 #seq-transport .seq-play,
 #sig-dialog :is(select, .spin-buttons button) {
   border-color: var(--wood-border);
-  background-color: #4a2e1a;
+  background-color: var(--wood-raised);
   background-image:
-    linear-gradient(to bottom, rgba(255, 220, 170, 0.16) 0%, rgba(255, 215, 160, 0.04) 35%, rgba(0, 0, 0, 0) 55%, rgba(12, 6, 2, 0.35) 100%),
-    linear-gradient(rgba(12, 6, 2, 0.38), rgba(12, 6, 2, 0.38)),
+    linear-gradient(to bottom, rgba(224, 224, 224, 0.16) 0%, rgba(220, 220, 220, 0.04) 35%, rgba(0, 0, 0, 0) 55%, rgba(7, 7, 7, 0.35) 100%),
+    linear-gradient(rgba(7, 7, 7, 0.38), rgba(7, 7, 7, 0.38)),
     var(--wood-h);
   color: var(--wood-ink);
-  box-shadow: inset 0 1px 0 rgba(255, 220, 170, 0.22), inset 0 -1px 0 rgba(12, 6, 2, 0.7), 0 1px 2px rgba(0, 0, 0, 0.45);
+  box-shadow: inset 0 1px 0 rgba(224, 224, 224, 0.22), inset 0 -1px 0 rgba(7, 7, 7, 0.7), 0 1px 2px rgba(0, 0, 0, 0.45);
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7);
 }
 #seq-bar input:not([type='checkbox']),
 #sig-dialog .sig-fields input {
   border-color: var(--wood-border);
-  background-color: #2e1c0f;
-  background-image: linear-gradient(rgba(12, 6, 2, 0.6), rgba(12, 6, 2, 0.6)), var(--wood-h);
+  background-color: var(--wood-inset);
+  background-image: linear-gradient(rgba(7, 7, 7, 0.6), rgba(7, 7, 7, 0.6)), var(--wood-h);
   color: var(--wood-ink);
-  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(255, 220, 170, 0.14);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(224, 224, 224, 0.14);
 }
 #seq-bar :is(select, .spin-buttons button):hover:not(:disabled),
 #seq-transport .seq-play:hover:not(:disabled),
 #sig-dialog :is(select, .spin-buttons button):hover:not(:disabled) { filter: brightness(1.18); }
 #seq-transport .seq-play.playing { background: #ff5a36; border-color: #ff5a36; color: #0b0b0c; text-shadow: none; }
-#seq-bar #seq-target { box-shadow: inset 3px 0 0 var(--clip-color), inset 0 1px 0 rgba(255, 220, 170, 0.22), inset 0 -1px 0 rgba(12, 6, 2, 0.7), 0 1px 2px rgba(0, 0, 0, 0.45); }
+#seq-bar #seq-target { box-shadow: inset 3px 0 0 var(--clip-color), inset 0 1px 0 rgba(224, 224, 224, 0.22), inset 0 -1px 0 rgba(7, 7, 7, 0.7), 0 1px 2px rgba(0, 0, 0, 0.45); }
 #seq-bar select::picker-icon, #sig-dialog select::picker-icon { color: var(--wood-ink); }
 #workspace.roll-collapsed #roll,
 #workspace.patcher-collapsed #patcher,
@@ -820,23 +824,23 @@ body.panel-collapsed #panel { visibility: hidden; }
 .seq-view canvas { position: absolute; inset: 0; display: block; outline: none; touch-action: none; }
 .seq-view canvas.panning { cursor: grabbing !important; }
 :root {
-  /* wood grain textures for the divider beams: stretched fractal noise banded into growth rings
+  /* grayscale wood grain textures: stretched fractal noise banded into growth rings
      plus fine fibres, grain running along the beam */
-  --wood-h: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27900%27 height=%2764%27%3E%3Cfilter id=%27r%27 x=%270%27 y=%270%27 width=%27100%25%27 height=%27100%25%27 color-interpolation-filters=%27sRGB%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%270.0022 0.09%27 numOctaves=%274%27 seed=%2711%27 stitchTiles=%27stitch%27/%3E%3CfeColorMatrix values=%270 0 0 0 .13 0 0 0 0 .07 0 0 0 0 .03 1.6 0 0 0 -.3%27/%3E%3CfeComponentTransfer%3E%3CfeFuncA type=%27table%27 tableValues=%270 .62 .08 .5 0 .66 .12 .55 0 .7%27/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Cfilter id=%27f%27 x=%270%27 y=%270%27 width=%27100%25%27 height=%27100%25%27 color-interpolation-filters=%27sRGB%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%270.012 0.6%27 numOctaves=%272%27 seed=%2714%27 stitchTiles=%27stitch%27/%3E%3CfeColorMatrix values=%270 0 0 0 .08 0 0 0 0 .04 0 0 0 0 .01 0 0 0 -2.2 1.35%27/%3E%3C/filter%3E%3Crect width=%27100%25%27 height=%27100%25%27 fill=%27%237b5132%27/%3E%3Crect width=%27100%25%27 height=%27100%25%27 filter=%27url%28%23r%29%27/%3E%3Crect width=%27100%25%27 height=%27100%25%27 filter=%27url%28%23f%29%27 opacity=%27.55%27/%3E%3C/svg%3E");
-  --wood-v: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2764%27 height=%27900%27%3E%3Cfilter id=%27r%27 x=%270%27 y=%270%27 width=%27100%25%27 height=%27100%25%27 color-interpolation-filters=%27sRGB%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%270.09 0.0022%27 numOctaves=%274%27 seed=%2723%27 stitchTiles=%27stitch%27/%3E%3CfeColorMatrix values=%270 0 0 0 .13 0 0 0 0 .07 0 0 0 0 .03 1.6 0 0 0 -.3%27/%3E%3CfeComponentTransfer%3E%3CfeFuncA type=%27table%27 tableValues=%270 .62 .08 .5 0 .66 .12 .55 0 .7%27/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Cfilter id=%27f%27 x=%270%27 y=%270%27 width=%27100%25%27 height=%27100%25%27 color-interpolation-filters=%27sRGB%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%270.6 0.012%27 numOctaves=%272%27 seed=%2726%27 stitchTiles=%27stitch%27/%3E%3CfeColorMatrix values=%270 0 0 0 .08 0 0 0 0 .04 0 0 0 0 .01 0 0 0 -2.2 1.35%27/%3E%3C/filter%3E%3Crect width=%27100%25%27 height=%27100%25%27 fill=%27%237b5132%27/%3E%3Crect width=%27100%25%27 height=%27100%25%27 filter=%27url%28%23r%29%27/%3E%3Crect width=%27100%25%27 height=%27100%25%27 filter=%27url%28%23f%29%27 opacity=%27.55%27/%3E%3C/svg%3E");
+  --wood-h: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%27900%27 height=%2764%27%3E%3Cfilter id=%27r%27 x=%270%27 y=%270%27 width=%27100%25%27 height=%27100%25%27 color-interpolation-filters=%27sRGB%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%270.0022 0.09%27 numOctaves=%274%27 seed=%2711%27 stitchTiles=%27stitch%27/%3E%3CfeColorMatrix values=%270 0 0 0 .08 0 0 0 0 .08 0 0 0 0 .08 1.6 0 0 0 -.3%27/%3E%3CfeComponentTransfer%3E%3CfeFuncA type=%27table%27 tableValues=%270 .62 .08 .5 0 .66 .12 .55 0 .7%27/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Cfilter id=%27f%27 x=%270%27 y=%270%27 width=%27100%25%27 height=%27100%25%27 color-interpolation-filters=%27sRGB%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%270.012 0.6%27 numOctaves=%272%27 seed=%2714%27 stitchTiles=%27stitch%27/%3E%3CfeColorMatrix values=%270 0 0 0 .046 0 0 0 0 .046 0 0 0 0 .046 0 0 0 -2.2 1.35%27/%3E%3C/filter%3E%3Crect width=%27100%25%27 height=%27100%25%27 fill=%27%23585858%27/%3E%3Crect width=%27100%25%27 height=%27100%25%27 filter=%27url%28%23r%29%27/%3E%3Crect width=%27100%25%27 height=%27100%25%27 filter=%27url%28%23f%29%27 opacity=%27.55%27/%3E%3C/svg%3E");
+  --wood-v: url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2764%27 height=%27900%27%3E%3Cfilter id=%27r%27 x=%270%27 y=%270%27 width=%27100%25%27 height=%27100%25%27 color-interpolation-filters=%27sRGB%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%270.09 0.0022%27 numOctaves=%274%27 seed=%2723%27 stitchTiles=%27stitch%27/%3E%3CfeColorMatrix values=%270 0 0 0 .08 0 0 0 0 .08 0 0 0 0 .08 1.6 0 0 0 -.3%27/%3E%3CfeComponentTransfer%3E%3CfeFuncA type=%27table%27 tableValues=%270 .62 .08 .5 0 .66 .12 .55 0 .7%27/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Cfilter id=%27f%27 x=%270%27 y=%270%27 width=%27100%25%27 height=%27100%25%27 color-interpolation-filters=%27sRGB%27%3E%3CfeTurbulence type=%27fractalNoise%27 baseFrequency=%270.6 0.012%27 numOctaves=%272%27 seed=%2726%27 stitchTiles=%27stitch%27/%3E%3CfeColorMatrix values=%270 0 0 0 .046 0 0 0 0 .046 0 0 0 0 .046 0 0 0 -2.2 1.35%27/%3E%3C/filter%3E%3Crect width=%27100%25%27 height=%27100%25%27 fill=%27%23585858%27/%3E%3Crect width=%27100%25%27 height=%27100%25%27 filter=%27url%28%23r%29%27/%3E%3Crect width=%27100%25%27 height=%27100%25%27 filter=%27url%28%23f%29%27 opacity=%27.55%27/%3E%3C/svg%3E");
 }
-/* dividers are oak beams lit from above-left: rounded shading over the grain, dark chamfered edges
+/* dividers are charcoal wood beams lit from above-left: rounded shading over the grain, dark chamfered edges
    (the piano roll's velocity / bar ruler is drawn on its canvas, not wood) */
 .splitter {
   --bevel-dir: to right;
-  --bevel-hi: inset 1px 0 0 rgba(255, 220, 170, 0.22);
-  --bevel-lo: inset -1px 0 0 rgba(12, 6, 2, 0.9);
+  --bevel-hi: inset 1px 0 0 rgba(224, 224, 224, 0.22);
+  --bevel-lo: inset -1px 0 0 rgba(7, 7, 7, 0.9);
   --wood: var(--wood-v);
-  --beam-ink: #f4e4c8; /* text and marks drawn straight on the wood */
+  --beam-ink: var(--wood-ink); /* text and marks drawn straight on the wood */
   position: relative;
-  background-color: #6a4429;
+  background-color: var(--wood-base);
   background-image:
-    linear-gradient(var(--bevel-dir), rgba(8, 4, 1, 0.85) 0%, rgba(20, 10, 3, 0.45) 7%, rgba(255, 215, 160, 0.06) 22%, rgba(255, 220, 170, 0.14) 38%, rgba(0, 0, 0, 0) 55%, rgba(20, 10, 3, 0.18) 78%, rgba(12, 6, 2, 0.55) 93%, rgba(6, 3, 1, 0.9) 100%),
+    linear-gradient(var(--bevel-dir), rgba(5, 5, 5, 0.85) 0%, rgba(12, 12, 12, 0.45) 7%, rgba(220, 220, 220, 0.06) 22%, rgba(224, 224, 224, 0.14) 38%, rgba(0, 0, 0, 0) 55%, rgba(12, 12, 12, 0.18) 78%, rgba(7, 7, 7, 0.55) 93%, rgba(3, 3, 3, 0.9) 100%),
     var(--wood);
   box-shadow: var(--bevel-hi), var(--bevel-lo);
   cursor: move;
@@ -846,8 +850,8 @@ body.panel-collapsed #panel { visibility: hidden; }
 }
 .splitter.horizontal {
   --bevel-dir: to bottom;
-  --bevel-hi: inset 0 1px 0 rgba(255, 220, 170, 0.22);
-  --bevel-lo: inset 0 -1px 0 rgba(12, 6, 2, 0.9);
+  --bevel-hi: inset 0 1px 0 rgba(224, 224, 224, 0.22);
+  --bevel-lo: inset 0 -1px 0 rgba(7, 7, 7, 0.9);
   --wood: var(--wood-h);
 }
 #seq-split {
@@ -983,7 +987,7 @@ dialog {
   padding: 20px;
   border: 2px solid var(--wood-border);
   border-radius: 8px;
-  background-color: #6a4429;
+  background-color: var(--wood-base);
   background-image: var(--wood-panel);
   color: var(--dialog-ink);
   box-shadow: var(--wood-shadow);
@@ -1044,8 +1048,8 @@ dialog p { margin: 0; color: var(--text-dim, #a0a0a8); font-size: 13px; line-hei
 dialog p { color: var(--dialog-ink); }
 :root dialog :is(input, select, .listbox, .map-list) {
   border-color: var(--wood-border);
-  background-color: #382313;
-  background-image: linear-gradient(rgba(12, 6, 2, 0.65), rgba(12, 6, 2, 0.65)), var(--wood-h);
+  background-color: var(--wood-border);
+  background-image: linear-gradient(rgba(7, 7, 7, 0.65), rgba(7, 7, 7, 0.65)), var(--wood-h);
   color: var(--wood-ink);
 }
 dialog menu button,
@@ -1053,11 +1057,11 @@ dialog menu button.primary,
 dialog menu button:hover,
 dialog menu button.primary:hover {
   min-width: 56px;
-  border-color: #382313;
-  background-color: #6a4429;
-  background-image: linear-gradient(to bottom, rgba(255, 220, 170, 0.12), rgba(12, 6, 2, 0.4)), var(--wood-h);
+  border-color: var(--wood-border);
+  background-color: var(--wood-base);
+  background-image: linear-gradient(to bottom, rgba(224, 224, 224, 0.12), rgba(7, 7, 7, 0.4)), var(--wood-h);
   color: var(--dialog-ink);
-  box-shadow: inset 1px 1px 0 rgba(255, 220, 170, 0.25), inset -1px -1px 0 rgba(12, 6, 2, 0.7);
+  box-shadow: inset 1px 1px 0 rgba(224, 224, 224, 0.25), inset -1px -1px 0 rgba(7, 7, 7, 0.7);
 }
 dialog menu button.primary {
   border-color: var(--dialog-ink);
@@ -1079,10 +1083,10 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
   padding: 0 10px;
   border: 1px solid var(--wood-border);
   border-radius: var(--radius-sm);
-  background-color: #6a4429;
-  background-image: linear-gradient(to bottom, rgba(255, 220, 170, 0.12), rgba(12, 6, 2, 0.4)), var(--wood-h);
+  background-color: var(--wood-base);
+  background-image: linear-gradient(to bottom, rgba(224, 224, 224, 0.12), rgba(7, 7, 7, 0.4)), var(--wood-h);
   color: var(--wood-ink);
-  box-shadow: inset 1px 1px 0 rgba(255, 220, 170, 0.25), inset -1px -1px 0 rgba(12, 6, 2, 0.7);
+  box-shadow: inset 1px 1px 0 rgba(224, 224, 224, 0.25), inset -1px -1px 0 rgba(7, 7, 7, 0.7);
   font: 13px var(--font);
   cursor: pointer;
 }
@@ -1110,8 +1114,8 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
   background: none;
   box-shadow: none;
 }
-#file-dialog .fd-crumb:last-child { border-color: var(--wood-border); background-color: rgba(12, 6, 2, 0.35); font-weight: 600; }
-#file-dialog .fd-crumb:hover { background-color: rgba(255, 220, 170, 0.12); }
+#file-dialog .fd-crumb:last-child { border-color: var(--wood-border); background-color: rgba(7, 7, 7, 0.35); font-weight: 600; }
+#file-dialog .fd-crumb:hover { background-color: rgba(224, 224, 224, 0.12); }
 .fd-sep { opacity: 0.55; }
 .fd-main { display: flex; gap: 10px; flex: 1 1 auto; min-height: 0; }
 .fd-places { display: flex; flex-direction: column; gap: 4px; width: 150px; flex: none; overflow-y: auto; }
@@ -1134,8 +1138,8 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
 .fd-head { padding-bottom: 6px; font-size: 11px; letter-spacing: 0.05em; text-transform: uppercase; opacity: 0.7; }
 #file-dialog .fd-list { flex: 1 1 auto; max-height: none; min-height: 0; padding: 4px; }
 .fd-row { border-radius: 5px; cursor: default; user-select: none; font-size: 13px; }
-.fd-row:hover { background: rgba(255, 220, 170, 0.08); }
-.fd-row[aria-selected='true'] { background: rgba(255, 220, 170, 0.22); box-shadow: inset 3px 0 0 var(--wood-ink); }
+.fd-row:hover { background: rgba(224, 224, 224, 0.08); }
+.fd-row[aria-selected='true'] { background: rgba(224, 224, 224, 0.22); box-shadow: inset 3px 0 0 var(--wood-ink); }
 .fd-list:focus-visible .fd-row[aria-selected='true'] { outline: 1px dashed var(--wood-ink); outline-offset: -1px; }
 .fd-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fd-dir .fd-file { font-weight: 600; }
@@ -1143,7 +1147,7 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
 .fd-date { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; opacity: 0.8; }
 /* file: a sheet with a folded corner; folder: a tab and body */
 .fd-icon { position: relative; width: 12px; height: 15px; justify-self: center; border: 1px solid currentColor; border-radius: 1px 5px 1px 1px; opacity: 0.75; }
-.fd-dir .fd-icon { width: 16px; height: 11px; border-radius: 1px; background: rgba(255, 220, 170, 0.25); }
+.fd-dir .fd-icon { width: 16px; height: 11px; border-radius: 1px; background: rgba(224, 224, 224, 0.25); }
 .fd-dir .fd-icon::before {
   content: '';
   position: absolute;
@@ -1170,6 +1174,9 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
 #file-dialog .fd-error { color: #ffb3a6; min-height: 0; }
 #file-dialog .fd-error:empty { display: none; }
 /* ---------- Set Color… dialog: preview box + three wooden R / G / B sliders ---------- */
+#wood-dialog { width: 380px; }
+#wood-error { color: #ffb3a6; }
+#wood-error:empty { display: none; }
 #color-dialog { width: 360px; }
 #color-dialog .color-ok { order: 1; }
 #color-dialog .color-reset { order: -1; margin-right: auto; }
@@ -1182,7 +1189,7 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
   border: 1px solid var(--wood-border);
   border-radius: var(--radius-sm);
   background: var(--bg);
-  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 220, 170, 0.14);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(224, 224, 224, 0.14);
 }
 .color-preview .module { position: relative; cursor: default; pointer-events: none; }
 .color-sliders { display: grid; gap: 12px; }
@@ -1212,15 +1219,15 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
   height: 12px;
   border: 1px solid var(--wood-border);
   border-radius: 6px;
-  background: var(--track, #2e1c0f);
-  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(255, 220, 170, 0.14);
+  background: var(--track, var(--wood-inset));
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(224, 224, 224, 0.14);
 }
 .color-row input[type='range']::-moz-range-track {
   height: 12px;
   border: 1px solid var(--wood-border);
   border-radius: 6px;
-  background: var(--track, #2e1c0f);
-  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(255, 220, 170, 0.14);
+  background: var(--track, var(--wood-inset));
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(224, 224, 224, 0.14);
 }
 .color-row input[type='range']::-webkit-slider-thumb {
   -webkit-appearance: none;
@@ -1229,22 +1236,22 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
   margin-top: -6px;
   border: 1px solid var(--wood-border);
   border-radius: 4px;
-  background-color: #4a2e1a;
+  background-color: var(--wood-raised);
   background-image:
-    linear-gradient(to bottom, rgba(255, 220, 170, 0.22) 0%, rgba(255, 215, 160, 0.05) 40%, rgba(12, 6, 2, 0.35) 100%),
+    linear-gradient(to bottom, rgba(224, 224, 224, 0.22) 0%, rgba(220, 220, 220, 0.05) 40%, rgba(7, 7, 7, 0.35) 100%),
     var(--wood-v);
-  box-shadow: inset 0 1px 0 rgba(255, 220, 170, 0.3), inset 0 -1px 0 rgba(12, 6, 2, 0.7), 0 1px 3px rgba(0, 0, 0, 0.6);
+  box-shadow: inset 0 1px 0 rgba(224, 224, 224, 0.3), inset 0 -1px 0 rgba(7, 7, 7, 0.7), 0 1px 3px rgba(0, 0, 0, 0.6);
 }
 .color-row input[type='range']::-moz-range-thumb {
   width: 12px;
   height: 20px;
   border: 1px solid var(--wood-border);
   border-radius: 4px;
-  background-color: #4a2e1a;
+  background-color: var(--wood-raised);
   background-image:
-    linear-gradient(to bottom, rgba(255, 220, 170, 0.22) 0%, rgba(255, 215, 160, 0.05) 40%, rgba(12, 6, 2, 0.35) 100%),
+    linear-gradient(to bottom, rgba(224, 224, 224, 0.22) 0%, rgba(220, 220, 220, 0.05) 40%, rgba(7, 7, 7, 0.35) 100%),
     var(--wood-v);
-  box-shadow: inset 0 1px 0 rgba(255, 220, 170, 0.3), inset 0 -1px 0 rgba(12, 6, 2, 0.7), 0 1px 3px rgba(0, 0, 0, 0.6);
+  box-shadow: inset 0 1px 0 rgba(224, 224, 224, 0.3), inset 0 -1px 0 rgba(7, 7, 7, 0.7), 0 1px 3px rgba(0, 0, 0, 0.6);
 }
 .color-row input[type='range']:hover::-webkit-slider-thumb { filter: brightness(1.18); }
 .color-row input[type='range']:focus-visible { outline: 2px solid var(--dialog-ink); outline-offset: 2px; border-radius: 6px; }
@@ -1279,7 +1286,7 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
 #map-dialog .map-col h4 { color: var(--dialog-ink); }
 #map-dialog .map-list,
 #map-dialog .map-search {
-  border-color: #382313;
+  border-color: var(--wood-border);
   box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.45);
 }
 #map-dialog .map-note { margin-bottom: 14px; font-size: 12px; }
@@ -1401,7 +1408,7 @@ dialog .sig-ok { order: 1; }
   z-index: 1000;
   min-width: 180px;
   padding: 4px;
-  background-color: #6a4429;
+  background-color: var(--wood-base);
   background-image: var(--wood-panel);
   border: 2px solid var(--wood-border);
   border-radius: 8px;
@@ -1427,11 +1434,11 @@ dialog .sig-ok { order: 1; }
 }
 .ctx-item:hover:not(:disabled),
 .ctx-item:focus-visible {
-  background: rgba(12, 6, 2, 0.4);
+  background: rgba(7, 7, 7, 0.4);
   outline: none;
 }
 .ctx-item:disabled {
-  color: #b49c7e;
+  color: #9f9f9f;
   cursor: default;
 }
 .ctx-check {

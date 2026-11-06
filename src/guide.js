@@ -295,7 +295,8 @@ export const GUIDE = [
       {
         title: 'Main menu',
         items: [
-          `Click <b>PHILSYNTH</b> (top-right corner) for <b>New</b> (${k(CMD, 'N')}), <b>Open…</b> (${k(CMD, 'O')}), <b>Save</b> (${k(CMD, 'S')}), <b>Save As…</b> (${k(CMD, 'Shift', 'S')}), <b>Export Audio…</b> (${k(CMD, 'E')}), <b>MIDI Input…</b> and <b>Exit</b>.`,
+          `Click <b>PHILSYNTH</b> (top-right corner) for <b>New</b> (${k(CMD, 'N')}), <b>Open…</b> (${k(CMD, 'O')}), <b>Save</b> (${k(CMD, 'S')}), <b>Save As…</b> (${k(CMD, 'Shift', 'S')}), <b>Export Audio…</b> (${k(CMD, 'E')}), <b>MIDI Input…</b>, <b>Wood Tint…</b> and <b>Exit</b>.`,
+          '<b>Wood Tint…</b> previews any RGB tint on the wooden frame, dividers, controls and dialogs without changing module colors. <b>OK</b> remembers it on this device; <b>Cancel</b> or Escape restores the saved tint. <b>Reset to gray</b> previews the charcoal default.',
           'Projects are <b>.phproject</b> files (older .mds / .json projects open too). The file name shows in the status bar and the window title, with <b>•</b> for unsaved changes; New and Open ask to save them first. Every change is also autosaved, so the app starts with your latest project.',
           '<b>MIDI Input…</b> picks the MIDI controller; <i>Auto</i> uses every input except Linux\'s <i>Midi Through</i>, <b>Re-scan</b> finds newly plugged-in devices.',
           `${k('Esc')} (when nothing else is open) goes up one patch level. In the main patch it asks <b>Exit to OS?</b>: ${k('Enter')} saves and closes, ${k('Esc')} cancels.`,

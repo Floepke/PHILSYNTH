@@ -2,6 +2,13 @@
 
 Modular synthesizer for the browser and Electron.
 
+The frame, dividers, toolbar controls, menus, and dialogs default to charcoal
+wood. Main menu > Wood Tint opens live RGB controls for any tint, preserving
+grain and bevel shading while keeping signal and module colors unchanged.
+OK saves the tint locally for this browser or app (not in the project); Cancel
+or Escape restores the previous tint, and Reset to gray previews the default.
+Extreme black/white channel values are softened to preserve visible grain.
+
 ## Module CPU benchmarks
 
 OPERATOR retains its 4x oversampling and 65-tap anti-aliasing FIR. Both playback

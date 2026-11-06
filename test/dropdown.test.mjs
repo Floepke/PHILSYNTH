@@ -41,7 +41,7 @@ app.whenReady().then(async () => {
     assert.equal(mappingStyles.wood, true);
     assert.equal(mappingStyles.doneWood, true);
     assert.equal(mappingStyles.rowWood, false, 'controller rows retain their selection styling');
-    assert.equal(mappingStyles.text, 'rgb(244, 228, 200)');
+    assert.equal(mappingStyles.text, 'rgb(229, 229, 229)');
     const houseStyles = await win.webContents.executeJavaScript(`(() => {
       const results = [];
       for (const id of ['insert-dialog', 'confirm-dialog', 'unsaved-dialog', 'sig-dialog', 'future-dialog']) {
