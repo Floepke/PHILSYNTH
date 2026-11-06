@@ -84,6 +84,7 @@ export const GUIDE = [
         title: 'Patches (modules inside a module)',
         items: [
           `Select a Patch and click <b>Edit Patch...</b> beside <b>Controllers…</b> to enter it (or ${k('Double-click')}, press ${k('Enter')}, or right-click → <b>Open patch</b>); the mouse <b>back</b> button or the patch path (<b>Main</b> / …, left on the lower divider) goes up.`,
+          'While inside an uncabled Patch, its Output is heard directly through the main Output. Once the Patch is cabled, its normal connections are used instead.',
           'Audio, MIDI and modulation cabled into a Patch go to its <b>Input Module</b> (default <kbd>1</kbd>: the first module inserted inside; <kbd>0</kbd> = straight to the inner Output). <b>Instances</b> plays notes round-robin over copies of the contents.',
           '<b>Controllers…</b> (in the panel of a selected Patch) maps controllers of modules inside onto the Patch module, so they can be set, modulated and automated from outside.',
           'Custom MIDI / modulation modules: inside a Patch, cable a MULTIMIDI, STRUM or TRILL into the Output to send notes out of the Patch, or a modulator to send modulation out; cable the Patch module to modules outside to play / drive them.',

@@ -33,12 +33,14 @@ import { saveTextFile, openTextFile } from './filedialog.js';
 import { pickFile } from './filepicker.js';
 import { PROJECT_FORMAT, MODULE_FORMAT, MODULE_EXT, isFormat } from './fileformat.js';
 import { moduleDocs } from './moduledocs.js';
+import { createPatchMonitor } from './patchmonitor.js';
 
 const engine = new Engine();
 let transport = null; // song playback (created after the engine)
 let seq = null; // piano roll + TimeLine UI
 let undoHistory = null;
 let scope = null; // live audio drawn on the cables (created after the engine)
+let patchMonitor = null;
 const $ = (id) => document.getElementById(id);
 const canvas = $('canvas');
 const noiseBg = createNoiseBackground(canvas);
@@ -373,6 +375,7 @@ dialog.addEventListener('close', async () => {
 
 // ---- rendering the current patch ----
 function render() {
+  patchMonitor.setPath(path);
   const fit = !path[path.length - 1].cam;
   world.querySelectorAll('.module').forEach((el) => el.remove());
   applyCam();
@@ -1544,6 +1547,7 @@ initStatusTips({ tipEl: $('tip'), statusEl: $('status') }); // after initWidgets
 ['pointerdown', 'keydown'].forEach((ev) => window.addEventListener(ev, () => engine.resume()));
 initCpuMeter(engine);
 await engine.init();
+patchMonitor = createPatchMonitor(engine.root);
 scope = new CableScope(engine.dsp);
 // clips play the module with their number in their own patch level (shown: the open one)
 const targetIn = (rt) => (id) => {

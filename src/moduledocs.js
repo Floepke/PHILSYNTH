@@ -507,7 +507,7 @@ export const DOCS = {
   },
 
   PATCH: {
-    summary: 'A folder holding a complete sub-patch with its own Output: it groups modules into one reusable module. Audio and notes go in, its inner Output comes out. It can also run several copies (Instances) and pass notes and modulation out, to act as a custom MIDI or modulation module.',
+    summary: 'A folder holding a complete sub-patch with its own Output: it groups modules into one reusable module. Audio and notes go in, its inner Output comes out. It can also run several copies (Instances) and pass notes and modulation out, to act as a custom MIDI or modulation module. Double-click to enter; the path appears on the bottom divider. Click on the <b>Main</b> button to return to the main project.',
     params: {
       inputModule: 'The number of the module inside that receives the audio/midi/modulation cabled into the Patch. Defaults to 1, so the first module you insert inside gets the input right away; 0 passes the input straight to the inner Output.',
       instances: 'Number of copies of the contents (1–16). With more than one, and an OPERATOR or MIDI-only Input Module (OSC, MULTIMIDI), incoming notes go round-robin over the copies, free copies first. Every copy has its own random generators.',
@@ -515,6 +515,7 @@ export const DOCS = {
     mapped: 'Mapped controller: sets this controller inside the Patch (every instance follows). It can be modulated and automated from outside like any other controller.',
     notes: [
       'Click <b>Edit Patch...</b> beside <b>Controllers…</b> to open the Patch (or <kbd>Double-click</kbd> it, or select it and press <kbd>Enter</kbd>); the mouse <b>back</b> button or the patch path goes up again.',
+      'While inside an uncabled Patch, its Output is heard directly through the main Output. Once the Patch is cabled, it follows its normal connections.',
       '<b>Controllers…</b> maps controllers of modules inside to extra controllers of this module.',
       'Inside, cable a MULTIMIDI, STRUM or TRILL into the Output to send notes out, or an LFO, ADSR, ENVELOPE, VELOCITY2CTL, PITCH2CTL or SOUND2CTL to send modulation out; the inner modulator\'s Out Controller then picks a controller of the modules this Patch is cabled to.',
     ],

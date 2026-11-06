@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { dspTestHost } from './dsphost.mjs';
 import { patchControllersView } from '../src/mapdialog.js';
+import { createPatchMonitor } from '../src/patchmonitor.js';
 
 {
   const previousDocument = globalThis.document;
@@ -40,6 +41,75 @@ const engine = {
   ctx, dsp,
   createPatch(sink) { return PatchRuntime.create(this, sink); },
 };
+
+// Monitoring is view-only: uncabled patches play through the main Output while open.
+{
+  const { dsp: audio, render: tick } = dspTestHost();
+  const e = { ctx, dsp: audio };
+  const r = await PatchRuntime.create(e, audio.destination);
+  const monitor = createPatchMonitor(r);
+  const p = await r.addModule('PATCH');
+  const inner = p.inst.patch;
+  const voice = await inner.addModule('OSC');
+  inner.connect(voice.id, 0);
+  voice.inst.noteOn(1, 60, 1);
+  const peak = () => Math.max(...tick(8).L.map(Math.abs));
+  const rootPath = [{ patch: r }];
+  const path = [...rootPath, { patch: inner, id: p.id }];
+  const output = r.modules.get(0).inst.input;
+
+  assert.equal(peak(), 0, 'an uncabled Patch is silent in Main');
+  const saved = JSON.stringify(r.toJSON());
+  monitor.setPath(path);
+  const monitorBus = [...p.inst.node.out][0];
+  assert.ok(monitorBus.out.has(output));
+  assert.ok(peak() > 0.01, 'the inner oscillator is audible while editing');
+  assert.equal(JSON.stringify(r.toJSON()), saved, 'monitoring does not change the project');
+  r.setParam(0, 'volume', 0);
+  tick(60); // the Output smooths volume changes
+  assert.equal(peak(), 0, 'monitoring respects main master volume');
+  r.setParam(0, 'volume', 0.8);
+  monitor.setPath(rootPath);
+  assert.equal(peak(), 0, 'leaving the Patch stops monitoring');
+  monitor.setPath(path);
+  r.connect(p.id, 0);
+  assert.ok(!p.inst.node.out.has(monitorBus), 'a direct Output cable replaces the monitor');
+  assert.ok(p.inst.node.out.has(output), 'the direct Output cable stays connected');
+  assert.ok(peak() > 0.01, 'the direct Output cable remains audible');
+  r.disconnect(r.cables.find((c) => c.from === p.id));
+  assert.ok(p.inst.node.out.has(monitorBus), 'monitoring returns after removing the Output cable');
+
+  const reverb = await r.addModule('REVERB', { values: { level: 0 } });
+  monitor.setPath(rootPath);
+  r.connect(p.id, reverb.id);
+  monitor.setPath(path);
+  assert.equal(peak(), 0, 'a connected Patch without a route to Output is not monitored');
+  r.connect(reverb.id, 0);
+  assert.ok(!p.inst.node.out.has(monitorBus), 'connecting the Patch removes direct monitoring');
+  assert.equal(peak(), 0, 'connected audio goes through the effect without a dry bypass');
+  r.setParam(reverb.id, 'level', 1);
+  assert.ok(peak() > 0.001, 'the connected effect is heard from inside the Patch');
+  r.disconnect(r.cables.find((c) => c.from === p.id));
+  assert.ok(p.inst.node.out.has(monitorBus), 'disconnecting restores monitoring');
+
+  const input = await r.addModule('OSC');
+  r.connect(input.id, p.id);
+  assert.ok(!p.inst.node.out.has(monitorBus), 'an incoming cable also disables monitoring');
+  r.disconnect(r.cables.find((c) => c.from === input.id));
+
+  const nested = await inner.addModule('PATCH');
+  const nestedPath = [...path, { patch: nested.inst.patch, id: nested.id }];
+  monitor.setPath(nestedPath);
+  assert.ok(!p.inst.node.out.has(monitorBus));
+  assert.ok(nested.inst.node.out.has(monitorBus), 'only the deepest uncabled Patch is monitored');
+  inner.connect(nested.id, 0);
+  assert.ok(!nested.inst.node.out.has(monitorBus));
+  assert.ok(p.inst.node.out.has(monitorBus), 'a connected inner Patch uses its uncabled ancestor');
+  r.removeModule(p.id);
+  assert.ok(!monitorBus.out.has(output), 'deleting an open Patch clears monitoring');
+  monitor.setPath(rootPath);
+  r.destroy();
+}
 
 const root = await PatchRuntime.create(engine, dsp.destination);
 const out = root.modules.get(0);
