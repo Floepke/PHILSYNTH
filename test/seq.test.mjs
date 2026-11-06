@@ -3421,6 +3421,41 @@ for (const notes of [
     seq.reload(); flush();
   }
 
+  // Double-clicking a clip expands and focuses its editor, without editing the clip data.
+  {
+    const midi = addClip(song, { start: 0, length: 4 });
+    const auto = addAutoClip(song, { start: 6, length: 4 });
+    song.selected = auto.id;
+    seq.reload(); flush();
+    seq.applyView({ top: 0.37, bottom: 0.81 });
+    const cv = elements.get('arranger').children[0];
+    const clips = structuredClone(song.clips);
+    const before = viewChanges;
+    point(cv, 'dblclick', ax(1), ay(0));
+    assert.equal(song.selected, midi.id, 'double-click selects the clicked clip without relying on pointerdown');
+    assert.deepEqual([seq.viewState().top, seq.viewState().bottom], [1, 1], 'both dividers move to the bottom');
+    assert.equal(document.activeElement, elements.get('roll').children[0], 'piano roll receives keyboard focus');
+    assert.deepEqual(song.clips, clips, 'maximizing is view-only');
+    assert.ok(viewChanges > before, 'layout change is persisted');
+    const saved = JSON.parse(JSON.stringify(seq.viewState()));
+    seq.applyView(null);
+    seq.applyView(saved);
+    assert.deepEqual([seq.viewState().top, seq.viewState().bottom], [1, 1], 'maximized layout survives saving/loading');
+    seq.applyView({ top: 0.37, bottom: 0.81 });
+    point(cv, 'dblclick', ax(7), ay(0));
+    assert.equal(song.selected, auto.id);
+    assert.equal(document.activeElement, elements.get('roll').children[1], 'automation clips focus the automation editor');
+    assert.deepEqual([seq.viewState().top, seq.viewState().bottom], [1, 1]);
+    seq.applyView({ top: 0.37, bottom: 0.81 });
+    const count = song.clips.length;
+    point(cv, 'dblclick', ax(13), ay(0));
+    assert.equal(song.clips.length, count + 1, 'double-clicking empty space still creates a clip');
+    assert.deepEqual([seq.viewState().top, seq.viewState().bottom], [0.37, 0.81], 'creating a clip does not maximize');
+    song.clips = [];
+    song.selected = null;
+    seq.reload(); flush();
+  }
+
   // S maximizes the middle patcher and restores both horizontal boundaries.
   seq.applyView({ top: 0.37, bottom: 0.81 });
   press('S');

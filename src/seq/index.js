@@ -71,6 +71,15 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
       sync();
       onChange();
     },
+    focusEditor() {
+      layout.top = 1;
+      layout.bottom = 1;
+      applyLayout();
+      const editor = isAuto(clip()) ? lane : roll;
+      editor.reveal();
+      editor.surface.cv.focus();
+      onChange();
+    },
     changed() {
       undoHistory?.record();
       if (!undoHistory) record();

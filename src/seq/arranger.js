@@ -1140,6 +1140,7 @@ export function createArranger(host, ctx) {
   }
 
   cv.addEventListener('dblclick', (e) => {
+    if (e.button !== 0) return;
     const { x, y } = s.local(e);
     if (x < x0 || barAt(x, y)) return;
     const song = ctx.song();
@@ -1155,7 +1156,12 @@ export function createArranger(host, ctx) {
       s.redraw();
       return;
     }
-    if (hit(x, y)) return;
+    const clip = hit(x, y)?.clip;
+    if (clip) {
+      setSelection([clip], clip);
+      ctx.focusEditor?.();
+      return;
+    }
     insert(x, y, false);
   });
 
