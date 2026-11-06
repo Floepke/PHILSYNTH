@@ -607,6 +607,20 @@ for (let wave = 5; wave <= 9; wave++) {
   assert.equal(w, 0, `noise ${wave} bit-identical`);
 }
 
+compare('osc', {
+  opts: { seed: 5678 },
+  blocks: 180,
+  tol: 1e-7,
+  script: [
+    [0, param('wave', 10)], [0, param('polyphony', 4)],
+    [0, noteOn(1, 0)], [0, noteOn(2, 60.25)], [2, noteOn(3, 127)],
+    [10, { type: 'noteMod', notes: [[1, 90.5, 0.8], [2, 24, 0.6]] }],
+    [35, param('wave', 5)], [45, param('wave', 10)],
+    [60, noteOn(2, 48)], [70, { type: 'noteOff', id: 1 }],
+    [110, { type: 'allOff' }], [120, noteOn(4, 72)],
+  ],
+});
+
 // FILTER: every type, cascaded slopes, drive, the deterministic LFO shapes, tail without input
 const rnd = noise(7);
 const buzz = Array.from({ length: 4096 }, () => rnd());

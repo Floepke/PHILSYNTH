@@ -159,6 +159,7 @@ assert.ok(root.connect(2, 3)); assert.equal(root.connect(3, 2), false, 'loop rej
 
 // save / load round trip incl. nested
 const nestedOsc = await inner.addModule('OSC', { values: { polyphony: 5, wave: 4, duty: 25 } });
+const samplerNoise = await inner.addModule('OSC', { values: { wave: 10 } });
 root.setParam(0, 'volume', 0.3);
 const json = JSON.parse(JSON.stringify(root.toJSON()));
 const root2 = await PatchRuntime.create(engine, dsp.destination);
@@ -169,6 +170,7 @@ const n2 = root2.modules.get(2).inst.patch.modules.get(nestedOsc.id);
 assert.equal(n2.values.polyphony, 5);
 assert.equal(n2.values.wave, 4, 'half sine survives saving and loading');
 assert.equal(n2.values.duty, 25, 'half sine bow length survives saving and loading');
+assert.equal(root2.modules.get(2).inst.patch.modules.get(samplerNoise.id).values.wave, 10, 'Noise (sampler) survives saving and loading');
 
 // deleting a patch module destroys its contents and cables
 root.removeModule(2);
@@ -425,16 +427,16 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.ok(Math.abs(ko.p.gain - 0.4) < 1e-9, '0% amplitude holds the middle');
   r.setParam(lfo.id, 'amp', 100);
 
-  // stepped controller: normalized modulation spans all ten waveform choices
-  r.setParam(lfo.id, 'outController', 1); // waveform 0..9
+  // stepped controller: normalized modulation spans all eleven waveform choices
+  r.setParam(lfo.id, 'outController', 1); // waveform 0..10
   r.setParam(lfo.id, 'outMin', 0);
   r.setParam(lfo.id, 'outMax', 100);
   set(lfo, 0.7);
   assert.ok(Math.abs(ko.p.gain - 0.4) < 1e-9, 'the previous controller keeps its last driven value');
   assert.ok(Math.abs(osc.values.gain - 0.4) < 1e-9);
-  assert.equal(ko.p.wave, 6, '70% of 0..9 rounds to step 6');
+  assert.equal(ko.p.wave, 7, '70% of 0..10 selects step 7');
   set(lfo, 1);
-  assert.equal(ko.p.wave, 9, 'modulation can select violet noise');
+  assert.equal(ko.p.wave, 10, 'modulation can select Noise (sampler)');
 
   // log controller (filter cutoff 20..20000): 50% is the geometric middle
   assert.ok(r.connect(lfo.id, flt.id));

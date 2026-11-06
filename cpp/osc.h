@@ -4,7 +4,7 @@
 
 namespace ms {
 
-enum Wave { SINE = 0, TRIANGLE = 1, SAW = 2, SQUARE = 3, HALF_SINE = 4, WHITE = 5, PINK = 6, BROWN = 7, BLUE = 8, VIOLET = 9 };
+enum Wave { SINE = 0, TRIANGLE = 1, SAW = 2, SQUARE = 3, HALF_SINE = 4, WHITE = 5, PINK = 6, BROWN = 7, BLUE = 8, VIOLET = 9, SAMPLER_NOISE = 10 };
 
 inline double polyBlep(double t, double dt) {
   if (t < dt) { t /= dt; return t + t - t * t - 1; }
@@ -55,6 +55,33 @@ struct NoiseState {
   double b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0, br = 0, pw = 0, pp = 0;
 };
 
+struct SamplerNoiseState {
+  Rng rng{1};
+  bool ready = false;
+  double position = 0, a = 0, b = 0;
+};
+
+inline double samplerNoiseRate(double pitch, double sr) {
+  return (48000 / sr) * pow(2, (pitch - 60) / 12);
+}
+
+inline double samplerNoiseSample(double rate, SamplerNoiseState& z, uint32_t seed) {
+  if (!z.ready) {
+    z.rng.s = seed;
+    z.a = z.rng.next() * 2 - 1;
+    z.b = z.rng.next() * 2 - 1;
+    z.ready = true;
+  }
+  while (z.position >= 1) {
+    z.position -= 1;
+    z.a = z.b;
+    z.b = z.rng.next() * 2 - 1;
+  }
+  const double value = z.a + (z.b - z.a) * z.position;
+  z.position += rate;
+  return value;
+}
+
 inline double noiseSample(int wave, double w, NoiseState& z) {
   if (wave == WHITE) return w;
   if (wave == VIOLET) { const double y = (w - z.pw) * 0.7; z.pw = w; return y; }
@@ -95,6 +122,7 @@ struct Osc : Kernel {
     double u = 0, e = 1, l0 = 0;  // stage progress, e^(-k u), level where the release started
     double pitch = 0, vel = 0, pitchT = 0, velT = 0;
     NoiseState noise;
+    SamplerNoiseState samplerNoise;
   };
 
   int poly = 8;
@@ -156,6 +184,7 @@ struct Osc : Kernel {
     v->u = 0;
     v->e = 1;
     v->noise = NoiseState();
+    v->samplerNoise = SamplerNoiseState();
     v->stage = 1;
     v->age = ++clock;
   }
@@ -169,6 +198,7 @@ struct Osc : Kernel {
     const Stage R = stage(p[RELEASE], p[REL_CURVE], FALL_KMAX);
     const int wave = toInt32(p[WAVE]);
     const bool noise = wave >= WHITE;
+    const bool sampler = wave == SAMPLER_NOISE;
     const double k = 1 - exp(-n / (SMOOTH_S * sr));
     const double dutyT = mind(1, maxd(0, p[DUTY] / 100));
     const double duty0 = duty;
@@ -181,11 +211,14 @@ struct Osc : Kernel {
       if (!v.stage) continue;
       active++;
       double incStep = 0;
+      double rate = sampler ? samplerNoiseRate(v.pitch, sr) : 0;
+      double rateStep = 0;
       double vel = v.vel;
       double velStep = 0;
       if (v.pitch != v.pitchT) {
         v.pitch = fabs(v.pitchT - v.pitch) < 1e-5 ? v.pitchT : v.pitch + (v.pitchT - v.pitch) * k;
         incStep = (incOf(v.pitch) - v.inc) / n;
+        if (sampler) rateStep = (samplerNoiseRate(v.pitch, sr) - rate) / n;
       }
       if (v.vel != v.velT) {
         v.vel = fabs(v.velT - v.vel) < 1e-6 ? v.velT : v.vel + (v.velT - v.vel) * k;
@@ -215,8 +248,13 @@ struct Osc : Kernel {
         if (!v.stage) break;
         v.inc += incStep;
         vel += velStep;
-        const double y = noise ? noiseSample(wave, rng.next() * 2 - 1, v.noise)
-                               : shape(wave, v.phase, duty0 + dutyStep * i, v.inc);
+        double y;
+        if (sampler) {
+          if (!v.samplerNoise.ready) rng.next();
+          rate += rateStep;
+          y = samplerNoiseSample(rate, v.samplerNoise, rng.s);
+        } else y = noise ? noiseSample(wave, rng.next() * 2 - 1, v.noise)
+                        : shape(wave, v.phase, duty0 + dutyStep * i, v.inc);
         buf[i] = (float)(buf[i] + y * v.level * vel);
         v.phase += v.inc;
         if (v.phase >= 1) v.phase -= 1;

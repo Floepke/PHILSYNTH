@@ -2,7 +2,7 @@
 // Plays MODMIDI notes (see src/modmidi.js): each voice belongs to one note id and has its own
 // float pitch and velocity. noteMod changes them while the note sounds; the voice glides to the
 // new values (one-pole smoothing per block + a linear ramp inside the block), so no clicks.
-import { WAVES, shape, isNoise, noiseSample, noiseState, xorshift } from './oscshape.js';
+import { WAVES, shape, isNoise, noiseSample, noiseState, xorshift, samplerNoiseState, samplerNoiseRate, samplerNoiseSample } from './oscshape.js';
 import { Kernel } from '../dsp/kernel.js';
 import { ATTACK_KMAX, FALL_KMAX, CURVE_EPS, curveK } from './adsrcurve.js';
 
@@ -39,6 +39,7 @@ export default class OscKernel extends Kernel {
       pitch: 0, vel: 0, // current (smoothed) values
       pitchT: 0, velT: 0, // targets from noteOn / noteMod
       noise: noiseState(),
+      samplerNoise: samplerNoiseState(),
     }));
   }
 
@@ -81,6 +82,7 @@ export default class OscKernel extends Kernel {
     v.u = 0;
     v.e = 1;
     v.noise = noiseState();
+    v.samplerNoise = samplerNoiseState();
     v.stage = 1;
     v.age = ++this.clock;
   }
@@ -116,6 +118,7 @@ export default class OscKernel extends Kernel {
     const R = stage(p.release, p.relCurve, FALL_KMAX);
     const wave = p.wave | 0;
     const noise = isNoise(wave);
+    const sampler = wave === WAVES.SAMPLER_NOISE;
     const k = 1 - Math.exp(-n / (SMOOTH_S * sampleRate)); // per-block smoothing coefficient
     const dutyT = Math.min(1, Math.max(0, (p.duty ?? 50) / 100));
     const duty0 = this.duty;
@@ -129,11 +132,14 @@ export default class OscKernel extends Kernel {
       active++;
       // glide pitch/velocity toward their targets, ramping linearly through this block
       let incStep = 0;
+      let rate = sampler ? samplerNoiseRate(v.pitch, sampleRate) : 0;
+      let rateStep = 0;
       let vel = v.vel;
       let velStep = 0;
       if (v.pitch !== v.pitchT) {
         v.pitch = Math.abs(v.pitchT - v.pitch) < 1e-5 ? v.pitchT : v.pitch + (v.pitchT - v.pitch) * k;
         incStep = (this.incOf(v.pitch) - v.inc) / n;
+        if (sampler) rateStep = (samplerNoiseRate(v.pitch, sampleRate) - rate) / n;
       }
       if (v.vel !== v.velT) {
         v.vel = Math.abs(v.velT - v.vel) < 1e-6 ? v.velT : v.vel + (v.velT - v.vel) * k;
@@ -165,7 +171,11 @@ export default class OscKernel extends Kernel {
         v.inc += incStep;
         vel += velStep;
         let y;
-        if (noise) {
+        if (sampler) {
+          if (!v.samplerNoise.rng) this.rng = xorshift(this.rng);
+          rate += rateStep;
+          y = samplerNoiseSample(rate, v.samplerNoise, this.rng);
+        } else if (noise) {
           this.rng = xorshift(this.rng);
           y = noiseSample(wave, (this.rng / 4294967296) * 2 - 1, v.noise);
         } else y = shape(wave, v.phase, duty0 + dutyStep * i, v.inc);

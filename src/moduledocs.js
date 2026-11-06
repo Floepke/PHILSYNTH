@@ -33,7 +33,7 @@ export const DOCS = {
     summary: 'The Output of the patch level: every audio cable into it is summed and played (at the top level) or sent out of the Patch module (inside a Patch). It also holds the tempo and the global tuning of this level. It cannot be deleted.',
     params: {
       volume: 'Master volume: scales the summed audio before it leaves this level.',
-      bpm: 'Tempo of this patch level: the sequencer plays at it when this level is played, and synced LFOs, DELAY and ECHO times on this level follow it.',
+      bpm: 'Tempo in beats per minute, where one beat = 1/4 (a quarter note). The sequencer plays at this tempo when this patch level is played, and synced LFOs, DELAY and ECHO times on this level follow it.',
       transpose: 'Shifts every note entering this patch level by whole semitones (−48…+48).',
       cents: 'Fine-tunes every note entering this patch level by up to ±100 cents.',
     },
@@ -48,7 +48,7 @@ export const DOCS = {
     summary: 'Polyphonic oscillator synthesizer: every incoming note plays its own voice with the chosen waveform, shaped by a per-voice ADSR envelope and the note velocity.',
     params: {
       polyphony: POLYPHONY,
-      wave: 'Waveform of every voice: Sine, Tri/Saw (a triangle that morphs into a saw with Duty Cycle), Saw, Square, Half sine, or one of five noise colours (White, Pink, Brown, Blue, Violet: dark to bright). Noise ignores the note pitch.',
+      wave: 'Waveform of every voice: Sine, Tri/Saw (a triangle that morphs into a saw with Duty Cycle), Saw, Square, Half sine, five unpitched noise colours (White, Pink, Brown, Blue, Violet: dark to bright), or Noise (sampler). Noise (sampler) plays generated white noise like a sampled recording: C4 is normal speed, each octave down halves playback speed and each octave up doubles it. Lower keys sound stretched and darker; pitch bends change the playback speed. Each voice has its own noise stream, with no repeating loop.',
       ...VOICE_ENV,
       duty: 'Reshapes the waveform within each cycle (50 % = the classic shape): the pulse width of Square, the rise/fall balance of Tri/Saw, the bow length of Half sine (100 % fills the period, 0 % is silent). Hidden for noise.',
       ...ENV_CURVES,

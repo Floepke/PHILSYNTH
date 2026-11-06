@@ -19,15 +19,15 @@ assert.deepEqual(osc.params.map((p) => p.id), ['polyphony', 'wave', 'duty', 'att
 assert.deepEqual(osc.params.filter((p) => /Curve$/.test(p.id)).map((p) => p.default), [100, 100, 100], 'analog envelope curves by default');
 const waveParam = osc.params[1];
 assert.deepEqual(waveParam.options, ['Sine', 'Tri/Saw', 'Saw', 'Square', 'Half sine',
-  'White noise', 'Pink noise', 'Brown noise', 'Blue noise', 'Violet noise']);
+  'White noise', 'Pink noise', 'Brown noise', 'Blue noise', 'Violet noise', 'Noise (sampler)']);
 assert.equal(waveParam.default, SAW);
-const VIOLET = 9;
-assert.equal(waveParam.max, VIOLET);
-assert.equal(fromNorm(waveParam, 1), VIOLET);
+assert.equal(waveParam.max, 10);
+assert.equal(fromNorm(waveParam, 1), 10);
 assert.equal(nudge(waveParam, SQUARE, 1), HALF_SINE);
 assert.equal(nudge(waveParam, HALF_SINE, 1), 5);
 const dutyParam = osc.params[2];
 assert.ok(dutyParam.visible({ wave: SAW }) && !dutyParam.visible({ wave: 6 }), 'Duty Cycle hidden for noise');
+assert.equal(dutyParam.visible({ wave: 10 }), false);
 
 // 50 % = the classic waveforms
 for (let i = 1; i < 20; i++) {
@@ -244,6 +244,62 @@ console.log('osc tests passed');
   for (let b = 0; b < 20; b++) alive = k.process([], [[new Float32Array(128), new Float32Array(128)]]) !== false;
   assert.equal(alive, false, 'noise voice releases to silence');
   console.log('osc noise ok');
+}
+
+// ---- sampler noise: actual resampling, independent voices and pitch bends ----
+{
+  const { samplerNoiseState, samplerNoiseRate, samplerNoiseSample } = await import('../src/modules/oscshape.js');
+  const { waveformPoints } = await import('../src/modules/oscview.js');
+  assert.equal(samplerNoiseRate(60, SR), 1);
+  assert.equal(samplerNoiseRate(48, SR), 0.5);
+  assert.equal(samplerNoiseRate(36, SR), 0.25);
+  assert.equal(samplerNoiseRate(72, SR), 2);
+  assert.equal(samplerNoiseRate(60, 96000), 0.5);
+  const samples = (rate, n) => {
+    const z = samplerNoiseState();
+    return Array.from({ length: n }, () => samplerNoiseSample(rate, z, 99));
+  };
+  const normal = samples(1, 1024);
+  const slow = samples(0.5, 2048);
+  const fast = samples(2, 512);
+  for (let i = 0; i < fast.length; i++) {
+    assert.equal(fast[i], normal[i * 2], 'double speed skips alternate source samples');
+    assert.equal(slow[i * 2], normal[i], 'half speed stretches the same noise sequence');
+    close(slow[i * 2 + 1], (normal[i] + normal[i + 1]) / 2, 1e-12, 'half speed interpolates between source samples');
+  }
+  const differenceEnergy = (ys) => ys.slice(1).reduce((s, y, i) => s + (y - ys[i]) ** 2, 0) / (ys.length - 1);
+  assert.ok(differenceEnergy(samples(0.0625, 16384)) < differenceEnergy(normal) * 0.02, 'low keys have much less high-frequency energy');
+  assert.ok(waveformPoints(10, 50).every(Number.isFinite), 'sampler noise has a valid preview');
+  assert.deepEqual(waveformPoints(10, 0), waveformPoints(10, 100), 'Duty Cycle does not affect the preview');
+
+  const render = (pitch, notes = [pitch]) => {
+    const k = new Proc({ seed: 123 });
+    for (const [id, value] of Object.entries({ wave: 10, gain: 1, sustain: 1 })) k.param(id, value);
+    notes.forEach((p, i) => { k.noteOn(i + 1, p, 1); k.voices[i].stage = 3; });
+    const out = [new Float32Array(128), new Float32Array(128)];
+    const ys = new Float32Array(4096);
+    for (let i = 0; i < 32; i++) { k.process([], [out]); ys.set(out[0], i * 128); }
+    return { k, ys };
+  };
+  const base = render(60).ys, low = render(48).ys, high = render(72).ys;
+  for (let i = 0; i < 2000; i++) {
+    assert.equal(low[i * 2], base[i], 'OSC renderer plays at half speed one octave down');
+    assert.equal(high[i], base[i * 2], 'OSC renderer plays at double speed one octave up');
+  }
+  const pair = render(60, [60, 60]);
+  assert.notEqual(pair.k.voices[0].samplerNoise.rng, pair.k.voices[1].samplerNoise.rng, 'polyphonic voices have independent streams');
+  const bent = render(36);
+  bent.k.noteMod(1, 96, 1);
+  const out = [new Float32Array(128), new Float32Array(128)];
+  for (let i = 0; i < 100; i++) {
+    bent.k.process([], [out]);
+    assert.ok(out[0].every((x) => Number.isFinite(x) && Math.abs(x) <= 0.5), 'pitch bends remain bounded');
+  }
+  close(bent.k.voices[0].pitch, 96, 1e-4, 'sampler noise follows pitch bends');
+  bent.k.param('release', 0.001);
+  bent.k.noteOff(1);
+  for (let i = 0; i < 4; i++) bent.k.process([], [out]);
+  assert.ok(out[0].every((x) => x === 0), 'sampler noise releases to silence');
 }
 
 // ---- envelope stage curves (adsrcurve.js): exact stage times, linear at 0, analog at +100 % ----

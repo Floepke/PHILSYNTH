@@ -1,7 +1,7 @@
 // Waveform display of the OSC panel: two cycles of the current Waveform + Duty Cycle, drawn with
 // the same shape() the audio worklet plays. Follows live modulation of the duty (LFO / ADSR).
 // Noise colours show a fixed stretch of that noise (same generator as the audio).
-import { shape, isNoise, noiseSample, noiseState, xorshift } from './oscshape.js';
+import { WAVES, shape, isNoise, noiseSample, noiseState, xorshift, samplerNoiseState, samplerNoiseSample } from './oscshape.js';
 
 const CYCLES = 2;
 const DISPLAY_INC = 1 / 4096; // as if a low note: band-limiting barely rounds the edges
@@ -10,7 +10,10 @@ const DISPLAY_INC = 1 / 4096; // as if a low note: band-limiting barely rounds t
 export function waveformPoints(wave, duty, n = 256, cycles = CYCLES) {
   const d = Math.min(1, Math.max(0, duty / 100));
   let ys;
-  if (isNoise(wave)) {
+  if (wave === WAVES.SAMPLER_NOISE) {
+    const z = samplerNoiseState();
+    ys = Array.from({ length: n }, () => samplerNoiseSample(0.125, z, 0x2545f491));
+  } else if (isNoise(wave)) {
     let s = 0x2545f491; // fixed seed: the picture doesn't flicker on redraw
     const z = noiseState();
     for (let i = 0; i < 2000; i++) { s = xorshift(s); noiseSample(wave, (s / 4294967296) * 2 - 1, z); } // settle the filters

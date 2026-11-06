@@ -2,8 +2,9 @@
 export const WAVES = {
   SINE: 0, TRIANGLE: 1, SAW: 2, SQUARE: 3, HALF_SINE: 4, // TRIANGLE = Tri/Saw morph
   WHITE: 5, PINK: 6, BROWN: 7, BLUE: 8, VIOLET: 9, // noise colours (unpitched, see noiseSample)
+  SAMPLER_NOISE: 10,
 };
-export const WAVE_NAMES = ['Sine', 'Tri/Saw', 'Saw', 'Square', 'Half sine', 'White noise', 'Pink noise', 'Brown noise', 'Blue noise', 'Violet noise'];
+export const WAVE_NAMES = ['Sine', 'Tri/Saw', 'Saw', 'Square', 'Half sine', 'White noise', 'Pink noise', 'Brown noise', 'Blue noise', 'Violet noise', 'Noise (sampler)'];
 export const isNoise = (wave) => wave >= WAVES.WHITE;
 
 // xorshift32 step: same integer maths as Rng in cpp/kernel.h, so JS and C++ give identical noise.
@@ -12,6 +13,31 @@ export function xorshift(s) {
   s ^= s >>> 17;
   s ^= s << 5;
   return s >>> 0;
+}
+
+export const samplerNoiseState = () => ({ rng: 0, position: 0, a: 0, b: 0 });
+export const samplerNoiseRate = (pitch, rate) => (48000 / rate) * 2 ** ((pitch - 60) / 12);
+
+function nextSamplerNoise(z) {
+  z.rng = xorshift(z.rng);
+  return (z.rng / 4294967296) * 2 - 1;
+}
+
+// Stream a virtual 48 kHz white-noise recording, linearly interpolated at the playback rate.
+export function samplerNoiseSample(rate, z, seed) {
+  if (!z.rng) {
+    z.rng = seed;
+    z.a = nextSamplerNoise(z);
+    z.b = nextSamplerNoise(z);
+  }
+  while (z.position >= 1) {
+    z.position -= 1;
+    z.a = z.b;
+    z.b = nextSamplerNoise(z);
+  }
+  const value = z.a + (z.b - z.a) * z.position;
+  z.position += rate;
+  return value;
 }
 
 // Noise filter state (per voice): pink filter b0..b6, brown integrator, previous white / pink.

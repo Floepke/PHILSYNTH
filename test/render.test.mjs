@@ -50,6 +50,26 @@ for (const wasm of [null, await readFile(new URL('../src/dsp/modsynth.wasm', imp
 // Sample-based songs export the same audio with native and fallback kernels, at different
 // engine rates, using the normal project state -> sample feeder -> native graph path.
 {
+  const data = structuredClone(project);
+  data.patch.modules.find((module) => module.id === osc.id).values.wave = 10;
+  data.song.clips[0].notes[0].pitch = 36;
+  const wasm = await readFile(new URL('../src/dsp/modsynth.wasm', import.meta.url));
+  const random = Math.random;
+  try {
+    Math.random = () => 0.25;
+    for (const sampleRate of [44100, 96000]) {
+      const js = await renderSong(data, { sampleRate });
+      const native = await renderSong(data, { sampleRate, wasm });
+      assert.equal(js.length, native.length, 'sampler noise export has identical duration');
+      assert.ok(native.peak > 0.01, 'sampler noise exports audible audio');
+      let worst = 0;
+      for (let i = 0; i < js.length; i++) worst = Math.max(worst, Math.abs(js.left[i] - native.left[i]));
+      assert.ok(worst < 1e-7, `sampler noise export matches at ${sampleRate} Hz (${worst})`);
+    }
+  } finally { Math.random = random; }
+}
+
+{
   const sampleId = addSample({
     rate: 22050,
     channels: [Float32Array.from({ length: 8192 }, (_, i) => 0.6 * Math.sin(i * 0.13))],
