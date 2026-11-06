@@ -13,7 +13,7 @@ const near = (a, b, msg, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${msg}
 // ---- definition: the map is module state, not controllers ----
 const def = getModule('PITCH2CTL');
 assert.ok(def.modulator && def.acceptsMidi && !def.liveMidi && !def.hasInput && def.hasOutput);
-assert.deepEqual(def.params.map((p) => p.id), ['noteOffAction', 'smooth', 'outController', 'outMin', 'outMax']);
+assert.deepEqual(def.params.map((p) => p.id), ['noteOffAction', 'smooth', 'outController', 'outMin', 'outMax', 'outSmooth']);
 assert.equal(def.defaultState().map.length, 128);
 assert.deepEqual(def.normalizeState({ map: [2, -1, 'x'] }).map.slice(0, 4), [1, 0, 0, 0], 'clamped, missing keys from the default');
 

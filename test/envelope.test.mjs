@@ -13,7 +13,7 @@ const close = (v, t, tol, m) => assert.ok(Math.abs(v - t) <= tol, `${m}: ${v} (w
 // ramp up then down: 0 -> 1 at half, back to 0.4 at the end
 msg({ type: 'curve', curve: { points: [{ x: 0, y: 0, r: 0 }, { x: 0.5, y: 1, r: 0 }, { x: 1, y: 0.4, r: 0 }] } });
 msg({ type: 'param', id: 'length', value: 1000 }); // ms
-assert.equal(run(0.1), null, 'no value before the first note: the controller is left alone');
+assert.equal(run(0.1), 0, 'before the first note: drives the curve start without advancing');
 assert.equal(e.meter, -1, 'idle: no playhead');
 assert.equal(Proc.Kernel.meter, true, 'the playhead is reported like a meter');
 msg({ type: 'noteOn', id: 1 });
@@ -43,8 +43,43 @@ msg({ type: 'param', id: 'length', value: 1000 });
 run(0.1);
 assert.ok(e.meter > 0, 'playing');
 msg({ type: 'reset' });
-assert.equal(e.value, null, 'reset stops driving');
+assert.equal(e.value, 1, 'reset drives the current curve start');
 assert.equal(e.meter, -1, 'reset hides the playhead');
+
+// Loading/editing a curve before triggering updates its idle start; reset restores that behavior.
+for (const mode of [0, 1, 2]) {
+  const l = new Proc();
+  const m = (data) => l.port.onmessage({ data });
+  const go = () => { l.process([], [[new Float32Array(128)]]); return l.value; };
+  assert.equal(go(), 0, 'default envelope immediately drives Out Min');
+  m({ type: 'param', id: 'mode', value: mode });
+  m({ type: 'curve', curve: { points: [{ x: 0, y: 0.25, r: 0 }, { x: 1, y: 0.75, r: 0 }] } });
+  assert.equal(go(), 0.25, `mode ${mode}: loaded curve drives its start in idle`);
+  assert.equal(l.pos, 0, 'idle does not advance');
+  assert.equal(l.meter, -1, 'idle does not display a playhead');
+  m({ type: 'noteOn', id: 1, phase: 0.5 });
+  close(go(), 0.5, 1e-6, 'first trigger still starts at the requested phase');
+  m({ type: 'reset' });
+  assert.equal(go(), 0.25, 'reset resumes driving the start');
+  m({ type: 'curve', curve: { points: [{ x: 0, y: 0.6, r: 0 }, { x: 1, y: 0.9, r: 0 }] } });
+  close(go(), 0.6, 1e-6, 'curve edits after reset update idle output');
+}
+
+// Editing a completed/stopped curve does not replace its held output with the idle start.
+for (const mode of [0, 1, 2]) {
+  const l = new Proc();
+  const m = (data) => l.port.onmessage({ data });
+  const go = () => { l.process([], [[new Float32Array(128)]]); return l.value; };
+  m({ type: 'param', id: 'mode', value: mode });
+  m({ type: 'param', id: 'length', value: 0 });
+  m({ type: 'curve', curve: { points: [{ x: 0, y: 0.25, r: 0 }, { x: 1, y: 0.75, r: 0 }] } });
+  m({ type: 'noteOn', id: 1 });
+  assert.equal(go(), 0.75);
+  m({ type: 'noteOff', id: 1 });
+  m({ type: 'curve', curve: { points: [{ x: 0, y: 0, r: 0 }, { x: 1, y: 1, r: 0 }] } });
+  assert.equal(go(), 0.75, `mode ${mode}: post-trigger idle still holds its last output`);
+  assert.equal(l.meter, -1);
+}
 
 // ---- Mode 1: Notes ON/OFF Loop ----
 {

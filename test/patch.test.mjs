@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { dspTestHost } from './dsphost.mjs';
 import { patchControllersView } from '../src/mapdialog.js';
 import { createPatchMonitor } from '../src/patchmonitor.js';
+import { paramsOf } from '../src/params.js';
 
 {
   const previousDocument = globalThis.document;
@@ -41,6 +42,51 @@ const engine = {
   ctx, dsp,
   createPatch(sink) { return PatchRuntime.create(this, sink); },
 };
+
+// All Out Controller modules expose/save output smoothing without renumbering old controllers.
+{
+  const types = ['LFO', 'ADSR', 'ENVELOPE', 'VELOCITY2CTL', 'PITCH2CTL', 'SOUND2CTL'];
+  const { dsp: audio, graph: g, render: tick } = dspTestHost();
+  const e = { ctx, dsp: audio };
+  const r = await PatchRuntime.create(e, audio.destination);
+  for (const type of types) {
+    const m = await r.addModule(type);
+    const ps = paramsOf(m);
+    assert.equal(ps.at(-1).id, 'outSmooth', `${type}: appended after all existing controllers`);
+    assert.deepEqual(ps.slice(-4, -1).map(p => p.id), ['outController', 'outMin', 'outMax']);
+    assert.equal(m.values.outSmooth, 0, `${type}: old patches keep smoothing off`);
+    r.setParam(m.id, 'outSmooth', 50);
+    assert.equal(g.nodes.get(m.ctl.h).depth.outSmooth, 50);
+  }
+  const saved = r.toJSON();
+  const copy = await PatchRuntime.create(e, audio.destination);
+  await copy.load(saved);
+  for (const m of copy.modules.values()) if (types.includes(m.def.type)) {
+    assert.equal(m.values.outSmooth, 50);
+    assert.equal(g.nodes.get(m.ctl.h).depth.outSmooth, 50, 'saved smoothing reaches DSP on load');
+  }
+  // Reproduce the sweeping patch's envelope -> duty and note-reset LFO -> Out Max chain.
+  const env = [...r.modules.values()].find(m => m.def.type === 'ENVELOPE');
+  const lfo = [...r.modules.values()].find(m => m.def.type === 'LFO');
+  const osc = await r.addModule('OSC', { values: { duty: 10.5 } });
+  r.setState(env.id, { points: [{ x: 0, y: 1, r: 0 }, { x: 1, y: 0.13, r: 0 }] });
+  r.setParam(env.id, 'outController', 2);
+  r.setParam(lfo.id, 'outController', 4);
+  r.setParam(lfo.id, 'outMin', 73);
+  r.setParam(lfo.id, 'outMax', 100);
+  r.connect(env.id, osc.id);
+  r.connect(lfo.id, env.id);
+  tick(94);
+  const before = g.nodes.get(osc.ctl.h).values.duty;
+  lfo.inst.noteOn(101, 60, 1, 0);
+  env.inst.noteOn(101, 60, 1, 0);
+  tick(2);
+  const after = g.nodes.get(osc.ctl.h).values.duty;
+  assert.ok(Math.abs(after - before) < 2, `first note duty jump is softened: ${before} -> ${after}`);
+  assert.ok(before > 50, 'idle output was already driving duty');
+  copy.destroy();
+  r.destroy();
+}
 
 // Monitoring is view-only: uncabled patches play through the main Output while open.
 {
@@ -924,9 +970,8 @@ const set = (e, x) => { hold(e, x); render(1); };
   r.setParam(env.id, 'outMin', 20);
   r.setParam(env.id, 'outMax', 60);
   r.setParam(env.id, 'length', 0);
-  const before = osc.values.duty;
   render(4);
-  assert.equal(osc.values.duty, before, 'idle until a note');
+  assert.equal(osc.values.duty, 60, 'idle drives the loaded curve start through Out Max');
   mm.inst.noteOn(1, 60, 1);
   render(2);
   assert.equal(osc.values.duty, 20, 'length 0: the end of the curve = Out Min');
@@ -941,7 +986,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.equal(kernel(osc.inst.node).p.duty, osc.values.duty, 'applied in the OSC kernel');
 
   // Loop mode: note-offs through the MULTIMIDI cable reach the kernel; releasing all notes stops it
-  assert.deepEqual(env.def.params.map((p) => p.id), ['mode', 'length', 'outController', 'outMin', 'outMax'], 'mode first, Out block last');
+  assert.deepEqual(env.def.params.map((p) => p.id), ['mode', 'length', 'outController', 'outMin', 'outMax', 'outSmooth'], 'mode first, Out block last');
   r.setParam(env.id, 'mode', 1);
   const ek = kernel(env.inst.node);
   env.inst.allOff(); // the notes above were never released
@@ -976,7 +1021,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   const ctl = await r.addModule('SOUND2CTL');
   const target = await r.addModule('AMP');
   const mm = await r.addModule('MULTIMIDI');
-  assert.deepEqual(ctl.def.params.map((p) => p.id), ['rate', 'smooth', 'outController', 'outMin', 'outMax'], 'Out block last');
+  assert.deepEqual(ctl.def.params.map((p) => p.id), ['rate', 'smooth', 'outController', 'outMin', 'outMax', 'outSmooth'], 'Out block last');
   assert.ok(r.connect(src.id, ctl.id), 'audio input');
   assert.ok(r.connect(ctl.id, target.id), 'controller output');
   r.setParam(ctl.id, 'outController', 1); // AMP amplification
@@ -1085,7 +1130,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.ok(r.connect(mm.id, v2c.id), 'MULTIMIDI -> VELOCITY2CTL (MIDI cable)');
   assert.ok(r.connect(v2c.id, osc.id), 'VELOCITY2CTL -> OSC (control cable)');
   assert.equal(r.connect(osc.id, v2c.id), false, 'no audio input');
-  assert.deepEqual(v2c.def.params.map((p) => p.id), ['noteOffAction', 'smooth', 'outController', 'outMin', 'outMax'], 'Out block last');
+  assert.deepEqual(v2c.def.params.map((p) => p.id), ['noteOffAction', 'smooth', 'outController', 'outMin', 'outMax', 'outSmooth'], 'Out block last');
   assert.match(v2c.inst.params().find((p) => p.id === 'outController').format(2), /Duty/);
 
   r.setParam(v2c.id, 'outController', 2); // OSC duty 0..100

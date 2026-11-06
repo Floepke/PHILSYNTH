@@ -64,7 +64,7 @@ export default {
     text.rows = 8;
     text.maxLength = MAX_COMMENT;
     text.spellcheck = true;
-    text.placeholder = 'Notes about the song: ideas, structure, credits…';
+    text.placeholder = 'Notes about the song/patch: ideas, structure, credits…';
     text.value = entry.state?.comment ?? '';
     const save = () => api.setState({ songName: songName.value, creator: creator.value, comment: text.value });
     for (const input of [songName, creator, text]) input.addEventListener('input', save);

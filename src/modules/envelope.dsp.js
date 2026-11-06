@@ -2,7 +2,7 @@
 // audio clock. Every note (noteOn) plays the drawn curve (module state, { type: 'curve', curve })
 // once from its start, stretched over Envelope Length; afterwards it holds the curve's end value.
 // Its value (0..1) is mapped by the engine graph onto the controllers its cables point to. Until
-// the first note (and after a panic) the value is null: the controller is left alone.
+// the first note (and after a panic) it holds the curve's start value, so output trimming is live.
 // A note starts the curve at its MODMIDI phase (0..1, e.g. a MULTIMIDI's Phase): 0 = the start,
 // 0.5 = halfway through (forward in ping-pong mode).
 // Mode (Graph param 'mode'):
@@ -29,7 +29,8 @@ export default class EnvelopeKernel extends Kernel {
     this.mode = 0;
     this.held = new Set(); // ids of the notes held (loop modes)
     this.running = false;
-    this.value = null;
+    this.triggered = false;
+    this.value = this.at(0);
     this.meter = -1;
   }
 
@@ -47,12 +48,16 @@ export default class EnvelopeKernel extends Kernel {
     this.pos = p - Math.floor(p);
     this.dir = 1;
     this.running = true;
+    this.triggered = true;
   }
 
   message(m) {
     switch (m.type) {
       case 'param': this.param(m.id, m.value); break;
-      case 'curve': this.table = curveSamples(m.curve); break;
+      case 'curve':
+        this.table = curveSamples(m.curve);
+        if (!this.triggered) this.value = this.at(0);
+        break;
       case 'noteOn': {
         const first = this.held.size === 0;
         this.held.add(m.id);
@@ -80,7 +85,10 @@ export default class EnvelopeKernel extends Kernel {
   panic() {
     this.held.clear();
     this.running = false;
-    this.value = null;
+    this.triggered = false;
+    this.pos = 0;
+    this.dir = 1;
+    this.value = this.at(0);
     this.meter = -1;
   }
 

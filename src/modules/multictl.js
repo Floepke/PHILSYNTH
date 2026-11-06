@@ -18,7 +18,7 @@ import { moduleName as labelOf } from '../modname.js';
 import { createController } from '../controller.js';
 
 const pct1 = (v) => `${(+v).toFixed(1)} %`;
-const OUT = outParams().filter((p) => p.id !== 'outController'); // Out Min, Out Max
+const OUT = outParams().filter((p) => p.id === 'outMin' || p.id === 'outMax'); // preserve dynamic route controller numbers
 
 const RANGE_ID = /^r(\d+)(Min|Max)$/;
 export const rangeIds = (key) => [`r${key}Min`, `r${key}Max`];

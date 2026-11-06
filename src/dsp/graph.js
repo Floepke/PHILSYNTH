@@ -29,7 +29,7 @@
 // a program and render() runs step 2 with one call (ms_run, cpp/engine.cpp); the nodes' silent
 // flags then live in C++ (GNode records) and are read back when the topology changes.
 import { KERNELS } from './kernels.js';
-import { fromNorm } from '../params.js';
+import { fromNorm, toNorm } from '../params.js';
 
 const BLOCK = 128;
 const NO_INPUT = [[]];
@@ -102,7 +102,8 @@ export class Graph {
       rec: 0, // native: the node's GNode record
       silent: true,
       routes: [], // modulators: [{ node, id, min, max, scale, step, lo, hi, last }]
-      depth: { outMin: 0, outMax: 100, amp: 100 }, // modulators: mapping controllers
+      depth: { outMin: 0, outMax: 100, amp: 100, outSmooth: 0 }, // modulators: mapping controllers
+      values: {}, // last controller values, also the starting point of a new smoothed route
       depthIds: K.depthIds ?? null, // more mapping controllers (MULTICTL route ranges: lo / hi of a route)
     };
     if (this.heap) node.outPtr = this.heap.alloc(2 * BLOCK * 4);
@@ -173,6 +174,7 @@ export class Graph {
     if (!node) return;
     node.k.message(m);
     if (m.type !== 'param') return;
+    node.values[m.id] = m.value;
     if (isDepth(node, m.id)) node.depth[m.id] = m.value;
     // a controller set by hand while modulated: re-apply the modulation on the next block
     for (const mod of this.mods) for (const r of mod.routes) if (r.node === node && r.id === m.id) r.last = NaN;
@@ -194,7 +196,7 @@ export class Graph {
     if (!node) return;
     for (const r of node.routes) this.pending.delete(r);
     node.routes = list
-      .map((r) => ({ node: this.nodes.get(r.to), id: r.id, min: r.min, max: r.max, scale: r.scale, step: r.step, lo: r.lo ?? null, hi: r.hi ?? null, last: NaN }))
+      .map((r) => ({ node: this.nodes.get(r.to), id: r.id, min: r.min, max: r.max, scale: r.scale, step: r.step, lo: r.lo ?? null, hi: r.hi ?? null, last: NaN, smoothed: NaN }))
       .filter((r) => r.node);
     if (node.audioInput) this.dirty = true;
   }
@@ -249,9 +251,11 @@ export class Graph {
   }
 
   modulate(m, x) {
-    const { outMin, outMax, amp } = m.depth;
+    const { outMin, outMax, amp, outSmooth } = m.depth;
     const y = 0.5 + (x - 0.5) * (amp / 100);
     const pos = (outMin + (outMax - outMin) * y) / 100;
+    const smoothing = outSmooth > 0;
+    const alpha = smoothing ? -Math.expm1(-BLOCK * 1000 / (sampleRate * outSmooth)) : 1;
     for (const r of m.routes) {
       // a route with its own range (MULTICTL): Out Min..Out Max is mapped once more onto lo..hi
       let at = pos;
@@ -259,10 +263,19 @@ export class Graph {
         const lo = m.depth[r.lo] ?? 0;
         at = (lo + ((m.depth[r.hi] ?? 100) - lo) * pos) / 100;
       }
-      const v = fromNorm(r, at);
+      at = Math.min(1, Math.max(0, at));
+      if (smoothing) {
+        if (!Number.isFinite(r.smoothed)) {
+          const initial = toNorm(r, r.node.values[r.id]);
+          r.smoothed = Number.isFinite(initial) ? Math.min(1, Math.max(0, initial)) : at;
+        }
+        r.smoothed = Math.abs(at - r.smoothed) < 1e-9 ? at : r.smoothed + (at - r.smoothed) * alpha;
+      } else r.smoothed = at;
+      const v = fromNorm(r, r.smoothed);
       if (v === r.last) continue;
       r.last = v;
       r.node.k.param(r.id, v);
+      r.node.values[r.id] = v;
       if (isDepth(r.node, r.id)) r.node.depth[r.id] = v; // LFO -> LFO depth
       this.pending.add(r);
     }

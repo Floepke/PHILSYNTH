@@ -13,7 +13,7 @@ const ramp = (start) => block((i) => ((start + i) % 1000) / 1000); // distinct v
 // defaults: unchanged behaviour (the last sample of every block, no smoothing)
 const def = getModule('SOUND2CTL');
 const ids = def.params.map((p) => p.id);
-assert.deepEqual(ids.slice(-3), ['outController', 'outMin', 'outMax'], 'Out block last');
+assert.deepEqual(ids.slice(-4), ['outController', 'outMin', 'outMax', 'outSmooth'], 'Out block last');
 assert.equal(def.params.find((p) => p.id === 'rate').default, RATE_MAX, 'Audio Rate defaults to max');
 assert.equal(def.params.find((p) => p.id === 'smooth').default, 0, 'Smooth defaults to 0');
 {

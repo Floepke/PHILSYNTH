@@ -7,7 +7,10 @@
 const OUT_CONTROLLER = 'Picks the controller (by number) of the modules this module is cabled to that it drives. The value shows the number and the controller name of the connected module(s).';
 const OUT_MIN = 'Lowest value the controlled controller reaches, in % of that controller\'s range.';
 const OUT_MAX = 'Highest value the controlled controller reaches, in % of that controller\'s range. Out Max below Out Min inverts the modulation.';
-const MOD_PARAMS = { outController: OUT_CONTROLLER, outMin: OUT_MIN, outMax: OUT_MAX };
+const MOD_PARAMS = {
+  outController: OUT_CONTROLLER, outMin: OUT_MIN, outMax: OUT_MAX,
+  outSmooth: 'Smooths the controller output after Out Min/Out Max and amplitude mapping (0–5000 ms). 0 is off. A step moves about 63% toward its target in this time, softening MIDI retriggers and trim changes. Each control cable starts from its target controller\'s current value. Does not smooth LFO audio tremolo or replace the converter modules\' source Smooth controls.',
+};
 const MOD_CABLE = '<kbd>Shift</kbd> + drag from this module to the module to control (control cables are dashed). One modulator can drive several modules; each gets the same controller number.';
 const NOTES_IN = 'Notes trigger it: select it and play the MIDI keyboard, send a clip to it, or <kbd>Shift</kbd> + drag a MULTIMIDI into it.';
 
@@ -447,6 +450,7 @@ export const DOCS = {
   VELOCITY2CTL: {
     summary: 'Turns the velocity of incoming notes into a controller value: the harder a note is played, the further it moves the controlled controller. It makes no sound.',
     params: {
+      ...MOD_PARAMS,
       outController: OUT_CONTROLLER,
       outMin: `${OUT_MIN} Velocity 0 gives this value.`,
       outMax: `${OUT_MAX} Velocity 127 gives this value.`,
@@ -462,6 +466,7 @@ export const DOCS = {
   PITCH2CTL: {
     summary: 'Turns the pitch of incoming notes into a controller value through a key map you draw: every MIDI key gets its own value, so a filter can open up the keyboard, or an instrument can get a custom value per key (key tracking for any controller). It makes no sound.',
     params: {
+      ...MOD_PARAMS,
       outController: OUT_CONTROLLER,
       outMin: `${OUT_MIN} The bottom of the key map.`,
       outMax: `${OUT_MAX} The top of the key map.`,
@@ -481,6 +486,7 @@ export const DOCS = {
   SOUND2CTL: {
     summary: 'Turns an audio signal into a controller value: the voltage of the incoming audio drives a controller, either at audio speed (e.g. an oscillator modulating a filter) or sampled slowly and optionally smoothed (e.g. a random or stepped modulation taken from a sound). It makes no sound.',
     params: {
+      ...MOD_PARAMS,
       outController: OUT_CONTROLLER,
       outMin: `${OUT_MIN} Audio voltage −1 gives this value.`,
       outMax: `${OUT_MAX} Audio voltage +1 gives this value; silence (0) is halfway.`,

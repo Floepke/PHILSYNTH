@@ -180,6 +180,18 @@ the processor's own voices. WAV export includes delayed MIDI in its bounded tail
 
 ## ENVELOPE modulator
 
+All single **Out Controller** modulators (LFO, ADSR, ENVELOPE, VELOCITY2CTL,
+PITCH2CTL and SOUND2CTL) have **Out Smooth** (0–5000 ms). It softens controller
+jumps after Out Min / Out Max and amplitude mapping, including MIDI retriggers
+and modulation of those trims. 0 ms is off and preserves existing patches.
+The time is an exponential smoothing constant: a step moves about 63% toward
+its target in that time. Try 20–50 ms for duty-cycle jumps.
+Each control route smooths independently from the connected controller's current
+value; logarithmic and stepped controllers retain their normal mapping/snapping.
+The setting is saved with the project and can itself be modulated.
+Existing **Smooth** controls on the converter modules still smooth their source
+values separately. **Out Smooth** affects control cables, not LFO audio tremolo.
+
 Insert **ENVELOPE** and draw its shape in the panel's curve editor (same editing
 as the WAVESHAPER curve): left to right is time, bottom to top is the output.
 Notes trigger it (select it and play, send a clip to it, or Shift + drag a
@@ -188,6 +200,9 @@ MULTIMIDI into it). Shift + drag from it to a module to modulate that module.
 - **Envelope Length**: 0–10000 ms, the duration of the whole curve.
 - **Out Controller**: which controller of the cabled module(s) is modulated.
 - **Out Min / Out Max**: trim the output range (% of that controller's range).
+  Before the first trigger and after a hard reset, the envelope holds its curve's
+  starting level (Out Min for the default curve). Trimming, including modulation
+  of Out Min / Out Max, updates connected controllers even while idle.
 - **Mode**:
   - *Note ON Trigger* (default): each note restarts the curve, which plays once
     and then holds its last value; note-off is ignored.

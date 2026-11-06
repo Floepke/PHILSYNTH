@@ -24,6 +24,87 @@ class Mod extends Kernel {
 const near = (a, b, eps) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 Object.assign(KERNELS, { const: Const, probe: Probe, mod: Mod });
 
+// Output smoothing happens after trim/depth mapping, in each target controller's slider space.
+for (const sr of [44100, 48000, 96000]) {
+  const previousRate = sampleRate;
+  globalThis.sampleRate = sr;
+  try {
+    const { dsp, graph, kernel, render } = dspTestHost();
+    const mod = dsp.create('mod');
+    const target = dsp.create('probe');
+    const got = [];
+    target.onMod = (id, value) => got.push([id, value]);
+    target.param('linear', 0);
+    target.param('log', 100);
+    target.param('stepped', 0);
+    mod.routes([
+      { to: target.h, id: 'linear', min: 0, max: 100 },
+      { to: target.h, id: 'log', min: 100, max: 10000, scale: 'log' },
+      { to: target.h, id: 'stepped', min: 0, max: 10, step: 1 },
+    ]);
+    mod.param('outSmooth', 100);
+    kernel(mod).value = 1;
+    const blocks = Math.round(sr * 0.1 / 128);
+    render(blocks);
+    const expected = 1 - Math.exp(-blocks * 128 / (sr * 0.1));
+    const values = () => Object.fromEntries(kernel(target).set);
+    near(values().linear, expected * 100, 1e-6);
+    near(values().log, 100 * 100 ** expected, 1e-6);
+    assert.equal(values().stepped, Math.round(expected * 10));
+    assert.deepEqual(got.at(-1), kernel(target).set.at(-1), 'reports contain applied smoothed values');
+    kernel(mod).value = 0;
+    render();
+    const alpha = 1 - Math.exp(-128 / (sr * 0.1));
+    near(values().linear, expected * 100 * (1 - alpha), 1e-6);
+    // A clamped stepped output must not stall the underlying smoother.
+    render(blocks * 25);
+    assert.equal(values().stepped, 0);
+    mod.param('outMin', 100);
+    render();
+    assert.ok(values().linear < 10, 'trim changes are smoothed too');
+    mod.param('outSmooth', 0);
+    render();
+    assert.equal(values().linear, 100, 'turning smoothing off immediately applies the mapped target');
+    mod.param('outMin', 0);
+    mod.param('outMax', 0);
+    kernel(mod).value = 1;
+    render();
+    assert.equal(values().linear, 0, 'zero smoothing preserves instantaneous mapping');
+    // Another modulator can drive smoothing without going through the main-thread UI.
+    const depth = dsp.create('mod');
+    depth.routes([{ to: mod.h, id: 'outSmooth', min: 0, max: 5000 }]);
+    kernel(depth).value = 0.02;
+    render(2);
+    assert.equal(graph.nodes.get(mod.h).depth.outSmooth, 100);
+    mod.param('outMax', 100);
+    render();
+    assert.ok(values().linear > 0 && values().linear < 10, 'modulated smoothing is live');
+  } finally {
+    globalThis.sampleRate = previousRate;
+  }
+}
+
+// A note-only source's first output glides from the controller's saved value, not from zero.
+{
+  const { dsp, kernel, render } = dspTestHost();
+  const mod = dsp.create('velocity2ctl');
+  const target = dsp.create('probe');
+  target.param('x', 80);
+  mod.param('outSmooth', 100);
+  mod.routes([{ to: target.h, id: 'x', min: 0, max: 100 }]);
+  render(4);
+  assert.deepEqual(kernel(target).set, [['x', 80]], 'null source does not drive the controller');
+  mod.send({ type: 'noteOn', id: 1, velocity: 0 });
+  render();
+  assert.ok(kernel(target).set.at(-1)[1] < 80 && kernel(target).set.at(-1)[1] > 75);
+  const other = dsp.create('probe');
+  other.param('x', 20);
+  mod.routes([{ to: target.h, id: 'x', min: 0, max: 100 }, { to: other.h, id: 'x', min: 0, max: 100 }]);
+  render();
+  assert.ok(kernel(target).set.at(-1)[1] > 70, 'route rebuild continues from current output');
+  assert.ok(kernel(other).set.at(-1)[1] < 20 && kernel(other).set.at(-1)[1] > 18, 'new routes have independent starting values');
+}
+
 // Audio-to-control renders otherwise inaudible sources, without leaking their sound.
 {
   class Voltage extends Kernel {
@@ -156,6 +237,41 @@ k(m).value = null;
 const n = k(t).set.length;
 render(2);
 assert.equal(k(t).set.length, n, 'value null = no modulation');
+
+// ENVELOPE drives its target before any MIDI trigger, including externally modulated trim.
+{
+  const { dsp, graph, kernel, render } = dspTestHost();
+  const env = dsp.create('envelope');
+  const trim = dsp.create('mod');
+  const target = dsp.create('probe');
+  const got = [];
+  target.onMod = (id, value) => got.push([id, value]);
+  env.routes([{ to: target.h, id: 'x', min: 0, max: 100 }]);
+  env.param('outMin', 20);
+  env.param('outMax', 80);
+  trim.routes([{ to: env.h, id: 'outMin', min: 0, max: 100 }]);
+  kernel(trim).value = 0.3;
+  render(2);
+  assert.deepEqual(kernel(target).set.at(-1), ['x', 30], 'idle start follows modulated Out Min');
+  assert.deepEqual(got.at(-1), ['x', 30], 'idle modulation is reported to the controller UI');
+  kernel(trim).value = 0.4;
+  render(2);
+  assert.deepEqual(kernel(target).set.at(-1), ['x', 40], 'trim keeps updating without a note');
+  env.send({ type: 'curve', curve: { points: [{ x: 0, y: 0.25, r: 0 }, { x: 1, y: 1, r: 0 }] } });
+  render();
+  assert.deepEqual(kernel(target).set.at(-1), ['x', 50], 'loaded nonzero start maps between both trims');
+  trim.routes([{ to: env.h, id: 'outMax', min: 0, max: 100 }]);
+  kernel(trim).value = 1;
+  render(2);
+  assert.deepEqual(kernel(target).set.at(-1), ['x', 55], 'idle output also follows modulated Out Max');
+  env.send({ type: 'noteOn', id: 1, phase: 0.5 });
+  render();
+  assert.ok(kernel(target).set.at(-1)[1] > 55, 'note triggers still advance the curve');
+  graph.panic();
+  render(2);
+  assert.deepEqual(kernel(target).set.at(-1), ['x', 55], 'panic resumes idle mapping instead of disabling routes');
+  assert.equal(kernel(env).meter, -1);
+}
 
 // ---- reports and the clock ----
 assert.equal(graph.report(1), null, 'nothing to report');
