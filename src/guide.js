@@ -218,7 +218,7 @@ export const GUIDE = [
       {
         title: 'Edit notes',
         items: [
-          'Drag a note\'s coloured <b>body</b> more than 10 pixels to start setting its length (the end jumps to the snapped pointer; with several notes selected, all their ends do); drag its <b>circle</b> to change pitch (sideways) and start time (up / down).',
+          'Drag a note\'s coloured <b>body</b> more than 10 pixels to start setting its length. One note\'s end jumps to the snapped pointer; with several notes selected, dragging increases or decreases every duration by the same amount, preserving their length differences. Shortening stops when the shortest note reaches the minimum length. Drag a note\'s <b>circle</b> to change pitch (sideways) and start time (up / down).',
           'Every drag along time (note lengths and moves, bend and velocity points, the clip end, selection rectangles, automation points) scrolls the view along when you hold the pointer near / past the top or bottom edge, faster further out; the wheel scrolls along too.',
           `${k('Alt')} + drag a note (body or circle) moves a clone of it.`,
           `<b>Micropitch</b>: ${k('Shift')} + drag a note\'s circle sideways to tune it up or down (slowly, in 0.1 cent steps); a slider shows the cents while you drag and the note sounds along. With several notes selected, all of them change by the same amount. The note stays on its key (from −50 to just under +50 cents); the whole note (circle and coloured body) shifts sideways to show the tuning; menu → <b>Reset tuning</b> puts the selection back on its keys.`,

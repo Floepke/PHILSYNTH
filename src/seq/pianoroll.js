@@ -13,7 +13,8 @@
 // scrollbar right of the note grid (the TimeLine's look) spans the clip; the keyboard ends beside it.
 //   click / drag the keyboard  play pitches on the live MIDI module (red MIDI in the patcher) without editing notes
 //   click / drag on empty space  insert a note (last used length), dragging beyond 10 px sets its duration
-//   drag a note's coloured body  set the duration: the end jumps to the pointer, snapped to the grid
+//   drag a note's coloured body  set the duration: one note's end jumps to the snapped pointer;
+//                                a selection's durations change by the same snapped drag delta
 //                                (all selected notes change by the same amount when it is selected;
 //                                 duration drags scroll along past the top / bottom edge, as the clip end)
 //   drag a note's circle         change pitch (sideways) and start time (moves the whole selection)
@@ -1190,7 +1191,7 @@ export function createPianoRoll(host, ctx) {
     let moved = false;
     let pv = null;
     if (h?.part === 'body' && !dup) {
-      drag = { kind: 'length' };
+      drag = { kind: 'length', t0: timeAt(y) };
     } else if (h) {
       drag = { kind: 'move', t0: timeAt(y), p0: pitchAt(x) };
       pv = ctx.preview.on(clip, h.note.pitch);
@@ -1253,11 +1254,12 @@ export function createPianoRoll(host, ctx) {
         n.vels = velsForLength(n.vels, n.length, length);
         n.length = length;
       } else if (drag.kind === 'length') {
-        // every selected note's end jumps to the snapped pointer position
-        const to = snapRound(end, st);
+        const delta = group.length > 1
+          ? Math.max(snapRound(end - state.t0, st), Math.min(0, minLength - Math.min(...origs.map((o) => o.length))))
+          : Math.max(minLength, clean(snapRound(end, st) - a.start)) - a.length;
         // a velocity point at a note's end follows it (from the original, so swallowed points come back)
         group.forEach((n, i) => {
-          n.length = Math.max(minLength, clean(to - origs[i].start));
+          n.length = clean(origs[i].length + delta);
           if (origs[i].vels) n.vels = velsForLength(origs[i].vels, origs[i].length, n.length);
         });
       } else {

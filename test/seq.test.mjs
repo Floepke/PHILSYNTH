@@ -922,9 +922,9 @@ for (const how of ['wheel', 'edge']) {
   assert.equal(changes(), 0);
   drag(cv, nx(60), ny(1) + 5, nx(61), ny(3) + 5);
   assert.deepEqual(clip.notes.map((n) => [n.pitch, n.start]), [[61, 3], [63, 4], [70, 1]]);
-  // body drag puts every selected note's end on the pointer, whatever its own length
+  // body drag adds the same duration to every selected note
   drag(cv, nx(61), ny(3.5), nx(61), ny(5.5));
-  assert.deepEqual(clip.notes.map((n) => n.length), [2.5, 1.5, 1]);
+  assert.deepEqual(clip.notes.map((n) => n.length), [3, 3, 1]);
   // Shift + click toggles a note in the selection
   click(cv, nx(70), ny(1) + 5, { shiftKey: true });
   key(cv, 'Delete');
@@ -2260,7 +2260,22 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   assert.equal(clip.notes[0].length, 0.25, 'never shorter than one snap step');
   key(cv, 'a', { ctrlKey: true });
   drag(cv, nx(64), ny(5), nx(64), ny(4));
-  assert.deepEqual(clip.notes.map((n) => n.length), [3, 3], 'every selected note ends at the pointer');
+  assert.deepEqual(clip.notes.map((n) => n.length), [0.25, 8], 'shortest note limits shortening for the whole selection');
+}
+
+// Multi-note duration drags apply an equal delta, not a shared endpoint.
+for (const free of [false, true]) {
+  const { clip, song, roll } = setup();
+  song.snap.free = free;
+  const cv = roll.surface.cv;
+  clip.notes.push(note(60, 1, 2), note(64, 2, 4), note(67, 0.5, 3));
+  key(cv, 'a', { ctrlKey: true });
+  const amount = free ? 0.73 : 0.75;
+  drag(cv, nx(64), ny(3), nx(64), ny(3 + amount));
+  clip.notes.forEach((n, i) => assert.ok(Math.abs(n.length - ([2, 4, 3][i] + amount)) < 1e-6, 'every note lengthens equally'));
+  assert.deepEqual(clip.notes.map((n) => n.start), [1, 2, 0.5], 'resizing preserves start times');
+  drag(cv, nx(60), ny(2), nx(60), ny(1.5));
+  clip.notes.forEach((n, i) => assert.ok(Math.abs(n.length - ([2, 4, 3][i] + amount - 0.5)) < 1e-6, 'every note shortens equally from either anchor'));
 }
 
 // Right-button hold threshold: under 5 px still opens the menu, 5 px cancels.
