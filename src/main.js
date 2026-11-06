@@ -408,9 +408,19 @@ function renderCrumbs() {
     const label = entry?.name ? `${entry.name} (${lvl.name})` : lvl.name;
     b.title = i === path.length - 1 ? `${label} — the patch level shown in the patcher` : `Go up to ${label}`;
     b.classList.toggle('current', i === path.length - 1);
-    b.onclick = () => { path.length = i + 1; render(); };
+    b.onclick = () => goUpPatch(i);
     nav.append(b);
   });
+}
+
+function goUpPatch(level = path.length - 2) {
+  const exited = path[level + 1];
+  path.length = level + 1;
+  render();
+  if (exited) {
+    const entry = current().modules.get(exited.id);
+    if (entry) select({ kind: 'module', entry });
+  }
 }
 
 // Module colour (its custom colour, else its type's; see modcolor.js) as the --mod-color CSS
@@ -1060,8 +1070,7 @@ canvas.addEventListener('contextmenu', (e) => {
 // suppressed so the page never navigates away.
 initMouseNavigation(window, () => {
   if (path.length > 1 && !document.querySelector('dialog[open]')) {
-    path.pop();
-    render();
+    goUpPatch();
   }
 });
 
@@ -1070,7 +1079,11 @@ window.addEventListener('keydown', (e) => {
     if (e.repeat) return;
     if (!e.defaultPrevented && !e.target.closest('input, select, textarea, dialog, [contenteditable]:not([contenteditable="false"])')) {
       e.preventDefault();
-      exitToOS(persist, (message) => { $('status').textContent = message; });
+      if (path.length > 1) {
+        goUpPatch();
+      } else {
+        exitToOS(persist, (message) => { $('status').textContent = message; });
+      }
     }
     return;
   }

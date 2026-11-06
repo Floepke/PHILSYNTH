@@ -83,7 +83,7 @@ export const GUIDE = [
       {
         title: 'Patches (modules inside a module)',
         items: [
-          `Select a Patch and click <b>Edit Patch...</b> beside <b>Controllers…</b> to enter it (or ${k('Double-click')}, press ${k('Enter')}, or right-click → <b>Open patch</b>); the mouse <b>back</b> button or the patch path (<b>Main</b> / …, left on the lower divider) goes up.`,
+          `Select a Patch and click <b>Edit Patch...</b> beside <b>Controllers…</b> to enter it (or ${k('Double-click')}, press ${k('Enter')}, or right-click → <b>Open patch</b>); ${k('Esc')}, the mouse <b>back</b> button or the patch path (<b>Main</b> / …, left on the lower divider) goes up and selects the Patch module you returned from.`,
           'While inside an uncabled Patch, its Output is heard directly through the main Output. Once the Patch is cabled, its normal connections are used instead.',
           'Audio, MIDI and modulation cabled into a Patch go to its <b>Input Module</b> (default <kbd>1</kbd>: the first module inserted inside; <kbd>0</kbd> = straight to the inner Output). <b>Instances</b> plays notes round-robin over copies of the contents.',
           '<b>Controllers…</b> (in the panel of a selected Patch) maps controllers of modules inside onto the Patch module, so they can be set, modulated and automated from outside.',
@@ -298,7 +298,7 @@ export const GUIDE = [
           `Click <b>PHILSYNTH</b> (top-right corner) for <b>New</b> (${k(CMD, 'N')}), <b>Open…</b> (${k(CMD, 'O')}), <b>Save</b> (${k(CMD, 'S')}), <b>Save As…</b> (${k(CMD, 'Shift', 'S')}), <b>Export Audio…</b> (${k(CMD, 'E')}), <b>MIDI Input…</b> and <b>Exit</b>.`,
           'Projects are <b>.phproject</b> files (older .mds / .json projects open too). The file name shows in the status bar and the window title, with <b>•</b> for unsaved changes; New and Open ask to save them first. Every change is also autosaved, so the app starts with your latest project.',
           '<b>MIDI Input…</b> picks the MIDI controller; <i>Auto</i> uses every input except Linux\'s <i>Midi Through</i>, <b>Re-scan</b> finds newly plugged-in devices.',
-          `${k('Esc')} (when nothing else is open) asks <b>Exit to OS?</b>: ${k('Enter')} saves and closes, ${k('Esc')} cancels.`,
+          `${k('Esc')} (when nothing else is open) goes up one patch level. In the main patch it asks <b>Exit to OS?</b>: ${k('Enter')} saves and closes, ${k('Esc')} cancels.`,
         ],
       },
       {
