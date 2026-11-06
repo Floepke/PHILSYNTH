@@ -12,7 +12,7 @@
 // both ways. Noteheads and bodies grow with the pitch zoom only up to NOTE_MAX_W. A vertical
 // scrollbar right of the note grid (the TimeLine's look) spans the clip; the keyboard ends beside it.
 //   click / drag the keyboard  play pitches on the live MIDI module (red MIDI in the patcher) without editing notes
-//   click / drag on empty space  insert a note (last used length), dragging beyond 10 px sets its duration
+//   click / drag on empty space  insert a note (last used length and velocity), dragging beyond 10 px sets its duration
 //   drag a note's coloured body  set the duration: one note's end jumps to the snapped pointer;
 //                                a selection's durations change by the same snapped drag delta
 //                                (all selected notes change by the same amount when it is selected;
@@ -110,6 +110,7 @@ export function createPianoRoll(host, ctx) {
   let selected = new Set();
   let clipboard = [];
   let lastLength = null; // length of the last drawn / resized note: new notes get it
+  let lastVelocity = null;
   let hoverBend = null; // { note, i }: the bend point under the pointer
   let sbHover = false; // the pointer is on the scrollbar (right of the note grid)
   let sbActive = false; // its thumb is being dragged
@@ -175,6 +176,7 @@ export function createPianoRoll(host, ctx) {
     song: ctx.song,
     color: ctx.color,
     changed: () => ctx.changed(),
+    rememberVelocity: (value) => { lastVelocity = value; },
     redraw: s.redraw,
     menu,
     snapVelocity: () => view.snapVelocity,
@@ -1196,7 +1198,7 @@ export function createPianoRoll(host, ctx) {
       drag = { kind: 'move', t0: timeAt(y), p0: pitchAt(x) };
       pv = ctx.preview.on(clip, h.note.pitch);
     } else {
-      const note = withVelEnd({ pitch: pitchAt(x), start: Math.max(0, snapFloor(timeAt(y), st)), length: lastLength ?? gridStep(), vel: DEFAULT_VEL });
+      const note = withVelEnd({ pitch: pitchAt(x), start: Math.max(0, snapFloor(timeAt(y), st)), length: lastLength ?? gridStep(), vel: lastVelocity ?? DEFAULT_VEL });
       clip.notes.push(note);
       group = [note];
       drag = { kind: 'new' };
@@ -1231,6 +1233,7 @@ export function createPianoRoll(host, ctx) {
         selected = new Set(sources);
       }
       if (drag.kind !== 'move' && ev.type !== 'pointercancel') lastLength = group[anchor].length;
+      if (drag.kind === 'new' && ev.type !== 'pointercancel') lastVelocity = group[anchor].vel;
       if (!moved && inSelection) selected = new Set([h.note]); // click inside a selection: just this note
       drag = null;
       if (moved || !h) ctx.changed();

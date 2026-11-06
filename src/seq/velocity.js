@@ -34,6 +34,7 @@ const VEL_SNAP = 16; // velocity snapping levels: 0, 1/16 .. 1
 
 // o: { cv, local(e), clip(), selected() -> Set, setSelected(Set), yOf(t), timeAt(y), bottom(), ppq(), song(),
 //      color(clip), changed(), redraw(), menu(opts), snapVelocity(), toggleSnapVelocity(), width()?,
+//      rememberVelocity?(value) (committed note-start velocity for new notes),
 //      edgeScroll(onScroll)? (an edgeScroll() that scrolls the shared time axis),
 //      labelTop()? (top of the label strip, default bottom()) }
 export function createVelocityStrip(o) {
@@ -257,6 +258,7 @@ export function createVelocityStrip(o) {
     }, (ev) => {
       auto?.stop();
       if (ev.type === 'pointercancel') { p.t = t0; p.v = v0; apply(); }
+      else o.rememberVelocity?.(group.notes[0].vel);
       const moved = drag.moved;
       drag = null;
       if (moved) o.changed();
@@ -290,6 +292,7 @@ export function createVelocityStrip(o) {
         n.vel = originals[i].vel;
         if (originals[i].vels) n.vels = originals[i].vels;
       });
+      else o.rememberVelocity?.(note.vel);
       const moved = drag.moved;
       drag = null;
       if (moved) o.changed();
@@ -332,7 +335,13 @@ export function createVelocityStrip(o) {
       auto?.stop();
       const { a, b } = state;
       line = null;
-      if (moved && ev.type !== 'pointercancel' && applyVelLine(notes, a, b)) o.changed();
+      if (moved && ev.type !== 'pointercancel') {
+        const changed = applyVelLine(notes, a, b);
+        const starts = notes.filter((n) => n.start >= Math.min(a.t, b.t) - 1e-9 && n.start <= Math.max(a.t, b.t) + 1e-9);
+        const anchor = starts.reduce((best, n) => !best || Math.abs(n.start - b.t) < Math.abs(best.start - b.t) ? n : best, null);
+        if (anchor) o.rememberVelocity?.(anchor.vel);
+        if (changed) o.changed();
+      }
       o.redraw();
     });
   }

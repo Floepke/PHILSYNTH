@@ -523,6 +523,96 @@ for (const reverse of [false, true]) {
   assert.equal(previews(), 0, 'all insertion previews released');
 }
 
+// Velocity memory follows duration memory's gesture, lifetime and cancellation rules.
+{
+  const { clip, song, roll, ctx } = setup();
+  const cv = roll.surface.cv;
+  const vx = (v) => 7 + v * 70;
+  const a = note(60, 1, 2, 0.3);
+  const b = note(64, 4, 1, 0.7);
+  clip.notes.push(a, b);
+  const inserted = (velocity, length = 2) => {
+    click(cv, nx(72), ny(5));
+    const n = ctx.clip().notes.pop();
+    assert.equal(n.vel, velocity);
+    assert.equal(n.length, length);
+    assert.deepEqual(n.vels, [{ t: length, v: velocity, r: 0 }], 'new notes have a flat curve at the remembered velocity');
+  };
+  click(cv, nx(60), ny(1.5));
+  inserted(0.8); // a duration-body click adopts length, not velocity
+  click(cv, vx(0.3), ny(1));
+  inserted(0.3);
+  click(cv, nx(64), ny(4) + 5);
+  inserted(0.3); // selection through the notehead does not adopt its velocity
+  drag(cv, nx(64), ny(4) + 5, nx(65), ny(4.5) + 5);
+  inserted(0.3);
+  for (const ending of ['pointercancel', 'lostpointercapture', 'pointerup']) {
+    drag(cv, vx(a.vel), ny(1), vx(0.6), ny(1), {}, ending);
+    if (ending === 'pointercancel') {
+      assert.ok(Math.abs(a.vel - 0.3) < 1e-9, 'cancel restores the edited note');
+      inserted(0.3);
+    } else {
+      inserted(a.vel); // lost capture commits, just as it does for duration
+    }
+  }
+  const remembered = a.vel;
+  const other = addClip(song, { length: 16, target: 7 });
+  ctx.select(other.id);
+  roll.setView(null);
+  roll.setView({ sy: 0, ppq: 48, snapVelocity: false });
+  inserted(remembered);
+}
+
+// Exact velocity endpoints and snapping are remembered, without re-snapping on insertion.
+for (const [snapVelocity, value] of [[false, 0], [false, 1], [false, 0.53], [true, 0.53]]) {
+  const { clip, roll } = setup({ snapVelocity });
+  const cv = roll.surface.cv;
+  clip.notes.push(note(60, 1, 2, 0.8));
+  drag(cv, 7 + 0.8 * 70, ny(1), 7 + value * 70, ny(1));
+  const expected = snapVelocity ? Math.round(value * 16) / 16 : clip.notes[0].vel;
+  roll.setView({ ...roll.getView(), snapVelocity: !snapVelocity });
+  click(cv, nx(64), ny(4));
+  assert.equal(clip.notes.at(-1).vel, expected);
+  assert.deepEqual(clip.notes.at(-1).vels, [{ t: 0.25, v: expected, r: 0 }]);
+}
+
+// Group edits remember the grabbed note, not the earliest note or a curve-point value.
+{
+  const { clip, roll } = setup();
+  const cv = roll.surface.cv;
+  const vx = (v) => 7 + v * 70;
+  const a = note(60, 1, 2, 0.2);
+  const b = note(64, 4, 2, 0.5);
+  clip.notes.push(a, b);
+  key(cv, 'a', { ctrlKey: true });
+  drag(cv, vx(0.5), ny(4), vx(0.7), ny(4));
+  click(cv, nx(72), ny(6));
+  assert.equal(clip.notes.at(-1).vel, b.vel);
+  clip.notes.pop();
+  click(cv, vx(a.vel), ny(1));
+  dbl(cv, vx(0.9), ny(2));
+  click(cv, nx(72), ny(6));
+  assert.equal(clip.notes.at(-1).vel, a.vel, 'interior curve values are not copied as start velocities');
+  assert.equal(clip.notes.at(-1).vels[0].v, a.vel, 'curves themselves are not copied');
+}
+
+// Straight-line edits remember the covered note start nearest the release, in either direction.
+for (const reverse of [false, true]) {
+  const { clip, roll } = setup();
+  const cv = roll.surface.cv;
+  const vx = (v) => 7 + v * 70;
+  clip.notes.push(note(60, 1, 1, 0.5), note(64, 3, 1, 0.5));
+  const [from, to] = reverse ? [[0.8, 4], [0.2, 0]] : [[0.2, 0], [0.8, 4]];
+  drag(cv, vx(from[0]), ny(from[1]), vx(to[0]), ny(to[1]), { ctrlKey: true }, 'pointercancel');
+  click(cv, nx(72), ny(6));
+  assert.equal(clip.notes.pop().vel, 0.8, 'cancelled line does not update memory');
+  key(cv, 'Escape');
+  drag(cv, vx(from[0]), ny(from[1]), vx(to[0]), ny(to[1]), { ctrlKey: true });
+  const expected = clip.notes[reverse ? 0 : 1].vel;
+  click(cv, nx(72), ny(6));
+  assert.equal(clip.notes.at(-1).vel, expected);
+}
+
 // Ordinary insertion, duration edits and head moves still work; short right click deletes.
 {
   const { clip, roll, previews, menus } = setup();

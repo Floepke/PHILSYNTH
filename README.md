@@ -121,7 +121,14 @@ The piano-roll toolbar's **Grid** controls set the alternating dark/light time
 guide. Enable **Free timing** to draw, move, resize, and paste notes at unsnapped
 times; velocity-curve timing is free too. Pitch and velocity-value snapping are
 unchanged. The guide remains visible, and a click-created note initially uses
-the last drawn length (or one grid step); dragging sets its free duration.
+the last drawn/resized length (or one grid step); dragging sets its free duration.
+New notes also use the last starting velocity used in the velocity editor (default
+80%), with a flat velocity curve. Clicking a velocity handle adopts its value;
+group edits use the grabbed note's starting velocity, and straight-line edits use
+the covered note start nearest the release. Cancelled gestures do not update
+either memory. Moving, selecting, copying or pasting notes does not change them.
+Both memories last for the piano-roll instance, carry across clip switches, and
+are not saved in the project.
 Explicit Quantize (Q), keyboard time nudges, timeline and automation editing
 still use the grid. Free timing is saved per sequencer/Patch level with the project.
 
