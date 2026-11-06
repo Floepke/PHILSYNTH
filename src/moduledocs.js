@@ -173,7 +173,7 @@ export const DOCS = {
     params: {
       transpose: 'Shifts every outgoing note by whole semitones (−48…+48).',
       finetune: 'Detunes every outgoing note by up to ±100 cents.',
-      drift: 'Depth of a slow random pitch wander per note, up to ±100 cents. Every note starts at its own random offset and keeps moving, so chords drift apart like analog voices.',
+      drift: 'Depth of a slow random pitch wander per note, up to ±1200 cents (±12 semitones), in 1-cent steps; each mouse-wheel notch changes it by 1 cent. Every note starts at its own random offset and keeps moving, so chords drift apart like analog voices.',
       driftFreq: 'Speed of the pitch drift: how often (per second) it heads for a new random value. 0 holds each note\'s initial offset.',
       velDrift: 'Depth of a random velocity (loudness) wander per note: reduces the velocity by up to this percentage.',
       velDriftFreq: 'Speed of the velocity drift. 0 holds each note\'s initial offset.',

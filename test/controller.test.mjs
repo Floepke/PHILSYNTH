@@ -79,4 +79,19 @@ for (const type of ['LFO', 'VIBRATO']) {
   ctl.show(values.freq);
   assert.equal(el.classes.has('ticked'), false);
 }
+{
+  const p = getModule('MULTIMIDI').params.find((x) => x.id === 'drift');
+  let value = 6;
+  const ctl = createController(p, { index: 0, value, format: p.format, onInput: (v) => { value = v; } });
+  fire(ctl.el, 'wheel', { deltaY: -100, timeStamp: 1000 });
+  assert.equal(value, 6.01, 'Drift: scroll up increases depth by one cent');
+  fire(ctl.el, 'wheel', { deltaY: 100, timeStamp: 2000 });
+  assert.equal(value, 6, 'Drift: scroll down decreases depth by one cent');
+  fire(ctl.el, 'wheel', { deltaY: -100, shiftKey: true, timeStamp: 3000 });
+  assert.equal(value, 6.01, 'Drift: Shift also moves one cent');
+  value = p.max;
+  ctl.show(value);
+  fire(ctl.el, 'wheel', { deltaY: -100, timeStamp: 4000 });
+  assert.equal(value, p.max, 'Drift cannot scroll above 1200 cents');
+}
 console.log('controller tests passed');
