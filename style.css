@@ -529,6 +529,12 @@ body.panel-collapsed #panel { visibility: hidden; }
 #cables .cable.selected .wire { stroke-width: 3; }
 #cables .mod .wire { stroke-dasharray: 2 5; }
 #cables .midi .wire { stroke-dasharray: 10 4 2 4; }
+#cables .midi-dot {
+  fill: #fff;
+  stroke: var(--c);
+  stroke-width: 2;
+  pointer-events: none;
+}
 /* live signal (cablescope.js): the wave runs along the cable, the plain wire dims behind it */
 #cables .scope {
   fill: none;

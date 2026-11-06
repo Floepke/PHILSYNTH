@@ -51,6 +51,7 @@ export class PatchRuntime {
     this.host = { salt, dsp: engine.dsp, mics: engine.mics ?? null, createPatch: (s, k = 0) => PatchRuntime.create(engine, s, instanceSalt(salt, k)) };
     this.modules = new Map(); // id -> { id, def, inst, x, y, values }
     this.cables = []; // { from, to } module ids
+    this.midiTargets = new Map(); // cable -> stable MIDI delivery endpoint
     this.audioLinks = new Set(); // cables out of an audio-through modulator that carry audio now
     this.reserved = new Set(); // ids claimed by inserts still being created
     this.listeners = new Set(); // called whenever modules/cables change
@@ -144,7 +145,10 @@ export class PatchRuntime {
     }
     if (def.midiOut || inst.outSignals) {
       inst.getMidiTargets = () => this.cables.filter((c) => c.from === id)
-        .map((c) => this.modules.get(c.to)).filter((t) => t && this.signals(entry, t).midi).map((t) => t.inst);
+        .filter((c) => {
+          const t = this.modules.get(c.to);
+          return t && this.signals(entry, t).midi;
+        }).map((c) => this.midiTarget(c));
     }
     if (inst.patch) inst.patch.watchers.add(() => { inst.mirror?.(); this.changed(); });
     if (def.isOutput) inst.input.connect(this.sink);
@@ -522,6 +526,22 @@ export class PatchRuntime {
     return !!target && this.cables.some((c) => c.to === id && this.signals(this.modules.get(c.from), target).midi);
   }
 
+  midiTarget(cable) {
+    if (!this.engine.midiCables) return this.modules.get(cable.to).inst;
+    if (!this.midiTargets.has(cable)) {
+      const target = this.modules.get(cable.to).inst;
+      this.midiTargets.set(cable, {
+        noteOn: (id, ...args) => {
+          const send = () => target.noteOn(id, ...args);
+          return this.engine.midiCables ? this.engine.midiCables.transmit(cable, id, send) : send();
+        },
+        noteMod: (...args) => target.noteMod(...args),
+        noteOff: (...args) => target.noteOff(...args),
+      });
+    }
+    return this.midiTargets.get(cable);
+  }
+
   connect(fromId, toId) {
     const a = this.modules.get(fromId);
     const b = this.modules.get(toId);
@@ -559,9 +579,10 @@ export class PatchRuntime {
     }
     else {
       const signals = this.signals(a, b);
-      if (signals.midi || a.inst.outSignals) a.inst.releaseTarget?.(b.inst);
+      if (signals.midi || a.inst.outSignals) a.inst.releaseTarget?.(this.midiTargets.get(cable) ?? b.inst);
       if (signals.audio) a.inst.node.disconnect(b.inst.input);
     }
+    this.midiTargets.delete(cable);
     this.syncAllThrough();
     if (notify) this.emit();
   }
@@ -573,6 +594,7 @@ export class PatchRuntime {
     this.modules.forEach((e) => { e.inst.destroy(); e.dead = true; });
     this.modules.clear();
     this.cables = [];
+    this.midiTargets.clear();
   }
 
   // ---- persistence (nested Patch modules are embedded recursively) ----

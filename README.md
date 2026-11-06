@@ -124,6 +124,12 @@ comparisons tolerate rounding errors up to 0.0000001 quarter notes.
 
 ## MIDI chord processing
 
+MIDI note-ons light up a traveling dot on each connection they actually take.
+Each dot travels from sender to receiver in 100 ms. Parallel branches animate
+one after another, and downstream dots follow their upstream arrivals, including
+through delayed MIDI processors. This is visualization only: MIDI and audio keep
+their original timing. Separate notes can animate at the same time.
+
 The piano-roll toolbar's **Grid** controls set the alternating dark/light time
 guide. Enable **Free timing** to draw, move, resize, and paste notes at unsnapped
 times; velocity-curve timing is free too. Pitch and velocity-value snapping are

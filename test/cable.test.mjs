@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { midpoint, arrowPath, arrowPoints, linePath, samplePoints, edgePoint, visibleSegment, centerOf } from '../src/cable.js';
 import { Ring, displace, scopePath, AMP, crossings, period, lockAge, glowLevel, GLOW_DB } from '../src/cablescope.js';
+import { MidiCableAnimation, MIDI_TRAVEL_MS } from '../src/midicable.js';
+import { captureMidiTrace, withMidiTrace } from '../src/modmidi.js';
+import { PatchRuntime } from '../src/patch.js';
+import { dspTestHost } from './dsphost.mjs';
 
 const near = (a, b, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 const tipOf = (d) => d.match(/^M([-\d.]+),([-\d.]+)/).slice(1).map(Number);
@@ -157,3 +161,203 @@ console.log('cable tests passed');
   assert.equal(glowLevel(tiny, 0, 32), 0, 'below the range: none');
 }
 console.log('cable glow tests passed');
+
+// Deterministic animation frames: test the full 100 ms trip, not a timer approximation.
+{
+  const saved = Object.fromEntries(['performance', 'document', 'requestAnimationFrame', 'cancelAnimationFrame']
+    .map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  let now = 0, nextFrame = 0;
+  const frames = new Map();
+  const element = () => ({
+    attrs: {}, children: [], parentNode: null,
+    classList: { add() {} },
+    setAttribute(key, value) { this.attrs[key] = String(value); },
+    append(child) { child.remove(); this.children.push(child); child.parentNode = this; },
+    remove() {
+      if (this.parentNode) this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1);
+      this.parentNode = null;
+    },
+  });
+  Object.defineProperty(globalThis, 'performance', { configurable: true, value: { now: () => now } });
+  globalThis.document = { createElementNS: element };
+  globalThis.requestAnimationFrame = (fn) => { frames.set(++nextFrame, fn); return nextFrame; };
+  globalThis.cancelAnimationFrame = (id) => frames.delete(id);
+  const advance = (at) => {
+    now = at;
+    const callbacks = [...frames.values()];
+    frames.clear();
+    callbacks.forEach((fn) => fn(now));
+  };
+  const view = (cable) => ({ cable, g: element(), from: { x: 10, y: 20 }, to: { x: 210, y: 120 } });
+  const rig = async () => {
+    const { dsp } = dspTestHost();
+    const animation = new MidiCableAnimation();
+    const engine = { ctx: { currentTime: 0 }, dsp, midiCables: animation };
+    const patch = await PatchRuntime.create(engine, dsp.destination);
+    return {
+      animation, patch,
+      show: (...runtimes) => animation.setCables(runtimes.flatMap((rt) => rt.cables.map(view))),
+      tick(time) {
+        engine.ctx.currentTime = time;
+        for (const fn of dsp.clocks) fn(time);
+      },
+      destroy() { patch.destroy(); animation.clear(); },
+    };
+  };
+  try {
+    const animation = new MidiCableAnimation();
+    const cables = [{}, {}, {}];
+    const views = cables.map(view);
+    animation.setCables(views);
+    let delivered = 0;
+    animation.transmit(cables[0], 1, () => {
+      delivered++;
+      animation.transmit(cables[1], 2, () => delivered++);
+    });
+    animation.transmit(cables[2], 1, () => delivered++);
+    animation.transmit(cables[0], 3, () => delivered++);
+    assert.equal(delivered, 4, 'MIDI is synchronous; no animation frame or timeout delays delivery');
+    assert.deepEqual(animation.pulses.map((p) => [p.start, p.end]), [[0, 100], [100, 200], [200, 300], [0, 100]],
+      'chain and parallel branches follow each other, independent notes can overlap');
+    assert.ok(animation.pulses.every((p) => p.end - p.start === MIDI_TRAVEL_MS));
+    advance(0);
+    assert.deepEqual(animation.pulses[0].dot.attrs, { r: '4', cx: '10', cy: '20' });
+    advance(50);
+    assert.equal(animation.pulses[0].dot.attrs.cx, '110');
+    assert.equal(animation.pulses[0].dot.attrs.cy, '70');
+    const replacement = view(cables[0]);
+    replacement.to = { x: 410, y: 220 };
+    animation.setCables([replacement, ...views.slice(1)]);
+    assert.equal(animation.pulses[0].dot.parentNode, replacement.g, 'redraw reattaches active dots');
+    assert.equal(animation.pulses[0].dot.attrs.cx, '210', 'redraw uses new cable geometry');
+    advance(100);
+    assert.equal(replacement.g.children.length, 0, 'first trip finishes at exactly 100 ms');
+    assert.equal(views[1].g.children.length, 1, 'downstream trip starts on arrival');
+    advance(200);
+    assert.equal(views[2].g.children.length, 1, 'next parallel branch starts after the preceding path');
+    animation.setCables([]);
+    assert.equal(animation.pulses.length, 0, 'disconnect or layer change discards pending and active dots');
+    advance(300);
+    assert.equal(frames.size, 0, 'idle animation has no frame loop');
+    animation.setCables(views);
+    animation.transmit(cables[0], 4, () => {});
+    advance(300);
+    animation.clear();
+    assert.equal(animation.pulses.length, 0);
+    assert.equal(frames.size, 0, 'panic cancels the frame and removes dots');
+    assert.equal(views[0].g.children.length, 0);
+    document.hidden = true;
+    animation.transmit(cables[0], 5, () => delivered++);
+    assert.equal(delivered, 5, 'hidden tabs still deliver MIDI immediately');
+    assert.equal(animation.pulses.length, 0, 'hidden tabs do not accumulate an animation backlog');
+    document.hidden = false;
+    assert.throws(() => withMidiTrace({}, () => { throw new Error('test delivery error'); }), /test delivery error/);
+    assert.equal(captureMidiTrace(), null, 'delivery errors restore the previous trace');
+
+    // Actual routing: Round Robin only lights the chosen cable; mod/off do not launch dots.
+    now = 0;
+    const r = await rig();
+    const sender = await r.patch.addModule('MULTIMIDI', { values: { routeMode: 1 } });
+    const a = await r.patch.addModule('OSC');
+    const b = await r.patch.addModule('OSC');
+    r.patch.connect(sender.id, a.id);
+    r.patch.connect(sender.id, b.id);
+    r.show(r.patch);
+    const on = [], off = [];
+    for (const target of [a, b]) {
+      target.inst.noteOn = (...args) => on.push([target.id, ...args]);
+      target.inst.noteOff = (id) => off.push([target.id, id]);
+    }
+    const before = JSON.stringify(r.patch.toJSON());
+    sender.inst.noteOn(10, 60, 0.8, 0.25, 0);
+    assert.deepEqual(on[0].slice(0, 5), [a.id, on[0][1], 60, 0.8, 0.25]);
+    assert.equal(r.animation.pulses[0].cable, r.patch.cables[0]);
+    sender.inst.noteMod(10, 61, 0.7);
+    assert.equal(r.animation.pulses.length, 1);
+    const target = sender.inst.getMidiTargets()[0];
+    assert.equal(target, sender.inst.getMidiTargets()[0], 'target identity is stable across route lookups');
+    r.patch.disconnect(r.patch.cables[0]);
+    assert.equal(off.length, 1, 'disconnect releases notes on the wrapped target');
+    r.show(r.patch);
+    assert.equal(r.animation.pulses.length, 0, 'disconnected notes leave no stale animation');
+    sender.inst.noteOn(11, 64, 1);
+    sender.inst.noteOff(11);
+    assert.equal(on.at(-1)[0], b.id);
+    assert.equal(r.animation.pulses.length, 1, 'note-off does not add a dot');
+    assert.ok(!before.includes('midiTargets') && !JSON.stringify(r.patch.toJSON()).includes('midiTargets'),
+      'animation state is not serialized');
+    r.destroy();
+
+    // Logical paths survive a delayed clock dispatch, STRUM's microtask and a remapped note id.
+    now = 0;
+    const delayed = await rig();
+    const chain = [];
+    for (const type of ['MULTIMIDI', 'DELAY', 'STRUM', 'TUNING', 'OSC']) chain.push(await delayed.patch.addModule(type));
+    delayed.patch.setParam(chain[1].id, 'left', 10);
+    delayed.patch.setParam(chain[2].id, 'duration', 0);
+    for (let i = 1; i < chain.length; i++) delayed.patch.connect(chain[i - 1].id, chain[i].id);
+    delayed.show(delayed.patch);
+    let received = 0;
+    chain.at(-1).inst.noteOn = () => received++;
+    chain[0].inst.noteOn(20, 60, 1);
+    assert.equal(delayed.animation.pulses.length, 1);
+    assert.equal(received, 0);
+    now = 10;
+    delayed.tick(0.01);
+    await Promise.resolve();
+    assert.equal(received, 1, 'real MIDI waits only for its configured 10 ms delay');
+    assert.deepEqual(delayed.animation.pulses.map((p) => p.start), [0, 100, 200, 300]);
+    assert.deepEqual(delayed.animation.pulses.map((p) => p.cable), delayed.patch.cables);
+    delayed.destroy();
+
+    // Nested Patch output passes retain provenance; both inner and outer connections are real.
+    now = 0;
+    const nested = await rig();
+    const input = await nested.patch.addModule('MULTIMIDI');
+    const sub = await nested.patch.addModule('PATCH');
+    const inner = sub.inst.patch;
+    const processor = await inner.addModule('MULTIMIDI');
+    const voice = await nested.patch.addModule('OSC');
+    inner.connect(processor.id, 0);
+    nested.patch.connect(input.id, sub.id);
+    nested.patch.connect(sub.id, voice.id);
+    nested.show(nested.patch, inner);
+    input.inst.noteOn(30, 60, 1);
+    assert.deepEqual(nested.animation.pulses.map((p) => p.start), [0, 100, 200]);
+    assert.deepEqual(nested.animation.pulses.map((p) => p.cable),
+      [nested.patch.cables[0], inner.cables[0], nested.patch.cables[1]]);
+    nested.destroy();
+
+    // CTL2NOTE has no incoming noteOn: its parallel targets still share one visual route.
+    now = 0;
+    const generated = await rig();
+    const ctl = await generated.patch.addModule('CTL2NOTE');
+    const voices = [await generated.patch.addModule('OSC'), await generated.patch.addModule('OSC')];
+    for (const v of voices) generated.patch.connect(ctl.id, v.id);
+    generated.show(generated.patch);
+    generated.patch.setParam(ctl.id, 'noteState', 1);
+    assert.deepEqual(generated.animation.pulses.map((p) => p.start), [0, 100]);
+    generated.destroy();
+
+    // Fast repeated TRILL notes retain ancestry without accumulating an ever-longer backlog.
+    now = 0;
+    const trilled = await rig();
+    const source = await trilled.patch.addModule('MULTIMIDI');
+    const trill = await trilled.patch.addModule('TRILL', { values: { humanize: 0, separation: 100 } });
+    const dest = await trilled.patch.addModule('OSC');
+    trilled.patch.connect(source.id, trill.id);
+    trilled.patch.connect(trill.id, dest.id);
+    trilled.show(trilled.patch);
+    source.inst.noteOn(40, 60, 1);
+    assert.deepEqual(trilled.animation.pulses.map((p) => p.start), [0, 100]);
+    for (const ms of [20, 40, 60]) { now = ms; trilled.tick(ms / 1000); }
+    assert.deepEqual(trilled.animation.pulses.map((p) => p.start), [0, 100, 100, 100, 100]);
+    trilled.destroy();
+  } finally {
+    for (const [key, descriptor] of Object.entries(saved)) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+    }
+  }
+}
+console.log('MIDI cable animation tests passed');

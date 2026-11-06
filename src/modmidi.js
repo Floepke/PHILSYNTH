@@ -21,3 +21,12 @@
 // phase. allOff / cable removal cancel pending events and release only its own outgoing notes.
 let lastId = 0;
 export const newNoteId = () => ++lastId;
+
+// Visual provenance follows delayed notes without changing their MIDI data or timing.
+let midiTrace = null;
+export const captureMidiTrace = () => midiTrace;
+export function withMidiTrace(trace, send) {
+  const previous = midiTrace;
+  midiTrace = trace;
+  try { return send(); } finally { midiTrace = previous; }
+}

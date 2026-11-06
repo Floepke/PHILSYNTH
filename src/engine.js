@@ -59,6 +59,7 @@ export class Engine {
   // MIDI/audio panic: every module releases its notes and drops pending (delayed) MIDI, then all
   // DSP state (voices, echo lines, reverb tails, filter memory) is cleared on the audio thread.
   panic() {
+    this.midiCables?.clear();
     for (const e of this.root?.modules.values() ?? []) {
       try { e.inst.allOff?.(); } catch (err) { console.error('panic:', err); }
     }

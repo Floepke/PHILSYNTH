@@ -4,7 +4,7 @@
 // triplet). Onsets stay on a nominal grid (no drift); HUMANIZE adds per-note timing (up to ±40 % of
 // the separation), length (±30 %) and velocity (±20 %) variation. Generated notes go out through its
 // MIDI cables with their own ids; the trill runs on the audio clock (about every 5 ms).
-import { newNoteId } from '../modmidi.js';
+import { newNoteId, captureMidiTrace, withMidiTrace } from '../modmidi.js';
 
 export const ORDERS = ['random', 'up', 'down', 'up-down'];
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
@@ -70,7 +70,12 @@ export default {
         const id = newNoteId();
         const velocity = clamp(key.velocity * (1 + 0.2 * human()), 0.01, 1);
         const targets = [...inst.getMidiTargets()];
-        for (const target of targets) target.noteOn(id, key.pitch, velocity, first ? key.phase : 0, t);
+        const trace = key.trace;
+        // Repeated notes share the incoming arrival, not a growing animation queue.
+        key.trace = trace && { end: trace.end };
+        withMidiTrace(trace, () => {
+          for (const target of targets) target.noteOn(id, key.pitch, velocity, first ? key.phase : 0, t);
+        });
         const len = divisionSeconds(values.length, bpm) * (1 + 0.3 * human());
         sounding.push({ id, pitch: key.pitch, key: key.inId, off: t + Math.max(0.001, len), targets });
         last = key;
@@ -104,7 +109,7 @@ export default {
       onModulated(id, value) { values[id] = value; },
       setBpm(value) { bpm = Number(value) > 0 ? Number(value) : 120; },
       noteOn(inId, pitch, velocity, phase = 0, time) {
-        const key = { inId, pitch, velocity, phase, seq: seq++ };
+        const key = { inId, pitch, velocity, phase, seq: seq++, trace: captureMidiTrace() };
         keys.set(inId, key);
         if (!next) {
           const t0 = Number.isFinite(time) ? Math.min(time, now()) : now();

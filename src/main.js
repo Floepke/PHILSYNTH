@@ -18,6 +18,7 @@ import { edgeScroll } from './seq/surface.js';
 import { initWidgets } from './widgets.js';
 import { emptySong, getClip, newSong, snapStep } from './song.js';
 import { CableScope } from './cablescope.js';
+import { MidiCableAnimation } from './midicable.js';
 import { openMapDialog, patchControllersView } from './mapdialog.js';
 import { defaultName } from './modname.js';
 import { MAX_NAME, runtimesAt, songLayers } from './patch.js';
@@ -686,6 +687,7 @@ function drawCables() {
   svg.replaceChildren();
   const patch = current();
   const live = []; // audio cables that show their signal
+  const midiCables = [];
   for (const cable of patch.cables) {
     const a = patch.modules.get(cable.from);
     const b = patch.modules.get(cable.to);
@@ -723,11 +725,13 @@ function drawCables() {
       select({ kind: 'cable', cable });
     });
     svg.append(g);
+    if (signals.midi) midiCables.push({ cable, g, from, to });
     // control cables (Out Controller modules) stay a plain dashed line, no value wave
     const h = soundy && !isMod ? a.inst?.node?.h : undefined;
     if (h !== undefined) live.push({ g, h, from, to: head ? head.tip : to });
   }
   scope?.setCables(live);
+  engine.midiCables?.setCables(midiCables);
 }
 
 // Connects `from` -> the module of element `el`, or disconnects that cable when it exists, and
@@ -1627,6 +1631,7 @@ initCpuMeter(engine);
 await engine.init();
 patchMonitor = createPatchMonitor(engine.root);
 scope = new CableScope(engine.dsp);
+engine.midiCables = new MidiCableAnimation();
 // clips play the module with their number in their own patch level (shown: the open one)
 const targetIn = (rt) => (id) => {
   const e = id === null || id === undefined ? null : rt.modules.get(id);

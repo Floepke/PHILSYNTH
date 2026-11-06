@@ -1,6 +1,6 @@
 // Fixed per-note delays on the audio clock. Modulation and release keep the note's delay,
 // so even notes shorter than their delay play with their original duration.
-import { newNoteId } from './modmidi.js';
+import { newNoteId, captureMidiTrace, withMidiTrace } from './modmidi.js';
 import { MidiQueue } from './midiqueue.js';
 
 export function createMidiScheduler(ctx, dsp, getTargets) {
@@ -26,7 +26,9 @@ export function createMidiScheduler(ctx, dsp, getTargets) {
       pending.delete(note);
       expire(note, due + 6);
     }
-    for (const target of note.targets) target[type](note.id, ...args);
+    withMidiTrace(type === 'noteOn' ? note.trace : null, () => {
+      for (const target of note.targets) target[type](note.id, ...args);
+    });
   };
   const tick = (time) => {
     clock = time;
@@ -63,6 +65,7 @@ export function createMidiScheduler(ctx, dsp, getTargets) {
       if (old) cancel(old);
       const note = {
         inId, id: newNoteId(), pitch, velocity, phase, time, arrival: now(),
+        trace: captureMidiTrace(),
         targets: [...getTargets()], delay: null, waiting: [], started: false,
         closed: false, released: false, cancelled: false, expiry: null,
       };

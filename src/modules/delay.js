@@ -1,6 +1,6 @@
 // Audio and MODMIDI share the LEFT DELAY time; RIGHT DELAY only affects audio.
 // MIDI events sample the current delay on arrival. Queued events retain their due time.
-import { newNoteId } from '../modmidi.js';
+import { newNoteId, captureMidiTrace, withMidiTrace } from '../modmidi.js';
 import { MidiQueue } from '../midiqueue.js';
 import { delayParam, delayUnitParam, delaySeconds } from './delaytime.js';
 
@@ -52,7 +52,9 @@ export default {
           return;
         }
       } else if (!note.started) return;
-      for (const t of note.targets) t[type](note.id, ...args);
+      withMidiTrace(type === 'noteOn' ? note.trace : null, () => {
+        for (const t of note.targets) t[type](note.id, ...args);
+      });
     };
     const tick = (time) => {
       clock = time;
@@ -93,6 +95,7 @@ export default {
         inst.noteOff(inId);
         const note = {
           inId, id: newNoteId(), targets: [...inst.getMidiTargets()],
+          trace: captureMidiTrace(),
           started: false, closed: false, released: false, cancelled: false, pending: 0, expires: Infinity, expiry: null,
         };
         notes.set(inId, note);
