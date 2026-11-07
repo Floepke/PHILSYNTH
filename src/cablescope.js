@@ -8,6 +8,8 @@
 // destination. Without a stable period (noise, very slow signals, silence) the live stream shows.
 // Glow: two wide translucent strokes under the wave (no CSS filter: a blur re-rasterised every frame
 // costs too much) whose width and opacity follow the signal level (--glow 0..1 on the cable).
+// Out of bounds: when a raw sample of the node went beyond ±1 (Graph.scope's clip flags), the
+// cable gets the class `clipping` (its complementary color, style.css) for CLIP_HOLD ms.
 import { samplePoints } from './cable.js';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
@@ -16,6 +18,7 @@ export const STEP = 3; // world px between two points on a cable
 export const AMP = 16; // max displacement in world px
 export const DRIFT = 45;
 export const GLOW_DB = 48; // level range of the glow: -48 dB .. 0 dB peak -> 0..1
+export const CLIP_HOLD = 400; // ms a cable stays marked after its last out-of-bounds sample
 const GLOW_RELEASE = 2.5; // glow falls by this much per second (rises at once) // world px per second the locked wave travels along the cable
 const EDGE = 10; // points over which the wave fades in/out at the ports
 const LOOK = 2048; // points searched for zero crossings beyond the longest cable (periods up to ~170 ms)
@@ -130,6 +133,7 @@ export class CableScope {
   constructor(host) {
     this.host = host;
     this.rings = new Map(); // node handle -> Ring
+    this.clipUntil = new Map(); // node handle -> performance.now() until which it shows clipping
     this.cables = []; // { g, path, h, pts, shown, a, seen }
     this.key = '';
     this.dirty = false;
@@ -152,11 +156,11 @@ export class CableScope {
       const glows = [mk('glow'), mk('glow-core')];
       const path = mk('scope');
       const ring = this.rings.get(h);
-      return { g, path, glows, h, pts: samplePoints(from, to, STEP), shown: false, a: 0, seen: ring?.count ?? 0, glow: 0, glowShown: -1 };
+      return { g, path, glows, h, pts: samplePoints(from, to, STEP), shown: false, a: 0, seen: ring?.count ?? 0, glow: 0, glowShown: -1, clipping: false };
     });
     const hs = [...new Set(list.map((c) => c.h))].sort((a, b) => a - b);
     for (const h of hs) if (!this.rings.has(h)) this.rings.set(h, new Ring());
-    for (const h of this.rings.keys()) if (!hs.includes(h)) this.rings.delete(h);
+    for (const h of this.rings.keys()) if (!hs.includes(h)) { this.rings.delete(h); this.clipUntil.delete(h); }
     const key = hs.join(',');
     if (key !== this.key) {
       this.key = key;
@@ -165,11 +169,12 @@ export class CableScope {
     this.dirty = true;
   }
 
-  // { h: [handles], n: points, v: Float32Array [point][node] } from the graph
-  push({ h, n, v }) {
+  // { h: [handles], n: points, v: Float32Array [point][node], clip?: [node] } from the graph
+  push({ h, n, v, clip }, now = performance.now()) {
     for (let j = 0; j < h.length; j++) {
       const ring = this.rings.get(h[j]);
       if (ring) for (let p = 0; p < n; p++) ring.push(v[p * h.length + j]);
+      if (ring && clip?.[j]) this.clipUntil.set(h[j], now + CLIP_HOLD);
     }
     this.dirty = true;
   }
@@ -178,7 +183,7 @@ export class CableScope {
     requestAnimationFrame(this.frame);
     const dt = Math.min(0.1, Math.max(0, (now - this.last) / 1000));
     this.last = now;
-    if (!this.dirty && !this.cables.some((c) => c.shown)) return;
+    if (!this.dirty && !this.cables.some((c) => c.shown || c.clipping)) return;
     this.dirty = false;
     const locks = new Map(); // per node: crossings + period, shared by its cables
     for (const c of this.cables) {
@@ -215,6 +220,9 @@ export class CableScope {
       }
       if (live !== c.shown) c.g.classList.toggle('live', live);
       c.shown = live;
+      const clipping = (this.clipUntil.get(c.h) ?? 0) > now;
+      if (clipping !== c.clipping) c.g.classList.toggle('clipping', clipping);
+      c.clipping = clipping;
     }
   }
 }

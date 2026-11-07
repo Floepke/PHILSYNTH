@@ -394,6 +394,30 @@ assert.throws(() => graph.handle([['add', 999, 'nope']]), /Unknown DSP kernel/);
   assert.equal(got.length, 0, 'unwatched: no scope data');
 }
 
+// ---- cable scope: out-of-bounds flag from the raw samples, cleared after each report ----
+{
+  const T = dspTestHost();
+  const a = T.dsp.create('const', { v: 0.5 });
+  const b = T.dsp.create('const', { v: 0.5 });
+  a.connect(T.dsp.destination);
+  b.connect(T.dsp.destination);
+  const got = [];
+  T.dsp.onScope = (s) => got.push(s);
+  T.dsp.scope([a.h, b.h]);
+  let spike = 1.2;
+  T.graph.nodes.get(a.h).k.process = (_i, o) => { o[0][0].fill(0.5); o[0][1].fill(0.5); o[0][1][9] = spike; o[0][0][10] = -0.6; return true; };
+  T.graph.nodes.get(b.h).k.process = (_i, o) => { o[0][0].fill(1); o[0][1].fill(-1); return true; };
+  T.render(1);
+  assert.deepEqual([...got[0].clip], [1, 0], 'one sample above +1 on one channel flags only that cable; exactly ±1 is in bounds');
+  assert.ok(Math.abs(got[0].v[4]) < 1, 'the averaged waveform alone would hide the spike');
+  spike = -1.01;
+  T.render(1);
+  assert.deepEqual([...got[1].clip], [1, 0], 'below -1 is flagged too');
+  spike = 0.5;
+  T.render(1);
+  assert.deepEqual([...got[2].clip], [0, 0], 'cleared after the report');
+}
+
 // ---- cable scope at display rate: report(time, false) keeps the points for a later report ----
 {
   const T = dspTestHost();

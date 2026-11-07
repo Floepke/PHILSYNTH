@@ -501,14 +501,18 @@ body.panel-collapsed #panel { visibility: hidden; }
 /* a cable is <g class="cable">: a straight .wire from module centre to centre (under the boxes)
    and a direction .arrow in the middle of its visible part */
 #cables .cable {
-  --c: var(--cable);
+  --base: var(--cable);
+  --c: var(--base);
   pointer-events: auto;
   cursor: pointer;
 }
-#cables .cable[style*='--mod-color'] { --c: color-mix(in srgb, var(--mod-color) 70%, var(--cable)); }
-#cables .cable:hover { --c: #a0a0a8; }
-#cables .cable[style*='--mod-color']:hover { --c: color-mix(in srgb, var(--mod-color) 70%, #fff); }
-#cables .cable.selected { --c: var(--accent); filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.35)); }
+#cables .cable[style*='--mod-color'] { --base: color-mix(in srgb, var(--mod-color) 70%, var(--cable)); }
+#cables .cable:hover { --base: #a0a0a8; }
+#cables .cable[style*='--mod-color']:hover { --base: color-mix(in srgb, var(--mod-color) 70%, #fff); }
+#cables .cable.selected { --base: var(--accent); filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.35)); }
+/* audio beyond ±1 (cablescope.js): the opposite hue of the cable's own colour, saturated and
+   bright enough to stand out even on a grey cable */
+#cables .cable.clipping { --c: hsl(from var(--base) calc(h + 180) 85% 62%); }
 #cables .wire {
   fill: none;
   stroke: var(--c);

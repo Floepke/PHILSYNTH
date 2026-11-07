@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { midpoint, arrowPath, arrowPoints, linePath, samplePoints, edgePoint, visibleSegment, centerOf } from '../src/cable.js';
-import { Ring, displace, scopePath, AMP, crossings, period, lockAge, glowLevel, GLOW_DB } from '../src/cablescope.js';
+import { Ring, displace, scopePath, AMP, crossings, period, lockAge, glowLevel, GLOW_DB, CableScope, CLIP_HOLD } from '../src/cablescope.js';
 import { MidiCableAnimation, MIDI_TRAVEL_MS } from '../src/midicable.js';
 import { captureMidiTrace, withMidiTrace } from '../src/modmidi.js';
 import { PatchRuntime } from '../src/patch.js';
@@ -161,6 +161,37 @@ console.log('cable tests passed');
   assert.equal(glowLevel(tiny, 0, 32), 0, 'below the range: none');
 }
 console.log('cable glow tests passed');
+
+// out of bounds: the cable gets `clipping` (complementary colour in style.css) for CLIP_HOLD ms
+{
+  const saved = Object.fromEntries(['document', 'requestAnimationFrame']
+    .map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  globalThis.requestAnimationFrame = () => 0;
+  const el = () => {
+    const classes = new Set();
+    return {
+      classes, style: { setProperty() {} },
+      classList: { add: (c) => classes.add(c), toggle: (c, on) => (on ? classes.add(c) : classes.delete(c)) },
+      setAttribute() {}, removeAttribute() {}, insertBefore() {}, querySelector: () => null,
+    };
+  };
+  globalThis.document = { createElementNS: el };
+  let watched = null;
+  const scope = new CableScope({ scope: (hs) => { watched = hs; } });
+  const [g1, g2] = [el(), el()];
+  scope.setCables([{ g: g1, h: 1, from: { x: 0, y: 0 }, to: { x: 90, y: 0 } }, { g: g2, h: 2, from: { x: 0, y: 0 }, to: { x: 90, y: 0 } }]);
+  assert.deepEqual(watched, [1, 2]);
+  scope.push({ h: [1, 2], n: 1, v: new Float32Array([0.5, 0.5]), clip: new Uint8Array([1, 0]) }, 1000);
+  scope.frame(1000);
+  assert.ok(g1.classes.has('clipping'), 'the clipping source marks its cable');
+  assert.ok(!g2.classes.has('clipping'), 'other cables keep their colour');
+  scope.frame(1000 + CLIP_HOLD - 1);
+  assert.ok(g1.classes.has('clipping'), 'held so a short crackle is visible');
+  scope.frame(1000 + CLIP_HOLD + 1);
+  assert.ok(!g1.classes.has('clipping'), 'back to normal after the hold');
+  for (const [key, d] of Object.entries(saved)) if (d) Object.defineProperty(globalThis, key, d); else delete globalThis[key];
+}
+console.log('cable clipping tests passed');
 
 // Deterministic animation frames: test the full 100 ms trip, not a timer approximation.
 {

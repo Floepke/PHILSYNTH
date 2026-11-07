@@ -35,7 +35,8 @@ const BLOCK = 128;
 const NO_INPUT = [[]];
 // Cable scope: the waveform of every watched node, one point per SCOPE_DECIM samples (the mean of
 // (L+R)/2 over them, so SCOPE_PTS points per quantum), sent with the reports. After SCOPE_QUIET
-// silent points in a row nothing is sent until sound returns.
+// silent points in a row nothing is sent until sound returns. Per watched node it also flags
+// whether any raw sample went beyond ±1 since the last report (the cable shows it, cablescope.js).
 export const SCOPE_DECIM = 4;
 export const SCOPE_PTS = BLOCK / SCOPE_DECIM;
 export const SCOPE_QUIET = 8192;
@@ -60,6 +61,7 @@ export class Graph {
     this.scopeBuf = new Float32Array(0); // points since the last report: [point][node]
     this.scopeN = 0;
     this.scopeQuiet = SCOPE_QUIET + 1;
+    this.scopeClip = new Uint8Array(0); // per watched node: a sample beyond ±1 since the last report
     this.meters = new Set(); // nodes whose kernel has a `meter` value (static meter = true)
     this.ext = null; // inputs of the engine worklet (microphones, see src/mics.js) for this quantum
     this.master = this.add(0, 'bus');
@@ -205,6 +207,7 @@ export class Graph {
     this.scopeH = [...list];
     this.scopeBuf = new Float32Array(list.length * SCOPE_MAX);
     this.scopeN = 0;
+    this.scopeClip = new Uint8Array(list.length);
   }
 
   // dependency order of everything that reaches the master bus (depth-first, sources first)
@@ -340,6 +343,7 @@ export class Graph {
     const H = this.scopeH;
     const nH = H.length;
     const buf = this.scopeBuf;
+    const clip = this.scopeClip;
     const native = this.prog ? this.x : null;
     if (this.scopeN + SCOPE_PTS > SCOPE_MAX) this.scopeN = 0; // nobody reads: start over
     const at = this.scopeN;
@@ -353,6 +357,7 @@ export class Graph {
         if (!Number.isFinite(c)) c = 0;
       } else if (n && !(native && n.rec ? native.ms_node_silent(n.rec) : n.silent)) {
         [a, b] = n.outs[0];
+        if (!clip[i]) for (let j = 0; j < BLOCK; j++) if (Math.abs(a[j]) > 1 || Math.abs(b[j]) > 1) { clip[i] = 1; break; }
       }
       for (let p = 0; p < SCOPE_PTS; p++) {
         let v = c;
@@ -383,7 +388,8 @@ export class Graph {
   }
 
   // Message for the main thread: { time, mods: [handle, controller id, value, ...],
-  // scope?: { h: [handles], n: points, v: Float32Array [point][node] } }, or null when there is
+  // scope?: { h: [handles], n: points, v: Float32Array [point][node], clip: Uint8Array [node] } },
+  // or null when there is
   // nothing to tell. withScope = false keeps the scope points for a later report (the worklet
   // sends them at display rate, modulation and clock at full rate).
   report(time, withScope = true) {
@@ -391,8 +397,9 @@ export class Graph {
     if (withScope && this.scopeN > 0) {
       const H = this.scopeH;
       // sent while the batch starts within SCOPE_QUIET silent points
-      if (this.scopeQuiet - this.scopeN <= SCOPE_QUIET) scope = { h: H, n: this.scopeN, v: this.scopeBuf.slice(0, this.scopeN * H.length) };
+      if (this.scopeQuiet - this.scopeN <= SCOPE_QUIET) scope = { h: H, n: this.scopeN, v: this.scopeBuf.slice(0, this.scopeN * H.length), clip: this.scopeClip.slice() };
       this.scopeN = 0;
+      this.scopeClip.fill(0);
     }
     let meters = null;
     for (const n of this.meters) {
