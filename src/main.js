@@ -52,12 +52,16 @@ const noiseBg = createNoiseBackground(canvas);
 const svg = $('cables');
 const world = $('world');
 const panel = $('panel-content');
+const panelScroller = $('panel');
 const dialog = $('insert-dialog');
 const moduleList = $('module-list');
 const SVGNS = 'http://www.w3.org/2000/svg';
 
 let path = []; // stack of { patch, name, id, cam }: the patch levels we have entered (id = Patch module number)
 let sel = null; // { kind: 'module', entry } | { kind: 'group', entries } | { kind: 'cable', cable }
+let panelScrolls = {};
+let activePanelScrollKey = null;
+const panelScrollKey = (entry) => JSON.stringify([...path.slice(1).map((level) => level.id), entry.id]);
 const selectedEntries = () => (sel?.kind === 'module' ? [sel.entry] : sel?.kind === 'group' ? sel.entries : []);
 // Selection from a list of modules: none, one (shows its controllers) or a group.
 const selectEntries = (entries) => select(entries.length > 1 ? { kind: 'group', entries } : entries.length ? { kind: 'module', entry: entries[0] } : null);
@@ -270,6 +274,14 @@ const persist = createPersistence({
     showDocument(projectFile.info());
   },
 });
+function rememberPanelScroll() {
+  if (!activePanelScrollKey) return;
+  const top = panelScroller.scrollTop;
+  if (panelScrolls[activePanelScrollKey] === top) return;
+  panelScrolls[activePanelScrollKey] = top;
+  persist.schedule();
+}
+panelScroller.addEventListener('scroll', rememberPanelScroll, { passive: true });
 engine.onChange = () => {
   persist.schedule();
   undoHistory?.record();
@@ -282,6 +294,7 @@ function viewState() {
     cams: path.map((l) => l.cam ?? defaultCam()),
     seq: seq?.viewState(),
     layers: layerView(),
+    panelScrolls,
   };
 }
 
@@ -299,6 +312,13 @@ function patchAt(ids) {
 
 function applyView(view) {
   path = patchAt(view?.path);
+  activePanelScrollKey = null;
+  panelScrolls = {};
+  if (view?.panelScrolls && typeof view.panelScrolls === 'object' && !Array.isArray(view.panelScrolls)) {
+    for (const [key, top] of Object.entries(view.panelScrolls)) {
+      if (Number.isFinite(top) && top >= 0) panelScrolls[key] = top;
+    }
+  }
   path.forEach((l, i) => {
     if (view?.cams?.[i]) l.cam = validCam(view.cams[i]);
   });
@@ -1224,7 +1244,9 @@ function showMidiTarget() {
 }
 
 function select(s) {
+  rememberPanelScroll();
   sel = s;
+  activePanelScrollKey = s?.kind === 'module' ? panelScrollKey(s.entry) : null;
   if (s?.kind === 'module' && takesLiveMidi(s.entry.def)) setMidiTarget(s.entry);
   if (s?.kind === 'module') followClips(s.entry);
   const chosen = new Set(selectedEntries().map((m) => m.el));
@@ -1232,6 +1254,7 @@ function select(s) {
   showMidiTarget();
   drawCables();
   panel.replaceChildren();
+  panelScroller.scrollTop = 0;
   panel.classList.toggle('no-selection', !s); // larger help text when nothing is selected
   panelRefresh = null;
   if (s?.kind === 'cable') {
@@ -1377,6 +1400,7 @@ function select(s) {
   if (docs) panel.append(docs);
   panelRefresh = refresh;
   refresh();
+  panelScroller.scrollTop = panelScrolls[activePanelScrollKey] ?? 0;
 }
 
 // ---- driven controllers (LFO, ADSR, VELO2CTL, SOUND2CTL, MULTICTL, automation clips) ----
@@ -1453,7 +1477,7 @@ function openMainMenu(focusFirst) {
   mainMenuOpen = true;
   brand.setAttribute('aria-expanded', 'true');
   showMenu({
-    x: r.right + 2, // no room to the right: the menu opens right-aligned under the button
+    x: r.left - 2,
     y: r.bottom + 2,
     className: 'main-menu',
     onClose: () => {
@@ -1487,7 +1511,7 @@ async function openMidiMenu() {
   mainMenuOpen = true;
   brand.setAttribute('aria-expanded', 'true');
   showMenu({
-    x: r.right + 2,
+    x: r.left - 2,
     y: r.bottom + 2,
     className: 'main-menu',
     onClose: () => {

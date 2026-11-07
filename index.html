@@ -8,12 +8,12 @@
 </head>
 <body>
   <input id="file" type="file" accept=".phproject,.mds,.json" hidden>
-  <button id="brand" class="brand" type="button" aria-haspopup="menu" aria-expanded="false" title="Main menu: New, Open, Save, Export Audio, MIDI Input, Wood Tint…"><span class="logo"></span>PHILSYNTH</button>
   <div id="workspace">
     <section id="seq" aria-label="Piano roll">
       <div id="roll" class="seq-view"></div>
     </section>
     <div id="seq-split" class="splitter horizontal" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Piano roll / patcher divider" aria-controls="seq patcher" title="Drag the exposed divider to resize the piano roll and controller panel; pushes the lower divider when they meet. Arrow keys resize; Home/End move to an edge.">
+      <button id="brand" class="brand" type="button" aria-haspopup="menu" aria-expanded="false" title="Main menu: New, Open, Save, Export Audio, MIDI Input, Wood Tint…"><span class="logo"></span>PHILSYNTH</button>
       <div id="seq-bar" role="toolbar" aria-label="Sequencer controls">
         <div id="seq-bar-content">
           <label class="seq-field seq-clip" title="Name of the selected clip"><span class="seq-grab">Clip:</span><input id="seq-name" type="text" spellcheck="false"></label>
