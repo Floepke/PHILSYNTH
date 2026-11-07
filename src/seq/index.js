@@ -347,7 +347,8 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
       transport.stop({ to: restartTo() ?? getClip(song(), song().selected)?.start ?? null });
       return;
     }
-    const pointerTime = fromPointer ? roll.getPointerTime() : null;
+    const editor = isAuto(clip()) ? lane : roll;
+    const pointerTime = fromPointer ? editor.getPointerTime() : null;
     if (pointerTime !== null) transport.seek(pointerTime);
     if (!transport.play() && !song().clips.length) {
       $('status').textContent = 'Nothing to play: double-click in the TimeLine to create a clip.';

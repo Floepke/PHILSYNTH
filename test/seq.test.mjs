@@ -2649,6 +2649,46 @@ for (const free of [false, true]) {
   assert.equal(a.points.length, 2);
 }
 
+// Automation playback uses absolute, floor-snapped pointer time, including after view changes.
+{
+  const song = emptySong();
+  const a = addAutoClip(song, { start: 8.25, length: 8 });
+  song.selected = a.id;
+  const lane = createAutomationLane(host(), {
+    song: () => song, clip: () => song.selected === a.id ? a : null,
+    color: () => '#e76f51', transport: { playing: false, pos: 0 },
+    changed() {}, autoParam: () => null,
+  });
+  flush();
+  const cv = lane.surface.cv;
+  assert.equal(lane.getPointerTime(), null);
+  point(cv, 'pointermove', 200, TOP_MARGIN + 1.4 * 48);
+  assert.equal(lane.getPointerTime(), 9.5);
+  a.points.push({ t: 1.4, v: (200 - 48) / 420, r: 0 });
+  point(cv, 'pointermove', 200, TOP_MARGIN + 1.4 * 48);
+  assert.equal(lane.getPointerTime(), 9.5, 'hovering a point still uses floor snapping');
+  song.snap.div = 2;
+  song.freeTime = true;
+  assert.equal(lane.getPointerTime(), 9.625, 'automation keeps snapping even with Free timing');
+  lane.setView({ sy: 96, ppq: 96 });
+  flush();
+  assert.equal(lane.getPointerTime(), 11.25, 'uses current scroll and zoom');
+  point(cv, 'pointermove', 20, 200);
+  assert.equal(lane.getPointerTime(), null, 'ruler is not a time position');
+  point(cv, 'pointermove', 200, 390);
+  assert.equal(lane.getPointerTime(), null, 'value scale is not a time position');
+  lane.reveal(); flush();
+  point(cv, 'pointermove', 200, 20);
+  assert.equal(lane.getPointerTime(), a.start, 'top margin clamps to clip start');
+  point(cv, 'wheel', 200, TOP_MARGIN + 1.4 * 96, { deltaY: 0, deltaX: 0, deltaMode: 0 });
+  assert.equal(lane.getPointerTime(), 9.625, 'wheel refreshes the pointer position');
+  point(cv, 'pointerleave', 200, 200);
+  assert.equal(lane.getPointerTime(), null);
+  song.selected = null;
+  point(cv, 'pointermove', 200, 200);
+  assert.equal(lane.getPointerTime(), null, 'no selected automation clip');
+}
+
 // An empty double-click location can still produce a clip whose tail overlaps a neighbour.
 {
   const { song, clip, arranger, ctx } = setup();
@@ -3439,6 +3479,28 @@ for (const notes of [
   press(' ');
   assert.equal(transport.pos, clip.start, 'outside the roll, Space uses the parked playhead');
   press(' ');
+  const auto = addAutoClip(song, { start: 8.25, length: 4 });
+  song.selected = auto.id;
+  seq.reload();
+  seq.applyView({ lane: { sy: 0, ppq: 48 } });
+  flush();
+  const laneCanvas = elements.get('roll').children[1];
+  point(laneCanvas, 'pointermove', 200, 1.4 * 48);
+  press(' ', {}, laneCanvas);
+  assert.equal(transport.pos, 9.5, 'automation Space starts at clip start plus floor-snapped mouse time');
+  assert.equal(transport.clipId, null, 'automation Space plays the whole song');
+  press(' ', {}, laneCanvas);
+  assert.equal(transport.pos, auto.start, 'automation Space stops at the selected clip start');
+  song.restart = 1;
+  press(' ', {}, laneCanvas);
+  press(' ', {}, laneCanvas);
+  assert.equal(transport.pos, 1, 'automation Space still stops at the restart point');
+  delete song.restart;
+  point(laneCanvas, 'pointerleave', 200, 1.4 * 48);
+  transport.seek(3);
+  press(' ', {}, laneCanvas);
+  assert.equal(transport.pos, 3, 'outside the automation lane, Space uses the parked playhead');
+  press(' ', {}, laneCanvas);
   song.selected = null;
   press('/');
   assert.equal(transport.playing, false);

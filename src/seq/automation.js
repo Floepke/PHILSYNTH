@@ -8,8 +8,9 @@
 //   mouse wheel on a point       round the corner (same as the WAVESHAPER curve editor)
 //   right click on a point       delete it
 //   Backspace / Delete           delete the selected point
+//   Space                        toggle song playback from the pointer's snapped time
 //   wheel / middle drag          scroll, Ctrl + wheel zooms time
-import { snapStep, snapRound, clipSilent, isIdea, BAR, meter, barLines, beatLines, autoPolyline, pointIndex } from '../song.js';
+import { snapStep, snapRound, snapFloor, clean, clipSilent, isIdea, BAR, meter, barLines, beatLines, autoPolyline, pointIndex } from '../song.js';
 import { createSurface, capture, startPan, onWheel, clamp, snapBands, mutedMark, edgeScroll } from './surface.js';
 import { NEW_POINT_ROUND } from '../curve.js';
 import { doublePress } from '../doublepress.js';
@@ -402,7 +403,8 @@ export function createAutomationLane(host, ctx) {
 
   // wheel on a point rounds its corner; elsewhere it scrolls (Ctrl zooms)
   cv.addEventListener('wheel', (e) => {
-    const { x, y } = s.local(e);
+    pointer = s.local(e);
+    const { x, y } = pointer;
     const p = hit(x, y);
     if (!p || e.ctrlKey || e.metaKey) return;
     e.preventDefault();
@@ -430,6 +432,11 @@ export function createAutomationLane(host, ctx) {
   return {
     surface: s,
     redraw: s.redraw,
+    getPointerTime() {
+      const clip = ctx.clip();
+      if (!clip || !pointer || !inLane(pointer.x, pointer.y)) return null;
+      return clean(clip.start + Math.max(0, snapFloor(timeAt(pointer.y), step())));
+    },
     reveal() { view.sy = -TOP_MARGIN; s.redraw(); },
     getView: () => ({ sy: view.sy, ppq: view.ppq }),
     setView(v) {

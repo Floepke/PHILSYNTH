@@ -127,6 +127,7 @@ export const GUIDE = [
           `${k('Double right-click')} empty TimeLine space: an automation clip (<i>Automation</i>) appears and the automation editor replaces the piano roll.`,
           'In the upper divider choose the module under <b>Send to</b> and the controller it drives under <b>Controller</b>.',
           `In the automation editor (time runs down, the value left = min to right = max): ${k('Double-click')} inserts a point, drag moves it (${k('Shift')} = fine value), the wheel on a point rounds its corner, a right-click or ${k('Backspace')} deletes it.`,
+          `${k('Space')} over the automation lane plays the song from the pointer's snapped time; press it again to stop.`,
           'While playing, the clip drives the controller like an LFO; after the clip the controller keeps the last value the clip gave it.',
           'Automation goes first: a note that starts together with an automation clip (or anywhere inside it) already hears the clip\'s value, also in EXPORT WAV, so the controller does not jump just after the note starts.',
         ],
@@ -182,7 +183,7 @@ export const GUIDE = [
       {
         title: 'Play',
         items: [
-          `${k('Space')} plays / stops (over the piano-roll grid: from the pointer's time). Stopping parks the playhead at the restart point (when set), else at the start of the selected clip.`,
+          `${k('Space')} plays / stops (over the piano-roll grid or automation lane: from the pointer's time). Stopping parks the playhead at the restart point (when set), else at the start of the selected clip.`,
           `${k('.')} plays / resumes the song, ${k(',')} restarts it at zero, ${k('/')} loops the time range of the selected clip with everything else that plays there, ${k("'")} stops (pressed again: panic, all notes and tails off).`,
           'The lower divider, left of the clock, has matching buttons: bar + play starts from the beginning, play resumes from the playhead, play + c loops the selected clip, and the square stops playback (press again for panic).',
           'While looping a clip, select another clip to switch to it when the current clip finishes. The selection at the loop boundary is the one that plays next.',
