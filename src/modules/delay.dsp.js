@@ -1,6 +1,11 @@
 // Pure stereo delay (no dry mix or feedback). MODMIDI scheduling lives in delay.js.
 // Note unit: both channels delay one period of the newest note (notePeriodSamples); a new note
 // jumps there at once (a pluck must not start with a pitch glide), its pitch bends glide.
+// The Note unit reads the fraction of a sample with a first-order all-pass (Thiran) instead of
+// linear interpolation: linear interpolation is a low-pass whose strength depends on the
+// fraction (none at a whole number of samples, strong at a half), so in a FEEDBACK loop notes
+// whose period happens to be a whole number of samples rang far brighter than their neighbours.
+// The all-pass passes every frequency at the same level, tuned alike (C++ twin: cpp/delay.h).
 import { Kernel } from '../dsp/kernel.js';
 import { DelayLine } from '../dsp/delayline.js';
 import { NOTE_UNIT, delaySeconds, notePeriodSamples } from './delaytime.js';
@@ -17,6 +22,7 @@ export default class DelayKernel extends Kernel {
     this.started = false;
     this.pitch = 60; // newest note (Note unit)
     this.noteId = null;
+    this.ap = [0, 0]; // Note unit: last all-pass output per channel
     this.updateDelay();
   }
 
@@ -56,19 +62,35 @@ export default class DelayKernel extends Kernel {
     }
   }
 
-  panic() { this.line.clear(); }
+  panic() {
+    this.line.clear();
+    this.ap = [0, 0];
+  }
+
+  // y = c·x[k] + x[k+1] − c·y[-1] with k whole and frac = d − k in [0.5, 1.5): delay d samples
+  // (exactly at low frequencies), level 1 at every frequency
+  allpass(ch, d) {
+    const line = this.line;
+    const k = Math.max(0, Math.floor(d - 0.5));
+    const frac = d - k;
+    const c = (1 - frac) / (1 + frac);
+    const y = c * line.tap(ch, k) + line.tap(ch, k + 1) - c * this.ap[ch];
+    this.ap[ch] = Math.abs(y) < 1e-30 ? 0 : y;
+    return this.ap[ch];
+  }
 
   process(inputs, outputs) {
     const input = inputs[0];
     const out = outputs[0];
     const line = this.line;
+    const note = this.p.unit === NOTE_UNIT;
     this.started = true;
     let live = false;
     for (let i = 0; i < out[0].length; i++) {
       for (let ch = 0; ch < 2; ch++) {
         this.delay[ch] += (this.target[ch] - this.delay[ch]) * this.smooth;
         line.buffers[ch][line.pos] = input?.[ch]?.[i] ?? input?.[0]?.[i] ?? 0;
-        const y = line.read(ch, this.delay[ch]);
+        const y = note ? this.allpass(ch, this.delay[ch]) : line.read(ch, this.delay[ch]);
         if (out[ch]) out[ch][i] = y;
         if (y !== 0) live = true;
       }

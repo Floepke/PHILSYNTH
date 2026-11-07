@@ -68,6 +68,12 @@ struct DelayLine {
     const float* b = buffers[channel];
     return (double)b[i] + ((double)b[(i + 1) % length] - b[i]) * f;
   }
+  // the sample written `k` (whole, 0 = the newest) samples ago
+  float tap(int channel, int k) const {
+    int at = pos - k;
+    if (at < 0) at += length;
+    return buffers[channel][at];
+  }
   void advance() { if (++pos == length) pos = 0; }
   void clear() {
     for (auto b : buffers) memset(b, 0, length * sizeof(float));
@@ -81,6 +87,7 @@ struct Delay : Kernel {
   double bpm = 120, delay[2] = {}, target[2] = {}, smooth;
   bool started = false;
   double pitch = 60, noteId = NAN;  // newest note (Note unit)
+  double ap[2] = {};  // Note unit: last all-pass output per channel
   DelayLine line;
 
   explicit Delay(double sr) : Kernel(sr), smooth(1 - exp(-1 / (0.004 * sr))), line(sr) { updateDelay(); }
@@ -106,17 +113,30 @@ struct Delay : Kernel {
     pitch = notePitch == notePitch ? notePitch : 0;
     if ((int)p[UNIT] == NOTE_UNIT) updateDelay(type == NOTE_ON);
   }
-  void panic() override { line.clear(); }
+  void panic() override {
+    line.clear();
+    ap[0] = ap[1] = 0;
+  }
+  // Note unit: a first-order all-pass reads the fraction (delay.dsp.js allpass)
+  double allpass(int ch, double d) {
+    const int k = (int)maxd(0, floor(d - 0.5));
+    const double frac = d - k;
+    const double c = (1 - frac) / (1 + frac);
+    const double y = c * line.tap(ch, k) + line.tap(ch, k + 1) - c * ap[ch];
+    ap[ch] = fabs(y) < 1e-30 ? 0 : y;
+    return ap[ch];
+  }
   int process(const float* inL, const float* inR, float* outL, float* outR, int n) override {
     const float* in[2] = {inL, inR ? inR : inL};
     float* out[2] = {outL, outR};
+    const bool note = (int)p[UNIT] == NOTE_UNIT;
     started = true;
     bool live = false;
     for (int i = 0; i < n; i++) {
       for (int ch = 0; ch < 2; ch++) {
         delay[ch] += (target[ch] - delay[ch]) * smooth;
         line.buffers[ch][line.pos] = in[ch] ? in[ch][i] : 0;
-        const double y = line.read(ch, delay[ch]);
+        const double y = note ? allpass(ch, delay[ch]) : line.read(ch, delay[ch]);
         if (ch == 0 || outR != outL) out[ch][i] = y;
         if (y != 0) live = true;
       }

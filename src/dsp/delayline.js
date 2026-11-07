@@ -42,6 +42,13 @@ export class DelayLine {
     return b[i] + (b[(i + 1) % this.length] - b[i]) * f;
   }
 
+  // the sample written `k` (a whole number, 0 = the newest) samples ago
+  tap(channel, k) {
+    let at = this.pos - k;
+    if (at < 0) at += this.length;
+    return this.buffers[channel][at];
+  }
+
   clear() {
     for (const b of this.buffers) b.fill(0);
     this.pos = 0;

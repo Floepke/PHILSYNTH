@@ -69,6 +69,41 @@ for (const [name, K] of [['JS', DelayKernel], ['C++', native.kernels.delay]]) {
   close(sum, d, 0.02, `${name}: the impulse's centre sits at the fractional delay`);
 }
 
+// ---- DELAY Note unit: the fraction of a sample is read by an all-pass, so it never dulls the
+// sound (linear interpolation did, except at whole numbers of samples: there a FEEDBACK loop
+// rang far brighter than at neighbouring notes) ----
+{
+  const pitchFor = (samples) => 69 - 12 * Math.log2((440 * (samples + 1)) / SR);
+  let seed = 1;
+  const noise = Array.from({ length: 4096 }, () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1);
+  const run = (K, samples) => {
+    const k = new K();
+    k.param('unit', NOTE_UNIT);
+    k.message({ type: 'noteOn', id: 1, pitch: pitchFor(samples), velocity: 1, phase: 0 });
+    const out = [];
+    const o = [[new Float32Array(128), new Float32Array(128)]];
+    for (let at = 0; at < noise.length; at += 128) {
+      const x = Float32Array.from(noise.slice(at, at + 128));
+      k.process([[x, x]], o);
+      out.push(...o[0][0]);
+    }
+    return out;
+  };
+  const highs = (x) => {
+    let hi = 0;
+    let all = 0;
+    for (let i = 1024; i < x.length; i++) { hi += (x[i] - x[i - 1]) ** 2; all += x[i] ** 2; }
+    return hi / all;
+  };
+  const ref = highs(noise);
+  for (const samples of [200, 200.25, 200.5, 200.75, 3.5]) {
+    const js = run(DelayKernel, samples);
+    const cpp = run(native.kernels.delay, samples);
+    for (let i = 0; i < js.length; i++) assert.equal(cpp[i], js[i], `Note unit ${samples}: C++ == JS (sample ${i})`);
+    close(highs(js) / ref, 1, 0.08, `Note unit ${samples} samples keeps the highs`);
+  }
+}
+
 // ---- patch rule: a sound loop must pass through at least two FEEDBACK modules ----
 {
   const t = dspTestHost();

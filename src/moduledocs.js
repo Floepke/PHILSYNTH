@@ -346,7 +346,7 @@ export const DOCS = {
     params: {
       left: 'Delay of the left audio channel and of every MIDI message (0–10,000 ms, or a note length).',
       right: 'Delay of the right audio channel (0–10,000 ms, or a note length). Not used for MIDI.',
-      unit: `${SYNC_UNIT} Note follows the pitch of the incoming MIDI notes instead: the audio delay is one period of the newest note minus one sample (the one sample a FEEDBACK loop adds), so a loop through it rings at the note's pitch; notes pass undelayed and Left/Right are hidden.`,
+      unit: `${SYNC_UNIT} Note follows the pitch of the incoming MIDI notes instead: the audio delay is one period of the newest note minus one sample (the one sample a FEEDBACK loop adds), so a loop through it rings at the note's pitch; notes pass undelayed and Left/Right are hidden. The part of a sample is read with an all-pass, which leaves the tone untouched on every note: the damping of a string comes only from the loop's own modules (put a low-pass FILTER in it).`,
     },
     notes: [
       'Its cables carry audio, MIDI, or both, depending on the destination. Notes keep their pitch, velocity and start phase.',
