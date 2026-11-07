@@ -6,6 +6,7 @@
 //   -> { el, set(curve), setLabels(labels), setPlayhead(x) }
 //   onChange(curve) is called with a new curve object on every edit.
 //   identity: draw the dashed no-change diagonal; formatX / formatY: point readout in the info line.
+//   mapping: probe the curve at the pointer's x, with guides and an in-graph readout.
 //   setPlayhead(x): a white dot riding the curve at x (0..1), null hides it (ENVELOPE playback).
 import { MIN_GAP, NEW_POINT_ROUND, curvePolyline, normalizeCurve, sampleAt } from './curve.js';
 import { doublePress } from './doublepress.js';
@@ -17,7 +18,7 @@ const ROUND_STEP = 0.05;
 const IN = (x) => `in ${x.toFixed(3)}`;
 const OUT = (y) => `out ${y.toFixed(3)}`;
 
-export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onChange, beginEdit, endEdit, identity = true, formatX = IN, formatY = OUT }) {
+export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onChange, beginEdit, endEdit, identity = true, mapping = false, formatX = IN, formatY = OUT }) {
   let pts = normalizeCurve(curve).points;
   let hover = -1;
   let drag = -1;
@@ -81,9 +82,23 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
     g.textAlign = 'left';
     g.fillText(labels.x0 ?? '0', PAD + 3, PAD + s - 13);
     g.textAlign = 'right';
-    g.fillText(labels.x1 ?? 'in →', PAD + s - 3, PAD + s - 13);
-    g.textAlign = 'left';
-    g.fillText(labels.y1 ?? 'out ↑', PAD + 3, PAD + 3);
+    g.fillText(labels.x1 ?? 'in →', PAD + s - 3, PAD + s - (labels.xTicks ? 27 : 13));
+    g.textAlign = labels.yTicks ? 'right' : 'left';
+    g.fillText(labels.y1 ?? 'out ↑', labels.yTicks ? PAD + s - 3 : PAD + 3, PAD + 3);
+    if (labels.xTicks) {
+      g.textBaseline = 'bottom';
+      labels.xTicks.forEach((text, i, ticks) => {
+        g.textAlign = i === 0 ? 'left' : i === ticks.length - 1 ? 'right' : 'center';
+        g.fillText(text, PAD + s * i / (ticks.length - 1), PAD + s - 3);
+      });
+    }
+    if (labels.yTicks) {
+      g.textAlign = 'left';
+      labels.yTicks.forEach((text, i, ticks) => {
+        g.textBaseline = i === 0 ? 'bottom' : i === ticks.length - 1 ? 'top' : 'middle';
+        g.fillText(text, PAD + 3, PAD + s * (1 - i / (ticks.length - 1)));
+      });
+    }
     // curve
     const poly = curvePolyline(pts);
     g.strokeStyle = color;
@@ -109,6 +124,32 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
     });
     // points
     drawPoints();
+    if (mapping && (cursor || drag >= 0 || hover >= 0)) {
+      const p = mappingPoint(poly);
+      const [x, y] = toPx(p);
+      g.strokeStyle = '#ffffff80';
+      g.lineWidth = 1;
+      g.setLineDash([3, 3]);
+      g.beginPath();
+      g.moveTo(x, PAD + s); g.lineTo(x, y); g.lineTo(PAD, y);
+      g.stroke();
+      g.setLineDash([]);
+      g.beginPath();
+      g.arc(x, y, 5, 0, Math.PI * 2);
+      g.fillStyle = '#fff';
+      g.fill();
+      const text = `${formatX(p.x)} → ${formatY(p.y)}`;
+      g.font = '11px system-ui, sans-serif';
+      const width = g.measureText(text).width + 12;
+      const left = Math.max(PAD, Math.min(PAD + s - width, x + 10));
+      const top = y > PAD + 30 ? y - 26 : y + 10;
+      g.fillStyle = '#121212ee';
+      g.fillRect(left, top, width, 20);
+      g.fillStyle = '#fff';
+      g.textAlign = 'left';
+      g.textBaseline = 'middle';
+      g.fillText(text, left + 6, top + 10);
+    }
     if (playhead !== null) { // playback dot: on the curve, above the points
       const [x, y] = toPx({ x: playhead, y: sampleAt(poly, playhead) });
       g.beginPath();
@@ -121,6 +162,12 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
       g.fill();
     }
     drawInfo();
+  }
+
+  function mappingPoint(poly) {
+    const i = drag >= 0 ? drag : hover;
+    const x = i >= 0 ? pts[i].x : cursor.x;
+    return { x, y: sampleAt(poly, x) };
   }
 
   function drawPoints() {
@@ -147,8 +194,12 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
     const i = drag >= 0 ? drag : hover;
     if (i >= 0) {
       const p = pts[i];
-      info.textContent = `${formatX(p.x)} → ${formatY(p.y)}${i > 0 && i < pts.length - 1 ? ` · round ${Math.round(p.r * 100)} %` : ' · end point'}`;
-    } else if (cursor) info.textContent = `${formatX(cursor.x)} · double-click to add a point`;
+      const y = mapping ? sampleAt(curvePolyline(pts), p.x) : p.y;
+      info.textContent = `${formatX(p.x)} → ${formatY(y)}${i > 0 && i < pts.length - 1 ? ` · round ${Math.round(p.r * 100)} %` : ' · end point'}`;
+    } else if (cursor) {
+      const p = mapping ? mappingPoint(curvePolyline(pts)) : cursor;
+      info.textContent = `${formatX(p.x)}${mapping ? ` → ${formatY(p.y)}` : ''} · double-click to add a point`;
+    }
     else info.textContent = `${pts.length} points`;
   }
 
@@ -192,7 +243,7 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
     }
     const h = hitTest(px, py);
     canvas.style.cursor = h >= 0 ? (h === 0 || h === pts.length - 1 ? 'ns-resize' : 'move') : 'crosshair';
-    if (h !== hover || cursor) { hover = h; draw(); }
+    if (h !== hover || cursor || mapping) { hover = h; draw(); }
   });
   const endDrag = () => {
     if (drag < 0) return;

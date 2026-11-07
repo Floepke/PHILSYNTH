@@ -28,15 +28,34 @@ export default {
   normalizeState: normalizeCurve,
   // panel editor (src/main.js): api.setState(curve) stores the curve; refresh() follows controllers
   editor(entry, api) {
-    const labels = (v) => (v.range ? { x0: '−max', x1: 'in +max →', y1: 'out +max ↑' } : { x0: '0', x1: 'in max →', y1: 'out max ↑' });
+    let range = entry.values.range;
+    const voltage = (v) => `${v > 0 ? '+' : ''}${v.toFixed(3)}`;
+    const valueAt = (v) => range >= 0.5 ? v * 2 - 1 : v;
+    const labels = () => {
+      const ticks = range >= 0.5 ? ['−1', '−0.5', '0', '+0.5', '+1'] : ['0', '0.25', '0.5', '0.75', '1'];
+      return { x0: '', x1: 'Input →', y1: 'Output ↑', xTicks: ticks, yTicks: ticks };
+    };
     const ed = createCurveEditor({
-      curve: entry.state, color: api.color, labels: labels(entry.values),
+      curve: entry.state, color: api.color, labels: labels(), mapping: true,
+      formatX: (x) => `in ${voltage(valueAt(x))}`, formatY: (y) => `out ${voltage(valueAt(y))}`,
       onChange: (c) => api.setState(c), beginEdit: api.beginEdit, endEdit: api.endEdit,
     });
-    let range = entry.values.range;
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    const explain = () => {
+      hint.textContent = `Input → horizontally; output ↑ vertically. Normalized audio voltage (1 = max, not physical volts). Hover to trace the mapping after Drive, before DC filtering, Dry/Wet and Output level. ${
+        range >= 0.5
+          ? 'Full −/+: both axes span −1…+1; zero is at the center. Each half is independent.'
+          : 'Symmetric: both axes span 0…1. Negative input uses the same curve with negative output: +0.5 → +0.8 also means −0.5 → −0.8.'
+      }`;
+    };
+    explain();
+    ed.el.append(hint);
     return {
       el: ed.el,
-      refresh(values) { if (values.range !== range) { range = values.range; ed.setLabels(labels(values)); } },
+      refresh(values) {
+        if (values.range !== range) { range = values.range; ed.setLabels(labels()); explain(); }
+      },
     };
   },
   create(_ctx, _def, host) {

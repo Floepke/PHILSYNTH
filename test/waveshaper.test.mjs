@@ -4,6 +4,9 @@
 // DC blocker fade out instead of jumping to 0 (a click). Silent again once settled.
 import assert from 'node:assert/strict';
 import { loadKernel } from './kernelproc.mjs';
+import waveshaper from '../src/modules/waveshaper.js';
+import { createCurveEditor } from '../src/curveeditor.js';
+import { curveTable, defaultCurve } from '../src/curve.js';
 
 const SR = 48000;
 const Proc = await loadKernel('waveshaper.dsp.js', SR);
@@ -100,4 +103,66 @@ console.log('waveshaper tests passed');
   k.process([[L]], o);
   for (let i = 0; i < 128; i += 9) assert.ok(Math.abs(o[0][0][i] - L[i] * 0.25) < 1e-6, `dry × level from the first sample @${i}`);
   console.log('waveshaper first-note tests passed');
+}
+
+// Graph labels and the hover probe use the same range conversion as the DSP table.
+{
+  let texts = [];
+  const g = {
+    setTransform() {}, clearRect() { texts = []; }, fillRect() {}, strokeRect() {},
+    beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, setLineDash() {}, arc() {}, fill() {},
+    fillText(text) { texts.push(text); }, measureText(text) { return { width: text.length * 6 }; },
+  };
+  class Element extends EventTarget {
+    constructor(tag) { super(); this.tag = tag; this.children = []; this.style = {}; this.clientWidth = 320; }
+    append(...els) { this.children.push(...els); }
+    getContext() { return g; }
+    getBoundingClientRect() { return { left: 0, top: 0 }; }
+  }
+  globalThis.document = { createElement: (tag) => new Element(tag) };
+  globalThis.devicePixelRatio = 1;
+  globalThis.ResizeObserver = class { constructor(fn) { this.fn = fn; } observe() { this.fn(); } };
+  const curve = { points: [{ x: 0, y: 0, r: 0 }, { x: 0.5, y: 1, r: 1 }, { x: 1, y: 0.5, r: 0 }] };
+  let edits = 0;
+  const panel = waveshaper.editor({ state: curve, values: { range: 0 } }, { setState() { edits++; } });
+  const [canvas, info] = panel.el.children;
+  const move = (x, y) => {
+    const e = new Event('pointermove');
+    Object.assign(e, { clientX: 12 + x * 296, clientY: 12 + (1 - y) * 296 });
+    canvas.dispatchEvent(e);
+  };
+  assert.ok(texts.includes('0.25'), 'symmetric axis ticks');
+  for (const range of [0, 1, 0]) {
+    panel.refresh({ range });
+    for (const x of [0.25, 0.5, 0.75]) {
+      move(x, 0.2);
+      const voltage = range ? x * 2 - 1 : x;
+      const table = curveTable(curve, !range, 4097);
+      const expected = table[Math.round((voltage + 1) * 2048)];
+      const badge = texts.find((text) => text.startsWith('in '));
+      assert.ok(badge, 'numeric mapping inside the graph');
+      const output = Number(badge.split('out ')[1]);
+      assert.ok(Math.abs(output - expected) < 0.001, `range ${range}: graph matches DSP at ${voltage}`);
+      assert.ok(info.textContent.startsWith(badge), 'info and graph agree');
+    }
+    assert.ok(texts.includes(range ? '−0.5' : '0.25'), 'ticks refresh with Range');
+    assert.ok(panel.el.children.at(-1).textContent.includes(range ? 'zero is at the center' : 'Negative input'), 'mode explanation refreshes');
+  }
+  move(0.5, 1); // Hover the control point, not the actual rounded curve.
+  assert.ok(!info.textContent.includes('out +1.000'), 'rounded point readout follows the actual curve');
+  move(-0.1, 0.2);
+  assert.ok(!texts.some((text) => text.startsWith('in ')), 'probe disappears outside the graph');
+  move(0.25, 0.2);
+  canvas.dispatchEvent(new Event('pointerleave'));
+  assert.ok(!texts.some((text) => text.startsWith('in ')), 'probe disappears on pointer leave');
+  assert.equal(edits, 0, 'probing and range refresh do not edit the curve');
+
+  // The shared ENVELOPE editor retains its original point readout without a probe.
+  const envelope = createCurveEditor({ curve: defaultCurve(), identity: false });
+  const e = new Event('pointermove');
+  Object.assign(e, { clientX: 86, clientY: 200 });
+  envelope.el.children[0].dispatchEvent(e);
+  assert.equal(envelope.el.children[1].textContent, 'in 0.250 · double-click to add a point');
+  assert.ok(!texts.some((text) => text.startsWith('in ') && text.includes(' → out ')), 'mapping remains opt-in');
+  console.log('waveshaper graph tests passed');
 }

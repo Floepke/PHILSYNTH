@@ -268,12 +268,15 @@ export const DOCS = {
     summary: 'Waveshaping distortion: every incoming sample is remapped along a curve you draw. The diagonal changes nothing; bends add harmonics, from soft saturation to hard clipping and wave folding.',
     params: {
       drive: 'Input gain before the curve (−12…+36 dB): pushes more of the wave into the outer part of the curve, for more distortion.',
-      range: 'Symmetric: the curve covers 0…max and is mirrored for the negative half (odd harmonics, the classic shaper). Full −/+: the curve spans −max…+max, so both halves can be shaped differently (adds even harmonics).',
+      range: 'Symmetric: both axes cover 0…1; negative input is shaped by magnitude, then the output sign is reversed (e.g. +0.5 → +0.8 means −0.5 → −0.8). This odd-symmetric mapping adds odd harmonics to a sine. Full −/+: both axes span −1…+1, with zero at the center; the two halves can be shaped independently, allowing even harmonics and DC. Switching modes reinterprets the same points; it does not convert the curve.',
       oversample: 'Processes at 2× or 4× the sample rate to reduce aliasing (harsh, inharmonic tones) at the cost of CPU.',
       mix: 'Balance between the clean (dry) and the shaped (wet) signal.',
       level: 'Output level after shaping (0–2×).',
     },
-    notes: ['<b>Curve editor</b> (below the controllers): the horizontal axis is the input level, the vertical axis the output level. The curve is saved with the project.'],
+    notes: [
+      '<b>Curve editor</b> (below the controllers): horizontal = input voltage after Drive; vertical = shaped output. These are normalized audio values (1 = max, not physical volts). Hover inside the graph to trace input → curve → output with dashed guides and a numeric readout. Rounded control points may lie away from the actual curve; the hover marker follows the rounded curve.',
+      'The dashed diagonal is the identity mapping at the curve stage. Input beyond ±1 is clamped to the endpoints. The wet signal then passes through an 8 Hz DC-removal filter, is mixed with the dry input, and multiplied by Output level, so the graph is not the final output voltage. The curve is saved with the project.',
+    ],
   },
 
   DISTORTION: {
