@@ -151,11 +151,7 @@ kbd {
 .logo {
   width: 18px;
   height: 18px;
-  border-radius: 5px;
-  background:
-    radial-gradient(circle at 30% 30%, #fff 0 2px, transparent 3px),
-    linear-gradient(135deg, #8a8a92, #2a2a2e);
-  box-shadow: 0 0 0 1px var(--border-strong);
+  background: url("src/icon.svg") center / contain no-repeat;
 }
 
 /* ---------- side panel ---------- */

@@ -1,6 +1,6 @@
 import { cleanColor, hexToRgb, rgbToHex } from './modcolor.js';
 
-export const DEFAULT_WOOD_TINT = '#585858';
+export const DEFAULT_WOOD_TINT = '#290000';
 export const WOOD_TINT_KEY = 'philsynth:woodTint';
 
 export function initWoodTheme(onError) {
