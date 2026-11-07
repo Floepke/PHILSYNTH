@@ -97,3 +97,28 @@ export function tunePitch(scale, pitch) {
   const key = Math.floor(pitch + 0.5);
   return Math.min(OUT_MAX, Math.max(OUT_MIN, tuneKey(scale, key) + (pitch - key)));
 }
+
+// ---- the TUNING module's pitch map: the tuned pitch of every MIDI key 0..127 ----
+// A scale is applied to the map (scaleMap) and then edited per key; the map is what tunes notes.
+export const MAP_KEYS = 128;
+export const PITCH_MIN = OUT_MIN;
+export const PITCH_MAX = OUT_MAX;
+// 1e-10 semitones = 1e-8 cents: finer than Scala's own cents values (6 decimals), yet saved
+// projects keep short numbers
+export const roundPitch = (v) => Math.round(Math.max(PITCH_MIN, Math.min(PITCH_MAX, v)) * 1e10) / 1e10;
+export const equalMap = () => Array.from({ length: MAP_KEYS }, (_, k) => k);
+export const scaleMap = (scale) => (scale?.ok ? Array.from({ length: MAP_KEYS }, (_, k) => roundPitch(tuneKey(scale, k))) : equalMap());
+
+// any saved map -> 128 pitches (null when it is not a map: the caller falls back to its scale)
+export function normalizePitchMap(map) {
+  if (!Array.isArray(map) || map.length !== MAP_KEYS) return null;
+  return map.map((v, k) => (Number.isFinite(v) ? roundPitch(v) : k));
+}
+
+// Float pitch -> tuned pitch through a map: the key's pitch, micropitch away from the key on top
+// (like tunePitch). Pitches below key 0 / above key 127 move from the end key's pitch.
+export function mapPitch(map, pitch) {
+  if (!Number.isFinite(pitch)) return pitch;
+  const key = Math.max(0, Math.min(MAP_KEYS - 1, Math.floor(pitch + 0.5)));
+  return Math.min(OUT_MAX, Math.max(OUT_MIN, map[key] + (pitch - key)));
+}

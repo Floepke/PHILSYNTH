@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import tuning, { normalizeTuning, describeScale } from '../src/modules/tuning.js';
+import tuning, { normalizeTuning, describeScale, pitchRange, centsRange } from '../src/modules/tuning.js';
 import { getModule, modules } from '../src/modules/index.js';
-import { parseScala, parsePitch, tunePitch, tuneKey, TWELVE_TET } from '../src/scala.js';
+import { parseScala, parsePitch, tunePitch, tuneKey, TWELVE_TET, scaleMap, equalMap, normalizePitchMap, mapPitch, roundPitch } from '../src/scala.js';
 import { PatchRuntime } from '../src/patch.js';
 import { dspTestHost } from './dsphost.mjs';
 import { LIBRARY, libraryGroups } from '../src/scalalib.js';
@@ -69,7 +69,7 @@ assert.ok(parseScala('!x\n\n2\n600.0\n2/1').ok);
   assert.equal(s.ok, false);
   assert.match(s.error, /^Line 4: "foo"/);
   assert.equal(tunePitch(s, 61), 61);
-  assert.match(describeScale(s), /untuned/);
+  assert.match(describeScale(s), /^Line 4: /);
 }
 assert.match(parseScala('X\n3\n100.0\n2/1').error, /expected 3 pitches, found 2/);
 assert.match(parseScala('X\nnope').error, /number of notes/);
@@ -79,7 +79,48 @@ assert.equal(parseScala('').ok, false);
 assert.equal(parseScala(undefined).ok, false);
 
 // ---- state ----
-assert.deepEqual(normalizeTuning({ text: 'a', name: 'b.scl' }), { text: 'a', name: 'b.scl' });
+assert.deepEqual(normalizeTuning({ text: 'a', name: 'b.scl' }), { text: 'a', name: 'b.scl', map: equalMap(), edited: false }, 'no map, no valid scale: equal temperament');
+// projects from before the pitch map: the map is their scale applied
+assert.deepEqual(normalizeTuning({ text: JUST, name: 'just.scl' }).map, scaleMap(parseScala(JUST)));
+// a saved map wins over the text box (the box only fills the map on Apply to editor)
+{
+  const map = equalMap();
+  map[61] = 61.0390000001;
+  const st = normalizeTuning({ text: JUST, name: 'x', map, edited: true });
+  assert.equal(st.map[61], 61.0390000001, 'kept to 1e-10 semitones');
+  assert.equal(st.map[62], 62);
+  assert.equal(st.edited, true);
+  assert.deepEqual(normalizeTuning(structuredClone(st)), st, 'saved and loaded unchanged');
+}
+assert.equal(normalizePitchMap([1, 2]), null, 'not 128 keys: not a map');
+assert.deepEqual(normalizePitchMap([...equalMap().slice(0, 127), 'x']).slice(126), [126, 127], 'a broken key: its own pitch');
+assert.deepEqual(normalizePitchMap([-5, 200, ...equalMap().slice(2)]).slice(0, 2), [0, 135], 'clamped to the pitch range');
+assert.equal(roundPitch(60.123456789012345), 60.123456789);
+// the map: every key's scale pitch; micropitch on top like tunePitch
+{
+  const s = parseScala(JUST);
+  const m = scaleMap(s);
+  for (const p of [40, 52.4, 59.5, 60, 60.2, 61, 62.49, 66.7, 100, 127]) near(mapPitch(m, p), tunePitch(s, p), 1e-9);
+  near(mapPitch(m, -2), 0, 1e-12);
+  near(mapPitch(equalMap(), 129.25), 129.25, 1e-12, 'above key 127: from the top key');
+  assert.ok(Number.isNaN(mapPitch(m, NaN)));
+  assert.deepEqual(scaleMap(parseScala('bad')), equalMap());
+}
+// the editor's ranges
+assert.deepEqual(pitchRange(equalMap(), 0, 127), { lo: 0, hi: 128 }, 'all keys: 0 … 128');
+assert.deepEqual(pitchRange(equalMap(), 60, 71), { lo: 60, hi: 72 });
+assert.deepEqual(pitchRange(scaleMap(parseScala(JUST)), 60, 71), { lo: 60, hi: 80 }, 'follows the shown pitches');
+assert.deepEqual(centsRange(equalMap()), { lo: -10, hi: 10 });
+assert.deepEqual(centsRange(scaleMap(parseScala(LIBRARY.find((e) => e.name === 'Werckmeister III').text))), { lo: -25, hi: 25 }, 'a well temperament: ±25 ct');
+{
+  const m = equalMap();
+  m[70] = 71;
+  assert.deepEqual(centsRange(m), { lo: -200, hi: 200 }, 'room to draw past the largest deviation (+100 ct)');
+  m[70] = 69.7;
+  assert.deepEqual(centsRange(m), { lo: -50, hi: 50 });
+  m[70] = 0;
+  assert.deepEqual(centsRange(m), { lo: -9600, hi: 9600 }, 'past 1200 ct: whole octaves');
+}
 assert.equal(normalizeTuning(null).text, TWELVE_TET);
 assert.equal(normalizeTuning({ text: 'x'.repeat(300 * 1024) }).text.length, 256 * 1024);
 assert.match(describeScale(parseScala(JUST)), /^Just major — 7 notes per octave; C4 = degree 0$/);
@@ -121,7 +162,8 @@ function setup() {
   const out = log[0].id;
   // pitch bend / micropitch through noteMod
   inst.noteMod(1, 62.1, 0.5);
-  near(log[1].pitch, tuneKey(inst.scale, 62) + 0.1);
+  near(log[1].pitch, tuneKey(parseScala(JUST), 62) + 0.1);
+  assert.deepEqual(inst.playing, { id: 1, pitch: 62.1 }, 'the newest note is marked in the editor');
   assert.deepEqual([log[1].type, log[1].id, log[1].velocity], ['mod', out, 0.5]);
   // a new scale retunes sounding notes
   inst.setState({ text: TWELVE_TET });
@@ -129,12 +171,22 @@ function setup() {
   near(log[2].pitch, 62.1);
   inst.noteOff(1);
   assert.deepEqual(log[3], { type: 'off', id: out });
+  assert.equal(inst.playing, null);
   inst.setState({ text: JUST });
   assert.equal(log.length, 4, 'released notes are not retuned');
   // allOff releases its own sounding notes
   inst.noteOn(2, 60, 1);
+  // a map edited per key (the text box does not matter)
+  const map = equalMap();
+  map[60] = 60.5;
+  inst.setState({ text: TWELVE_TET, map });
+  near(log.at(-1).pitch, 60.5);
+  assert.equal(log.at(-1).type, 'mod', 'a sounding note follows a key edit');
+  inst.noteOn(3, 59.9, 1);
+  near(log.at(-1).pitch, 60.4, 1e-12);
   inst.allOff();
   assert.equal(log.at(-1).type, 'off');
+  assert.equal(inst.playing, null);
   inst.destroy();
   assert.equal(clocks.size, 0);
 }
@@ -147,7 +199,8 @@ function setup() {
   const root = await PatchRuntime.create(engine, dsp.destination);
   const tu = await root.addModule('TUNING');
   assert.equal(tu.state.name, '12-TET.scl');
-  assert.ok(tu.inst.scale.ok);
+  assert.deepEqual(tu.state.map, equalMap());
+  assert.equal(tu.state.edited, false);
   const osc = await root.addModule('OSC');
   assert.ok(root.connect(tu.id, osc.id));
   assert.equal(root.connect(osc.id, tu.id), false, 'TUNING cannot receive audio');
@@ -155,12 +208,13 @@ function setup() {
   const on = osc.inst.noteOn.bind(osc.inst);
   osc.inst.noteOn = (id, pitch, ...rest) => { played.push(pitch); return on(id, pitch, ...rest); };
   root.setState(tu.id, { text: JUST, name: 'just.scl' });
-  assert.equal(tu.inst.scale.count, 7);
+  near(tu.inst.map[67], 72, 1e-9);
   tu.inst.noteOn(1, 62, 1);
   near(played[0], 60 + 12 * Math.log2(5 / 4));
   tu.inst.allOff();
   const tu2 = await root.addModule('TUNING', { state: structuredClone(tu.state) });
-  assert.equal(tu2.inst.scale.description, 'Just major');
+  assert.deepEqual(tu2.inst.map, scaleMap(parseScala(JUST)));
+  assert.deepEqual(tu2.state, tu.state);
 }
 
 // ---- PHILSYNTH library ----
