@@ -1,8 +1,8 @@
 import { syncedPeriod } from './lfo.dsp.js';
 
 export const DELAY_UNITS = ['ms', '1/4', '1/8', '1/16'];
-// DELAY only: the audio delay is one period of the newest incoming note, minus the one sample a
-// sound loop adds (see notePeriodSamples), so a FEEDBACK loop through it rings at the note's pitch
+// DELAY only: the audio delay is one period of the newest incoming note, minus what the rest of
+// the sound loop adds (see notePeriodSamples), so a FEEDBACK loop through it rings at the note's pitch
 export const NOTE_UNIT = 4;
 export const DELAY_NOTE_UNITS = [...DELAY_UNITS, 'Note'];
 export const MAX_DELAY_SECONDS = 64 * 60 / 20; // longest synced period at the Output's minimum BPM
@@ -14,10 +14,13 @@ export function delayPeriod(value) {
   return syncedPeriod(4 / Math.pow(256, Math.max(0, Math.min(10000, value)) / 10000));
 }
 
-// Delay in samples of the Note unit at float MIDI pitch `pitch` (A4 = 69 = 440 Hz)
-export function notePeriodSamples(pitch, sr) {
-  const p = Number.isFinite(+pitch) ? +pitch : 60;
-  return Math.max(0, sr / (440 * Math.pow(2, (p - 69) / 12)) - 1);
+export const noteHz = (pitch) => 440 * Math.pow(2, ((Number.isFinite(+pitch) ? +pitch : 60) - 69) / 12);
+
+// Delay in samples of the Note unit at float MIDI pitch `pitch` (A4 = 69 = 440 Hz). `loop`: the
+// samples the rest of the sound loop delays the tone (the graph sends it, see Graph.tuneLoops:
+// one sample per loop pass plus the phase delay of FILTERs in the loop); 1 outside a loop.
+export function notePeriodSamples(pitch, sr, loop = 1) {
+  return Math.max(0, sr / noteHz(pitch) - (Number.isFinite(+loop) ? +loop : 1));
 }
 
 // The Note unit has no time of its own: MIDI passes without delay.

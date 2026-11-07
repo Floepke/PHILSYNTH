@@ -97,11 +97,12 @@ for (const opts of [{}, { kernels: WASM, heap }]) {
 }
 
 // ---- the controller lists match the module definitions ----
+const graphOnly = { delay: ['loop'] }; // sent by the graph itself (Graph.tuneLoops), no module control
 for (const [kind, spec] of Object.entries(SPECS)) {
   if (kind === 'bus') continue; // no module of its own
   const def = getModule({ dcblock: 'DC BLOCKER' }[kind] ?? kind.toUpperCase());
   assert.ok(def, kind);
-  assert.deepEqual([...spec.params].sort(), def.params.filter((p) => p.dsp !== false).map((p) => p.id).sort(), `${kind}: every controller is mapped`);
+  assert.deepEqual(spec.params.filter((id) => !graphOnly[kind]?.includes(id)).sort(), def.params.filter((p) => p.dsp !== false).map((p) => p.id).sort(), `${kind}: every controller is mapped`);
 }
 
 // ---- parity: the same messages and input into both kernels give the same samples ----
@@ -541,6 +542,13 @@ compare('delay', {
     [35, { type: 'bpm', value: 240 }], [60, param('unit', 0)]],
 });
 compare('delay', { blocks: 10 });
+// Note unit with the graph's loop correction: a note jumps, later `loop` changes glide
+compare('delay', {
+  blocks: 60, input: (b, i, ch) => Math.sin((b * N + i) * (ch ? 0.13 : 0.1)),
+  script: [[0, param('unit', 4)], [0, param('loop', 3.7)], [0, { type: 'noteOn', id: 1, pitch: 69, velocity: 1, phase: 0 }],
+    [10, param('loop', 2.25)], [20, { type: 'noteOn', id: 2, pitch: 81, velocity: 1, phase: 0 }], [20, param('loop', 5.5)],
+    [30, { type: 'noteMod', notes: [[2, 80.5, 1]] }], [40, param('loop', 1)]],
+});
 for (let filter = 0; filter <= 8; filter++) {
   compare('echo', {
     blocks: 160, tol: 1e-6, inHeap: filter % 2 === 1,

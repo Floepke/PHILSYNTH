@@ -7,14 +7,14 @@ import { newSvf, tickSvf } from '../dsp/svf.js';
 // silent samples (8 render quanta) before an input-less filter stops; counted in samples, so a
 // filter rendered sample by sample (inside a FEEDBACK loop) rings out as long
 const TAIL_SAMPLES = 8 * 128;
-const T = {
+export const T = {
   LP: 0, HP: 1, BP: 2, NOTCH: 3, PEAK: 4, AP: 5, BELL: 6, LSHELF: 7, HSHELF: 8,
   LADDER: 9, COMB_POS: 10, COMB_NEG: 11, FORMANT: 12,
 };
 const family = (t) => (t <= T.HSHELF ? 'svf' : t === T.LADDER ? 'ladder' : t === T.FORMANT ? 'formant' : 'comb');
 
 // [frequency Hz, amplitude] for formants F1..F3 (male voice), vowels A E I O U
-const VOWELS = [
+export const VOWELS = [
   [[800, 1], [1150, 0.5], [2900, 0.025]],
   [[350, 1], [2000, 0.1], [2800, 0.18]],
   [[270, 1], [2140, 0.25], [2950, 0.05]],
@@ -27,7 +27,7 @@ const CHANNELS = 2;
 const ANTI_DENORMAL = 1e-20;
 const LN2 = Math.log(2);
 
-const qFromRes = (r) => 0.5 * Math.pow(80, r); // 0 -> Q 0.5, 1 -> Q 40
+export const qFromRes = (r) => 0.5 * Math.pow(80, r); // 0 -> Q 0.5, 1 -> Q 40
 
 export default class FilterKernel extends Kernel {
   constructor() {

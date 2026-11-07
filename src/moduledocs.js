@@ -316,7 +316,7 @@ export const DOCS = {
     notes: [
       'A loop is rendered sample by sample, so it adds only one sample of delay: short loops (combs, strings) are possible.',
       'For safety the output is limited to ±2 (and a broken value to 0); MIDI loops stay impossible.',
-      'Plucked string (Karplus-Strong): MULTIMIDI → OSC (noise, very short envelope) and → DELAY (unit Note); OSC → DELAY → FILTER (low-pass) → FEEDBACK → FEEDBACK → back into DELAY, and DELAY → OUT. Raise both Feedback controllers towards 1: the higher the loop gain and the cutoff, the longer and brighter the string rings. The filter delays the loop a little, so the string sounds slightly flat (least with 12 dB/oct and a high cutoff).',
+      'Plucked string (Karplus-Strong): MULTIMIDI → OSC (noise, very short envelope) and → DELAY (unit Note); OSC → DELAY → FILTER (low-pass) → FEEDBACK → FEEDBACK → back into DELAY, and DELAY → OUT. Raise both Feedback controllers towards 1: the higher the loop gain and the cutoff, the longer and brighter the string rings. The filter delays the loop too, which would make the string flat as the cutoff goes down; DELAY Loop Tuning (on by default) takes that delay off, so the string stays in tune at any cutoff.',
     ],
   },
 
@@ -348,7 +348,8 @@ export const DOCS = {
     params: {
       left: 'Delay of the left audio channel and of every MIDI message (0–10,000 ms, or a note length).',
       right: 'Delay of the right audio channel (0–10,000 ms, or a note length). Not used for MIDI.',
-      unit: `${SYNC_UNIT} Note follows the pitch of the incoming MIDI notes instead: the audio delay is one period of the newest note minus one sample (the one sample a FEEDBACK loop adds), so a loop through it rings at the note's pitch; notes pass undelayed and Left/Right are hidden. The part of a sample is read with an all-pass, which leaves the tone untouched on every note: the damping of a string comes only from the loop's own modules (put a low-pass FILTER in it).`,
+      unit: `${SYNC_UNIT} Note follows the pitch of the incoming MIDI notes instead: the audio delay is one period of the newest note minus what the rest of its FEEDBACK loop delays the tone (one sample per loop pass, plus the FILTERs in the loop with Loop Tuning on), so a loop through it rings at the note's pitch; notes pass undelayed and Left/Right are hidden. The part of a sample is read with an all-pass, which leaves the tone untouched on every note: the damping of a string comes only from the loop's own modules (put a low-pass FILTER in it).`,
+      tune: 'Note unit only. On: inside a sound loop the delay also takes off the delay of every FILTER on the loop at the note\'s pitch (worked out from its type, slope, cutoff, resonance, gain, vowel and mix, kept up to date as they change or are modulated), so lowering the cutoff no longer detunes the string. Only the fundamental is corrected; Drive, ladder saturation and the filter LFO are left out, other modules\' delays are not counted, and with parallel paths the shortest loop counts. High notes with a low cutoff can need less than no delay: those stay flat. Off: only the loop\'s own sample is taken off (the older behaviour).',
     },
     notes: [
       'Its cables carry audio, MIDI, or both, depending on the destination. Notes keep their pitch, velocity and start phase.',

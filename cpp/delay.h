@@ -15,8 +15,8 @@ inline double delayPeriod(double value) {
 
 constexpr int NOTE_UNIT = 4;  // DELAY: one period of the newest note (src/modules/delaytime.js)
 
-inline double notePeriodSamples(double pitch, double sr) {
-  return maxd(0, sr / (440 * pow(2, (pitch - 69) / 12)) - 1);
+inline double notePeriodSamples(double pitch, double sr, double loop = 1) {
+  return maxd(0, sr / (440 * pow(2, (pitch - 69) / 12)) - (loop == loop ? loop : 1));
 }
 
 inline double delaySeconds(double value, int unit, double bpm) {
@@ -82,10 +82,10 @@ struct DelayLine {
 };
 
 struct Delay : Kernel {
-  enum { LEFT, RIGHT, UNIT, PARAMS };
-  double p[PARAMS] = {250, 250, 0};
+  enum { LEFT, RIGHT, UNIT, TUNE, LOOP, PARAMS }; // TUNE: read by the graph only
+  double p[PARAMS] = {250, 250, 0, 1, 1};
   double bpm = 120, delay[2] = {}, target[2] = {}, smooth;
-  bool started = false;
+  bool started = false, fresh = false;
   double pitch = 60, noteId = NAN;  // newest note (Note unit)
   double ap[2] = {};  // Note unit: last all-pass output per channel
   DelayLine line;
@@ -93,12 +93,12 @@ struct Delay : Kernel {
   explicit Delay(double sr) : Kernel(sr), smooth(1 - exp(-1 / (0.004 * sr))), line(sr) { updateDelay(); }
   void updateDelay(bool jump = false) {
     for (int ch = 0; ch < 2; ch++) {
-      target[ch] = (int)p[UNIT] == NOTE_UNIT ? notePeriodSamples(pitch, sr) : delaySeconds(p[ch], (int)p[UNIT], bpm) * sr;
+      target[ch] = (int)p[UNIT] == NOTE_UNIT ? notePeriodSamples(pitch, sr, p[LOOP]) : delaySeconds(p[ch], (int)p[UNIT], bpm) * sr;
     }
     const double most = line.ensure(maxd(target[0], target[1]));
     for (int ch = 0; ch < 2; ch++) {
       target[ch] = mind(most, target[ch]);
-      if (!started || jump) delay[ch] = target[ch];
+      if (!started || jump || fresh) delay[ch] = target[ch];
     }
   }
   void tempo(double value) override { bpm = value; updateDelay(); }
@@ -108,7 +108,7 @@ struct Delay : Kernel {
     updateDelay();
   }
   void note(int type, double id, double notePitch, double, double) override {
-    if (type == NOTE_ON) noteId = id;
+    if (type == NOTE_ON) { noteId = id; fresh = true; }
     else if (type != NOTE_MOD || id != noteId) return;
     pitch = notePitch == notePitch ? notePitch : 0;
     if ((int)p[UNIT] == NOTE_UNIT) updateDelay(type == NOTE_ON);
@@ -131,6 +131,7 @@ struct Delay : Kernel {
     float* out[2] = {outL, outR};
     const bool note = (int)p[UNIT] == NOTE_UNIT;
     started = true;
+    fresh = false;
     bool live = false;
     for (int i = 0; i < n; i++) {
       for (int ch = 0; ch < 2; ch++) {

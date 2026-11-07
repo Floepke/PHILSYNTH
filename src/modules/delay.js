@@ -2,6 +2,8 @@
 // MIDI events sample the current delay on arrival. Queued events retain their due time.
 // Delay Unit Note: the audio delay is one period of the newest incoming note (the kernel gets
 // the notes too); MIDI then passes without delay. For tuned FEEDBACK loops (plucked strings).
+// Loop Tuning On: inside a sound loop the delay also subtracts the phase delay of the FILTERs in
+// that loop at the note's pitch, so lowering their cutoff doesn't detune the string (Graph.tuneLoops).
 import { newNoteId, captureMidiTrace, withMidiTrace } from '../modmidi.js';
 import { MidiQueue } from '../midiqueue.js';
 import { DELAY_NOTE_UNITS, NOTE_UNIT, delayParam, delayUnitParam, delaySeconds } from './delaytime.js';
@@ -21,10 +23,12 @@ export default {
     delayUnitParam(DELAY_NOTE_UNITS),
     delayParam('left', 'Left Delay', 250, timed),
     delayParam('right', 'Right Delay', 250, timed),
+    { id: 'tune', label: 'Loop Tuning', min: 0, max: 1, default: 1, step: 1, options: ['Off', 'On'],
+      visible: (v) => (v.unit | 0) === NOTE_UNIT },
   ],
   create(ctx, _def, host) {
     const node = host.dsp.create('delay');
-    const values = { left: 250, right: 250, unit: 0 };
+    const values = { left: 250, right: 250, unit: 0, tune: 1 };
     let bpm = 120;
     let clock = 0;
     const queue = new MidiQueue();

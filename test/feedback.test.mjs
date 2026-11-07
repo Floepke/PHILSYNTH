@@ -165,12 +165,12 @@ for (const [name, K] of [['JS', DelayKernel], ['C++', native.kernels.delay]]) {
 }
 
 // ---- Karplus-Strong string: JS graph, wasm kernels, native ms_run ----
-async function pluck(opts, pitch = 57, gain = 0.995, filter = true) {
+async function pluck(opts, pitch = 57, gain = 0.995, filter = true, { cutoff = 8000, slope = 0, tune = 1, blocks = 200 } = {}) {
   const t = dspTestHost(opts);
   const patch = await PatchRuntime.create({ ctx: { currentTime: 0 }, dsp: t.dsp }, t.dsp.destination);
   const osc = await patch.addModule('OSC', { values: { wave: 2, gain: 0.5, polyphony: 1 } });
-  const d = await patch.addModule('DELAY', { values: { unit: NOTE_UNIT } });
-  const f = await patch.addModule('FILTER', { values: { type: 0, slope: 0, cutoff: 8000, resonance: 0 } });
+  const d = await patch.addModule('DELAY', { values: { unit: NOTE_UNIT, tune } });
+  const f = await patch.addModule('FILTER', { values: { type: 0, slope, cutoff, resonance: 0 } });
   const fb1 = await patch.addModule('FEEDBACK');
   const fb2 = await patch.addModule('FEEDBACK');
   const cables = filter ? [[d, f], [f, fb1]] : [[d, fb1]];
@@ -183,8 +183,8 @@ async function pluck(opts, pitch = 57, gain = 0.995, filter = true) {
   osc.inst.noteOff(1);
   t.render(4);
   const out = [];
-  for (let b = 0; b < 200; b++) out.push(...t.render().L);
-  return { out, graph: t.graph };
+  for (let b = 0; b < blocks; b++) out.push(...t.render().L);
+  return { out, graph: t.graph, delay: t.graph.nodes.get(d.inst.node.h) };
 }
 // the strongest autocorrelation lag near the note's period, refined between samples (parabola)
 const period = (x, f) => {
@@ -210,8 +210,8 @@ for (const [name, opts] of [['JS', undefined], ['wasm', { ...native, native: fal
   if (name === 'native') assert.ok(graph.prog, 'the loop renders natively');
   else assert.equal(graph.prog, 0);
   const [lag, want] = period(out.slice(4096), 57);
-  // the low-pass delays the loop a little (its group delay): slightly flat
-  assert.ok(lag - want > 0 && lag - want < 2.5, `${name}: rings at A3 (${lag} vs ${want.toFixed(2)} samples)`);
+  // Loop Tuning takes the low-pass's delay off the DELAY (autocorrelation weighs all partials: rough)
+  close(lag, want, 0.5, `${name}: rings at A3 (${lag} vs ${want.toFixed(2)} samples)`);
   const rms = (a) => Math.sqrt(a.reduce((s, v) => s + v * v, 0) / a.length);
   const early = rms(out.slice(0, 4800));
   const late = rms(out.slice(out.length - 4800));
@@ -226,5 +226,60 @@ for (const [pitch, opts] of [[57, undefined], [69, native], [81, native]]) {
   const { out } = await pluck(opts, pitch, 0.995, false);
   const [lag, want] = period(out.slice(4096), pitch);
   close(lag, want, 0.3, `note ${pitch} in tune`);
+}
+// ---- Loop Tuning: the fundamental stays in tune at any cutoff (the FILTER's phase delay at the
+// note is taken off the DELAY); Off leaves it flat ----
+// the fundamental's frequency in cents from `pitch`: the phase advance of a windowed DFT bin at the
+// note over growing gaps (each gap unwraps the next)
+const cents = (x, pitch) => {
+  const f = 440 * 2 ** ((pitch - 69) / 12);
+  const N = 8192;
+  const s1 = 4096;
+  const phase = (s) => {
+    let re = 0;
+    let im = 0;
+    for (let i = 0; i < N; i++) {
+      const w = (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N)) * x[s + i];
+      const a = (2 * Math.PI * f * (s + i)) / SR;
+      re += w * Math.cos(a);
+      im -= w * Math.sin(a);
+    }
+    return Math.atan2(im, re);
+  };
+  const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+  const p1 = phase(s1);
+  let fm = f;
+  for (const gap of [256, 2048, 16384]) {
+    const guess = (2 * Math.PI * (fm - f) * gap) / SR;
+    fm = f + ((guess + wrap(phase(s1 + gap) - p1 - guess)) / (2 * Math.PI)) * (SR / gap);
+  }
+  return 1200 * Math.log2(fm / f);
+};
+for (const [name, opts] of [['JS', undefined], ['native', native]]) {
+  for (const [pitch, cutoff, slope] of [[45, 1500, 0], [57, 3192, 0], [69, 3192, 1], [69, 1500, 0], [81, 3192, 0]]) {
+    const on = await pluck(opts, pitch, 0.995, true, { cutoff, slope, blocks: 300 });
+    close(cents(on.out, pitch), 0, 3.5, `${name}: note ${pitch}, cutoff ${cutoff}, slope ${slope} in tune`);
+    assert.equal(on.delay.tune.back, 1, 'the loop adds one sample');
+    assert.equal(on.delay.tune.filters.length, 1, 'the FILTER on the loop is found');
+  }
+  const off = await pluck(opts, 69, 0.995, true, { cutoff: 1500, tune: 0, blocks: 300 });
+  assert.ok(cents(off.out, 69) < -100, `${name}: Loop Tuning Off rings flat (${cents(off.out, 69)} ct)`);
+}
+// a DELAY outside any loop gets its one sample back
+{
+  const t = dspTestHost();
+  const patch = await PatchRuntime.create({ ctx: { currentTime: 0 }, dsp: t.dsp }, t.dsp.destination);
+  const d = await patch.addModule('DELAY', { values: { unit: NOTE_UNIT } });
+  const f = await patch.addModule('FILTER', { values: { cutoff: 500 } });
+  const fb1 = await patch.addModule('FEEDBACK');
+  const fb2 = await patch.addModule('FEEDBACK');
+  for (const [a, b] of [[d, f], [f, fb1], [fb1, fb2], [fb2, d], [d, { id: 0 }]]) assert.ok(patch.connect(a.id, b.id));
+  d.inst.noteOn(1, 69, 1);
+  t.render(1);
+  const k = t.kernel(d.inst.node);
+  assert.ok(k.p.loop > 2, `in the loop: one sample plus the low-pass (${k.p.loop})`);
+  patch.disconnect(patch.cables.find((c) => c.from === fb2.id && c.to === d.id));
+  t.render(1);
+  assert.equal(k.p.loop, 1, 'out of the loop: one sample');
 }
 console.log('feedback tests passed');

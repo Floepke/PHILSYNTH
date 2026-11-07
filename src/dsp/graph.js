@@ -22,6 +22,12 @@
 //   exactly one sample of delay. Per sample the rules above apply (silent sources skipped,
 //   passive nodes without a live source skipped); a silent sample is written as 0 and liveAt[]
 //   remembers which samples were live.
+//   Tuned loops: a DELAY in Note unit inside a loop gets controller `loop` every quantum (before
+//   step 2): the samples the rest of its loop delays the tone, so it rings at the note's pitch.
+//   That is one sample per back step of the loop's shortest cycle through the DELAY, plus the
+//   phase delay of every FILTER on that cycle at the frequency of the DELAY's newest note
+//   (src/dsp/loopphase.js, from the FILTER's controller values; DELAY Loop Tuning Off leaves the
+//   FILTERs out). Outside a loop `loop` is 1.
 // Changed modulated values are collected and sent to the main thread by report() (for display).
 //
 // Messages (arrays, batched by the host): ['add', h, kind, opts] ['del', h] ['con', from, to]
@@ -37,6 +43,8 @@
 // flags then live in C++ (GNode records) and are read back when the topology changes.
 import { KERNELS } from './kernels.js';
 import { fromNorm, toNorm } from '../params.js';
+import { filterPhaseDelay } from './loopphase.js';
+import { noteHz } from '../modules/delaytime.js';
 
 const BLOCK = 128;
 const NO_INPUT = [[]];
@@ -62,6 +70,7 @@ export class Graph {
     this.order = []; // audio nodes reaching the master bus, sources first
     this.plan = []; // the order with sound loops as groups (see loops())
     this.mods = []; // modulator nodes
+    this.tuned = []; // DELAY nodes in a sound loop (see tuneLoops)
     this.dirty = true;
     this.clock = false;
     this.pending = new Set(); // routes whose applied value changed since the last report
@@ -121,6 +130,10 @@ export class Graph {
       depth: { outMin: 0, outMax: 100, amp: 100, outSmooth: 0 }, // modulators: mapping controllers
       values: {}, // last controller values, also the starting point of a new smoothed route
       depthIds: K.depthIds ?? null, // more mapping controllers (MULTICTL route ranges: lo / hi of a route)
+      tune: null, // DELAY in a sound loop: { filters, back, key } (see loops / tuneLoops)
+      loopSent: 1, // DELAY: last `loop` controller value given to the kernel
+      notePitch: 60, // DELAY: pitch of its newest note
+      noteId: null,
     };
     if (this.heap) node.outPtr = this.heap.alloc(2 * BLOCK * 4);
     node.outs = this.stereo(node.outPtr);
@@ -197,6 +210,10 @@ export class Graph {
     const node = this.nodes.get(h);
     if (!node) return;
     node.k.message(m);
+    if (node.kind === 'delay') {
+      if (m.type === 'noteOn') { node.noteId = m.id; node.notePitch = +m.pitch || 0; }
+      else if (m.type === 'noteMod') for (const [id, pitch] of m.notes) if (id === node.noteId) node.notePitch = +pitch || 0;
+    }
     if (m.type !== 'param') return;
     node.values[m.id] = m.value;
     if (isDepth(node, m.id)) node.depth[m.id] = m.value;
@@ -300,7 +317,8 @@ export class Graph {
   // on a member (it would be part of the loop).
   loops(order) {
     const at = new Map(order.map((n, i) => [n, i]));
-    for (const n of this.nodes.values()) { n.loop = null; n.loopSrcs = null; }
+    for (const n of this.nodes.values()) { n.loop = null; n.loopSrcs = null; n.tune = null; }
+    this.tuned = [];
     const num = new Map();
     const low = new Map();
     const stack = [];
@@ -325,7 +343,7 @@ export class Graph {
       if (part.length > 1 || n.srcs.includes(n)) groups.push(part);
     };
     for (const n of order) if (!num.has(n)) strong(n);
-    if (!groups.length) return order;
+    if (!groups.length) { this.untune(); return order; }
     const last = new Map();
     for (const part of groups) {
       const members = part.sort((a, b) => at.get(a) - at.get(b));
@@ -340,13 +358,77 @@ export class Graph {
         }
       }
       last.set(members[members.length - 1], group);
+      for (const n of members) if (n.kind === 'delay') this.tuneOf(n, group);
     }
+    this.untune();
     const plan = [];
     for (const n of order) {
       if (!n.loop) plan.push(n);
       else if (last.has(n)) plan.push(last.get(n));
     }
     return plan;
+  }
+
+  // The shortest cycle from a DELAY back to itself inside its loop group (breadth-first): the
+  // samples its back steps add (a source at or after its destination in the group gives its
+  // previous sample) and the FILTERs on it.
+  tuneOf(d, group) {
+    const prev = new Map();
+    const queue = [d];
+    for (let qi = 0; qi < queue.length && !prev.has(d); qi++) {
+      const a = queue[qi];
+      for (const b of a.dsts) {
+        if (b.loop !== group || prev.has(b)) continue;
+        prev.set(b, a);
+        if (b === d) break;
+        queue.push(b);
+      }
+    }
+    if (!prev.has(d)) return;
+    const filters = [];
+    let back = 0;
+    let b = d;
+    do {
+      const a = prev.get(b);
+      if (a.rank >= b.rank) back++;
+      if (a.kind === 'filter') filters.push(a);
+      b = a;
+    } while (b !== d);
+    d.tune = { filters, back, key: null };
+    this.tuned.push(d);
+  }
+
+  // a DELAY that left its loop gets the plain one-sample correction back
+  untune() {
+    for (const n of this.nodes.values()) {
+      if (n.kind !== 'delay' || n.tune || n.loopSent === 1) continue;
+      n.loopSent = 1;
+      n.k.param('loop', 1);
+    }
+  }
+
+  // `loop` of every DELAY in a sound loop for this quantum (see the header); recomputed only when
+  // the note's pitch, Loop Tuning or a controller of a FILTER on the cycle changed
+  tuneLoops() {
+    for (const n of this.tuned) {
+      const t = n.tune;
+      const on = (n.values.tune ?? 1) >= 0.5;
+      let key = `${n.notePitch}|${on}`;
+      if (on) for (const f of t.filters) {
+        const v = f.values;
+        key += `|${v.type},${v.slope},${v.cutoff},${v.resonance},${v.gain},${v.vowel},${v.mix}`;
+      }
+      if (key === t.key) continue;
+      t.key = key;
+      let loop = t.back;
+      if (on) {
+        const hz = noteHz(n.notePitch);
+        for (const f of t.filters) loop += filterPhaseDelay(f.values, hz, sampleRate);
+      }
+      if (loop === n.loopSent) continue;
+      n.loopSent = loop;
+      n.k.param('loop', loop);
+    }
   }
 
   // One sound-loop group, sample by sample (see the header).
@@ -425,6 +507,7 @@ export class Graph {
       const x = m.k.value;
       if (x !== null && x !== undefined && m.routes.length) this.modulate(m, x);
     }
+    if (this.tuned.length) this.tuneLoops();
     // A modulated wavetable Block Size can replace its prepared layout and grow the heap.
     if (this.heap?.grown()) this.remap();
     if (this.prog) this.master.silent = !this.x.ms_run(this.prog, BLOCK);

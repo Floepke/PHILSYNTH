@@ -6,6 +6,9 @@
 // fraction (none at a whole number of samples, strong at a half), so in a FEEDBACK loop notes
 // whose period happens to be a whole number of samples rang far brighter than their neighbours.
 // The all-pass passes every frequency at the same level, tuned alike (C++ twin: cpp/delay.h).
+// Controller `loop` (sent by the graph, not shown): what the rest of a sound loop delays the tone,
+// subtracted from the period (see notePeriodSamples). It is updated in the block a note starts,
+// so the note still jumps straight to its corrected length.
 import { Kernel } from '../dsp/kernel.js';
 import { DelayLine } from '../dsp/delayline.js';
 import { NOTE_UNIT, delaySeconds, notePeriodSamples } from './delaytime.js';
@@ -13,13 +16,14 @@ import { NOTE_UNIT, delaySeconds, notePeriodSamples } from './delaytime.js';
 export default class DelayKernel extends Kernel {
   constructor() {
     super();
-    this.p = { left: 250, right: 250, unit: 0 };
+    this.p = { left: 250, right: 250, unit: 0, loop: 1 };
     this.bpm = 120;
     this.line = new DelayLine();
     this.delay = [0, 0];
     this.target = [0, 0];
     this.smooth = 1 - Math.exp(-1 / (0.004 * sampleRate));
     this.started = false;
+    this.fresh = false; // a note started since the last block: delay changes jump
     this.pitch = 60; // newest note (Note unit)
     this.noteId = null;
     this.ap = [0, 0]; // Note unit: last all-pass output per channel
@@ -27,14 +31,14 @@ export default class DelayKernel extends Kernel {
   }
 
   updateDelay(jump = false) {
-    if (this.p.unit === NOTE_UNIT) this.target[0] = this.target[1] = notePeriodSamples(this.pitch, sampleRate);
+    if (this.p.unit === NOTE_UNIT) this.target[0] = this.target[1] = notePeriodSamples(this.pitch, sampleRate, this.p.loop);
     else {
       this.target[0] = delaySeconds(this.p.left, this.p.unit, this.bpm) * sampleRate;
       this.target[1] = delaySeconds(this.p.right, this.p.unit, this.bpm) * sampleRate;
     }
     const most = this.line.ensure(Math.max(this.target[0], this.target[1]));
     for (let ch = 0; ch < 2; ch++) this.target[ch] = Math.min(most, this.target[ch]);
-    if (!this.started || jump) this.delay = [...this.target];
+    if (!this.started || jump || this.fresh) this.delay = [...this.target];
   }
 
   param(id, value) {
@@ -49,6 +53,7 @@ export default class DelayKernel extends Kernel {
       case 'noteOn':
         this.noteId = m.id;
         this.pitch = +m.pitch || 0;
+        this.fresh = true;
         if (this.p.unit === NOTE_UNIT) this.updateDelay(true);
         break;
       case 'noteMod':
@@ -85,6 +90,7 @@ export default class DelayKernel extends Kernel {
     const line = this.line;
     const note = this.p.unit === NOTE_UNIT;
     this.started = true;
+    this.fresh = false;
     let live = false;
     for (let i = 0; i < out[0].length; i++) {
       for (let ch = 0; ch < 2; ch++) {

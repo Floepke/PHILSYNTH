@@ -38,7 +38,7 @@ export const SPECS = {
   out: { kind: 7, params: ['volume', 'bpm'], passive: true },
   dcblock: { kind: 8, params: [] },
   eq: { kind: 9, params: [...Array.from({ length: 16 }, (_, i) => `b${i}`), 'q', 'level'] },
-  delay: { kind: 10, params: ['left', 'right', 'unit'] },
+  delay: { kind: 10, params: ['left', 'right', 'unit', 'tune', 'loop'] },
   echo: { kind: 11, params: ['dry', 'wet', 'feedback', 'delay', 'unit', 'mode', 'filter', 'cutoff'] },
   modulator: { kind: 12, params: ['type', 'carrier', 'interpolation'], carrierInput: true },
   operator: { kind: 13, params: ['modulation', 'feedback', 'attack', 'decay', 'sustain', 'release', 'atkCurve', 'decCurve', 'relCurve', 'velocity', 'gain'] },
