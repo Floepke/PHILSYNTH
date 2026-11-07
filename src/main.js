@@ -326,19 +326,36 @@ async function openProject(data, view) {
 
 // insert dialog list: one row per module type (colour, type, description)
 let insertType = modules[0]?.type ?? null;
-const listItems = modules.map((m) => {
-  const li = document.createElement('div');
-  li.className = 'listbox-item';
-  li.setAttribute('role', 'option');
-  li.id = `module-option-${m.type.replace(/\s+/g, '-')}`;
-  li.dataset.type = m.type;
-  li.style.setProperty('--c', m.color);
-  li.innerHTML = '<span class="swatch"></span><b></b><span class="desc"></span>';
-  li.querySelector('b').textContent = m.type;
-  li.querySelector('.desc').textContent = m.label;
-  moduleList.append(li);
-  return li;
-});
+const synths = modules.filter((m) => m.acceptsMidi && !m.midiOut && !m.modulator && m.type !== 'PATCH');
+const synthSet = new Set(synths);
+const effects = modules.filter((m) => !synthSet.has(m) && m.hasInput && m.hasOutput && !m.modulator && m.type !== 'PATCH');
+const categorizedModules = new Set([...synths, ...effects]);
+const moduleGroups = [
+  ['Synths:', synths],
+  ['Effects:', effects],
+  ['Other:', modules.filter((m) => !categorizedModules.has(m))],
+];
+const listItems = [];
+for (const [heading, group] of moduleGroups) {
+  const label = document.createElement('div');
+  label.className = 'listbox-heading';
+  label.setAttribute('role', 'presentation');
+  label.textContent = heading;
+  moduleList.append(label);
+  for (const m of group) {
+    const li = document.createElement('div');
+    li.className = 'listbox-item';
+    li.setAttribute('role', 'option');
+    li.id = `module-option-${m.type.replace(/\s+/g, '-')}`;
+    li.dataset.type = m.type;
+    li.style.setProperty('--c', m.color);
+    li.innerHTML = '<span class="swatch"></span><b></b><span class="desc"></span>';
+    li.querySelector('b').textContent = m.type;
+    li.querySelector('.desc').textContent = m.label;
+    moduleList.append(li);
+    listItems.push(li);
+  }
+}
 function chooseType(type) {
   insertType = type;
   for (const li of listItems) {
