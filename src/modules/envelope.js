@@ -7,7 +7,8 @@
 //     value), Notes ON/OFF Loop (repeats while notes are held, stops when all are released; the
 //     next note starts over) or Loop Forward/Backwards (the same, ping-pong). See envelope.dsp.js.
 //   Out Controller / Out Min / Out Max: see modtarget.js (curve bottom = Out Min, top = Out Max).
-// Before the first trigger and after a hard reset, the curve's start drives the output in idle.
+// Before the first trigger and after a hard reset it drives its idle value: the curve's end in
+// Note ON Trigger mode (as after a finished note), its start in the loop modes.
 // The curve is module state (saved with the project) edited like the WAVESHAPER curve
 // (src/curveeditor.js): x is time, y is the output level. While the envelope plays, a white dot
 // rides the curve as its playhead.

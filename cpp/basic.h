@@ -24,8 +24,10 @@ struct Amp : Kernel {
   double amp = 1, inverse = 0, pan = 0, fine = 1;
   double t[2] = {1, 1}, g[2] = {1, 1};
   double k;
+  bool started = false;  // the first sound (after load / panic) starts at the target: no glide from 1
 
   explicit Amp(double sampleRate) : Kernel(sampleRate) { k = 1 - exp(-1 / (SMOOTH_S * sr)); }
+  void panic() override { started = false; }
 
   void param(int id, double v) override {
     if (id == AMP) amp = v;
@@ -40,6 +42,7 @@ struct Amp : Kernel {
 
   int process(const float* inL, const float* inR, float* outL, float* outR, int n) override {
     if (!inL) return 0;
+    if (!started) { g[0] = t[0]; g[1] = t[1]; started = true; }
     const float* src[2] = {inL, inR ? inR : inL};
     float* dst[2] = {outL, outR};
     const int chans = outR != outL ? 2 : 1;

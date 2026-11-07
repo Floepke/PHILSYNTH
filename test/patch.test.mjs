@@ -78,12 +78,24 @@ const engine = {
   r.connect(lfo.id, env.id);
   tick(94);
   const before = g.nodes.get(osc.ctl.h).values.duty;
-  lfo.inst.noteOn(101, 60, 1, 0);
-  env.inst.noteOn(101, 60, 1, 0);
-  tick(2);
-  const after = g.nodes.get(osc.ctl.h).values.duty;
-  assert.ok(Math.abs(after - before) < 2, `first note duty jump is softened: ${before} -> ${after}`);
-  assert.ok(before > 50, 'idle output was already driving duty');
+  // the duty per block for a few blocks after a note (LFO and ENVELOPE both restart on it)
+  const play = (id) => {
+    lfo.inst.noteOn(id, 60, 1, 0);
+    env.inst.noteOn(id, 60, 1, 0);
+    const trace = [];
+    for (let b = 0; b < 30; b++) { tick(1); trace.push(g.nodes.get(osc.ctl.h).values.duty); }
+    tick(Math.ceil(1.2 * 48000 / 128)); // the curve (1000 ms) finishes and holds its end
+    lfo.inst.noteOff(id);
+    env.inst.noteOff(id);
+    return trace;
+  };
+  const first = play(101);
+  assert.ok(Math.abs(first[1] - before) < first[29] - before, `the duty glides up with Out Smooth: ${before} -> ${first[1]} -> ${first[29]}`);
+  const held = g.nodes.get(osc.ctl.h).values.duty;
+  // (the free-running LFO, smoothed too, moves Out Max a little between notes: a small tolerance;
+  // an ENVELOPE idling at its curve start instead would differ by ~70 % duty here)
+  assert.ok(Math.abs(before - held) < 1.5, `idle on load drives the duty a finished note leaves: ${before} vs ${held}`);
+  play(102).forEach((d, b) => assert.ok(Math.abs(d - first[b]) < 1.5, `block ${b}: the first note after loading drives duty like a later one: ${first[b]} vs ${d}`));
   copy.destroy();
   r.destroy();
 }
@@ -971,7 +983,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   r.setParam(env.id, 'outMax', 60);
   r.setParam(env.id, 'length', 0);
   render(4);
-  assert.equal(osc.values.duty, 60, 'idle drives the loaded curve start through Out Max');
+  assert.equal(osc.values.duty, 20, 'idle drives the loaded curve end (as after a note) through Out Min');
   mm.inst.noteOn(1, 60, 1);
   render(2);
   assert.equal(osc.values.duty, 20, 'length 0: the end of the curve = Out Min');

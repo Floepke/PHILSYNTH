@@ -447,6 +447,7 @@ export const DOCS = {
     notes: [
       '<b>Curve editor</b> (below the controllers): left to right is time over Envelope Length, bottom = Out Min, top = Out Max. While the envelope plays, a white dot follows the curve.',
       '<b>Start phase</b>: a note starts the curve at its phase (from a MULTIMIDI\'s Phase / Random Phase): 0 % = the start of the curve, 50 % = halfway. Notes without a phase start at the beginning. In the loop modes only the note that starts the loop sets it.',
+      '<b>Before the first note</b> (after loading or a panic): in Note ON Trigger mode the envelope holds the curve\'s end, just like after a finished note, so the first note behaves exactly like every later one. In the loop modes it holds the curve\'s start.',
       MOD_CABLE, NOTES_IN,
     ],
   },

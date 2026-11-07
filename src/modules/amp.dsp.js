@@ -17,8 +17,11 @@ export default class AmpKernel extends Kernel {
     this.pan = 0;
     this.t = [1, 1]; // target L/R gains
     this.g = [1, 1]; // smoothed
+    this.started = false; // the first sound (after load / panic) starts at the target: no glide from 1
     this.k = 1 - Math.exp(-1 / (SMOOTH_S * sampleRate));
   }
+
+  panic() { this.started = false; }
 
   param(id, v) {
     if (id === 'amp' || id === 'inverse' || id === 'pan' || id === 'fine') this[id] = v;
@@ -32,6 +35,7 @@ export default class AmpKernel extends Kernel {
     const i = inputs[0];
     const o = outputs[0];
     if (!i || !i.length) return false;
+    if (!this.started) { this.g = [...this.t]; this.started = true; }
     const k = this.k;
     for (let c = 0; c < 2; c++) {
       const src = i[c] ?? i[0]; // mono is upmixed

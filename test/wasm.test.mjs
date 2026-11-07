@@ -1024,4 +1024,73 @@ const msWasm = bench({ heap, kernels: WASM });
 console.log(`16 × (OSC 4 voices → FILTER 4-pole → WAVESHAPER 4×) + REVERB, 1 s of audio: JS ${msJs.toFixed(0)} ms, C++/wasm ${msWasm.toFixed(0)} ms (${(msJs / msWasm).toFixed(2)}×)`);
 assert.ok(msWasm < 1000, 'wasm renders faster than real time');
 
+// The first note after loading sounds exactly like every later note (JS and C++): a Patch with
+// 16 instances of MULTIMIDI -> OSC (Duty Cycle driven by an ENVELOPE) -> DISTORTION -> AMP.
+// AMP is passive (not rendered before the first sound): its smoothed gain must not glide from 1.
+{
+  const inner = {
+    modules: [
+      { id: 0, type: 'OUT', x: 0, y: 0, values: { volume: 0.8 }, color: null },
+      { id: 1, type: 'MULTIMIDI', x: 0, y: 0, values: {}, color: null },
+      { id: 2, type: 'OSC', x: 0, y: 0, color: null, values: { polyphony: 1, wave: 0, duty: 50, attack: 0.001, decay: 0.001, sustain: 1, release: 0.009, atkCurve: 100, decCurve: 100, relCurve: 100, gain: 0.5 } },
+      { id: 3, type: 'ENVELOPE', x: 0, y: 0, color: null, values: { mode: 0, length: 2302, outController: 2, outMin: 0, outMax: 100, outSmooth: 0 },
+        state: { points: [{ x: 0, y: 0.5, r: 0 }, { x: 0.188, y: 0.609, r: 1 }, { x: 0.494, y: 0.577, r: 1 }, { x: 1, y: 0.5, r: 0 }] } },
+      { id: 4, type: 'DISTORTION', x: 0, y: 0, values: { type: 8, power: 5.37, bits: 16, frequency: 48000 }, color: null },
+      { id: 5, type: 'AMP', x: 0, y: 0, values: { inverse: 0, amp: 0.23, pan: 0, fine: 1 }, color: null },
+    ],
+    cables: [{ from: 1, to: 2 }, { from: 1, to: 3 }, { from: 3, to: 2 }, { from: 2, to: 4 }, { from: 4, to: 5 }, { from: 5, to: 0 }],
+    midiLock: 1,
+  };
+  for (const [name, opts] of [['JS', undefined], ['C++', { kernels: WASM, heap }]]) {
+    const { dsp, render } = dspTestHost(opts);
+    const engine = { ctx: { currentTime: 0 }, dsp, createPatch(sink, salt) { return PatchRuntime.create(this, sink, salt); } };
+    const root = await PatchRuntime.create(engine, dsp.destination);
+    await root.load({
+      modules: [
+        { id: 0, type: 'OUT', x: 0, y: 0, values: { volume: 0.8 }, color: null },
+        { id: 1, type: 'PATCH', x: 0, y: 0, values: { inputModule: 1, instances: 16 }, color: null, state: { maps: [] }, patch: inner },
+      ],
+      cables: [{ from: 1, to: 0 }],
+    });
+    const p = root.modules.get(1);
+    await p.inst.sync();
+    assert.equal(p.inst.clones.length, 15, `${name}: 16 instances`);
+    render(100);
+    let first = null;
+    // 20 notes: every instance's first note, then instances 1..4 a second time
+    for (let id = 1; id <= 20; id++) {
+      p.inst.noteOn(id, 57, 1);
+      const out = new Float32Array(128 * 40);
+      for (let b = 0; b < 40; b++) out.set(render(1).L, b * 128);
+      render(200);
+      p.inst.noteOff(id);
+      render(400);
+      if (!first) { first = out; continue; }
+      const i = out.findIndex((v, j) => Math.abs(v - first[j]) > 1e-6);
+      assert.equal(i, -1, `${name}: note ${id} sounds like note 1 (sample ${i}: ${out[i]} vs ${first[i]})`);
+    }
+    root.destroy();
+  }
+  console.log('first note after load == later notes (Patch instances, ENVELOPE, AMP) ok');
+}
+
+// AMP: the first sound after load or a panic starts at the set gain, then glides as before
+for (const [name, K] of [['JS', KERNELS.amp], ['C++', WASM.amp]]) {
+  const run = (k) => {
+    const i = [new Float32Array(128).fill(1), new Float32Array(128).fill(1)];
+    const o = [new Float32Array(128), new Float32Array(128)];
+    k.process([i], [o]);
+    return o;
+  };
+  const k = new K({});
+  k.param('amp', 0.25);
+  assert.equal(run(k)[0][0], 0.25, `${name}: no glide from 1 on the first sound`);
+  k.param('amp', 0.5);
+  const o = run(k);
+  assert.ok(o[0][0] > 0.25 && o[0][0] < 0.5, `${name}: later changes still glide (${o[0][0]})`);
+  k.param('amp', 0.75);
+  k.panic();
+  assert.equal(run(k)[0][0], 0.75, `${name}: after a panic the next sound starts at the set gain`);
+}
+
 console.log('wasm tests passed');

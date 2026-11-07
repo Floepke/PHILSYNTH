@@ -257,9 +257,10 @@ assert.equal(k(t).set.length, n, 'value null = no modulation');
   kernel(trim).value = 0.4;
   render(2);
   assert.deepEqual(kernel(target).set.at(-1), ['x', 40], 'trim keeps updating without a note');
-  env.send({ type: 'curve', curve: { points: [{ x: 0, y: 0.25, r: 0 }, { x: 1, y: 1, r: 0 }] } });
+  // idle in Note ON Trigger mode = the curve's end (as after a finished note)
+  env.send({ type: 'curve', curve: { points: [{ x: 0, y: 1, r: 0 }, { x: 1, y: 0.25, r: 0 }] } });
   render();
-  assert.deepEqual(kernel(target).set.at(-1), ['x', 50], 'loaded nonzero start maps between both trims');
+  assert.deepEqual(kernel(target).set.at(-1), ['x', 50], 'loaded nonzero idle value maps between both trims');
   trim.routes([{ to: env.h, id: 'outMax', min: 0, max: 100 }]);
   kernel(trim).value = 1;
   render(2);

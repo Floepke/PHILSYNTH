@@ -2,7 +2,9 @@
 // audio clock. Every note (noteOn) plays the drawn curve (module state, { type: 'curve', curve })
 // once from its start, stretched over Envelope Length; afterwards it holds the curve's end value.
 // Its value (0..1) is mapped by the engine graph onto the controllers its cables point to. Until
-// the first note (and after a panic) it holds the curve's start value, so output trimming is live.
+// the first note (and after a panic) it holds its idle value, so output trimming is live: in Note
+// ON Trigger mode the curve's end (what a finished note leaves, so the first note after loading
+// behaves exactly like every later one), in the loop modes the curve's start.
 // A note starts the curve at its MODMIDI phase (0..1, e.g. a MULTIMIDI's Phase): 0 = the start,
 // 0.5 = halfway through (forward in ping-pong mode).
 // Mode (Graph param 'mode'):
@@ -30,15 +32,19 @@ export default class EnvelopeKernel extends Kernel {
     this.held = new Set(); // ids of the notes held (loop modes)
     this.running = false;
     this.triggered = false;
-    this.value = this.at(0);
+    this.value = this.idle();
     this.meter = -1;
   }
+
+  // the value before the first note (see the top)
+  idle() { return this.at(this.mode === 0 ? 1 : 0); }
 
   param(id, v) {
     if (id === 'length') this.length = Math.max(0, v) / 1000;
     else if (id === 'mode') {
       this.mode = Math.min(2, Math.max(0, Math.round(v)));
       if (this.mode !== 0 && this.running && !this.held.size) this.running = false;
+      if (!this.triggered) this.value = this.idle();
     }
   }
 
@@ -56,7 +62,7 @@ export default class EnvelopeKernel extends Kernel {
       case 'param': this.param(m.id, m.value); break;
       case 'curve':
         this.table = curveSamples(m.curve);
-        if (!this.triggered) this.value = this.at(0);
+        if (!this.triggered) this.value = this.idle();
         break;
       case 'noteOn': {
         const first = this.held.size === 0;
@@ -88,7 +94,7 @@ export default class EnvelopeKernel extends Kernel {
     this.triggered = false;
     this.pos = 0;
     this.dir = 1;
-    this.value = this.at(0);
+    this.value = this.idle();
     this.meter = -1;
   }
 
