@@ -6,6 +6,7 @@ import OperatorKernel from '../modules/operator.dsp.js';
 import FilterKernel from '../modules/filter.dsp.js';
 import ReverbKernel from '../modules/reverb.dsp.js';
 import AmpKernel from '../modules/amp.dsp.js';
+import FeedbackKernel from '../modules/feedback.dsp.js';
 import DcBlockKernel from '../modules/dcblock.dsp.js';
 import EqKernel from '../modules/eq.dsp.js';
 import WaveshaperKernel from '../modules/waveshaper.dsp.js';
@@ -36,6 +37,7 @@ export const KERNELS = {
   filter: FilterKernel,
   reverb: ReverbKernel,
   amp: AmpKernel,
+  feedback: FeedbackKernel,
   dcblock: DcBlockKernel,
   eq: EqKernel,
   waveshaper: WaveshaperKernel,

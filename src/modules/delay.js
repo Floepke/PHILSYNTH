@@ -1,8 +1,12 @@
 // Audio and MODMIDI share the LEFT DELAY time; RIGHT DELAY only affects audio.
 // MIDI events sample the current delay on arrival. Queued events retain their due time.
+// Delay Unit Note: the audio delay is one period of the newest incoming note (the kernel gets
+// the notes too); MIDI then passes without delay. For tuned FEEDBACK loops (plucked strings).
 import { newNoteId, captureMidiTrace, withMidiTrace } from '../modmidi.js';
 import { MidiQueue } from '../midiqueue.js';
-import { delayParam, delayUnitParam, delaySeconds } from './delaytime.js';
+import { DELAY_NOTE_UNITS, NOTE_UNIT, delayParam, delayUnitParam, delaySeconds } from './delaytime.js';
+
+const timed = { visible: (v) => (v.unit | 0) !== NOTE_UNIT };
 
 export default {
   type: 'DELAY',
@@ -14,9 +18,9 @@ export default {
   hasInput: true,
   hasOutput: true,
   params: [
-    delayUnitParam(),
-    delayParam('left', 'Left Delay'),
-    delayParam('right', 'Right Delay'),
+    delayUnitParam(DELAY_NOTE_UNITS),
+    delayParam('left', 'Left Delay', 250, timed),
+    delayParam('right', 'Right Delay', 250, timed),
   ],
   create(ctx, _def, host) {
     const node = host.dsp.create('delay');
@@ -93,6 +97,7 @@ export default {
       setBpm(value) { bpm = value; node.send({ type: 'bpm', value }); },
       noteOn(inId, pitch, velocity, phase = 0, time) {
         inst.noteOff(inId);
+        node.send({ type: 'noteOn', id: inId, pitch, velocity, phase });
         const note = {
           inId, id: newNoteId(), targets: [...inst.getMidiTargets()],
           trace: captureMidiTrace(),
@@ -104,6 +109,7 @@ export default {
         enqueue(note, 'noteOn', [pitch, velocity, phase, onset]);
       },
       noteMod(inId, pitch, velocity) {
+        node.send({ type: 'noteMod', notes: [[inId, pitch, velocity]] });
         const note = notes.get(inId);
         if (note && !note.cancelled) enqueue(note, 'noteMod', [pitch, velocity]);
       },

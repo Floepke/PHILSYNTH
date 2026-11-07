@@ -22,7 +22,8 @@ export default class EchoKernel extends Kernel {
 
   updateDelay() {
     // Feedback needs at least one sample of history, even at 0 ms.
-    this.target = Math.max(1, delaySeconds(this.p.delay, this.p.unit, this.bpm) * sampleRate);
+    const t = Math.max(1, delaySeconds(this.p.delay, this.p.unit, this.bpm) * sampleRate);
+    this.target = Math.min(this.line.ensure(t), t);
     if (!this.started) this.delay = this.target;
   }
 

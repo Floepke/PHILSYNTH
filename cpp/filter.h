@@ -9,7 +9,7 @@ namespace ms {
 struct Filter : Kernel {
   enum { TYPE, SLOPE, CUTOFF, RESONANCE, GAIN, VOWEL, DRIVE, LFO_SHAPE, LFO_RATE, LFO_DEPTH, MIX, LEVEL, PARAMS };
   enum { LP, HP, BP, NOTCH, PEAK, AP, BELL, LSHELF, HSHELF, LADDER, COMB_POS, COMB_NEG, FORMANT };
-  static constexpr int TAIL_BLOCKS = 8;
+  static constexpr int TAIL_SAMPLES = 8 * 128;  // counted in samples, see filter.dsp.js
   static constexpr int MAX_STAGES = 4;
   static constexpr int CHANNELS = 2;
   static constexpr double ANTI_DENORMAL = 1e-20;
@@ -97,7 +97,7 @@ struct Filter : Kernel {
 
   int process(const float* inL, const float* inR, float* outL, float* outR, int n) override {
     const bool live = inL != nullptr;
-    if (!live && quiet > TAIL_BLOCKS) {
+    if (!live && quiet > TAIL_SAMPLES) {
       memset(outL, 0, n * sizeof(float));
       if (outR != outL) memset(outR, 0, n * sizeof(float));
       return 0;
@@ -261,7 +261,7 @@ struct Filter : Kernel {
       double peak = 0;
       for (int c = 0; c < nProc; c++)
         for (int i = 0; i < n; i++) peak = maxd(peak, fabs(out[c][i]));
-      quiet = peak < 1e-6 ? quiet + 1 : 0;
+      quiet = peak < 1e-6 ? quiet + n : 0;
     }
     return 1;
   }

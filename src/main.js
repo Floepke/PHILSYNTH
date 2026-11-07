@@ -757,7 +757,7 @@ function toggleCable(patch, from, el) {
   const existing = patch.cables.find((c) => c.from === from.id && c.to === toId);
   const ok = existing ? (patch.disconnect(existing), true) : patch.connect(from.id, toId);
   if (!ok) {
-    $('status').textContent = 'Cannot connect (duplicate, loop, or this module has no input of that kind).';
+    $('status').textContent = 'Cannot connect (duplicate, a loop without two FEEDBACK modules in it, or this module has no input of that kind).';
     return false;
   }
   drawCables();

@@ -306,6 +306,18 @@ export const DOCS = {
     notes: [],
   },
 
+  FEEDBACK: {
+    summary: 'Feedback loop gain: makes sound loops possible. A cable may close a loop of sound cables only when the loop passes through at least two FEEDBACK modules; the loop then feeds its output back into itself, multiplied by every FEEDBACK of the loop.',
+    params: {
+      feedback: 'Gain of the signal going round, 0–1×. Starts at 0 (no feedback): raise it slowly, a loop can quickly get loud. The loop gain is the product of all FEEDBACK modules (and the other modules) in it.',
+    },
+    notes: [
+      'A loop is rendered sample by sample, so it adds only one sample of delay: short loops (combs, strings) are possible.',
+      'For safety the output is limited to ±2 (and a broken value to 0); MIDI loops stay impossible.',
+      'Plucked string (Karplus-Strong): MULTIMIDI → OSC (noise, very short envelope) and → DELAY (unit Note); OSC → DELAY → FILTER (low-pass) → FEEDBACK → FEEDBACK → back into DELAY, and DELAY → OUT. Raise both Feedback controllers towards 1: the higher the loop gain and the cutoff, the longer and brighter the string rings. The filter delays the loop a little, so the string sounds slightly flat (least with 12 dB/oct and a high cutoff).',
+    ],
+  },
+
   COMPRESSOR: {
     summary: 'Stereo-linked dynamics compressor with side chain: reduces the level of loud passages so the sound is more even and punchy, optionally keyed by another input (ducking).',
     params: {
@@ -330,15 +342,15 @@ export const DOCS = {
   },
 
   DELAY: {
-    summary: 'Pure delay for audio and MIDI: delays the left and right audio channels and every passing note, with no dry signal and no feedback. Use it to shift timing, for Haas stereo widening or to delay notes into other modules.',
+    summary: 'Pure delay for audio and MIDI: delays the left and right audio channels and every passing note, with no dry signal and no feedback of its own. Use it to shift timing, for Haas stereo widening, to delay notes into other modules, or as the tuned delay of a FEEDBACK loop (a plucked string).',
     params: {
       left: 'Delay of the left audio channel and of every MIDI message (0–10,000 ms, or a note length).',
       right: 'Delay of the right audio channel (0–10,000 ms, or a note length). Not used for MIDI.',
-      unit: SYNC_UNIT,
+      unit: `${SYNC_UNIT} Note follows the pitch of the incoming MIDI notes instead: the audio delay is one period of the newest note minus one sample (the one sample a FEEDBACK loop adds), so a loop through it rings at the note's pitch; notes pass undelayed and Left/Right are hidden.`,
     },
     notes: [
       'Its cables carry audio, MIDI, or both, depending on the destination. Notes keep their pitch, velocity and start phase.',
-      'Changing the delay affects new messages, not those already queued; audio delay changes glide to avoid clicks.',
+      'Changing the delay affects new messages, not those already queued; audio delay changes glide to avoid clicks (in Note mode a new note jumps to its period, pitch bends glide).',
     ],
   },
 

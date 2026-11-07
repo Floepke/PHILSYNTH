@@ -1,6 +1,6 @@
 // The small audio kernels, so a graph can run entirely in C++ (engine.cpp ms_run): the signal bus
 // (src/dsp/kernel.js BusKernel), AMP (src/modules/amp.dsp.js) and the Output module
-// (src/modules/out.dsp.js) and the DC BLOCKER (src/modules/dcblock.dsp.js). Twins of the JS kernels.
+// (src/modules/out.dsp.js), FEEDBACK (src/modules/feedback.dsp.js) and the DC BLOCKER (src/modules/dcblock.dsp.js). Twins of the JS kernels.
 #pragma once
 #include "kernel.h"
 
@@ -62,6 +62,46 @@ struct Amp : Kernel {
       }
     }
     return 1;
+  }
+};
+
+// FEEDBACK (src/modules/feedback.dsp.js): output = input × gain, smoothed per sample, limited to
+// ±LIMIT (NaN -> 0); silent at gain 0. Passive.
+struct Feedback : Kernel {
+  enum { FEEDBACK, PARAMS };
+  static constexpr double SMOOTH_S = 0.005;
+  static constexpr double LIMIT = 2, TINY = 1e-15;
+  double t = 0, g = 0, k;
+  bool started = false;
+
+  explicit Feedback(double sampleRate) : Kernel(sampleRate) { k = 1 - exp(-1 / (SMOOTH_S * sr)); }
+  void panic() override { started = false; }
+  void param(int id, double v) override {
+    if (id == FEEDBACK) t = v == v ? clampd(v, 0, 1) : 0;
+  }
+  static double limit(double y) { return y > LIMIT ? LIMIT : y < -LIMIT ? -LIMIT : y > TINY || y < -TINY ? y : 0; }
+
+  int process(const float* inL, const float* inR, float* outL, float* outR, int n) override {
+    if (!inL) return 0;
+    if (!started) { g = t; started = true; }
+    if (t == 0 && g == 0) return 0;
+    const float* r = inR ? inR : inL;
+    double gg = g;
+    bool live = false;
+    for (int i = 0; i < n; i++) {
+      if (gg != t) {
+        gg += (t - gg) * k;
+        if (fabs(gg - t) < 1e-6) gg = t;
+      }
+      const float l = outL[i] = (float)limit(inL[i] * gg);
+      if (outR != outL) {
+        const float rr = outR[i] = (float)limit(r[i] * gg);
+        if (rr != 0) live = true;
+      }
+      if (l != 0) live = true;
+    }
+    g = gg;
+    return live;
   }
 };
 

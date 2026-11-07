@@ -4,7 +4,9 @@
 import { Kernel } from '../dsp/kernel.js';
 import { newSvf, tickSvf } from '../dsp/svf.js';
 
-const TAIL_BLOCKS = 8; // silent render quanta before an input-less filter stops
+// silent samples (8 render quanta) before an input-less filter stops; counted in samples, so a
+// filter rendered sample by sample (inside a FEEDBACK loop) rings out as long
+const TAIL_SAMPLES = 8 * 128;
 const T = {
   LP: 0, HP: 1, BP: 2, NOTCH: 3, PEAK: 4, AP: 5, BELL: 6, LSHELF: 7, HSHELF: 8,
   LADDER: 9, COMB_POS: 10, COMB_NEG: 11, FORMANT: 12,
@@ -57,7 +59,7 @@ export default class FilterKernel extends Kernel {
     this.v2 = 0;
 
     this.zero = [new Float32Array(128), new Float32Array(128)];
-    this.quiet = 0; // render quanta without input and with a silent output (tail done)
+    this.quiet = 0; // samples without input and with a silent output (tail done)
     // coefficient caches: recomputed only when the smoothed values they depend on change (the
     // same values as computing them every sample; cpp/filter.h does the same)
     this.c = {
@@ -122,7 +124,7 @@ export default class FilterKernel extends Kernel {
     const n = output[0].length;
     if (!input || input.length === 0) {
       // no input: let the resonance / comb tail ring out, then go silent
-      if (this.quiet > TAIL_BLOCKS) {
+      if (this.quiet > TAIL_SAMPLES) {
         for (const ch of output) ch.fill(0);
         return false;
       }
@@ -287,7 +289,7 @@ export default class FilterKernel extends Kernel {
     else {
       let peak = 0;
       for (const ch of output) for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(ch[i]));
-      this.quiet = peak < 1e-6 ? this.quiet + 1 : 0;
+      this.quiet = peak < 1e-6 ? this.quiet + n : 0;
     }
     return true;
   }

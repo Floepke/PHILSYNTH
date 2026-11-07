@@ -1,4 +1,5 @@
 import { getModule } from './modules/index.js';
+import { FEEDBACK_MIN_IN_LOOP } from './modules/feedback.js';
 import { fromNorm, paramsOf } from './params.js';
 import { normalizeSong } from './song.js';
 import { cleanColor } from './modcolor.js';
@@ -508,16 +509,34 @@ export class PatchRuntime {
   }
 
   reaches(from, to) {
-    const seen = new Set();
-    const walk = (id) => {
-      if (id === to) return true;
-      if (seen.has(id)) return false;
-      seen.add(id);
-      const a = this.modules.get(id);
-      const through = (c) => !a?.def.modulator || this.audioLinks.has(c); // tremolo LFO cables carry sound
-      return this.cables.some((c) => c.from === id && through(c) && walk(c.to));
-    };
-    return walk(from);
+    return this.feedbackOnPath(from, to) < Infinity;
+  }
+
+  // whether cable `c` passes sound or notes on (control cables don't; tremolo LFO cables carry sound)
+  passesOn(c) {
+    return !this.modules.get(c.from)?.def.modulator || this.audioLinks.has(c);
+  }
+
+  // The fewest FEEDBACK modules on any cable path from module `from` to module `to` (sound or
+  // MIDI, not control), both ends counted; Infinity: no path. A cable to -> from closes a loop
+  // over every such path, so a sound cable is allowed when this is at least FEEDBACK_MIN_IN_LOOP.
+  feedbackOnPath(from, to) {
+    const cost = (id) => (this.modules.get(id)?.def.feedback ? 1 : 0);
+    const best = new Map([[from, cost(from)]]);
+    const queue = [from]; // 0-1 breadth-first search: FEEDBACK modules cost 1, others 0
+    while (queue.length) {
+      const id = queue.shift();
+      const d = best.get(id);
+      for (const c of this.cables) {
+        if (c.from !== id || !this.passesOn(c)) continue;
+        const w = cost(c.to);
+        if (d + w >= (best.get(c.to) ?? Infinity)) continue;
+        best.set(c.to, d + w);
+        if (w) queue.push(c.to);
+        else queue.unshift(c.to);
+      }
+    }
+    return best.get(to) ?? Infinity;
   }
 
   // true if a MIDI processor is cabled into this module
@@ -556,7 +575,9 @@ export class PatchRuntime {
     } else {
       const signals = this.signals(a, b);
       if (!signals.audio && !signals.midi && !signals.mod) return false;
-      if ((signals.audio || signals.midi) && this.reaches(toId, fromId)) return false; // audio or notes would circle forever
+      // a loop must be a pure sound loop through enough FEEDBACK modules (notes would circle forever)
+      const loop = this.feedbackOnPath(toId, fromId);
+      if (loop < Infinity && (signals.midi || loop < FEEDBACK_MIN_IN_LOOP)) return false;
       if (signals.audio) a.inst.node.connect(b.inst.input);
     }
     this.cables.push(cable);

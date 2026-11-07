@@ -13,19 +13,52 @@ inline double delayPeriod(double value) {
   return best;
 }
 
+constexpr int NOTE_UNIT = 4;  // DELAY: one period of the newest note (src/modules/delaytime.js)
+
+inline double notePeriodSamples(double pitch, double sr) {
+  return maxd(0, sr / (440 * pow(2, (pitch - 69) / 12)) - 1);
+}
+
 inline double delaySeconds(double value, int unit, double bpm) {
   static const double beats[] = {0, 1, 0.5, 0.25};
+  if (unit == NOTE_UNIT) return 0;
   value = clampd(value, 0, 10000);
   return unit ? delayPeriod(value) * beats[unit] * 60 / clampd(bpm, 20, 1000) : value / 1000;
 }
 
+// Grows on demand like src/dsp/delayline.js: starts with 1 s, ensure() (never called while
+// rendering) at least doubles it, up to 192 s, keeping the content.
 struct DelayLine {
-  int length, pos = 0;
+  int length, max, pos = 0;
   float* buffers[2];
-  explicit DelayLine(double sr) : length((int)ceil(sr * 192) + 2) {
+  explicit DelayLine(double sr) : max((int)ceil(sr * 192) + 2) {
+    length = (int)mind(max, ceil(sr * 1) + 2);
     for (auto& b : buffers) b = (float*)calloc(length, sizeof(float));
   }
   ~DelayLine() { for (auto b : buffers) free(b); }
+
+  // room for a delay of `samples`; returns the longest delay the line can read
+  double ensure(double samples) {
+    const int need = (int)mind(max, ceil(samples == samples && !isinf(samples) ? samples : 0) + 2);
+    if (need > length) {
+      const int len = (int)mind(max, maxd(need, 2.0 * length));
+      float* nb[2] = {(float*)calloc(len, sizeof(float)), (float*)calloc(len, sizeof(float))};
+      if (nb[0] && nb[1]) {
+        for (int c = 0; c < 2; c++) {
+          memcpy(nb[c], buffers[c] + pos, (length - pos) * sizeof(float));
+          memcpy(nb[c] + (length - pos), buffers[c], pos * sizeof(float));
+          free(buffers[c]);
+          buffers[c] = nb[c];
+        }
+        pos = length;
+        length = len;
+      } else {
+        free(nb[0]);
+        free(nb[1]);
+      }
+    }
+    return length - 2;
+  }
 
   double read(int channel, double delay) const {
     double at = pos - delay;
@@ -47,20 +80,31 @@ struct Delay : Kernel {
   double p[PARAMS] = {250, 250, 0};
   double bpm = 120, delay[2] = {}, target[2] = {}, smooth;
   bool started = false;
+  double pitch = 60, noteId = NAN;  // newest note (Note unit)
   DelayLine line;
 
   explicit Delay(double sr) : Kernel(sr), smooth(1 - exp(-1 / (0.004 * sr))), line(sr) { updateDelay(); }
-  void updateDelay() {
+  void updateDelay(bool jump = false) {
     for (int ch = 0; ch < 2; ch++) {
-      target[ch] = delaySeconds(p[ch], (int)p[UNIT], bpm) * sr;
-      if (!started) delay[ch] = target[ch];
+      target[ch] = (int)p[UNIT] == NOTE_UNIT ? notePeriodSamples(pitch, sr) : delaySeconds(p[ch], (int)p[UNIT], bpm) * sr;
+    }
+    const double most = line.ensure(maxd(target[0], target[1]));
+    for (int ch = 0; ch < 2; ch++) {
+      target[ch] = mind(most, target[ch]);
+      if (!started || jump) delay[ch] = target[ch];
     }
   }
   void tempo(double value) override { bpm = value; updateDelay(); }
   void param(int id, double value) override {
     if (id < 0 || id >= PARAMS) return;
-    p[id] = id == UNIT ? clampd(toInt32(value), 0, 3) : value;
+    p[id] = id == UNIT ? clampd(toInt32(value), 0, NOTE_UNIT) : value;
     updateDelay();
+  }
+  void note(int type, double id, double notePitch, double, double) override {
+    if (type == NOTE_ON) noteId = id;
+    else if (type != NOTE_MOD || id != noteId) return;
+    pitch = notePitch == notePitch ? notePitch : 0;
+    if ((int)p[UNIT] == NOTE_UNIT) updateDelay(type == NOTE_ON);
   }
   void panic() override { line.clear(); }
   int process(const float* inL, const float* inR, float* outL, float* outR, int n) override {
@@ -92,7 +136,8 @@ struct Echo : Kernel {
 
   explicit Echo(double sr) : Kernel(sr), smooth(1 - exp(-1 / (0.004 * sr))), logF(log2(4000)), line(sr) { updateDelay(); }
   void updateDelay() {
-    target = maxd(1, delaySeconds(p[DELAY], (int)p[UNIT], bpm) * sr);
+    const double t = maxd(1, delaySeconds(p[DELAY], (int)p[UNIT], bpm) * sr);
+    target = mind(line.ensure(t), t);
     if (!started) delay = target;
   }
   double cutoffLog() const { return log2(maxd(20, mind(mind(20000, sr * 0.45), p[CUTOFF]))); }

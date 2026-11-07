@@ -15,6 +15,13 @@
 //      Carrier-aware kernels receive their chosen source separately from the sum of the rest.
 //   SOUND2CTL and its audio sources also render when routed; its sampled voltage is applied
 //   after step 2 for the next quantum (control feedback is therefore one block delayed).
+//   Sound loops (a cable may close one through two or more FEEDBACK modules, see src/patch.js)
+//   render sample by sample: the nodes of a loop (a strongly connected part of the order) form a
+//   group rendered at the place of its last member, each member one sample at a time in order. A
+//   source that is a later member (or the node itself) gives its previous sample, so a loop adds
+//   exactly one sample of delay. Per sample the rules above apply (silent sources skipped,
+//   passive nodes without a live source skipped); a silent sample is written as 0 and liveAt[]
+//   remembers which samples were live.
 // Changed modulated values are collected and sent to the main thread by report() (for display).
 //
 // Messages (arrays, batched by the host): ['add', h, kind, opts] ['del', h] ['con', from, to]
@@ -53,6 +60,7 @@ export class Graph {
     this.prog = 0; // native render program (heap pointer) or 0
     this.nodes = new Map();
     this.order = []; // audio nodes reaching the master bus, sources first
+    this.plan = []; // the order with sound loops as groups (see loops())
     this.mods = []; // modulator nodes
     this.dirty = true;
     this.clock = false;
@@ -103,6 +111,12 @@ export class Graph {
       sumPtr: 0,
       rec: 0, // native: the node's GNode record
       silent: true,
+      loop: null, // the sound-loop group the node renders in (see loops()), or null
+      rank: 0, // its place in that group
+      loopSrcs: null, // per source { s, inner: in the group, back: gives its previous sample }
+      liveAt: null, // in a loop: which samples of outs were live (Uint8Array(BLOCK))
+      one: null, // in a loop: one-sample input / carrier / output buffers (see oneBuffers)
+      onePtr: 0,
       routes: [], // modulators: [{ node, id, min, max, scale, step, lo, hi, last }]
       depth: { outMin: 0, outMax: 100, amp: 100, outSmooth: 0 }, // modulators: mapping controllers
       values: {}, // last controller values, also the starting point of a new smoothed route
@@ -124,11 +138,18 @@ export class Graph {
     return [[this.heap.f32(ptr, BLOCK), this.heap.f32(ptr + BLOCK * 4, BLOCK)]];
   }
 
+  // one-sample buffers of a loop node: input L/R, carrier L/R, output L/R (6 floats at ptr)
+  oneBuffers(ptr) {
+    const [inL, inR, carL, carR, outL, outR] = [0, 1, 2, 3, 4, 5].map((k) => (this.heap ? this.heap.f32(ptr + k * 4, 1) : new Float32Array(1)));
+    return { inL, inR, ins: [[inL, inR]], car: [carL, carR], outL, outR, outs: [[outL, outR]] };
+  }
+
   // the wasm memory grew: views made before are detached
   remap() {
     for (const n of this.nodes.values()) {
       n.outs = this.stereo(n.outPtr);
       if (n.sums) n.sums = this.stereo(n.sumPtr);
+      if (n.one) n.one = this.oneBuffers(n.onePtr);
     }
   }
 
@@ -141,6 +162,7 @@ export class Graph {
     if (this.heap) {
       this.heap.free(node.outPtr);
       this.heap.free(node.sumPtr);
+      this.heap.free(node.onePtr);
     }
     for (const s of [...node.srcs]) this.disconnect(s.h, h);
     for (const d of [...node.dsts]) this.disconnect(h, d.h);
@@ -189,6 +211,7 @@ export class Graph {
       n.k.panic?.();
       for (const bufs of [n.outs, n.sums]) if (bufs) for (const [l, r] of bufs) { l.fill(0); r.fill(0); }
       n.silent = true;
+      n.liveAt?.fill(0);
       if (n.rec) this.x.ms_node_set_silent(n.rec, 1);
     }
   }
@@ -229,6 +252,7 @@ export class Graph {
     // Audio-driven controllers need their sources even if no audio cable reaches the Output.
     for (const n of this.nodes.values()) if (n.audioInput && n.routes.length) visit(n);
     this.order = order;
+    this.plan = this.loops(order);
     this.mods = [...this.nodes.values()].filter((n) => n.modulator);
     for (const n of this.nodes.values()) if (!seen.has(n)) n.silent = true;
     // summing buffers up front: render() must not allocate (a growing heap detaches the views)
@@ -243,13 +267,120 @@ export class Graph {
     if (x && order.every((n) => n.rec)) {
       // Non-native sources outside the render order are silent placeholders, so carrier
       // input numbering stays the same in native and mixed graphs.
-      const words = [order.length];
-      for (const n of order) {
-        words.push(n.rec, n.srcs.length, ...n.srcs.map((s) => s.rec));
+      // A loop group is [0, member count, then per member: GNode*, source count, and per source
+      // GNode* and 0 outside the group / 1 inside / 2 inside, previous sample].
+      const words = [this.plan.length];
+      for (const e of this.plan) {
+        if (!e.members) {
+          words.push(e.rec, e.srcs.length, ...e.srcs.map((s) => s.rec));
+          continue;
+        }
+        words.push(0, e.members.length);
+        for (const n of e.members) {
+          words.push(n.rec, n.loopSrcs.length);
+          for (const l of n.loopSrcs) words.push(l.s.rec, l.inner ? (l.back ? 2 : 1) : 0);
+        }
       }
       this.prog = this.heap.alloc(words.length * 4);
       new Int32Array(this.heap.memory.buffer, this.prog, words.length).set(words);
       for (const n of this.nodes.values()) if (n.rec) x.ms_node_set_silent(n.rec, n.silent ? 1 : 0);
+    }
+    // like ms_node_set_silent: only the last sample of the previous block counts as live (it is
+    // what a source back in a loop gives first)
+    for (const n of this.nodes.values()) {
+      if (!n.liveAt) continue;
+      n.liveAt.fill(0);
+      n.liveAt[BLOCK - 1] = n.silent ? 0 : 1;
+    }
+  }
+
+  // The render plan: the order with every sound loop (a strongly connected part, Tarjan) replaced
+  // by one group { members } at the place of its last member. Depth-first order puts every
+  // source of a group from outside before that place, and no node between two members depends
+  // on a member (it would be part of the loop).
+  loops(order) {
+    const at = new Map(order.map((n, i) => [n, i]));
+    for (const n of this.nodes.values()) { n.loop = null; n.loopSrcs = null; }
+    const num = new Map();
+    const low = new Map();
+    const stack = [];
+    const on = new Set();
+    const groups = [];
+    const strong = (n) => {
+      num.set(n, num.size);
+      low.set(n, num.get(n));
+      stack.push(n);
+      on.add(n);
+      for (const s of n.srcs) {
+        if (!at.has(s)) continue;
+        if (!num.has(s)) {
+          strong(s);
+          low.set(n, Math.min(low.get(n), low.get(s)));
+        } else if (on.has(s)) low.set(n, Math.min(low.get(n), num.get(s)));
+      }
+      if (low.get(n) !== num.get(n)) return;
+      const part = [];
+      let m;
+      do { m = stack.pop(); on.delete(m); part.push(m); } while (m !== n);
+      if (part.length > 1 || n.srcs.includes(n)) groups.push(part);
+    };
+    for (const n of order) if (!num.has(n)) strong(n);
+    if (!groups.length) return order;
+    const last = new Map();
+    for (const part of groups) {
+      const members = part.sort((a, b) => at.get(a) - at.get(b));
+      const group = { members };
+      members.forEach((n, i) => { n.loop = group; n.rank = i; });
+      for (const n of members) {
+        n.loopSrcs = n.srcs.map((s) => ({ s, inner: s.loop === group, back: s.loop === group && s.rank >= n.rank }));
+        if (!n.one) {
+          if (this.heap) n.onePtr = this.heap.alloc(6 * 4);
+          n.one = this.oneBuffers(n.onePtr);
+          n.liveAt = new Uint8Array(BLOCK);
+        }
+      }
+      last.set(members[members.length - 1], group);
+    }
+    const plan = [];
+    for (const n of order) {
+      if (!n.loop) plan.push(n);
+      else if (last.has(n)) plan.push(last.get(n));
+    }
+    return plan;
+  }
+
+  // One sound-loop group, sample by sample (see the header).
+  renderLoop({ members }) {
+    for (const n of members) n.silent = true;
+    for (let i = 0; i < BLOCK; i++) {
+      const prev = i ? i - 1 : BLOCK - 1;
+      for (const n of members) {
+        const o = n.one;
+        const carrier = n.carrierInputs ? n.srcs[n.k.carrier] : null;
+        let live = 0;
+        let carried = false;
+        o.inL[0] = 0;
+        o.inR[0] = 0;
+        for (const { s, inner, back } of n.loopSrcs) {
+          const j = back ? prev : i;
+          if (inner ? !s.liveAt[j] : s.silent) continue;
+          const [a, b] = s.outs[0];
+          if (s === carrier) { o.car[0][0] = a[j]; o.car[1][0] = b[j]; carried = true; }
+          else { o.inL[0] += a[j]; o.inR[0] += b[j]; live++; }
+        }
+        let on;
+        if (n.carrierInputs) {
+          n.carrierInputs[0] = carried ? o.car : NO_INPUT[0];
+          n.carrierInputs[1] = live ? o.ins[0] : NO_INPUT[0];
+          on = n.k.process(n.carrierInputs, o.outs) !== false;
+        } else if (!live && (n.passive || n.k.dormant)) on = false;
+        else on = n.k.process(live ? o.ins : NO_INPUT, o.outs) !== false;
+        const [L, R] = n.outs[0];
+        L[i] = on ? o.outL[0] : 0;
+        R[i] = on ? o.outR[0] : 0;
+        n.liveAt[i] = on ? 1 : 0;
+        if (on) n.silent = false;
+      }
     }
   }
 
@@ -297,7 +428,8 @@ export class Graph {
     // A modulated wavetable Block Size can replace its prepared layout and grow the heap.
     if (this.heap?.grown()) this.remap();
     if (this.prog) this.master.silent = !this.x.ms_run(this.prog, BLOCK);
-    else for (const n of this.order) {
+    else for (const n of this.plan) {
+      if (n.members) { this.renderLoop(n); continue; }
       if (n.carrierInputs) {
         const carrier = n.srcs[n.k.carrier];
         let live = 0;

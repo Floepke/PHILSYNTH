@@ -26,10 +26,10 @@ void operator delete(void* p, __SIZE_TYPE__) noexcept { free(p); }
 
 using namespace ms;
 
-enum Kind { KIND_OSC = 1, KIND_FILTER = 2, KIND_REVERB = 3, KIND_WAVESHAPER = 4, KIND_BUS = 5, KIND_AMP = 6, KIND_OUT = 7, KIND_DCBLOCK = 8, KIND_EQ = 9, KIND_DELAY = 10, KIND_ECHO = 11, KIND_MODULATOR = 12, KIND_OPERATOR = 13, KIND_IMAGESAMPLER = 14, KIND_DISTORTION = 15, KIND_VIBRATO = 16, KIND_SAMPLER = 17, KIND_WAVETABLE = 18 };
+enum Kind { KIND_OSC = 1, KIND_FILTER = 2, KIND_REVERB = 3, KIND_WAVESHAPER = 4, KIND_BUS = 5, KIND_AMP = 6, KIND_OUT = 7, KIND_DCBLOCK = 8, KIND_EQ = 9, KIND_DELAY = 10, KIND_ECHO = 11, KIND_MODULATOR = 12, KIND_OPERATOR = 13, KIND_IMAGESAMPLER = 14, KIND_DISTORTION = 15, KIND_VIBRATO = 16, KIND_SAMPLER = 17, KIND_WAVETABLE = 18, KIND_FEEDBACK = 19 };
 
 // Bumped when the API changes; src/dsp/wasm.js refuses other versions.
-EXPORT(ms_version) int ms_version() { return 18; }
+EXPORT(ms_version) int ms_version() { return 20; }
 
 EXPORT(ms_param_count) int ms_param_count(int kind) {
   switch (kind) {
@@ -45,6 +45,7 @@ EXPORT(ms_param_count) int ms_param_count(int kind) {
     case KIND_WAVETABLE: return Wavetable::PARAMS;
     case KIND_BUS: return Bus::PARAMS;
     case KIND_AMP: return Amp::PARAMS;
+    case KIND_FEEDBACK: return Feedback::PARAMS;
     case KIND_OUT: return Out::PARAMS;
     case KIND_DCBLOCK: return DcBlock::PARAMS;
     case KIND_EQ: return Eq::PARAMS;
@@ -73,6 +74,7 @@ EXPORT(ms_create) Kernel* ms_create(int kind, double sampleRate, int salt, uint3
     case KIND_WAVETABLE: return new Wavetable(sampleRate);
     case KIND_BUS: return new Bus(sampleRate);
     case KIND_AMP: return new Amp(sampleRate);
+    case KIND_FEEDBACK: return new Feedback(sampleRate);
     case KIND_OUT: return new Out(sampleRate);
     case KIND_DCBLOCK: return new DcBlock(sampleRate);
     case KIND_EQ: return new Eq(sampleRate);
@@ -131,6 +133,10 @@ EXPORT(ms_process_modulated) int ms_process_modulated(Kernel* k, const float* in
 // place, several are summed into the node's sum buffer, a passive node without live sources is
 // skipped and stays silent.
 // Carrier-aware nodes select one source by index and only sum the other sources.
+// A sound loop is one entry [0, member count, then per member: GNode*, source count, and per
+// source GNode* and 0 outside the loop / 1 inside / 2 inside, previous sample]; its members
+// render sample by sample (see renderLoop and the header of src/dsp/graph.js).
+constexpr int MAX_BLOCK = 128;
 struct GNode {
   Kernel* k;
   float* out;  // [L | R], n samples each
@@ -138,6 +144,7 @@ struct GNode {
   int32_t passive;
   int32_t silent;
   int32_t carrierInput;
+  uint8_t liveAt[MAX_BLOCK];  // in a loop: which samples of out were live
 };
 
 EXPORT(ms_node) GNode* ms_node(Kernel* k, float* out, int flags) {
@@ -153,7 +160,71 @@ EXPORT(ms_node) GNode* ms_node(Kernel* k, float* out, int flags) {
 EXPORT(ms_node_free) void ms_node_free(GNode* g) { free(g); }
 EXPORT(ms_node_sum) void ms_node_sum(GNode* g, float* sum) { g->sum = sum; }
 EXPORT(ms_node_silent) int ms_node_silent(GNode* g) { return g->silent; }
-EXPORT(ms_node_set_silent) void ms_node_set_silent(GNode* g, int s) { g->silent = s; }
+// like Graph.rebuild(): only the last sample of the previous block counts as live in a loop
+EXPORT(ms_node_set_silent) void ms_node_set_silent(GNode* g, int s) {
+  g->silent = s;
+  memset(g->liveAt, 0, sizeof g->liveAt);
+  g->liveAt[MAX_BLOCK - 1] = s ? 0 : 1;
+}
+
+// One sound loop (the program entry after its 0), sample by sample; returns the entry's end.
+static const int32_t* renderLoop(const int32_t* p, int n, GNode** last) {
+  const int members = p[0];
+  const int32_t* start = p + 1;
+  p = start;
+  for (int m = 0; m < members; m++) {
+    GNode* g = (GNode*)(uintptr_t)p[0];
+    g->silent = 1;
+    p += 2 + 2 * p[1];
+  }
+  const int32_t* end = p;
+  for (int i = 0; i < n; i++) {
+    const int prev = i ? i - 1 : n - 1;
+    for (p = start; p < end;) {
+      GNode* g = (GNode*)(uintptr_t)p[0];
+      const int nsrc = p[1];
+      const int32_t* srcs = p + 2;
+      p += 2 + 2 * nsrc;
+      *last = g;
+      GNode* carrier = nullptr;
+      if (g->carrierInput) {
+        int index = g->k->carrier();
+        if (index >= 0 && index < nsrc) carrier = (GNode*)(uintptr_t)srcs[2 * index];
+      }
+      float in[2] = {0, 0};
+      float car[2] = {0, 0};
+      float out[2] = {0, 0};
+      int live = 0;
+      bool carried = false;
+      for (int s = 0; s < nsrc; s++) {
+        GNode* src = (GNode*)(uintptr_t)srcs[2 * s];
+        const int where = srcs[2 * s + 1];
+        const int j = where == 2 ? prev : i;
+        if (!src || (where ? !src->liveAt[j] : src->silent)) continue;
+        if (src == carrier) {
+          car[0] = src->out[j];
+          car[1] = src->out[n + j];
+          carried = true;
+        } else {
+          in[0] += src->out[j];
+          in[1] += src->out[n + j];
+          live++;
+        }
+      }
+      bool on;
+      if (!live && g->passive) on = false;
+      else if (!live && !carried && g->k->dormant()) on = false;
+      else if (g->carrierInput)
+        on = g->k->processModulated(carried ? car : nullptr, carried ? car + 1 : nullptr, live ? in : nullptr, live ? in + 1 : nullptr, out, out + 1, 1) != 0;
+      else on = g->k->process(live ? in : nullptr, live ? in + 1 : nullptr, out, out + 1, 1) != 0;
+      g->out[i] = on ? out[0] : 0;
+      g->out[n + i] = on ? out[1] : 0;
+      g->liveAt[i] = on;
+      if (on) g->silent = 0;
+    }
+  }
+  return end;
+}
 
 // Returns 1 when the last node (the master bus) has sound.
 EXPORT(ms_run) int ms_run(const int32_t* prog, int n) {
@@ -161,6 +232,10 @@ EXPORT(ms_run) int ms_run(const int32_t* prog, int n) {
   const int32_t* p = prog + 1;
   GNode* last = nullptr;
   for (int c = 0; c < count; c++) {
+    if (!p[0]) {
+      p = renderLoop(p + 1, n, &last);
+      continue;
+    }
     GNode* g = (GNode*)(uintptr_t)p[0];
     const int nsrc = p[1];
     const int32_t* srcs = p + 2;

@@ -1,0 +1,149 @@
+{
+  "format": "philsynth-module",
+  "version": 1,
+  "modules": [
+    {
+      "id": 8,
+      "type": "PATCH",
+      "x": 934,
+      "y": 506,
+      "values": {
+        "inputModule": 1,
+        "instances": 16
+      },
+      "color": null,
+      "name": "Carpulus Strong",
+      "state": {
+        "maps": []
+      },
+      "patch": {
+        "modules": [
+          {
+            "id": 0,
+            "type": "OUT",
+            "x": 874,
+            "y": 81,
+            "values": {
+              "bpm": 120,
+              "transpose": 0,
+              "cents": 0,
+              "volume": 0.8
+            },
+            "color": null,
+            "state": {
+              "songName": "",
+              "creator": "",
+              "comment": ""
+            }
+          },
+          {
+            "id": 1,
+            "type": "MULTIMIDI",
+            "x": 117,
+            "y": 170,
+            "values": {
+              "routeMode": 0,
+              "transpose": 0,
+              "finetune": 0,
+              "overtone": 0,
+              "drift": 0,
+              "driftFreq": 1,
+              "velSense": 1,
+              "velocity": 1,
+              "velDrift": 0,
+              "velDriftFreq": 1,
+              "phase": 0,
+              "randomPhase": 0,
+              "randomDelay": 0
+            },
+            "color": null
+          },
+          {
+            "id": 2,
+            "type": "OSC",
+            "x": 296,
+            "y": 42,
+            "values": {
+              "polyphony": 8,
+              "wave": 5,
+              "duty": 50,
+              "attack": 0.001,
+              "decay": 0.437,
+              "sustain": 0,
+              "release": 0.437,
+              "atkCurve": 100,
+              "decCurve": 100,
+              "relCurve": 100,
+              "gain": 0.5
+            },
+            "color": null
+          },
+          {
+            "id": 4,
+            "type": "FEEDBACK",
+            "x": 564,
+            "y": 220,
+            "values": {
+              "feedback": 1
+            },
+            "color": null
+          },
+          {
+            "id": 5,
+            "type": "FEEDBACK",
+            "x": 568,
+            "y": 380,
+            "values": {
+              "feedback": 0.995
+            },
+            "color": null
+          },
+          {
+            "id": 7,
+            "type": "DELAY",
+            "x": 359,
+            "y": 222,
+            "values": {
+              "unit": 4,
+              "left": 250,
+              "right": 250
+            },
+            "color": null
+          }
+        ],
+        "cables": [
+          {
+            "from": 1,
+            "to": 2
+          },
+          {
+            "from": 1,
+            "to": 7
+          },
+          {
+            "from": 7,
+            "to": 4
+          },
+          {
+            "from": 5,
+            "to": 0
+          },
+          {
+            "from": 4,
+            "to": 5
+          },
+          {
+            "from": 2,
+            "to": 4
+          },
+          {
+            "from": 5,
+            "to": 7
+          }
+        ],
+        "midiLock": 1
+      }
+    }
+  ],
+  "cables": []
+}
