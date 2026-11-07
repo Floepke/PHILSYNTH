@@ -3280,9 +3280,10 @@ for (const notes of [
   let viewChanges = 0;
   let panics = 0;
   const engine = { song, resume() {}, panic() { panics++; }, root: { modules: new Map(), listeners: new Set() } };
+  let picked = null; // the module selected in the patcher (main.js selectedTarget)
   const seq = createSequencer({
     engine,
-    transport, getTarget: () => null, defaultTarget: () => null, onChange() { viewChanges++; },
+    transport, getTarget: () => null, defaultTarget: () => null, selectedTarget: () => picked, onChange() { viewChanges++; },
   });
   seq.reload();
   flush();
@@ -3569,6 +3570,17 @@ for (const notes of [
     point(cv, 'dblclick', ax(13), ay(0));
     assert.equal(song.clips.length, count + 1, 'double-clicking empty space still creates a clip');
     assert.deepEqual([seq.viewState().top, seq.viewState().bottom], [0.37, 0.81], 'creating a clip does not maximize');
+    // a new clip plays the module selected in the patcher, before the selected clip's module
+    midi.target = 3;
+    song.selected = midi.id;
+    picked = 5;
+    point(cv, 'dblclick', ax(19), ay(0));
+    assert.equal(song.clips.find((c) => c.id === song.selected).target, 5, 'new clip -> the selected module');
+    picked = null;
+    song.selected = midi.id;
+    point(cv, 'dblclick', ax(25), ay(0));
+    assert.equal(song.clips.find((c) => c.id === song.selected).target, 3, 'no module chosen: the selected clip\'s module');
+    seq.applyView({ top: 0.37, bottom: 0.81 });
     song.clips = [];
     song.selected = null;
     seq.reload(); flush();

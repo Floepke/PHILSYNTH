@@ -81,6 +81,21 @@ function followedEntry(rt) {
   return h.at(-1) ?? null;
 }
 const layerMidi = (rt) => lockedEntry(rt) ?? followedEntry(rt);
+// New clips (double-click / Insert clip in the TimeLine) play the module selected in the patcher
+// when it takes notes, else the one of its layer selected last that does and still exists (any
+// module that takes MIDI, also when the MIDI badge locks live MIDI elsewhere).
+let clipFollowed = new WeakMap(); // runtime -> module numbers selected there, most recent last (reset per project)
+const playsClips = (rt, id) => !!rt.modules.get(id)?.def.acceptsMidi;
+function followClips(entry) {
+  const rt = current();
+  if (!entry.def.acceptsMidi || rt.modules.get(entry.id) !== entry) return;
+  clipFollowed.set(rt, [...(clipFollowed.get(rt) ?? []).filter((id) => id !== entry.id), entry.id]);
+}
+function clipTarget(rt) {
+  const h = clipFollowed.get(rt) ?? [];
+  while (h.length && !playsClips(rt, h.at(-1))) h.pop();
+  return h.at(-1) ?? null;
+}
 const midiTarget = () => {
   for (let i = path.length - 1; i >= 0; i--) {
     const t = layerMidi(path[i].patch);
@@ -300,6 +315,7 @@ function applyView(view) {
 async function openProject(data, view) {
   transport.stop();
   const load = () => persist.pause(() => engine.loadProject(data));
+  clipFollowed = new WeakMap(); // module numbers of the old project mean other modules now
   if (undoHistory) await undoHistory.suspend(load);
   else await load();
   seq.reload();
@@ -1193,6 +1209,7 @@ function showMidiTarget() {
 function select(s) {
   sel = s;
   if (s?.kind === 'module' && takesLiveMidi(s.entry.def)) setMidiTarget(s.entry);
+  if (s?.kind === 'module') followClips(s.entry);
   const chosen = new Set(selectedEntries().map((m) => m.el));
   document.querySelectorAll('.module:not(.ghost)').forEach((el) => el.classList.toggle('selected', chosen.has(el)));
   showMidiTarget();
@@ -1679,7 +1696,9 @@ seq = createSequencer({
   getTarget: (id) => targetIn(shown())(id),
   liveTarget: () => liveMidiEntry()?.inst ?? null,
   pitchOffset,
-  // new clips play this level's MIDI module, else its first module that takes MIDI
+  // new clips play the module selected in the patcher (or the last selected one that takes MIDI)
+  selectedTarget: () => clipTarget(shown()),
+  // without one: this level's MIDI module, else its first module that takes MIDI
   defaultTarget() {
     return layerMidi(shown())?.id ?? [...shown().modules.values()].find((e) => e.def.acceptsMidi)?.id ?? null;
   },

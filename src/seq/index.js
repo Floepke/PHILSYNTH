@@ -20,11 +20,12 @@ import { createHoverToolbar } from './toolbar.js';
 const NO_COLOR = '#8a8a92';
 
 // engine: Engine (song, root patch); transport: Transport; getTarget(moduleNumber) -> instance;
-// defaultTarget() -> module number for new clips; defaultAutoTarget() -> module number (or null)
-// for new automation clips; onChange() after every edit.
+// defaultTarget() -> module number for new clips; selectedTarget() -> module number (or null) a
+// new clip plays before all else (the module selected in the patcher, see main.js);
+// defaultAutoTarget() -> module number (or null) for new automation clips; onChange() after every edit.
 // getSong() / getPatch(): the layer shown (a Patch has its own TimeLine for its own modules);
 // default: the main song and patch. Call setLayer() after the shown layer changed.
-export function createSequencer({ engine, transport, getSong = null, getPatch = null, getTarget, liveTarget = () => null, pitchOffset = () => 0, defaultTarget, defaultAutoTarget = () => null, onChange, undoHistory }) {
+export function createSequencer({ engine, transport, getSong = null, getPatch = null, getTarget, liveTarget = () => null, pitchOffset = () => 0, defaultTarget, selectedTarget = () => null, defaultAutoTarget = () => null, onChange, undoHistory }) {
   const $ = (id) => document.getElementById(id);
   const seq = $('seq');
   const ui = {
@@ -53,7 +54,7 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
       const p = paramsOf(e)[c.controller];
       return `→ #${c.target} ${nameOf(e)} · ${c.controller} ${p?.label ?? '(missing)'}`;
     },
-    defaultTarget: () => (isAuto(clip()) ? null : clip()?.target) ?? defaultTarget(),
+    defaultTarget: () => selectedTarget() ?? (isAuto(clip()) ? null : clip()?.target) ?? defaultTarget(),
     defaultAutoTarget: () => defaultAutoTarget() ?? (isAuto(clip()) ? clip().target : null),
     // the controller an automation clip drives: { p, format(norm) } or null
     autoParam(c) {
