@@ -2,7 +2,7 @@ import { Engine } from './engine.js';
 import { modules, getModule } from './modules/index.js';
 import { initMidi, initKeyboard, MIDI_AUTO } from './midi.js';
 import { createPersistence, connectLiveReload } from './persist.js';
-import { paramsOf, wheelNotches } from './params.js';
+import { paramsOf } from './params.js';
 import { initCpuMeter } from './cpumeter.js';
 import { createController } from './controller.js';
 import { linePath, arrowPath, arrowPoints, centerOf, visibleSegment } from './cable.js';
@@ -13,7 +13,7 @@ import { Transport } from './transport.js';
 import { unsavedDialog } from './dialogs.js';
 import { exitToOS } from './exit.js';
 import { createSequencer } from './seq/index.js';
-import { defaultCam, validCam, toWorld, toScreen, zoomAt, fitBox, clampCam, resizeCam, ZOOM_STEP } from './camera.js';
+import { defaultCam, validCam, toWorld, toScreen, wheelCam, fitBox, clampCam, resizeCam } from './camera.js';
 import { edgeScroll } from './seq/surface.js';
 import { initWidgets } from './widgets.js';
 import { emptySong, getClip, newSong, snapStep } from './song.js';
@@ -205,11 +205,11 @@ function fitAll() {
 $('zoom').onclick = fitAll;
 $('zoom').addEventListener('pointerdown', (e) => e.stopPropagation());
 
-// Mouse wheel: zoom around the pointer (trackpad pinch arrives as Ctrl + wheel, same thing).
+// Mac two-finger scrolling pans; pinch / Ctrl/Cmd + wheel zooms around the pointer.
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
   const r = canvas.getBoundingClientRect();
-  setCam(zoomAt(cam(), e.clientX - r.left, e.clientY - r.top, Math.pow(ZOOM_STEP, wheelNotches(e.deltaY, e.deltaMode))));
+  setCam(wheelCam(cam(), e, e.clientX - r.left, e.clientY - r.top));
 }, { passive: false });
 
 // Any click in the patcher (or its controller panel) gives the patcher keyboard focus, so
@@ -877,16 +877,15 @@ function startCable(e, entry) {
 }
 
 // ---- selection, deletion ----
-// Drag on empty canvas: pan the view (handy on trackpads); a plain click clears the selection.
-// Shift + drag: selection rectangle, modules touching it get selected (Ctrl/⌘ + drag adds to the
-// current selection). The TimeLine works the same way.
+// Drag on empty canvas: selection rectangle; a plain click clears the selection.
+// Shift + drag pans the view; Ctrl/⌘ + drag adds modules touching the rectangle to the selection.
 canvas.addEventListener('pointerdown', (e) => {
   const forward = e.button === MOUSE_FORWARD;
   if ((!forward && e.button !== 0) || (!forward && e.target !== canvas && e.target !== svg && e.target !== world)) return;
   if (forward && e.target.closest('input, textarea, button, select, .module-rename')) return;
   e.preventDefault();
   const additive = e.ctrlKey || e.metaKey;
-  if (!forward && !e.shiftKey && !additive) { backgroundPan(e); return; }
+  if (!forward && e.shiftKey && !additive) { backgroundPan(e); return; }
   const base = additive ? selectedEntries() : [];
   if (!additive) select(null);
   const c = canvas.getBoundingClientRect();

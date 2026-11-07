@@ -33,7 +33,7 @@ export const GUIDE = [
         title: 'Select',
         items: [
           'Click a module to select it: the controller panel shows its controllers, their descriptions and usage notes.',
-          `Drag on empty canvas to pan the view (also on a trackpad); ${k('Shift')} + drag there or the mouse <b>Forward</b> button + drag draws a selection rectangle. Forward-drag can also start over a module. ${k('Ctrl')} + drag adds to the selection, ${k('Ctrl')} + click toggles one module, ${k(CMD, 'A')} selects all.`,
+          `Drag on empty canvas or use the mouse <b>Forward</b> button + drag to draw a selection rectangle; ${k('Shift')} + drag on empty canvas pans the view (also on a trackpad). Forward-drag can also start over a module. ${k('Ctrl')} + drag adds to the selection, ${k('Ctrl')} + click toggles one module, ${k(CMD, 'A')} selects all.`,
         ],
       },
       {
@@ -41,7 +41,7 @@ export const GUIDE = [
         items: [
           'Drag a module (or any module of a selection) to move it or the whole selection. Near / past the edge of the patcher the view pans along (also while duplicating, Shift-wiring or drawing a selection rectangle).',
           '<b>Snap to Grid</b> (right-click menu, a checkbox): moved and duplicated modules snap with their left edge and top to an invisible 20 px grid (half a module high), the same step sideways. Remembered on this computer.',
-          `Dragging empty canvas or ${k('Middle mouse')} + drag (also over modules) pans the canvas, the wheel zooms; click the zoom % (bottom right) to fit all modules. ${k('S')} maximizes the patcher, ${k('S')} again restores the piano roll and TimeLine.`,
+          `${k('Shift')} + drag on empty canvas or ${k('Middle mouse')} + drag (also over modules) pans the canvas. On a Mac, two-finger trackpad scrolling (or the mouse wheel) pans in both directions; pinch or ${k(CMD)} + wheel zooms. On other computers the wheel zooms. Click the zoom % (bottom right) to fit all modules. ${k('S')} maximizes the patcher, ${k('S')} again restores the piano roll and TimeLine.`,
         ],
       },
       {
@@ -104,8 +104,9 @@ export const GUIDE = [
       [k('Enter'), 'open the selected Patch'],
       [`${k(CMD, 'Z')} / ${k(CMD, 'Shift', 'Z')}`, 'undo / redo'],
       [k('S'), 'maximize / restore the patcher'],
-      [`drag empty canvas / ${k('Middle mouse')} drag, wheel`, 'pan, zoom'],
-      [`${k('Shift')} + drag empty canvas`, 'selection rectangle'],
+      [`${k('Shift')} + drag empty canvas / ${k('Middle mouse')} drag, wheel`, 'pan, zoom'],
+      ['drag empty canvas / Forward button + drag', 'selection rectangle'],
+      ['Mac: two-finger scroll / wheel; pinch or Ctrl/Cmd + wheel', 'pan; zoom'],
       [`${k('Right-click')}`, 'menu: cut, copy, paste, delete, open, save / load module, rename, Snap to Grid'],
     ],
   },

@@ -1,5 +1,7 @@
 // Canvas camera: screen = world × z + (x, y). Module positions are stored in world units,
 // so panning/zooming never changes the project, only the view.
+import { wheelDelta, wheelNotches } from './params.js';
+
 export const ZOOM_MIN = 0.15;
 export const ZOOM_MAX = 3;
 export const ZOOM_STEP = 1.15; // per mouse-wheel notch
@@ -27,6 +29,17 @@ export function zoomAt(cam, sx, sy, factor) {
   const z = clampZoom(cam.z * factor);
   const w = toWorld(cam, sx, sy);
   return { x: sx - w.x * z, y: sy - w.y * z, z };
+}
+
+// macOS wheel events don't identify trackpads reliably, so unmodified scrolling pans there.
+export function wheelCam(cam, e, sx, sy, platform = globalThis.navigator?.platform ?? '') {
+  if (/Mac|iPhone|iPad/.test(platform) && !e.ctrlKey && !e.metaKey) {
+    const { dx, dy, mode } = wheelDelta(e);
+    const scale = mode === 1 ? 16 : mode === 2 ? 400 : 1;
+    const horizontal = e.shiftKey && !dx;
+    return { x: cam.x - (horizontal ? dy : dx) * scale, y: cam.y - (horizontal ? 0 : dy) * scale, z: cam.z };
+  }
+  return zoomAt(cam, sx, sy, Math.pow(ZOOM_STEP, wheelNotches(e.deltaY, e.deltaMode)));
 }
 
 // Pan limit: the world rectangle `box` ({l, t, r, b}, all the modules) may move almost out of the

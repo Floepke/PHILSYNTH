@@ -17,6 +17,10 @@ const text = (id) => JSON.stringify(GUIDE.find((t) => t.id === id));
 for (const topic of ['Shift</kbd> + drag', 'Alt</kbd> + drag', 'Snap to Grid', 'F2', 'Save module', 'Input Module', 'Ctrl/Cmd</kbd> + <kbd>Z']) assert.ok(text('patcher').includes(topic), `patcher: ${topic}`);
 for (const topic of ['Double right-click', '<b>Clip</b> field', 'Grid', 'Free timing', 'Automation editor', 'Piano roll:', 'TimeLine:', 'Save Clip']) assert.ok(text('timeline').includes(topic), `timeline: ${topic}`);
 for (const topic of ['selection rectangle', 'end line', 'Velocity', '250 ms', 'Q</kbd>', 'Left</kbd>']) assert.ok(text('pianoroll').includes(topic), `pianoroll: ${topic}`);
+const patcherKeys = GUIDE.find((t) => t.id === 'patcher').keys;
+assert.ok(patcherKeys.some(([keys, action]) => keys.includes('Shift</kbd> + drag empty canvas') && action === 'pan, zoom'), 'patcher: Shift-drag pans');
+assert.ok(patcherKeys.some(([keys, action]) => keys.startsWith('drag empty canvas') && action === 'selection rectangle'), 'patcher: plain drag selects');
+assert.ok(text('patcher').includes('two-finger trackpad scrolling'), 'patcher: Mac trackpad panning is documented');
 
 // rendered folded; a part opened stays open when the panel is rebuilt
 {

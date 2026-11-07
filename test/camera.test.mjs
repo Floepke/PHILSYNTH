@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { clampZoom, defaultCam, validCam, toWorld, toScreen, zoomAt, fitBox, clampCam, resizeCam, ZOOM_MIN, ZOOM_MAX } from '../src/camera.js';
+import { clampZoom, defaultCam, validCam, toWorld, toScreen, zoomAt, wheelCam, fitBox, clampCam, resizeCam, ZOOM_MIN, ZOOM_MAX } from '../src/camera.js';
 
 const near = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 
@@ -36,6 +36,26 @@ for (const f of [1.15, 1 / 1.15, 4, 0.01]) {
 }
 assert.equal(zoomAt(cam, 0, 0, 100).z, ZOOM_MAX);
 assert.equal(zoomAt(cam, 0, 0, 0.0001).z, ZOOM_MIN);
+
+// Mac trackpad swipes, including large/inertial deltas, always pan rather than guessing hardware.
+const wheel = { deltaX: 0, deltaY: 12, deltaMode: 0, ctrlKey: false, metaKey: false, shiftKey: false };
+for (const [dx, dy] of [[0, 12], [18, 0], [-3.5, 7.25], [120, -200]]) {
+  assert.deepEqual(wheelCam(cam, { ...wheel, deltaX: dx, deltaY: dy }, 300, 200, 'MacIntel'),
+    { x: cam.x - dx, y: cam.y - dy, z: cam.z });
+}
+assert.deepEqual(wheelCam(cam, { ...wheel, shiftKey: true }, 300, 200, 'MacIntel'), { ...cam, x: cam.x - 12 });
+assert.deepEqual(wheelCam(cam, { ...wheel, deltaX: 2, deltaY: 3, deltaMode: 1 }, 300, 200, 'MacIntel'), { x: cam.x - 32, y: cam.y - 48, z: cam.z });
+assert.deepEqual(wheelCam(cam, { ...wheel, deltaMode: 2 }, 300, 200, 'MacIntel'), { ...cam, y: cam.y - 4800 });
+assert.deepEqual(wheelCam(cam, { ...wheel, deltaX: NaN, deltaY: Infinity }, 300, 200, 'MacIntel'), cam);
+for (const event of [{ ...wheel, ctrlKey: true }, { ...wheel, metaKey: true }]) {
+  const zoom = wheelCam(cam, event, 300, 200, 'MacIntel');
+  assert.notEqual(zoom.z, cam.z, 'pinch and modifier-wheel zoom');
+  near(toWorld(zoom, 300, 200).x, w.x);
+  near(toWorld(zoom, 300, 200).y, w.y);
+}
+for (const platform of ['Linux x86_64', 'Win32']) {
+  assert.notEqual(wheelCam(cam, wheel, 300, 200, platform).z, cam.z, 'non-Mac mouse-wheel zoom is unchanged');
+}
 
 // validation of persisted cameras
 assert.deepEqual(validCam(undefined), defaultCam());
