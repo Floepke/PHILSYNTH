@@ -84,16 +84,25 @@ npm run build:linux
 ```
 
 The build downloads Electron and AppImage packaging tools as needed and writes
-`~/Desktop/PHILSYNTH.AppImage` for the build machine's architecture. The app
+`PHILSYNTH.AppImage` in the project root for the build machine's architecture. The app
 includes the committed WASM DSP engine; no C++ toolchain is needed.
 Local projects, development dependencies, and tests are not bundled.
-Rebuilding replaces the Desktop AppImage atomically, even while the previous
+Rebuilding replaces the project-root AppImage atomically, even while the previous
 version is running. Restart the app to use the new build.
 
-Launch it with:
+The build also installs a **PHILSYNTH** launcher in your user application menu,
+including its icon. Search for **PHILSYNTH** in the Linux menu to launch it—no
+sudo or system-wide installation is needed. The launcher is saved as
+`~/.local/share/applications/PHILSYNTH.desktop` (or
+`$XDG_DATA_HOME/applications/PHILSYNTH.desktop` when set to an absolute path).
+Rebuilding updates the launcher and icon. Keep the AppImage at its project-root
+location; moving or deleting it breaks the menu launcher. If your desktop
+environment does not show a new launcher immediately, log out and back in.
+
+Alternatively, launch it with:
 
 ```sh
-~/Desktop/PHILSYNTH.AppImage
+./PHILSYNTH.AppImage
 ```
 
 Copy the AppImage to another Linux machine with the same architecture and make

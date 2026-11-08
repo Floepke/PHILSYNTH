@@ -1,15 +1,14 @@
-// Builds a Linux AppImage: npm run build:linux -> ~/Desktop/PHILSYNTH.AppImage
+// Builds a Linux AppImage and registers it in the current user's application menu.
 import { build, Platform } from 'electron-builder';
-import { chmod, copyFile, mkdir, rename, rm, stat } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { chmod, copyFile, rename, rm, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildIcon } from './build-icon.mjs';
+import { installDesktopEntry } from './build-linux-desktop.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const OUT = join(ROOT, 'release');
-const DESKTOP = join(homedir(), 'Desktop');
-const IMAGE = join(DESKTOP, 'PHILSYNTH.AppImage');
+const IMAGE = join(ROOT, 'PHILSYNTH.AppImage');
 
 if (process.platform !== 'linux') {
   console.error('build:linux runs on Linux.');
@@ -44,7 +43,6 @@ await build({
     appImage: { artifactName: 'PHILSYNTH.AppImage' },
   },
 });
-await mkdir(DESKTOP, { recursive: true });
 const temporaryImage = `${IMAGE}.${process.pid}.tmp`;
 try {
   await copyFile(join(OUT, 'PHILSYNTH.AppImage'), temporaryImage);
@@ -55,3 +53,5 @@ try {
   await rm(temporaryImage, { force: true });
 }
 console.log(`\nBuilt ${IMAGE} (${process.arch}, ${(await stat(IMAGE)).size} bytes)`);
+const launcher = await installDesktopEntry(IMAGE, join(ROOT, 'build', 'icons', '512x512.png'));
+console.log(`Installed menu launcher: ${launcher}\nSearch for PHILSYNTH in your application menu to launch it.`);

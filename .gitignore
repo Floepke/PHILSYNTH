@@ -9,6 +9,7 @@ dist/
 out/
 release/
 build/
+/PHILSYNTH.AppImage
 
 # Logs and temp files
 *.log
