@@ -7,6 +7,8 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import { registerProjectFiles } from '../electron/projectfiles.mjs';
+import { exportMidi } from '../src/midiexport.js';
+import { emptySong } from '../src/song.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 app.on('window-all-closed', () => {});
@@ -34,6 +36,8 @@ try {
       window.openPicker = mode => { window.pickResult = pickFile(window.modsynthFiles,
         { mode, dialog: 'project-open', exts: ['.phproject'], saveExt: '.phproject' }); };
       window.openMidi = () => { window.midiResult = openMidiFile(); };
+      window.saveMidiPicker = () => { window.midiSaveResult = pickFile(window.modsynthFiles,
+        { mode: 'save', dialog: 'midi', exts: ['.mid'], saveExt: '.mid', suggestedName: 'export.mid' }); };
     </script>`);
   server = http.createServer(async (req, res) => {
     try {
@@ -178,6 +182,18 @@ try {
   assert.deepEqual(await run('window.midiResult.then(f => ({ name: f.name, bytes: Array.from(f.data) }))'),
     { name: 'song.MIDI', bytes: [0, 128, 255] });
   assert.equal((await run("window.modsynthFiles.start('midi')")).dir, files, 'MIDI picker remembers its folder');
+  const midiBytes = exportMidi(emptySong()).bytes;
+  const midiPath = join(files, 'export.mid');
+  await run('window.saveMidiPicker(); true');
+  await wait(() => run("document.querySelector('#file-dialog').open && document.querySelector('#fd-name').value === 'export.mid'"));
+  await run("document.querySelector('#fd-ok').click()");
+  await wait(() => run("!document.querySelector('#file-dialog').open"));
+  assert.equal((await run('window.midiSaveResult')).path, midiPath, 'MIDI save picker accepts .mid instead of reporting Invalid extension');
+  const saveTarget = await run(`window.modsynthFiles.target(${JSON.stringify(files)}, 'export.mid', '.mid')`);
+  assert.equal(saveTarget.path, midiPath, 'desktop picker accepts MIDI save extensions');
+  await run(`window.modsynthFiles.saveMidi(${JSON.stringify(midiPath)}, new Uint8Array(${JSON.stringify([...midiBytes])}))`);
+  assert.deepEqual(new Uint8Array(await readFile(midiPath)), midiBytes, 'desktop writes a valid binary MIDI atomically');
+  await assert.rejects(run(`window.modsynthFiles.saveMidi(${JSON.stringify(midiPath)}, new Uint8Array([1, 2]))`), /Invalid MIDI data/);
   console.log('file picker UI tests passed');
 } finally {
   win?.destroy();

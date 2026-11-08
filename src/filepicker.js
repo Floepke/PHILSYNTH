@@ -5,7 +5,7 @@
 //
 //   pickFile(files, { mode: 'open' | 'save', dialog, title, types, exts, saveExt, suggestedName })
 //     -> { path, name } of the chosen file, or null when cancelled.
-//   dialog: which remembered start folder ('project-open', 'project-save', 'clip', 'module', 'audio')
+//   dialog: which remembered start folder ('project-open', 'project-save', 'clip', 'module', 'audio', 'midi')
 //   types: label of the listed file types; exts: listed extensions; saveExt: added when saving
 //
 // Mouse: click selects, double-click opens a folder / picks a file. Keys in the list: arrows,

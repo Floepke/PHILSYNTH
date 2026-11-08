@@ -1498,7 +1498,12 @@ dialog .sig-ok { order: 1; }
 .ctx-menu {
   position: fixed;
   z-index: 1000;
-  min-width: 180px;
+  min-width: min(180px, 100vw);
+  box-sizing: border-box;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding: 4px;
   background-color: var(--wood-base);
   background-image: var(--wood-panel);
@@ -1514,7 +1519,7 @@ dialog .sig-ok { order: 1; }
   width: 100%;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
+  gap: 12px;
   padding: 5px 10px;
   border: 0;
   border-radius: 4px;
@@ -1524,6 +1529,10 @@ dialog .sig-ok { order: 1; }
   text-align: left;
   cursor: pointer;
 }
+.ctx-item > span { min-width: 0; overflow-wrap: anywhere; }
+.ctx-item kbd { flex-shrink: 0; }
+.ctx-fold { display: inline-block; width: 16px; }
+.ctx-group[hidden] { display: none; }
 .ctx-item:hover:not(:disabled),
 .ctx-item:focus-visible {
   background: rgba(7, 7, 7, 0.4);

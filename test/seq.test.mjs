@@ -733,6 +733,24 @@ for (const reverse of [false, true]) {
 
 // Signature dragging previews the whole grid and records only the released edit.
 {
+  const { song, clip, arranger, ctx, menus, changes } = setup();
+  clip.length = 4;
+  ctx.transport.pos = 2;
+  const cv = arranger.surface.cv;
+  holdRightClick(cv, ax(1), ay(0));
+  assert.equal(menus.at(-1).items.find(item => item.label === 'Split at playhead').shortcut, 'S');
+  key(cv, 's', { ctrlKey: true });
+  assert.equal(song.clips.length, 1, 'Ctrl+S remains available for saving');
+  key(cv, 's');
+  assert.equal(song.clips.length, 2);
+  assert.deepEqual(song.clips.map(c => [c.start, c.length]), [[0, 2], [2, 2]]);
+  assert.equal(changes(), 1);
+  key(cv, 's');
+  assert.equal(changes(), 1, 'split at clip boundary is a no-op');
+}
+
+// Signature dragging previews the whole grid and records only the released edit.
+{
   const { song, arranger, ctx, changes } = setup();
   setSig(song, 8, 3, 4, [0, 2]);
   setSig(song, 14, 7, 8);
@@ -4284,12 +4302,10 @@ for (const notes of [
     seq.reload(); flush();
   }
 
-  // S maximizes the middle patcher and restores both horizontal boundaries.
+  // S no longer changes pane visibility; it is reserved for timeline splitting.
   seq.applyView({ top: 0.37, bottom: 0.81 });
-  press('S');
-  assert.equal(seq.viewState().top, 0);
-  assert.equal(seq.viewState().bottom, 1);
-  press('s');
+  assert.equal(press('S').defaultPrevented, false);
+  assert.equal(press('s').defaultPrevented, false);
   assert.equal(seq.viewState().top, 0.37);
   assert.equal(seq.viewState().bottom, 0.81);
   for (const props of [{ repeat: true }, { ctrlKey: true }, { metaKey: true }, { altKey: true }]) {
@@ -4297,13 +4313,6 @@ for (const notes of [
     assert.equal(seq.viewState().top, 0.37);
   }
   assert.equal(press('s', {}, new Element('input')).defaultPrevented, false);
-  press('s');
-  const hidden = JSON.parse(JSON.stringify(seq.viewState()));
-  seq.applyView({ top: 0.8, bottom: 0.9 });
-  seq.applyView(hidden);
-  press('s');
-  assert.equal(seq.viewState().top, 0.37, 'both restore positions survive saving/restoring');
-  assert.equal(seq.viewState().bottom, 0.81);
 
   // Older side-by-side layouts migrate to the same relative pane areas.
   seq.applyView({ width: 0.5, split: 0.6 });
@@ -4314,13 +4323,11 @@ for (const notes of [
   seq.applyView({ open: false, width: 0.4, split: 0.5 });
   assert.equal(seq.viewState().top, 0);
   assert.equal(seq.viewState().bottom, 1);
-  press('s');
-  assert.equal(seq.viewState().top, 0.2);
-  assert.equal(seq.viewState().bottom, 0.8);
+  assert.equal(seq.viewState().restoreTop, 0.2);
+  assert.equal(seq.viewState().restoreBottom, 0.8);
   seq.applyView({ width: 0, restoreWidth: 0.8, split: 0.5 });
-  press('s');
-  assert.equal(seq.viewState().top, 0.4);
-  assert.equal(seq.viewState().bottom, 0.6);
+  assert.equal(seq.viewState().restoreTop, 0.4);
+  assert.equal(seq.viewState().restoreBottom, 0.6);
   seq.applyView(null);
   assert.equal(seq.viewState().top, 0.4, 'new projects reset the layout');
   assert.equal(seq.viewState().bottom, 0.75);
@@ -4404,13 +4411,13 @@ for (const notes of [
   near(seq.viewState().top, 0.25);
   near(seq.viewState().bottom, 0.55);
 
-  // Collapsing both sequencer panes by dragging keeps the last visible layout for S.
+  // Collapsing both sequencer panes by dragging is unaffected by S.
   seq.applyView({ top: 0.4, bottom: 0.75 });
   drag(upper, 300, 310, 300, -1000);
   drag(lower, 300, 510, 300, 1000);
   assert.deepEqual(positions(), [0, 1]);
   press('s');
-  assert.deepEqual(positions(), [0, 0.75]);
+  assert.deepEqual(positions(), [0, 1]);
   for (const [top, bottom] of [[0, 0], [0, 1], [1, 1], [0.3, 0.3], [0.2, 0.9]]) {
     seq.applyView({ top, bottom });
     const saved = JSON.parse(JSON.stringify(seq.viewState()));
@@ -4445,9 +4452,9 @@ for (const notes of [
   drag(lower, 300, 510, 300, 1000);
   press('s');
   near(positions()[0], 0);
-  assert.equal(positions()[1], 0.75, 'dragged to the top + bottom: S restores the last visible layout');
+  assert.equal(positions()[1], 1, 'S leaves collapsed panes unchanged');
   press('s');
-  assert.deepEqual(positions(), [0, 1], 'S maximizes the patcher while the divider toolbar stays visible');
+  assert.deepEqual(positions(), [0, 1], 'repeated S presses leave the layout unchanged');
   press('s');
   near(positions()[0], 0);
   delete bar.getBoundingClientRect;

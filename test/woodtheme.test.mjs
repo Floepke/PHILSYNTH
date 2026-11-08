@@ -78,6 +78,16 @@ app.whenReady().then(async () => {
         import { registerInterfacePreferences } from '/src/interfacepreferences.js';
         import { registerTimelinePreferences } from '/src/timelinepreferences.js';
         import { sigDialog } from '/src/dialogs.js';
+        import { showMenu, closeMenu } from '/src/seq/menu.js';
+        window.openTestMenu = () => showMenu({ x: 620, y: 300, items: [
+          { label: 'Export…', children: Array.from({ length: 60 }, (_, i) => ({
+            label: i === 0 ? 'Export Audio…' : 'Export destination ' + i,
+            shortcut: i === 0 ? 'Ctrl+E' : '',
+            action: () => { window.menuChoice = i; },
+          })) },
+          { label: 'Exit', action() {} },
+        ] });
+        window.closeTestMenu = closeMenu;
         window.openSig = (options) => { window.sigResult = undefined; sigDialog(options).then(result => { window.sigResult = result; }); };
         window.themeErrors = [];
         window.preferencesManager = createPreferencesManager();
@@ -93,6 +103,7 @@ app.whenReady().then(async () => {
     const routes = new Map([
       ['/', ['text/html', html]],
       ['/style.css', ['text/css', css]],
+      ['/src/seq/menu.js', ['text/javascript', readFileSync(new URL('../src/seq/menu.js', import.meta.url), 'utf8')]],
       ...['woodtheme', 'modcolor', 'preferences', 'preferencesdialog', 'interfacepreferences', 'timelinepreferences', 'dialogs', 'song', 'curve', 'fileformat'].map(name => [`/src/${name}.js`, ['text/javascript',
         readFileSync(new URL('../src/' + name + '.js', import.meta.url), 'utf8')]]),
     ]);
@@ -366,6 +377,41 @@ app.whenReady().then(async () => {
     assert.ok(tallHeight > shortHeight + 300, `editor grows with available window space: ${shortHeight} to ${tallHeight}`);
     await run("document.querySelector('#sig-dialog button[value=\"cancel\"]').click()");
     await flushClose();
+    await run('window.openTestMenu(); true');
+    const menuWidth = await run("document.querySelector('.ctx-menu').getBoundingClientRect().width");
+    await run("document.querySelector('.ctx-menu > button').click()");
+    assert.ok(await run("document.querySelector('.ctx-menu').getBoundingClientRect().width") >= menuWidth, 'inline expansion grows only when wider children need room');
+    assert.equal(await run(`(() => {
+      const label = document.querySelector('.ctx-group button > span');
+      const range = document.createRange();
+      range.selectNodeContents(label);
+      return range.getClientRects().length === 1;
+    })()`), true, 'expanded item labels fit on one row when the viewport has room');
+    assert.equal(await run(`(() => {
+      const menu = document.querySelector('.ctx-menu');
+      const r = menu.getBoundingClientRect();
+      return r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight &&
+        menu.scrollHeight > menu.clientHeight && getComputedStyle(menu).overflowY === 'auto';
+    })()`), true, 'large folded menus fit the viewport and scroll vertically');
+    await run(`document.querySelector('.ctx-menu').dispatchEvent(new WheelEvent('wheel', { bubbles: true }))`);
+    assert.equal(await run("!!document.querySelector('.ctx-menu')"), true, 'wheel inside the menu does not dismiss it');
+    await run("document.querySelector('.ctx-menu').scrollTop = 500");
+    assert.ok(await run("document.querySelector('.ctx-menu').scrollTop > 0"));
+    await run("document.querySelector('.ctx-group button').click()");
+    assert.equal(await run('window.menuChoice'), 0);
+    assert.equal(await run("!!document.querySelector('.ctx-menu')"), false);
+    win.webContents.enableDeviceEmulation({
+      screenPosition: 'desktop', screenSize: { width: 200, height: 240 },
+      viewSize: { width: 200, height: 240 }, deviceScaleFactor: 1, scale: 1,
+    });
+    await flushClose();
+    await run('window.openTestMenu(); true');
+    await run("document.querySelector('.ctx-menu > button').click()");
+    assert.equal(await run(`(() => {
+      const r = document.querySelector('.ctx-menu').getBoundingClientRect();
+      return r.left >= 0 && r.top >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
+    })()`), true, 'folded menus also fit very small screens');
+    await run('window.closeTestMenu(); true');
     console.log('measure editor tests passed: two octaves, beat toggles, numerator changes, and cancellation');
     console.log('preferences controls passed: categories, keyboard navigation, drafts, live preview, Cancel, Reset, persistence, extremes, and storage errors');
     console.log('wood theme tests passed: neutral surfaces, dark textured grain, and preserved signal colors');

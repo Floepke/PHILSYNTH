@@ -24,7 +24,7 @@ import { emptySong, getClip, newSong, snapStep } from './song.js';
 import { CableScope } from './cablescope.js';
 import { MidiCableAnimation } from './midicable.js';
 import { openMapDialog, patchControllersView } from './mapdialog.js';
-import { defaultName } from './modname.js';
+import { defaultName, moduleName } from './modname.js';
 import { MAX_NAME, runtimesAt, songLayers } from './patch.js';
 import { showMenu, closeMenu, shortcut } from './seq/menu.js';
 import { snapToGrid } from './grid.js';
@@ -32,6 +32,7 @@ import { createNoiseBackground } from './noisebg.js';
 import { renderGuide } from './guide.js';
 import { createHistory } from './history.js';
 import { renderAudio, writeAudio } from './audioexport.js';
+import { exportMidi } from './midiexport.js';
 import { withSamples, importSamples } from './samples.js';
 import { createProjectFile, pickBackend } from './projectfile.js';
 import { initStatusTips } from './statustips.js';
@@ -1454,7 +1455,7 @@ engine.onDrive = (entry) => {
   }, DRIVE_SAVE_MS);
 };
 
-// ---- main menu: New / Open / Save / Save As / Export Audio ----
+// ---- main menu: New / Open / Save / Save As / Export ----
 // Project files are .phproject (PHILSYNTH project: JSON text inside). Older .mds / .json projects
 // still open; Save then asks for a new .phproject file instead of overwriting them.
 let fileBusy = false;
@@ -1521,7 +1522,10 @@ function openMainMenu(focusFirst) {
       { label: 'Save', shortcut: shortcut('S'), action: () => saveCommand(false) },
       { label: 'Save As…', shortcut: shortcut('⇧S'), action: () => saveCommand(true) },
       '-',
-      { label: 'Export Audio…', shortcut: shortcut('E'), disabled: exporting, action: exportAudio },
+      { label: 'Export…', children: [
+        { label: 'Export Audio…', shortcut: shortcut('E'), disabled: exporting, action: exportAudio },
+        { label: 'Export MIDI…', disabled: exportingMidi, action: exportMidiFile },
+      ] },
       '-',
       { label: 'MIDI Input…', disabled: !midi, action: openMidiMenu },
       { label: 'Preferences…', action: openPreferences },
@@ -1585,6 +1589,51 @@ window.addEventListener('keydown', (e) => {
   closeMenu();
   run();
 }, true);
+
+// ---- Export MIDI ----
+let exportingMidi = false;
+async function exportMidiFile() {
+  if (exportingMidi) return;
+  exportingMidi = true;
+  try {
+    const suggestedName = `${projectFile.name.replace(/\.(phproject|mds|json)$/i, '') || 'philsynth-song'}.mid`;
+    const files = window.modsynthFiles;
+    let desktop = null, handle = null;
+    if (files?.saveMidi) {
+      desktop = await pickFile(files, { mode: 'save', dialog: 'midi', title: 'Export MIDI', types: 'MIDI file (.mid)', exts: ['.mid'], saveExt: '.mid', suggestedName });
+      if (!desktop) return;
+    } else if (typeof window.showSaveFilePicker === 'function') {
+      handle = await window.showSaveFilePicker({ suggestedName, types: [{ description: 'MIDI file', accept: { 'audio/midi': ['.mid'] } }] });
+    }
+    const rt = shown();
+    const out = exportMidi(layerSong(rt), {
+      bpm: rt.bpm,
+      metadata: rt.modules.get(0)?.state,
+      pitchOffset: rt.pitchOffset,
+      destinationName: id => {
+        if (id === null) return 'Unassigned';
+        const entry = rt.modules.get(id);
+        return `#${id} ${entry ? moduleName(entry) : '(missing)'}`;
+      },
+    });
+    const name = desktop?.name ?? handle?.name ?? suggestedName;
+    const blob = new Blob([out.bytes], { type: 'audio/midi' });
+    if (desktop) await files.saveMidi(desktop.path, out.bytes);
+    else if (handle) await writeAudio(handle, blob, new AbortController().signal);
+    else {
+      const url = URL.createObjectURL(blob);
+      Object.assign(document.createElement('a'), { href: url, download: name }).click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    }
+    $('status').textContent = `${desktop || handle ? 'Exported' : 'Download started for'} ${name} (${out.tracks} destination tracks).`;
+  } catch (err) {
+    if (err?.name === 'AbortError') return;
+    console.error('MIDI export failed:', err);
+    $('status').textContent = `MIDI export failed: ${err.message}`;
+  } finally {
+    exportingMidi = false;
+  }
+}
 
 // ---- Export Audio ----
 // The save dialog comes first (it needs the click's user activation), then the song renders

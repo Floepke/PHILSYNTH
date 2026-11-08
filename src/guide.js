@@ -41,7 +41,7 @@ export const GUIDE = [
         items: [
           'Drag a module (or any module of a selection) to move it or the whole selection. Near / past the edge of the patcher the view pans along (also while duplicating, Shift-wiring or drawing a selection rectangle).',
           '<b>Snap to Grid</b> (right-click menu, a checkbox): moved and duplicated modules snap with their left edge and top to an invisible 20 px grid (half a module high), the same step sideways. Remembered on this computer.',
-          `${k('Shift')} + drag on empty canvas or ${k('Middle mouse')} + drag (also over modules) pans the canvas. On a Mac, two-finger trackpad scrolling (or the mouse wheel) pans in both directions; pinch or ${k(CMD)} + wheel zooms. On other computers the wheel zooms. Click the zoom % (bottom right) to fit all modules. ${k('S')} maximizes the patcher, ${k('S')} again restores the piano roll and TimeLine.`,
+          `${k('Shift')} + drag on empty canvas or ${k('Middle mouse')} + drag (also over modules) pans the canvas. On a Mac, two-finger trackpad scrolling (or the mouse wheel) pans in both directions; pinch or ${k(CMD)} + wheel zooms. On other computers the wheel zooms. Click the zoom % (bottom right) to fit all modules. Drag the dividers to resize or hide the piano roll and TimeLine.`,
         ],
       },
       {
@@ -103,7 +103,6 @@ export const GUIDE = [
       [k('F2'), 'rename the module'],
       [k('Enter'), 'open the selected Patch'],
       [`${k(CMD, 'Z')} / ${k(CMD, 'Shift', 'Z')}`, 'undo / redo'],
-      [k('S'), 'maximize / restore the patcher'],
       [`${k('Shift')} + drag empty canvas / ${k('Middle mouse')} drag, wheel`, 'pan, zoom'],
       ['drag empty canvas / Forward button + drag', 'selection rectangle'],
       ['Mac: two-finger scroll / wheel; pinch or Ctrl/Cmd + wheel', 'pan; zoom'],
@@ -168,7 +167,7 @@ export const GUIDE = [
       {
         title: 'Clip menu and files',
         items: [
-          '<b>Right-click</b> a clip: cut, copy, paste, delete, duplicate, clone, detach (a clone becomes standalone), go to source, <i>Consolidate</i> (selected clips on one lane become one clip), <i>Split at playhead</i> and <i>Save Clip…</i> (a <b>.clip</b> file).',
+          '<b>Right-click</b> a clip: cut, copy, paste, delete, duplicate, clone, detach (a clone becomes standalone), go to source, <i>Consolidate</i> (selected clips on one lane become one clip), <i>Split at playhead</i> (S while the TimeLine is focused) and <i>Save Clip…</i> (a <b>.clip</b> file).',
           '<b>Right-click</b> empty space: paste, insert a clip, or <i>Load Clip…</i> to place the clips of a .clip file there.',
           '<i>Import MIDI…</i> imports a Standard MIDI File (.mid or .midi, formats 0, 1 or 2) as one unassigned note clip per track, including empty tracks. Assign a <i>Send to</i> module to hear each clip. Tracks start together at the clicked time; occupied lanes are skipped. Imports into idea storage stay there and do not play unless looped.',
           'Choose Yes to import tempo into an automation clip targeting Output BPM; No keeps the current tempo and MIDI beat positions. Tempo changes are abrupt, and fractional BPM values are rounded to whole BPM while clip timing is adjusted to preserve elapsed time. Tempos outside the Output BPM range are limited and reported. Format 2 uses the first track’s tempo, with other tracks aligned by elapsed time. Imported automation in idea storage does not play unless looped.',
@@ -304,7 +303,8 @@ export const GUIDE = [
       {
         title: 'Main menu',
         items: [
-          `Click <b>PHILSYNTH</b> (in the upper divider, left side) for <b>New</b> (${k(CMD, 'N')}), <b>Open…</b> (${k(CMD, 'O')}), <b>Save</b> (${k(CMD, 'S')}), <b>Save As…</b> (${k(CMD, 'Shift', 'S')}), <b>Export Audio…</b> (${k(CMD, 'E')}), <b>MIDI Input…</b>, <b>Preferences…</b> and <b>Exit</b>.`,
+          `Click <b>PHILSYNTH</b> (in the upper divider, left side) for <b>New</b> (${k(CMD, 'N')}), <b>Open…</b> (${k(CMD, 'O')}), <b>Save</b> (${k(CMD, 'S')}), <b>Save As…</b> (${k(CMD, 'Shift', 'S')}), <b>Export…</b> (folds open to <b>Export Audio…</b> and <b>Export MIDI…</b>), <b>MIDI Input…</b>, <b>Preferences…</b> and <b>Exit</b>. Audio export still uses ${k(CMD, 'E')}.`,
+          'Menu groups fold inline like folders, without opening a second menu. Menus widen only as needed to fit labels, up to the available window width. Long menus use the available window height and scroll. Use Up/Down to navigate, Right/Left to expand/collapse, Enter/Space to choose, and Escape to close.',
           '<b>Preferences…</b> has a category list on the left. <b>Interface > Wood Tint</b> previews any RGB tint on the wooden frame, dividers, controls and dialogs without changing module colors. <b>OK</b> remembers it on this device; <b>Cancel</b> or Escape restores the saved tint. <b>Reset to default</b> previews the default tint.',
           'Projects are <b>.phproject</b> files (older .mds / .json projects open too). The file name shows in the status bar and the window title, with <b>•</b> for unsaved changes; New and Open ask to save them first. Every change is also autosaved, so the app starts with your latest project.',
           'Project, module and clip files are saved as compact JSON to save disk space. Older formatted files still open.',
@@ -317,6 +317,14 @@ export const GUIDE = [
         items: [
           'Renders the song offline from its start to the end of the last clip plus up to 10 s of tail, to a 24-bit stereo WAV at the device sample rate. The status bar warns when the mix clips.',
           'The non-blocking export dialog shows rendering progress, then encoding and writing; normal playback and editing can continue. <b>Cancel</b> stops the export; <b>Export complete</b> confirms it is saved. Browser downloads show <b>Audio ready</b>; check your browser downloads for completion.',
+        ],
+      },
+      {
+        title: 'Export MIDI',
+        items: [
+          '<b>Export… > Export MIDI…</b> saves the currently shown TimeLine from time zero as a standard .mid file. MIDI clips from all numbered lanes (including muted lanes) are grouped by destination, one track per module number and name; idea storage and automation clips are excluded. Unassigned and missing destinations are retained as named tracks.',
+          'Notes are trimmed to clip edges and time zero. Start velocity is used throughout; velocity curves are ignored and zero-velocity notes stay silent. Bends use the same rounded pitches as the on-screen keyboard, split into successive notes when the pitch changes. Overlapping notes at the same pitch/destination are merged to avoid premature note-offs.',
+          'The conductor track holds the Output tempo, time-signature changes and Output song title, creator and comments. Output transpose/cents are applied to the exported pitches. Automation, synth patches and audio are not encoded; after 15 destination tracks MIDI channels are reused.',
         ],
       },
       {

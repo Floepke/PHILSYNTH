@@ -1,6 +1,6 @@
 // Files for the desktop app. The page shows its own file dialog (src/filepicker.js) and browses
 // folders through 'fs:*' (electron/fsbrowse.mjs); reads and writes only accept the app's own file
-// types: projects, clips, modules, Scala tunings (open only), exported WAV audio and the audio /
+// types: projects, clips, modules, Scala tunings (open only), exported WAV/MIDI and the audio /
 // pictures modules load (open only).
 import { app, ipcMain, BrowserWindow } from 'electron';
 import { readFile, stat } from 'node:fs/promises';
@@ -34,7 +34,7 @@ const MAX_AUDIO = 2 * 1024 * 1024 * 1024;
 // remembered start folder per dialog
 const DIALOG_KINDS = new Set(['project-open', 'project-save', 'clip', 'module', 'scala', 'audio', 'sample', 'wavetable', 'image', 'midi']);
 // extensions a save dialog may add / check (fs:target)
-const SAVE_EXTS = new Set([PROJECT_EXT, CLIP_EXT, MODULE_EXT, '.wav']);
+const SAVE_EXTS = new Set([PROJECT_EXT, CLIP_EXT, MODULE_EXT, '.wav', '.mid']);
 
 // Ensures the extension (dialogs on some desktops do not add it).
 export function withExtension(path, ext = PROJECT) {
@@ -215,6 +215,19 @@ export function registerProjectFiles(isLocal) {
     const data = await readFile(p);
     await dirs.remember(kind, p);
     return { name: basename(p), data };
+  });
+
+  // ---- Export MIDI: Standard MIDI File bytes ----
+  ipcMain.handle('midi:save', async (e, path, data) => {
+    check(e);
+    const p = fileOf(withExtension(checkPath(path), 'mid'), ['.mid']);
+    const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : null;
+    if (!bytes || bytes.byteLength > MAX_MIDI_BYTES || bytes.byteLength < 14 ||
+      bytes[0] !== 77 || bytes[1] !== 84 || bytes[2] !== 104 || bytes[3] !== 100) throw new Error('Invalid MIDI data');
+    await atomicWrite(p, bytes);
+    written(p);
+    await dirs.remember('midi', p);
+    return { name: basename(p) };
   });
 
   // ---- Export Audio: the WAV bytes ----

@@ -410,12 +410,6 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, getSo
     } else playSong(key === ',');
   }
   window.addEventListener('keydown', (e) => {
-    if ((e.key === 's' || e.key === 'S') && !e.repeat && !e.defaultPrevented && !e.ctrlKey && !e.metaKey && !e.altKey
-      && !e.target.closest?.('input, select, textarea, dialog, [contenteditable]:not([contenteditable="false"])')) {
-      e.preventDefault();
-      toggleRoll();
-      return;
-    }
     if (![' ', '/', "'", '.', ','].includes(e.key) || e.repeat || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target.closest?.('input, select, textarea, dialog, [contenteditable]:not([contenteditable="false"])')) return;
     if (e.key === ' ' && e.target.closest?.('button')) return;

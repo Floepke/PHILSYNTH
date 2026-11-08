@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld('modsynthFiles', {
   openFile: (kind, path) => ipcRenderer.invoke('file:open', kind, path),
   // audio / pictures modules load; kind: 'sample' | 'wavetable' | 'image' -> { name, data }
   openBinary: (kind, path) => ipcRenderer.invoke('file:openBinary', kind, path),
+  saveMidi: (path, data) => ipcRenderer.invoke('midi:save', path, data),
   // Export Audio: WAV bytes (ArrayBuffer)
   saveAudio: (path, data, id) => ipcRenderer.invoke('audio:save', path, data, id),
   cancelAudio: (id) => ipcRenderer.invoke('audio:cancel', id),

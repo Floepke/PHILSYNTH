@@ -1228,7 +1228,7 @@ export function createArranger(host, ctx) {
         { label: 'Go to source', disabled: !(h && isClone(ctx.song(), h.clip)), action: () => goToSource(h.clip) },
         '-',
         { label: 'Consolidate', disabled: !canConsolidate(ctx.song(), clips), action: consolidate },
-        { label: 'Split at playhead', disabled: !splittable().length, action: split },
+        { label: 'Split at playhead', shortcut: 'S', disabled: !splittable().length, action: split },
         '-',
         { label: clips.length > 1 ? 'Save Clips…' : 'Save Clip…', disabled: !ctx.saveClips, action: () => ctx.saveClips(clips) },
         { label: 'Import MIDI…', disabled: !ctx.openMidi || !inTimeArea(p), action: () => importMidi(p) },
@@ -1300,12 +1300,14 @@ export function createArranger(host, ctx) {
     const key = e.key.toLowerCase();
     const command = (e.ctrlKey || e.metaKey) && !e.altKey;
     const deleting = key === 'backspace' || key === 'delete';
-    if (!deleting && key !== 'escape' && !(command && ['x', 'c', 'v', 'a', 'd'].includes(key))) return;
+    const splitting = key === 's' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
+    if (!deleting && !splitting && key !== 'escape' && !(command && ['x', 'c', 'v', 'a', 'd'].includes(key))) return;
     if (key === 'escape' && !dragging) return; // the selection stays: a clip is always selected
     e.preventDefault();
     e.stopPropagation();
     if (dragging) return;
-    if (key === 'a') selectAll();
+    if (splitting) { if (!e.repeat) split(); }
+    else if (key === 'a') selectAll();
     else if (key === 'v') paste(pointer);
     else if (key === 'd') repeat(!e.shiftKey);
     else if (key === 'c') copy();

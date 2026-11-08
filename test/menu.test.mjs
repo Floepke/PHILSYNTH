@@ -15,7 +15,11 @@ class Element extends EventTarget {
   click() { this.dispatchEvent(new Event('click')); }
 }
 globalThis.document = { createElement: () => new Element(), body: new Element(), activeElement: null };
-globalThis.window = Object.assign(new EventTarget(), { innerWidth: 800, innerHeight: 600 });
+class Window extends EventTarget {
+  addEventListener(type, listener) { super.addEventListener(type, listener); }
+  removeEventListener(type, listener) { super.removeEventListener(type, listener); }
+}
+globalThis.window = Object.assign(new Window(), { innerWidth: 800, innerHeight: 600 });
 const key = (value) => {
   const e = new Event('keydown', { cancelable: true });
   e.key = value;
@@ -50,4 +54,44 @@ showMenu({ x: 10, y: 20, items: [{ label: 'Snap velocity values', checked: true,
 assert.equal(key('Escape').defaultPrevented, true);
 assert.equal(document.body.children.length, 0);
 closeMenu();
+{
+  let chosen = false;
+  showMenu({ x: 790, y: 590, items: [
+    { label: 'Export', children: [
+      { label: 'Audio', action() { chosen = true; } },
+      { label: 'More', children: [{ label: 'MIDI', action() { chosen = true; } }] },
+    ] },
+    { label: 'Exit', action() {} },
+  ] });
+  const menu = document.body.children[0];
+  const [fold, group, exit] = menu.children;
+  const width = menu.style.width;
+  assert.equal(group.hidden, true);
+  key('ArrowDown');
+  assert.equal(document.activeElement, fold);
+  key('ArrowRight');
+  assert.equal(group.hidden, false);
+  assert.equal(fold.attributes['aria-expanded'], 'true');
+  assert.equal(menu.style.width, width, 'folding keeps the original menu width');
+  key('ArrowDown');
+  assert.equal(document.activeElement, group.children[0]);
+  key('ArrowDown');
+  key('ArrowRight');
+  key('ArrowDown');
+  assert.equal(document.activeElement, group.children[2].children[0], 'nested folds stay inline');
+  key('ArrowLeft');
+  assert.equal(document.activeElement, group.children[1]);
+  key('Home');
+  key('ArrowLeft');
+  assert.equal(group.hidden, true);
+  key('ArrowDown');
+  assert.equal(document.activeElement, exit, 'collapsed descendants are skipped');
+  const wheel = new Event('wheel');
+  Object.defineProperty(wheel, 'target', { value: fold });
+  window.dispatchEvent(wheel);
+  assert.equal(document.body.children.length, 1, 'scrolling inside the menu keeps it open');
+  key('Home'); key('Enter'); key('ArrowDown'); key('Enter');
+  assert.equal(chosen, true);
+  assert.equal(document.body.children.length, 0);
+}
 console.log('context menu tests passed');

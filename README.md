@@ -327,6 +327,37 @@ combined into your own MIDI processor or modulator:
   Output's own controllers (Master volume, BPM, …), and it takes no MIDI. A MULTICTL into an
   Output always drives that Output's controllers.
 
+## Menus and export
+
+All context menus use `showMenu()` in `src/seq/menu.js`. A menu item with
+`children: [...]` folds inline like a file-explorer folder; leaf items use
+`action()`. Existing `checked`, `disabled`, `shortcut` and separator (`'-'`)
+options still work. Groups widen the menu only as needed to fit their labels,
+up to the available window width; long menus expand
+within the window and scroll vertically. Arrow keys navigate, Right/Left
+expand/collapse, Enter/Space activate, Home/End jump, and Escape closes.
+
+**PHILSYNTH > Export…** folds open to **Export Audio…** and **Export MIDI…**.
+The audio shortcut remains Ctrl/Cmd+E. MIDI export writes a standard format-1
+`.mid` file at 960 ticks per quarter from the currently shown TimeLine:
+
+- All MIDI clips in numbered lanes are grouped by destination, not lane,
+  with track names `#<module number> <module name>`. Muted lanes are included;
+  ideas and automation clips are excluded. Missing/unassigned destinations
+  are retained with explanatory track names.
+- Notes are clipped to clip edges and time zero. Only start velocities are
+  exported; velocity curves are ignored, and zero start velocity stays silent.
+- Pitch bends use the playback polyline and split at each rounded-pitch
+  transition. Global Output transpose/cents are applied, and notes at the same
+  pitch/destination that overlap merge into a sustained note.
+- A conductor track stores Output BPM, all time signatures, and the Output's
+  song title, creator and comments. Synth patches, audio, grid-beat visibility
+  and automation are not MIDI data. Channels avoid the percussion channel;
+  more than 15 destination tracks reuse channels.
+- Electron uses the in-app save dialog and atomic binary writes. Browsers use
+  a native save picker when available or download the file. Restart Electron
+  after updating main-process file handlers to enable `.mid` saves.
+
 ## Time-signature grid
 
 The timeline's time-signature row and measure ruler each match a normal clip
