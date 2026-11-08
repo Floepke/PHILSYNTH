@@ -25,6 +25,19 @@ app.whenReady().then(async () => {
       <div class="ctx-menu"><button class="ctx-item">Item</button></div>
       <div class="module" style="--mod-color: #ff0000"></div>`)}`);
     const results = await win.webContents.executeJavaScript(`(async () => {
+      const dialogs = [];
+      for (const modal of [false, true]) {
+        const dialog = document.createElement('dialog');
+        document.body.append(dialog);
+        modal ? dialog.showModal() : dialog.show();
+        const style = getComputedStyle(dialog);
+        const backdrop = getComputedStyle(dialog, '::backdrop');
+        dialogs.push({ modal, animation: style.animationName, transition: style.transitionDuration,
+          opacity: style.opacity, transform: style.transform, backdropAnimation: backdrop.animationName,
+          backdropBackground: backdrop.backgroundColor, backdropFilter: backdrop.backdropFilter });
+        dialog.close();
+        dialog.remove();
+      }
       const surfaces = ['body', '.splitter', '.splitter.horizontal', '#seq-bar select',
         '#seq-bar input', 'dialog', 'dialog menu button', '.ctx-menu'].map(selector => {
         const style = getComputedStyle(document.querySelector(selector));
@@ -50,11 +63,20 @@ app.whenReady().then(async () => {
         }
         textures.push({ axis, min, max, tint });
       }
-      return { surfaces, textures,
+      return { surfaces, textures, dialogs,
         ink: getComputedStyle(document.querySelector('dialog p')).color,
         playing: getComputedStyle(document.querySelector('.playing')).backgroundColor,
         moduleColor: getComputedStyle(document.querySelector('.module')).getPropertyValue('--mod-color').trim() };
     })()`);
+    for (const dialog of results.dialogs) {
+      assert.equal(dialog.animation, 'none', 'dialogs open without animation');
+      assert.equal(dialog.transition, '0s', 'dialogs open without transition');
+      assert.equal(dialog.opacity, '1', 'dialogs are immediately fully visible');
+      assert.equal(dialog.transform, 'none', 'dialogs open without movement or scaling');
+      assert.equal(dialog.backdropAnimation, 'none', 'modal backdrops do not animate');
+      assert.equal(dialog.backdropBackground, 'rgba(0, 0, 0, 0)', 'dialogs do not darken the background');
+      assert.equal(dialog.backdropFilter, 'none', 'dialogs do not blur the background');
+    }
     for (const { selector, background, image, filter } of results.surfaces) {
       const [r, g, b] = background.match(/[\d.]+/g).map(Number);
       assert.equal(r, g, selector + ' has neutral background');

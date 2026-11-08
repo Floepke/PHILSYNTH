@@ -1041,8 +1041,7 @@ dialog {
   color: var(--dialog-ink);
   box-shadow: var(--wood-shadow);
 }
-dialog[open] { animation: pop 0.14s ease-out; }
-dialog::backdrop { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(3px); }
+dialog::backdrop { background: transparent; }
 dialog h3 { margin: 0 0 14px; font-size: 14px; font-weight: 600; }
 dialog select {
   width: 100%;
@@ -1492,7 +1491,6 @@ dialog .sig-ok { order: 1; }
 .sig-fields { display: flex; align-items: center; gap: 10px; }
 .sig-fields select { width: 80px; }
 .sig-slash { font-size: 22px; color: var(--text-dim, #a0a0a8); }
-@keyframes pop { from { opacity: 0; transform: translateY(6px) scale(0.98); } }
 
 /* context menu (src/seq/menu.js) */
 .ctx-menu {
