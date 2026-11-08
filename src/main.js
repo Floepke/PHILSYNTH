@@ -33,6 +33,7 @@ import { createNoiseBackground } from './noisebg.js';
 import { renderGuide } from './guide.js';
 import { createHistory } from './history.js';
 import { renderAudio, writeAudio } from './audioexport.js';
+import { AUDIO_FORMATS, audioFormat } from './audioformat.js';
 import { exportMidi } from './midiexport.js';
 import { withSamples, importSamples } from './samples.js';
 import { createProjectFile, pickBackend } from './projectfile.js';
@@ -1631,7 +1632,7 @@ function showExportProgress(message, percent) {
   $('status').textContent = message;
 }
 
-// Let the dialog paint before synchronous project copying or WAV encoding.
+// Let the dialog paint before synchronous project copying.
 const paintExportProgress = () => new Promise((resolve) => {
   const frame = requestAnimationFrame(() => {
     clearTimeout(fallback);
@@ -1647,11 +1648,11 @@ async function exportAudio() {
   let desktop = null; // { path, name } chosen in the desktop app's dialog
   const files = window.modsynthFiles;
   if (files?.saveAudio) {
-    desktop = await pickFile(files, { mode: 'save', dialog: 'audio', title: 'Export Audio', types: 'WAV audio (.wav)', exts: ['.wav'], saveExt: '.wav', suggestedName });
+    desktop = await pickFile(files, { mode: 'save', dialog: 'audio', title: 'Export Audio', types: 'Audio format', formats: AUDIO_FORMATS, exts: AUDIO_FORMATS.map(format => format.ext), saveExt: '.wav', suggestedName });
     if (!desktop) return;
   } else if (typeof window.showSaveFilePicker === 'function') {
     try {
-      handle = await window.showSaveFilePicker({ suggestedName, types: [{ description: 'WAV audio', accept: { 'audio/wav': ['.wav'] } }] });
+      handle = await window.showSaveFilePicker({ suggestedName, types: AUDIO_FORMATS.map(format => ({ description: format.label, accept: { [format.mime]: [format.ext] } })) });
     } catch (err) {
       if (err?.name === 'AbortError') return; // dialog cancelled
       console.warn('Save dialog unavailable, downloading instead:', err);
@@ -1667,6 +1668,7 @@ async function exportAudio() {
   showExportProgress('Preparing audio…', 0);
   exportDialog.show();
   try {
+    const format = audioFormat(desktop?.name ?? handle?.name ?? suggestedName);
     await paintExportProgress();
     signal.throwIfAborted();
     const project = withSamples(engine.saveProject());
@@ -1676,13 +1678,14 @@ async function exportAudio() {
     const out = await renderAudio(project, {
       sampleRate,
       wasm,
+      format: format.ext,
       signal,
       onProgress: (f) => { showExportProgress(`Rendering audio… ${Math.round(f * 90)}%`, f * 90); },
-      onEncoding: () => showExportProgress('Encoding WAV…', 90),
+      onEncoding: () => showExportProgress(`Encoding ${format.ext.slice(1).toUpperCase()}…`, 90),
     });
     signal.throwIfAborted();
     const { wav } = out;
-    const blob = new Blob([wav], { type: 'audio/wav' });
+    const blob = new Blob([wav], { type: format.mime });
     const name = desktop?.name ?? handle?.name ?? suggestedName;
     let downloaded = false;
     const download = () => {
@@ -1718,7 +1721,9 @@ async function exportAudio() {
     const length = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
     const clipped = out.peak > 1 ? ` Clipped: peak +${(20 * Math.log10(out.peak)).toFixed(1)} dBFS, lower the Output level.` : '';
     $('export-title').textContent = downloaded ? 'Audio ready' : 'Export complete';
-    showExportProgress(`${downloaded ? 'Download started for' : 'Exported'} ${name} (${length}, ${sampleRate} Hz, 24-bit stereo).${downloaded ? ' Check your browser downloads for completion.' : ''}${clipped}`, 100);
+    const quality = format.ext === '.wav' ? `${sampleRate} Hz, 24-bit stereo`
+      : format.ext === '.mp3' ? 'MP3, 320 kbps stereo' : 'Ogg Vorbis, quality 10 stereo';
+    showExportProgress(`${downloaded ? 'Download started for' : 'Exported'} ${name} (${length}, ${quality}).${downloaded ? ' Check your browser downloads for completion.' : ''}${clipped}`, 100);
   } catch (err) {
     if (signal.aborted) {
       showExportProgress('Export cancelled.', 0);

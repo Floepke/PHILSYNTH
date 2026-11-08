@@ -33,6 +33,10 @@ try {
     .replace('<script type="module" src="src/main.js"></script>', `<script type="module">
       import { pickFile } from '/src/filepicker.js';
       import { openMidiFile } from '/src/filedialog.js';
+      import { AUDIO_FORMATS, encodeAudio } from '/src/audioformat.js';
+      window.encodeAudio = encodeAudio;
+      window.saveAudioPicker = () => { window.audioSaveResult = pickFile(window.modsynthFiles,
+        { mode: 'save', dialog: 'audio', formats: AUDIO_FORMATS, exts: AUDIO_FORMATS.map(f => f.ext), saveExt: '.wav', suggestedName: 'song.wav' }); };
       window.openPicker = mode => { window.pickResult = pickFile(window.modsynthFiles,
         { mode, dialog: 'project-open', exts: ['.phproject'], saveExt: '.phproject' }); };
       window.openMidi = () => { window.midiResult = openMidiFile(); };
@@ -44,7 +48,7 @@ try {
       const path = resolve(root, '.' + new URL(req.url, 'http://localhost').pathname);
       if (path !== root && !path.startsWith(root + sep)) throw new Error('Invalid path');
       const body = path === root ? index : await readFile(path);
-      res.writeHead(200, { 'Content-Type': path.endsWith('.js') ? 'text/javascript' : path.endsWith('.css') ? 'text/css' : 'text/html' });
+      res.writeHead(200, { 'Content-Type': /\.(m?js)$/.test(path) ? 'text/javascript' : path.endsWith('.css') ? 'text/css' : 'text/html' });
       res.end(body);
     } catch {
       res.writeHead(404);
@@ -194,6 +198,42 @@ try {
   await run(`window.modsynthFiles.saveMidi(${JSON.stringify(midiPath)}, new Uint8Array(${JSON.stringify([...midiBytes])}))`);
   assert.deepEqual(new Uint8Array(await readFile(midiPath)), midiBytes, 'desktop writes a valid binary MIDI atomically');
   await assert.rejects(run(`window.modsynthFiles.saveMidi(${JSON.stringify(midiPath)}, new Uint8Array([1, 2]))`), /Invalid MIDI data/);
+  for (const [extension, typed] of [['.mp3', false], ['.ogg', true]]) {
+    await run('window.saveAudioPicker(); true');
+    await wait(() => run("document.querySelector('#file-dialog').open && !!document.querySelector('[aria-label=\"Audio file format\"]')"));
+    if (typed) await run("document.querySelector('#fd-name').value = 'typed.ogg'");
+    else await run(`(() => {
+      const select = document.querySelector('[aria-label="Audio file format"]');
+      select.value = '.mp3'; select.dispatchEvent(new Event('change'));
+    })()`);
+    await run("document.querySelector('#fd-ok').click()");
+    await wait(() => run("!document.querySelector('#file-dialog').open"));
+    const result = await run('window.audioSaveResult');
+    assert.ok(result.path.endsWith(extension), 'dropdown and typed audio extensions select the correct format');
+  }
+  const decoded = await run(`(async () => {
+    const pcm = Float32Array.from({ length: 48000 }, (_, i) => Math.sin(i * 2 * Math.PI * 440 / 48000) * 0.5);
+    const context = new AudioContext({ sampleRate: 48000 });
+    try {
+      const results = [];
+      for (const ext of ['.mp3', '.ogg']) {
+        const bytes = await window.encodeAudio(pcm, pcm.map(value => value * 0.5), 48000, ext);
+        const audio = await context.decodeAudioData(bytes);
+        const channel = audio.getChannelData(0);
+        const rms = Math.sqrt(channel.reduce((sum, value) => sum + value * value, 0) / channel.length);
+        const right = audio.getChannelData(1);
+        const rightRms = Math.sqrt(right.reduce((sum, value) => sum + value * value, 0) / right.length);
+        results.push({ ext, duration: audio.duration, channels: audio.numberOfChannels, rms, rightRms });
+      }
+      return results;
+    } finally { await context.close(); }
+  })()`);
+  for (const audio of decoded) {
+    assert.ok(Math.abs(audio.duration - 1) < 0.1, `${audio.ext} duration survives encoding`);
+    assert.equal(audio.channels, 2);
+    assert.ok(audio.rms > 0.30 && audio.rms < 0.40, `${audio.ext} retains the audio signal`);
+    assert.ok(Math.abs(audio.rightRms / audio.rms - 0.5) < 0.03, `${audio.ext} preserves independent stereo channels`);
+  }
   console.log('file picker UI tests passed');
 } finally {
   win?.destroy();

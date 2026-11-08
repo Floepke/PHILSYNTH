@@ -25,5 +25,8 @@
     "@electron/packager": "^20.3.0",
     "electron": "^45.0.0",
     "electron-builder": "^26.0.12"
+  },
+  "dependencies": {
+    "wasm-media-encoders": "^0.7.0"
   }
 }

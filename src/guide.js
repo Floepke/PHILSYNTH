@@ -316,7 +316,7 @@ export const GUIDE = [
       {
         title: 'Export audio',
         items: [
-          'Renders the song offline from its start to the end of the last clip plus up to 10 s of tail, to a 24-bit stereo WAV at the device sample rate. The status bar warns when the mix clips.',
+          'Renders the song offline from its start to the end of the last clip plus up to 10 s of tail. Choose WAV (24-bit stereo at the device sample rate), MP3 (maximum 320 kbps), or Ogg Vorbis (maximum quality 10) in the save picker, or type the corresponding extension. Browsers without a native save picker download WAV. Encoding is local and cancellable. The status bar warns when the mix clips. Export formats do not change sampler storage.',
           'The non-blocking export dialog shows rendering progress, then encoding and writing; normal playback and editing can continue. <b>Cancel</b> stops the export; <b>Export complete</b> confirms it is saved. Browser downloads show <b>Audio ready</b>; check your browser downloads for completion.',
         ],
       },

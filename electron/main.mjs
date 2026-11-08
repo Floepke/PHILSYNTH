@@ -104,8 +104,9 @@ function createWindow(url, fullscreen) {
   });
   // Downloads (fallbacks for Export Audio / Save): the save dialog offers the right format
   win.webContents.session.on('will-download', (_e, item) => {
-    if (item.getFilename().endsWith('.wav')) {
-      item.setSaveDialogOptions({ title: 'Export Audio', filters: [{ name: 'WAV audio', extensions: ['wav'] }] });
+    const audioExt = /\.(wav|mp3|ogg)$/i.exec(item.getFilename())?.[1].toLowerCase();
+    if (audioExt) {
+      item.setSaveDialogOptions({ title: 'Export Audio', filters: [{ name: `${audioExt.toUpperCase()} audio`, extensions: [audioExt] }] });
       return;
     }
     if (!item.getFilename().endsWith('.phproject')) return;

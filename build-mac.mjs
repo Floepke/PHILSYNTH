@@ -2,7 +2,7 @@
 // Options: --arch=arm64|x64|universal (default: this Mac's), --zip (also writes PHILSYNTH-<version>-<arch>.zip)
 // The app is not signed with a Developer ID: on another Mac, open it the first time with
 // right-click > Open (or: xattr -dr com.apple.quarantine PHILSYNTH.app).
-// Only what the app needs at runtime is copied (index.html, style.css, src/, server.mjs, electron/);
+// Only runtime files and the audio encoder dependency are copied;
 // autosaves of the app go to ~/Library/Application Support/PHILSYNTH/projects (see electron/main.mjs).
 import { packager } from '@electron/packager';
 import { execFileSync } from 'node:child_process';
@@ -26,7 +26,7 @@ if (!existsSync(join(ROOT, 'src', 'dsp', 'modsynth.wasm'))) console.warn('warnin
 await buildIcon();
 
 // everything outside these is left out of the bundle
-const KEEP = /^\/(package\.json|index\.html|style\.css|server\.mjs|src(\/.*)?|electron(\/.*)?)$/;
+const KEEP = /^\/(package\.json|index\.html|style\.css|server\.mjs|src(\/.*)?|electron(\/.*)?|node_modules\/wasm-media-encoders(\/.*)?)$/;
 
 const [appDir] = await packager({
   dir: ROOT,
@@ -43,7 +43,7 @@ const [appDir] = await packager({
   overwrite: true,
   prune: true,
   asar: true,
-  ignore: (path) => path !== '' && !KEEP.test(path) && !/^\/(src|electron)$/.test(path),
+  ignore: (path) => path !== '' && !KEEP.test(path) && !/^\/(src|electron|node_modules)$/.test(path),
   extendInfo: {
     NSHighResolutionCapable: true,
     NSMicrophoneUsageDescription: 'PHILSYNTH uses the microphone for its INPUT module.',

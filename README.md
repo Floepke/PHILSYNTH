@@ -344,7 +344,17 @@ within the window and scroll vertically. Arrow keys navigate, Right/Left
 expand/collapse, Enter/Space activate, Home/End jump, and Escape closes.
 
 **PHILSYNTH > Export…** folds open to **Export Audio…** and **Export MIDI…**.
-The audio shortcut remains Ctrl/Cmd+E. MIDI export writes a standard format-1
+The audio shortcut remains Ctrl/Cmd+E. Audio export offers 24-bit stereo WAV,
+maximum-bitrate MP3 (320 kbps), and Ogg Vorbis (maximum quality 10).
+Choose the audio format in the desktop save dialog or the browser's native save
+picker; typing `.wav`, `.mp3` or `.ogg` in the filename selects that format.
+Browsers without a native save picker download WAV. Encoding runs locally in the
+render worker and can be cancelled; no external encoder service is used.
+Restart Electron after updating to enable the new audio save extensions.
+Sampler project storage remains lossless PCM: export formats do not change
+sample storage or its 60-second loading limit.
+
+MIDI export writes a standard format-1
 `.mid` file at 960 ticks per quarter from the currently shown TimeLine:
 
 - All MIDI clips in numbered lanes are grouped by destination, not lane,

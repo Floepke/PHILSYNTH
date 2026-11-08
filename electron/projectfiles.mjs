@@ -10,6 +10,7 @@ import { atomicWrite } from './atomicwrite.mjs';
 export { atomicWrite } from './atomicwrite.mjs';
 import { checkPath, cleanExts, deleteEntry, hasExt, listDir, makeDir, places, target, transferEntry } from './fsbrowse.mjs';
 import { PROJECT_EXT, PROJECT_OPEN_EXTS, CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS, AUDIO_OPEN_EXTS, WAVETABLE_OPEN_EXTS, IMAGE_OPEN_EXTS, MIDI_OPEN_EXTS, MAX_MIDI_BYTES } from '../src/fileformat.js';
+import { AUDIO_FORMATS } from '../src/audioformat.js';
 
 const bare = (ext) => ext.replace(/^\./, '');
 const PROJECT = bare(PROJECT_EXT);
@@ -34,7 +35,7 @@ const MAX_AUDIO = 2 * 1024 * 1024 * 1024;
 // remembered start folder per dialog
 const DIALOG_KINDS = new Set(['project-open', 'project-save', 'clip', 'module', 'scala', 'audio', 'sample', 'wavetable', 'image', 'midi']);
 // extensions a save dialog may add / check (fs:target)
-const SAVE_EXTS = new Set([PROJECT_EXT, CLIP_EXT, MODULE_EXT, '.wav', '.mid']);
+const SAVE_EXTS = new Set([PROJECT_EXT, CLIP_EXT, MODULE_EXT, ...AUDIO_FORMATS.map(format => format.ext), '.mid']);
 
 // Ensures the extension (dialogs on some desktops do not add it).
 export function withExtension(path, ext = PROJECT) {
@@ -230,7 +231,7 @@ export function registerProjectFiles(isLocal) {
     return { name: basename(p) };
   });
 
-  // ---- Export Audio: the WAV bytes ----
+  // ---- Export Audio: encoded WAV / MP3 / Ogg bytes ----
   ipcMain.handle('audio:cancel', (e, id) => {
     check(e);
     audioWrites.get(audioKey(e, id))?.abort();
@@ -239,7 +240,10 @@ export function registerProjectFiles(isLocal) {
     check(e);
     const key = audioKey(e, id);
     if (audioWrites.has(key)) throw new Error('Audio export already running');
-    const p = fileOf(withExtension(checkPath(path), 'wav'), ['.wav']);
+    const checked = checkPath(path);
+    const ext = extname(checked).toLowerCase();
+    const audioExts = AUDIO_FORMATS.map(format => format.ext);
+    const p = fileOf(audioExts.includes(ext) ? checked : withExtension(checked, 'wav'), audioExts);
     const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : null;
     if (!bytes || bytes.byteLength > MAX_AUDIO) throw new Error('Invalid audio data');
     const controller = new AbortController();

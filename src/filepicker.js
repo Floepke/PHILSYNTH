@@ -57,9 +57,13 @@ export const baseLength = (name) => {
 // message of an error from ipcRenderer.invoke, without Electron's prefix
 export const errorText = (err) => String(err?.message ?? err).replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '');
 
+export function saveExtension(name, selected, formats = []) {
+  return formats.find(format => name.toLowerCase().endsWith(format.ext))?.ext ?? selected;
+}
+
 export async function pickFile(files, opts, doc = document) {
   const { mode = 'open', dialog, title = mode === 'save' ? 'Save' : 'Open', types = '', exts = [], suggestedName = '' } = opts;
-  const saveExt = opts.saveExt ?? exts[0];
+  let saveExt = opts.saveExt ?? exts[0];
   const save = mode === 'save';
   const $ = (id) => doc.getElementById(id);
   const dlg = $('file-dialog');
@@ -84,6 +88,20 @@ export async function pickFile(files, opts, doc = document) {
 
   $('fd-title').textContent = title;
   $('fd-types').textContent = types;
+  if (save && opts.formats?.length) {
+    $('fd-types').textContent = `${types} `;
+    const select = doc.createElement('select');
+    select.setAttribute('aria-label', 'Audio file format');
+    for (const format of opts.formats) select.add(new Option(format.label, format.ext));
+    select.value = saveExt;
+    on(select, 'change', () => {
+      const previous = saveExt;
+      saveExt = select.value;
+      const name = nameInput.value;
+      if (name.toLowerCase().endsWith(previous)) nameInput.value = name.slice(0, -previous.length) + saveExt;
+    });
+    $('fd-types').append(select);
+  }
   $('fd-name-row').hidden = !save;
   okBtn.textContent = save ? 'Save' : 'Open';
   nameInput.value = save ? suggestedName : '';
@@ -239,7 +257,7 @@ export async function pickFile(files, opts, doc = document) {
     if (!dir) return;
     let t;
     try {
-      t = await files.target(dir, name, saveExt);
+      t = await files.target(dir, name, saveExtension(name, saveExt, opts.formats));
     } catch (err) {
       error(errorText(err) === 'Invalid name' ? 'A file name cannot contain / or \\.' : errorText(err));
       return;

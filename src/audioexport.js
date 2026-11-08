@@ -1,4 +1,4 @@
-export function renderAudio(project, { sampleRate, wasm, signal, onProgress, onEncoding }) {
+export function renderAudio(project, { sampleRate, wasm, format = '.wav', signal, onProgress, onEncoding }) {
   signal.throwIfAborted();
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./exportworker.js', import.meta.url), { type: 'module' });
@@ -24,7 +24,7 @@ export function renderAudio(project, { sampleRate, wasm, signal, onProgress, onE
       else if (data.type === 'complete') finish(null, data);
       else if (data.type === 'error') finish(new Error(data.message));
     };
-    try { worker.postMessage({ project, sampleRate, wasm }); }
+    try { worker.postMessage({ project, sampleRate, wasm, format }); }
     catch (err) { finish(err); }
   });
 }

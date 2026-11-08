@@ -28,7 +28,7 @@ await build({
     appId: 'com.floepke.modsynth',
     productName: 'PHILSYNTH',
     directories: { output: OUT },
-    files: ['package.json', 'index.html', 'style.css', 'server.mjs', 'src/**/*', 'electron/**/*'],
+    files: ['package.json', 'index.html', 'style.css', 'server.mjs', 'src/**/*', 'electron/**/*', 'node_modules/wasm-media-encoders/**/*'],
     asar: true,
     npmRebuild: false,
     linux: {
