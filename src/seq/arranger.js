@@ -434,24 +434,41 @@ export function createArranger(host, ctx) {
         let lo = Math.min(...ns.map((n) => n.pitch));
         let hi = Math.max(...ns.map((n) => n.pitch));
         if (hi - lo < 12) { const m = (lo + hi) / 2; lo = m - 6; hi = m + 6; }
-        const top = y + 15;
-        const span = CLIP_H - 19;
+        const top = y + 2;
+        const span = CLIP_H - 6;
         g.fillStyle = 'rgba(0, 0, 0, 0.55)';
         for (const n of ns) {
           const nx = x + n.start * view.ppq;
           const nw = Math.max(1.5, Math.min(n.length, clip.length - n.start) * view.ppq - 1);
-          g.fillRect(nx, top + span - ((n.pitch - lo) / (hi - lo)) * span - 1, nw, 2);
+          g.fillRect(nx, top + span - ((n.pitch - lo) / (hi - lo)) * span, nw, 2);
         }
       }
-      // name
+      // type icon and name
       g.save();
       g.beginPath();
       g.rect(x + 2, y, Math.max(0, cw - 4), CLIP_H);
       g.clip();
       g.fillStyle = '#fff';
+      const icon = isAuto(clip) ? '∿' : '♫';
+      const iconHeight = CLIP_H - 4;
+      g.font = `600 ${iconHeight}px ${FONT}`;
+      g.textBaseline = 'alphabetic';
+      const metrics = g.measureText(icon);
+      // Fit the visible glyph, not its font's line height (especially for the wave).
+      const iconScale = iconHeight / (metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent);
+      g.font = `600 ${iconHeight * iconScale}px ${FONT}`;
+      g.fillText(icon, x + 4, y + 2 + metrics.actualBoundingBoxAscent * iconScale);
       g.font = `600 10.5px ${FONT}`;
-      g.textBaseline = 'top';
-      g.fillText(`${linked && !clone ? '⧉ ' : ''}${isAuto(clip) ? '∿ ' : ''}${clip.name}  ${ctx.targetLabel(clip)}`, x + 6, y + 3);
+      g.textBaseline = 'middle';
+      g.textAlign = 'left';
+      const label = `${linked && !clone ? '⧉ ' : ''}${clip.name}  ${ctx.targetLabel(clip)}`;
+      const labelLeft = Math.max(x + 2, x0);
+      const labelRight = Math.min(x + cw - 2, right());
+      g.beginPath();
+      g.rect(labelLeft, y, Math.max(0, labelRight - labelLeft), CLIP_H);
+      g.clip();
+      const labelStart = Math.max(x + 8 + metrics.width * iconScale, x0 + 4);
+      g.fillText(label, labelStart, y + CLIP_H / 2);
       g.restore();
     }
     // selected clones point to their source

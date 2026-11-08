@@ -279,6 +279,13 @@ combined into your own MIDI processor or modulator:
 
 ## Clip files
 
+TimeLine clips show full-height beamed eighth notes (♫) for MIDI and a wave (∿) for
+automation, before the clip name and target.
+Labels are vertically centered and left-aligned, staying clear of the type icon.
+When a clip starts off-screen, its label follows the viewport's left edge,
+remaining clipped inside the clip. MIDI note previews use the full clip height
+with a small inset from the border.
+
 Right-click a clip in the TimeLine and choose **Save Clip…** to store the selected
 clips as a `.clip` file (JSON: `{ "format": "philsynth-clip", "version": 1, "clips": [...] }`).
 Right-click empty TimeLine space and choose **Load Clip…** to place them there again,

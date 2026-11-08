@@ -5,7 +5,7 @@ import { notePitchAt, setSig, emptySong, addClip, addAutoClip, isAuto, cloneClip
 import { createAutomationLane } from '../src/seq/automation.js';
 import { createPianoRoll, TOP_MARGIN, GRID_MIN_PX } from '../src/seq/pianoroll.js';
 import { createArranger } from '../src/seq/arranger.js';
-import { clipsOverlap } from '../src/seq/clipplacement.js';
+import { CLIP_H, clipsOverlap } from '../src/seq/clipplacement.js';
 import { createSequencer } from '../src/seq/index.js';
 import { rightHold } from '../src/seq/surface.js';
 import { Transport } from '../src/transport.js';
@@ -61,7 +61,7 @@ class Canvas extends EventTarget {
   ].map((name) => [name, (...args) => this.drawing.push([name, ...args])]));
   constructor() {
     super();
-    this.context.measureText = () => ({ width: 56 });
+    this.context.measureText = () => ({ width: 56, actualBoundingBoxAscent: 18, actualBoundingBoxDescent: 6 });
     this.context.fillRect = (...args) => this.drawing.push(['fillRect', ...args, this.context.fillStyle]);
     this.context.fill = () => this.drawing.push(['fill', this.context.fillStyle]);
     this.context.stroke = () => this.drawing.push(['stroke', this.context.strokeStyle, this.context.lineWidth]);
@@ -173,6 +173,91 @@ const assertNoOverlap = (song) => {
     for (let j = i + 1; j < song.clips.length; j++) assert.equal(clipsOverlap(song.clips[i], song.clips[j]), false);
   }
 };
+
+// Clip type symbols fit the visible clip height and leave room for the name.
+{
+  const { song, clip, arranger, ctx } = setup();
+  const auto = addAutoClip(song, { start: 0, length: 16, y: CLIP_H, name: 'Curve' });
+  const linked = cloneClip(song, clip);
+  linked.y = 2 * CLIP_H;
+  const cv = arranger.surface.cv;
+  const texts = [];
+  cv.context.measureText = (text) => {
+    const size = Number(/([\d.]+)px/.exec(cv.context.font)[1]);
+    const wave = text === '∿';
+    return { width: size * 0.6, actualBoundingBoxAscent: size * (wave ? 0.3 : 0.7), actualBoundingBoxDescent: size * 0.1 };
+  };
+  cv.context.fillText = (text, x, y) => texts.push({ text, x, y, font: cv.context.font, baseline: cv.context.textBaseline });
+  for (const ppq of [16, 2]) {
+    texts.length = 0;
+    arranger.setView({ ppq });
+    flush();
+    for (const [c, symbol] of [[clip, '♫'], [auto, '∿'], [linked, '♫']]) {
+      const top = 38 + c.y;
+      const icon = texts.find((t) => t.text === symbol && t.y >= top && t.y < top + CLIP_H);
+      assert.ok(icon, `${symbol} is drawn separately from the clip name at zoom ${ppq}`);
+      assert.equal(icon.baseline, 'alphabetic');
+      cv.context.font = icon.font;
+      const metrics = cv.context.measureText(symbol);
+      assert.ok(Math.abs(icon.y - metrics.actualBoundingBoxAscent - (top + 2)) < 1e-9, 'glyph has 2px top padding');
+      assert.ok(Math.abs(icon.y + metrics.actualBoundingBoxDescent - (top + CLIP_H - 2)) < 1e-9, 'glyph has 2px bottom padding');
+      const label = texts.find((t) => t.y === top + CLIP_H / 2);
+      assert.ok(label.text.includes(`${c.name}  ${ctx.targetLabel(c)}`), 'name and target are preserved');
+      assert.equal(label.baseline, 'middle', 'label is vertically centered');
+      assert.ok(label.x >= icon.x + metrics.width + 4, 'label does not overlap the icon');
+      assert.equal(label.x, icon.x + metrics.width + 4, 'label starts immediately after the icon');
+      if (c === clip) assert.ok(label.text.startsWith('⧉ '), 'linked source marker is preserved');
+      if (c === linked) assert.ok(!label.text.startsWith('⧉ '), 'clone keeps its existing label');
+    }
+  }
+}
+
+// Labels follow the viewport's left edge, but are clipped to the visible part of their clip.
+{
+  const { song, clip, arranger, ctx } = setup();
+  const auto = addAutoClip(song, { start: 0, length: 16, y: CLIP_H, name: 'Curve' });
+  const cv = arranger.surface.cv;
+  const texts = [];
+  cv.context.fillText = (text, x, y) => texts.push({ text, x, y, align: cv.context.textAlign });
+  for (const sx of [0, 40, 120, 250, -100]) {
+    cv.drawing.length = 0;
+    texts.length = 0;
+    arranger.setView({ sx, ppq: 16 }); flush();
+    for (const c of [clip, auto]) {
+      const label = texts.find(t => t.text === `${c.name}  ${ctx.targetLabel(c)}`);
+      assert.ok(label, 'both MIDI and automation names are drawn');
+      const x = ax(c.start) - sx;
+      const iconEnd = x + 8 + 56 * (CLIP_H - 4) / 24;
+      assert.equal(label.x, Math.max(iconEnd, 74), 'label is as far left as possible without overlapping the icon');
+      assert.equal(label.align, 'left');
+      const left = Math.max(x + 2, 70);
+      const right = Math.min(x + c.length * 16 - 2, 480 - 32);
+      assert.ok(cv.drawing.some(([op, rx, ry, rw, rh]) =>
+        op === 'rect' && rx === left && ry === 38 + c.y && rw === Math.max(0, right - left) && rh === CLIP_H),
+      'label clipping never extends beyond the clip or viewport, including a narrow remaining sliver');
+    }
+  }
+}
+
+// Mini notes use the full clip height, without reserving a header for the label.
+{
+  const { clip, arranger } = setup();
+  clip.notes = [note(48, 2, 1), note(72, 4, 2)];
+  const cv = arranger.surface.cv;
+  cv.drawing.length = 0;
+  arranger.redraw(); flush();
+  const notes = cv.drawing.filter(([op, , , , , color]) => op === 'fillRect' && color === 'rgba(0, 0, 0, 0.55)');
+  assert.equal(notes.length, 2);
+  assert.deepEqual(notes.map(([, x, y, w, h]) => [x, y, w, h]), [
+    [ax(2), 38 + CLIP_H - 4, 15, 2],
+    [ax(4), 38 + 2, 31, 2],
+  ], 'low and high notes reach the bottom and top padding, preserving their timing');
+  clip.notes = [note(60, 2)];
+  cv.drawing.length = 0;
+  arranger.redraw(); flush();
+  const single = cv.drawing.find(([op, , , , , color]) => op === 'fillRect' && color === 'rgba(0, 0, 0, 0.55)');
+  assert.equal(single[2] + single[4] / 2, 38 + CLIP_H / 2, 'a single-pitch preview stays centered');
+}
 
 // Camera-only interactions schedule persistence without creating undo steps.
 {
