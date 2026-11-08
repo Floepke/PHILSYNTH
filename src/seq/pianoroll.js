@@ -50,7 +50,7 @@
 // The bar ruler between them is a divider: drag it sideways to widen the strip (the note grid
 // scales to the rest), double-click it to reset. The width is saved with the project view.
 // Free timing bypasses time snapping; the visual grid (base note ÷ divider) stays visible.
-import { basePitch, centsOf, bendPolyline, notePitchAt, BEND_MAX, withCents, centsLabel, isBlack, inPiano, clipSilent, isIdea, snapStep, pianoTimeStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, withVelEnd, velsForLength, clean, meter, barLines, beatLines, barLength } from '../song.js';
+import { basePitch, centsOf, bendPolyline, notePitchAt, BEND_MAX, withCents, centsLabel, isBlack, inPiano, clipSilent, isIdea, snapStep, pianoTimeStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, withVelEnd, velsForLength, clean, meter, barLines, beatLines, barLength, gridBeatEnabled } from '../song.js';
 import {
   createSurface, capture, startPan, onWheel, clamp, snapBands, mutedMark, edgeScroll, RIGHT_HOLD_MS, RIGHT_HOLD_SLOP,
   SB, SB_TRACK, scrollThumb, scrollValue, paintThumb,
@@ -445,6 +445,7 @@ export function createPianoRoll(host, ctx) {
         g.setLineDash([12, 12]);
         g.lineDashOffset = 0; // dashes travel with their A#0 anchor
         for (const t of beatLines(null, off + t0, off + t1, m)) {
+          if (!gridBeatEnabled(m, t)) continue;
           const local = t - off;
           if (bars.some((b) => Math.abs(b - local) <= TIME_EPSILON)
             || Math.abs(local) <= TIME_EPSILON || Math.abs(local - clip.length) <= TIME_EPSILON) continue;
@@ -453,7 +454,7 @@ export function createPianoRoll(host, ctx) {
         g.setLineDash([]);
         g.lineDashOffset = 0;
       }
-      for (const t of drawnBars) line(t, BAR_LINE, 1, true);
+      for (const t of drawnBars) if (gridBeatEnabled(m, t + off)) line(t, BAR_LINE, 1, true);
       line(0, BOUNDARY, 1, true);
       line(clip.length, endHover || drag?.kind === 'clipEnd' ? SELECT : BOUNDARY, 2, true);
 

@@ -3,7 +3,7 @@ import {
   notePitchAt, bendPoints, BEND_MAX,
   snapStep, snapRound, snapFloor, normalizeSong, emptySong, addClip, duplicateClip, removeClip, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource, LANE_H,
   trimClipStart, loopEnd, notesStarting, isBlack, inPiano, formatPos, noteName, clean,
-  meter, barLines, beatLines, barRound, barCeil, barLength, setSig, removeSig, normalizeSigs,
+  meter, barLines, beatLines, barRound, barCeil, barLength, setSig, removeSig, normalizeSigs, gridBeatEnabled,
   addAutoClip, isAuto, autoValue, automationAt, pointIndex,
   notePoints, noteVelAt, groupVelCurve, applyVelCurve, applyVelLine, withVelEnd, velsForLength, canConsolidate, consolidateClips, splitClip,
   clipFileText, parseClipFile, CLIP_FORMAT,
@@ -182,7 +182,7 @@ t.stop();
 // time signatures
 {
   const song = emptySong();
-  assert.deepEqual(song.sigs, [{ at: 0, num: 4, den: 4 }]);
+  assert.deepEqual(song.sigs, [{ at: 0, num: 4, den: 4, gridBeats: [0, 1, 2, 3] }]);
   assert.deepEqual(barLines(song, 0, 8).map((b) => b.t), [0, 4, 8]);
   assert.deepEqual(beatLines(song, 0, 4), [1, 2, 3]);
   assert.ok(setSig(song, 8, 7, 8)); // bars 3.. are 7/8 (3.5 quarters)
@@ -204,8 +204,8 @@ t.stop();
   assert.deepEqual(song.sigs.map((x) => `${x.at}:${x.num}/${x.den}`), ['0:3/4', '8:7/8']);
   assert.deepEqual(meter(song).map((x) => x.bar), [0, 3]); // 8 quarters of 3/4 = 2⅔ → 3 bars
   // loading: invalid entries dropped, sorted, 4/4 at 0 added when missing
-  assert.deepEqual(normalizeSigs([{ at: 6, num: 5, den: 8 }, { at: 2, num: 0, den: 4 }, null]), [{ at: 0, num: 4, den: 4 }, { at: 6, num: 5, den: 8 }]);
-  assert.deepEqual(normalizeSong({ clips: [] }).sigs, [{ at: 0, num: 4, den: 4 }]);
+  assert.deepEqual(normalizeSigs([{ at: 6, num: 5, den: 8 }, { at: 2, num: 0, den: 4 }, null]), [{ at: 0, num: 4, den: 4, gridBeats: [0, 1, 2, 3] }, { at: 6, num: 5, den: 8, gridBeats: [0, 1, 2, 3, 4] }]);
+  assert.deepEqual(normalizeSong({ clips: [] }).sigs, [{ at: 0, num: 4, den: 4, gridBeats: [0, 1, 2, 3] }]);
 }
 
 // automation clips
@@ -439,6 +439,25 @@ console.log('song tests passed');
   assert.equal(formatPos(-8, song), '-1.1.00');
   assert.equal(formatPos(5, song), '2.2.00');
 }
+// Beat visibility is version-compatible, normalized, and independent of meter timing.
+{
+  const song = emptySong();
+  setSig(song, 0, 7, 8, [6, 2, 0, 2, -1, 7, 0.5, '1']);
+  assert.deepEqual(song.sigs[0].gridBeats, [0, 2, 6]);
+  const m = meter(song);
+  for (let bar = -1; bar <= 2; bar++) for (let beat = 0; beat < 7; beat++) {
+    assert.equal(gridBeatEnabled(m, bar * 3.5 + beat * 0.5), [0, 2, 6].includes(beat));
+  }
+  assert.deepEqual(beatLines(song, 0, 3.5), [0.5, 1, 1.5, 2, 2.5, 3], 'musical beat lines are not filtered globally');
+  assert.deepEqual(normalizeSong(JSON.parse(JSON.stringify(song))).sigs, song.sigs, 'visibility survives project JSON');
+  setSig(song, 3.5, 3, 4, []);
+  assert.deepEqual(song.sigs[1].gridBeats, [], 'all lines may be hidden');
+  assert.equal(gridBeatEnabled(meter(song), 3.5), false, 'new segment visibility applies at its boundary');
+  assert.equal(barLength(song, 3.5), 3, 'meter remains unchanged');
+  const legacy = normalizeSong({ sigs: [{ at: 0, num: 7, den: 8 }] });
+  assert.deepEqual(legacy.sigs[0].gridBeats, [0, 1, 2, 3, 4, 5, 6], 'legacy signatures show every beat');
+}
+
 // ---- consolidate / split: the song plays the same afterwards ----
 {
   const played = (song) => notesStarting(song, -100, 100)
@@ -610,7 +629,7 @@ console.log('idea storage tests passed');
   const song = newSong();
   assert.equal(song.clips.length, 1);
   assert.deepEqual([song.clips[0].start, song.clips[0].length, song.clips[0].y, song.clips[0].notes.length], [0, 4, 0, 0]);
-  assert.deepEqual(song.sigs, [{ at: 0, num: 4, den: 4 }]);
+  assert.deepEqual(song.sigs, [{ at: 0, num: 4, den: 4, gridBeats: [0, 1, 2, 3] }]);
   assert.equal(song.selected, song.clips[0].id);
   assert.equal(normalizeSong(JSON.parse(JSON.stringify(song))).selected, song.clips[0].id, 'saved and loaded it stays selected');
   // a missing selection picks the lane clip nearest the start; ideas only when nothing else is there

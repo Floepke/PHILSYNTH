@@ -82,7 +82,7 @@ export const snapRound = (t, step) => clean(step === 0 ? t : Math.round(t / step
 export const snapFloor = (t, step) => clean(step === 0 ? t : Math.floor(t / step + 1e-9) * step);
 export const pianoTimeStep = (snap) => snap?.free === true ? 0 : snapStep(snap);
 
-export const emptySong = () => ({ clips: [], sigs: [{ at: 0, num: 4, den: 4 }], selected: null, snap: { base: 16, div: 1 }, nextId: 1, mutes: [], solos: [] });
+export const emptySong = () => ({ clips: [], sigs: [{ at: 0, num: 4, den: 4, gridBeats: [0, 1, 2, 3] }], selected: null, snap: { base: 16, div: 1 }, nextId: 1, mutes: [], solos: [] });
 
 const num = (v, d) => (Number.isFinite(v) ? v : d);
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
@@ -90,15 +90,26 @@ export const isAuto = (clip) => clip?.kind === 'auto';
 
 // ---- time signatures ----
 export const validSig = (n, d) => Number.isInteger(n) && n >= 1 && n <= SIG_NUM_MAX && SIG_DENS.includes(d);
+export const normalizeGridBeats = (beats, num) => Array.isArray(beats)
+  ? [...new Set(beats.filter((beat) => Number.isInteger(beat) && beat >= 0 && beat < num))].sort((a, b) => a - b)
+  : Array.from({ length: num }, (_, beat) => beat);
+
+// Visual beat/bar lines only: transport and snapping always use the full meter.
+export function gridBeatEnabled(m, t) {
+  const seg = segAt(m, t);
+  const index = Math.round((t - seg.at) / seg.beat);
+  const beat = ((index % seg.num) + seg.num) % seg.num;
+  return normalizeGridBeats(seg.gridBeats, seg.num).includes(beat);
+}
 
 export function normalizeSigs(list) {
   const byAt = new Map();
   for (const x of Array.isArray(list) ? list : []) {
     if (!validSig(x?.num, x?.den) || !Number.isFinite(x.at) || x.at < 0) continue;
-    byAt.set(clean(x.at), { at: clean(x.at), num: x.num, den: x.den });
+    byAt.set(clean(x.at), { at: clean(x.at), num: x.num, den: x.den, gridBeats: normalizeGridBeats(x.gridBeats, x.num) });
   }
   const sigs = [...byAt.values()].sort((a, b) => a.at - b.at);
-  if (!sigs.length || sigs[0].at > 0) sigs.unshift({ at: 0, num: 4, den: 4 });
+  if (!sigs.length || sigs[0].at > 0) sigs.unshift({ at: 0, num: 4, den: 4, gridBeats: [0, 1, 2, 3] });
   return sigs;
 }
 
@@ -109,7 +120,7 @@ export function meter(song) {
   let bar = 0;
   return sigs.map((x, i) => {
     const end = sigs[i + 1]?.at ?? Infinity;
-    const seg = { at: x.at, end, num: x.num, den: x.den, len: (x.num * 4) / x.den, beat: 4 / x.den, bar };
+    const seg = { at: x.at, end, num: x.num, den: x.den, gridBeats: normalizeGridBeats(x.gridBeats, x.num), len: (x.num * 4) / x.den, beat: 4 / x.den, bar };
     if (end !== Infinity) bar += Math.ceil((end - x.at) / seg.len - 1e-9);
     return seg;
   });
@@ -160,9 +171,9 @@ export function barCeil(song, t, m = meter(song)) {
 export const barLength = (song, t) => segAt(meter(song), t).len;
 
 // Insert (or replace) the time signature starting at `at`.
-export function setSig(song, at, n, d) {
+export function setSig(song, at, n, d, gridBeats) {
   if (!validSig(n, d)) return false;
-  song.sigs = normalizeSigs([...(song.sigs ?? []).filter((x) => Math.abs(x.at - at) > 1e-9), { at, num: n, den: d }]);
+  song.sigs = normalizeSigs([...(song.sigs ?? []).filter((x) => Math.abs(x.at - at) > 1e-9), { at, num: n, den: d, gridBeats }]);
   return true;
 }
 // Remove a change (the first signature at 0 cannot be removed, only changed).

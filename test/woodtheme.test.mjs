@@ -77,6 +77,8 @@ app.whenReady().then(async () => {
         import { createPreferencesDialog } from '/src/preferencesdialog.js';
         import { registerInterfacePreferences } from '/src/interfacepreferences.js';
         import { registerTimelinePreferences } from '/src/timelinepreferences.js';
+        import { sigDialog } from '/src/dialogs.js';
+        window.openSig = (options) => { window.sigResult = undefined; sigDialog(options).then(result => { window.sigResult = result; }); };
         window.themeErrors = [];
         window.preferencesManager = createPreferencesManager();
         initWoodTheme(window.preferencesManager);
@@ -91,7 +93,7 @@ app.whenReady().then(async () => {
     const routes = new Map([
       ['/', ['text/html', html]],
       ['/style.css', ['text/css', css]],
-      ...['woodtheme', 'modcolor', 'preferences', 'preferencesdialog', 'interfacepreferences', 'timelinepreferences'].map(name => [`/src/${name}.js`, ['text/javascript',
+      ...['woodtheme', 'modcolor', 'preferences', 'preferencesdialog', 'interfacepreferences', 'timelinepreferences', 'dialogs', 'song', 'curve', 'fileformat'].map(name => [`/src/${name}.js`, ['text/javascript',
         readFileSync(new URL('../src/' + name + '.js', import.meta.url), 'utf8')]]),
     ]);
     server = http.createServer((req, res) => {
@@ -271,6 +273,100 @@ app.whenReady().then(async () => {
     await win.loadURL(url);
     assert.deepEqual(await run('window.timelineDisplay'), { showInputGrid: false, showVerticalBarlines: false }, 'timeline display preferences survive reload');
     assert.deepEqual(await run('window.themeErrors'), []);
+    await run("window.openSig({ num: 7, den: 8 })");
+    assert.equal(await run("document.querySelectorAll('#sig-measure .sig-beat').length"), 7);
+    assert.equal(await run("document.querySelectorAll('#sig-measure .sig-stave-line').length"), 10, 'two octaves have ten black-key stave lines, not key rectangles');
+    assert.equal(await run("document.querySelectorAll('#sig-measure .sig-stave-line.three').length"), 6, 'three-line groups are thicker');
+    assert.equal(await run("document.querySelectorAll('#sig-measure .sig-stave-line.central').length"), 2, 'central C#4 and D#4 lines are dashed');
+    const measureSize = () => run(`(() => {
+      const dialog = document.getElementById('sig-dialog').getBoundingClientRect();
+      const preview = document.getElementById('sig-measure');
+      const rows = Array.from(preview.querySelectorAll('button'), row => row.getBoundingClientRect());
+      return { height: preview.clientHeight, dialogHeight: dialog.height, fits: preview.scrollHeight === preview.clientHeight,
+        rowsFit: rows.every(row => row.height > 0) && Math.abs(rows.at(-1).bottom - preview.getBoundingClientRect().bottom) < 1 };
+    })()`);
+    const initialMeasureSize = await measureSize();
+    assert.ok(initialMeasureSize.height > 200, 'editor uses the available window height');
+    assert.ok(initialMeasureSize.fits && initialMeasureSize.rowsFit);
+    win.webContents.debugger.attach('1.3');
+    await win.webContents.debugger.sendCommand('DOM.enable');
+    await win.webContents.debugger.sendCommand('CSS.enable');
+    const { root } = await win.webContents.debugger.sendCommand('DOM.getDocument');
+    for (const index of [0, 1]) {
+      await run(`document.querySelectorAll('#sig-measure button')[${index}].style.transition = 'none'`);
+      const { nodeId } = await win.webContents.debugger.sendCommand('DOM.querySelector', {
+        nodeId: root.nodeId, selector: `#sig-measure button:nth-of-type(${index + 1})`,
+      });
+      await win.webContents.debugger.sendCommand('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: ['hover'] });
+      assert.equal(await run(`getComputedStyle(document.querySelectorAll('#sig-measure button')[${index}]).backgroundColor`),
+        'rgba(255, 255, 255, 0.14)', 'hover highlight is visible on both light and shaded beats');
+      await win.webContents.debugger.sendCommand('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: [] });
+    }
+    win.webContents.debugger.detach();
+    assert.equal(await run(`(() => {
+      const thin = document.querySelector('.sig-stave-line').getBoundingClientRect().width;
+      const thick = document.querySelector('.sig-stave-line.three').getBoundingClientRect().width;
+      return Math.abs(thick / thin - 2) < 0.02;
+    })()`), true, 'stave thickness matches the piano-roll two/three grouping');
+    await run("document.querySelectorAll('#sig-measure button')[0].click(); document.querySelectorAll('#sig-measure button')[2].click()");
+    assert.deepEqual(await run("Array.from(document.querySelectorAll('#sig-measure button'), row => row.getAttribute('aria-pressed'))"), ['false', 'true', 'false', 'true', 'true', 'true', 'true']);
+    await run("document.querySelector('#sig-dialog form').requestSubmit(document.querySelector('#sig-dialog button[value=\"ok\"]'))");
+    await flushClose();
+    assert.deepEqual(await run('window.sigResult'), { num: 7, den: 8, gridBeats: [1, 3, 4, 5, 6] });
+    await run("window.openSig({ num: 7, den: 8, gridBeats: [0, 2, 6] })");
+    await run("document.getElementById('sig-num').value = 3; document.getElementById('sig-num').dispatchEvent(new Event('input'))");
+    assert.equal(await run("document.querySelectorAll('#sig-measure button').length"), 3);
+    assert.equal(await run("Array.from(document.querySelectorAll('#sig-measure button')).every(row => row.getAttribute('aria-pressed') === 'true')"), true, 'numerator edits reset every beat to enabled');
+    assert.deepEqual(await measureSize(), initialMeasureSize, 'changing numerator keeps dialog and measure height fixed');
+    await run("document.getElementById('sig-num').value = 32; document.getElementById('sig-num').dispatchEvent(new Event('input'))");
+    assert.deepEqual(await measureSize(), initialMeasureSize, 'even 32 beats fit the same editor area');
+    await run("document.getElementById('sig-num').value = 5; document.getElementById('sig-num').dispatchEvent(new Event('input'))");
+    await run("document.querySelector('#sig-dialog form').requestSubmit(document.querySelector('#sig-dialog button[value=\"ok\"]'))");
+    await flushClose();
+    assert.deepEqual(await run('window.sigResult'), { num: 5, den: 8, gridBeats: [0, 1, 2, 3, 4] }, 'numerator changes save all beats enabled');
+    await run("window.openSig({ num: 7, den: 8, gridBeats: [0, 2, 6] })");
+    assert.equal(await run("document.querySelectorAll('#sig-measure button[aria-pressed=\"true\"]').length"), 3, 'opening preserves saved beat selections');
+    await run("document.getElementById('sig-den').value = 4; document.getElementById('sig-den').dispatchEvent(new Event('change'))");
+    assert.equal(await run("document.querySelectorAll('#sig-measure button[aria-pressed=\"true\"]').length"), 7, 'denominator changes reset every beat to enabled');
+    await run("document.querySelector('#sig-dialog form').requestSubmit(document.querySelector('#sig-dialog button[value=\"ok\"]'))");
+    await flushClose();
+    assert.deepEqual(await run('window.sigResult'), { num: 7, den: 4, gridBeats: [0, 1, 2, 3, 4, 5, 6] });
+    await run("window.openSig({ num: 7, den: 8, gridBeats: [] })");
+    await run("document.querySelector('#sig-measure button').click()");
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+    await flushClose();
+    assert.equal(await run('window.sigResult'), null, 'Escape discards measure edits');
+    win.show();
+    win.setContentSize(640, 360);
+    await run("window.openSig({ num: 32, den: 8 })");
+    assert.equal(await run("document.querySelectorAll('#sig-measure button').length"), 32);
+    assert.equal(await run(`(() => {
+      const dialog = document.getElementById('sig-dialog').getBoundingClientRect();
+      const preview = document.getElementById('sig-measure');
+      return dialog.top >= 0 && dialog.bottom <= innerHeight && preview.scrollHeight === preview.clientHeight;
+    })()`), true, 'all 32 beats fit without measure scrolling in a short viewport');
+    assert.ok((await measureSize()).rowsFit, 'entire measure scales to the editor height');
+    const shortHeight = (await measureSize()).height;
+    win.webContents.enableDeviceEmulation({
+      screenPosition: 'desktop', screenSize: { width: 640, height: 720 },
+      viewSize: { width: 640, height: 720 }, deviceScaleFactor: 1, scale: 1,
+    });
+    await run(`new Promise((resolve, reject) => {
+      const deadline = performance.now() + 2000;
+      function resized() {
+        if (innerHeight > 660) return resolve();
+        if (performance.now() > deadline) return reject(new Error('Window resize did not reach the renderer: ' + innerHeight));
+        requestAnimationFrame(resized);
+      }
+      resized();
+    })`);
+    await flushClose();
+    const tallHeight = (await measureSize()).height;
+    assert.ok(tallHeight > shortHeight + 300, `editor grows with available window space: ${shortHeight} to ${tallHeight}`);
+    await run("document.querySelector('#sig-dialog button[value=\"cancel\"]').click()");
+    await flushClose();
+    console.log('measure editor tests passed: two octaves, beat toggles, numerator changes, and cancellation');
     console.log('preferences controls passed: categories, keyboard navigation, drafts, live preview, Cancel, Reset, persistence, extremes, and storage errors');
     console.log('wood theme tests passed: neutral surfaces, dark textured grain, and preserved signal colors');
     app.exit(0);

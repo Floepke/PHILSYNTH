@@ -327,6 +327,20 @@ combined into your own MIDI processor or modulator:
   Output's own controllers (Master volume, BPM, …), and it takes no MIDI. A MULTICTL into an
   Output always drives that Output's controllers.
 
+## Time-signature grid
+
+The time-signature dialog includes a two-octave measure preview (time downward).
+It uses the piano roll's black-key stave lines, including thicker three-line
+groups and the dashed central pair. All beats fit a fixed editor area that
+expands with the window; changing the numerator does not resize the dialog.
+Click each numbered beat row to toggle its piano-roll beat/grid line. Beat 1
+controls the measure barline. Each signature saves zero-based `gridBeats`, e.g.
+`[0, 2, 4]` in 7/8; all seven lines are `[0, 1, 2, 3, 4, 5, 6]`.
+An empty list hides all musical beat/bar lines. Clip boundaries, ruler labels,
+input-grid shading, snapping, playback and timeline lines remain unchanged.
+Older projects without this field enable all beats. Editing either the beats-per-bar
+spinbox or the beat-note-value dropdown resets the measure to all beats enabled.
+
 ## Clip files
 
 Clip looping chases notes already sounding at the loop start on every pass,

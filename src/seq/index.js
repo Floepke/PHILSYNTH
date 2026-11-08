@@ -100,13 +100,14 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, getSo
       const r = await sigDialog({
         num: cur.num,
         den: cur.den,
+        gridBeats: cur.gridBeats,
         title: existing ? 'Change time signature' : 'Insert time signature',
         where: `Starts at bar ${formatPos(at, sg).split('.')[0]} and lasts until the next change.`,
         canDelete: !!existing && at > 0,
       });
       if (!r) return;
       if (r === 'delete') removeSig(sg, at);
-      else setSig(sg, at, r.num, r.den);
+      else setSig(sg, at, r.num, r.den, r.gridBeats);
       undoHistory?.record();
       if (!undoHistory) record();
       onChange();

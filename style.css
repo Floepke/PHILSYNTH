@@ -807,6 +807,29 @@ body.panel-collapsed #panel { visibility: hidden; }
 }
 #seq-bar input[type='number'] { width: 62px; font-family: var(--mono); }
 #sig-dialog .sig-fields input[type='number'] { width: 62px; font-family: var(--mono); }
+.sig-measure-box { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; margin: 16px 0 0; padding: 10px; border: 1px solid var(--wood-ink); border-radius: 4px; }
+.sig-measure-box legend { font-size: 12px; padding: 0 6px; }
+#sig-measure { display: flex; flex-direction: column; position: relative; flex: 1; min-height: 0; overflow: hidden; background: #45464e; }
+.sig-stave { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.sig-stave-line { position: absolute; top: 0; bottom: 0; width: calc(100% * 0.22 / 24); transform: translateX(-50%); background: #111216; }
+.sig-stave-line.three { width: calc(100% * 0.44 / 24); }
+.sig-stave-line.central { background: repeating-linear-gradient(to bottom, #111216 0 7px, transparent 7px 12px); }
+.sig-beat {
+  flex: 1;
+  position: relative;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.sig-beat:nth-of-type(even) { background: rgba(0, 0, 0, 0.10); }
+.sig-beat[aria-pressed='true']::before { content: ''; position: absolute; top: 0; left: 0; right: 0; border-top: 4px dashed #111216; }
+.sig-beat.bar[aria-pressed='true']::before { border-top-style: solid; }
+#sig-measure .sig-beat:hover { background: rgba(255, 255, 255, 0.14); filter: none; }
+.sig-beat-label { position: absolute; left: 4px; top: 50%; transform: translateY(-50%); padding: 0 4px; color: #fff; background: #111b; font: 11px var(--mono); z-index: 2; }
 #seq-bar .spinbox input { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
 #seq-bar .spin-buttons button, #sig-dialog .spin-buttons button { min-height: calc(var(--control-height) / 2); }
 #seq-name { width: 92px; }
@@ -1463,7 +1486,9 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
 .map-btn { width: 26px; height: 26px; padding: 0; font-size: 13px; }
 .map-btn:disabled { opacity: 0.35; pointer-events: none; }
 dialog .sig-ok { order: 1; }
-#sig-dialog { --control-height: 32px; }
+#sig-dialog { --control-height: 32px; width: 480px; max-width: calc(100vw - 48px); height: calc(100dvh - 48px); max-height: calc(100dvh - 48px); overflow-y: auto; }
+#sig-dialog form { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+#sig-dialog form > :not(.sig-measure-box) { flex-shrink: 0; }
 .sig-fields { display: flex; align-items: center; gap: 10px; }
 .sig-fields select { width: 80px; }
 .sig-slash { font-size: 22px; color: var(--text-dim, #a0a0a8); }

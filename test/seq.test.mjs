@@ -3349,6 +3349,33 @@ for (const free of [false, true]) {
   assert.ok(Math.abs((96 + roll.getView().sy) / roll.getView().ppq - atPointer) < 1e-9);
 }
 
+// Signature gridBeats filters piano-roll beat/bar lines, not the ruler or clip boundaries.
+{
+  const { song, clip, roll } = setup();
+  clip.length = 14;
+  const cv = roll.surface.cv;
+  const lines = (beats) => {
+    setSig(song, 0, 7, 8, beats);
+    roll.setView({ ...roll.getView(), ppq: 96, sy: 0 });
+    cv.drawing.length = 0; roll.redraw(); flush();
+    const times = [];
+    for (let i = 2; i < cv.drawing.length; i++) {
+      const [op, color, width] = cv.drawing[i];
+      const from = cv.drawing[i - 2], to = cv.drawing[i - 1];
+      if (op === 'stroke' && color === '#111216' && width === 4 &&
+          from[0] === 'moveTo' && to[0] === 'lineTo' && from[2] === to[2] && from[1] > 120 && from[2] > 0.5) times.push((from[2] - 0.5) / 96);
+    }
+    return times;
+  };
+  const all = lines([0, 1, 2, 3, 4, 5, 6]);
+  assert.ok(all.includes(0.5) && all.includes(3.5), `all beats include inner beats and measure start: ${all}`);
+  const selected = lines([2, 4]);
+  assert.ok(selected.includes(1) && selected.includes(2));
+  assert.ok(!selected.includes(0.5) && !selected.includes(3.5), 'disabled beat zero hides repeating barlines');
+  assert.deepEqual(lines([]), [], 'all musical lines may be hidden');
+  assert.ok(cv.drawing.some(([op, text]) => op === 'fillText' && text === '7/8'), 'ruler signatures remain visible');
+}
+
 // Zoomed out in time, grid lines closer than GRID_MIN_PX disappear: beat lines as a whole, bar
 // lines thinned (the same ones while scrolling), so no two drawn lines get closer than that.
 {
