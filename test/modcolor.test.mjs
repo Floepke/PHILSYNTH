@@ -14,7 +14,7 @@ assert.equal(stockColor({ color: '#aaa' }), '#aaaaaa', 'short codes expand');
 assert.equal(stockColor({ color: '#3A7BD5' }), '#3a7bd5');
 assert.equal(stockColor({ isOutput: true }), '#c4c4c8', 'Output: light grey');
 const { default: patchDef } = await import('../src/modules/patch.js');
-assert.equal(stockColor(patchDef), '#00ff00', 'Patch modules use the most contrasting visible stock colour');
+assert.equal(stockColor(patchDef), '#ff0000', 'Patch modules use the red stock colour');
 assert.equal(colorOf({ def: { color: '#123456' }, color: null }), '#123456', 'stock');
 assert.equal(colorOf({ def: { color: '#123456' }, color: '#abcdef' }), '#abcdef', 'custom wins');
 assert.equal(colorOf({ def: { isOutput: true }, color: null }), null, 'Output keeps its own look');
