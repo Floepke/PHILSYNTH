@@ -46,7 +46,7 @@
 import { MOUSE_FORWARD } from '../mousebuttons.js';
 import {
   snapStep, snapFloor, snapRound, loopEnd, getClip, addClip, addAutoClip, isAuto, autoPolyline, duplicateClip, removeClip, trimClipStart, BAR, clean,
-  meter, barLines, barRound, barLength, removeSig, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource,
+  meter, barLines, barRound, barLength, removeSig, moveSig, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource,
   canConsolidate, consolidateClips, splitClip, setRestart, laneMuted, laneSoloed, laneSilent, clipSilent, setLaneFlag, laneY, isIdea, ideaY,
 } from '../song.js';
 import {
@@ -782,7 +782,7 @@ export function createArranger(host, ctx) {
     if (sb !== sbHover) { sbHover = sb; s.redraw(); }
     const h = hit(x, y);
     const id = h?.clip.id ?? null;
-    cv.style.cursor = bar ? 'default' : laneBtnAt(x, y) ? 'pointer' : !h ? (y < RULER && x >= x0 ? (restartAt(x, y) ? 'ew-resize' : sigAt(x, y) ? 'pointer' : 'text') : 'default') : h.part === 'body' ? 'grab' : 'ew-resize';
+    cv.style.cursor = bar ? 'default' : laneBtnAt(x, y) ? 'pointer' : !h ? (y < RULER && x >= x0 ? (restartAt(x, y) || sigAt(x, y)?.at > 0 ? 'ew-resize' : sigAt(x, y) ? 'pointer' : 'text') : 'default') : h.part === 'body' ? 'grab' : 'ew-resize';
     if (id !== hoverId) { hoverId = id; s.redraw(); }
   }
 
@@ -806,6 +806,46 @@ export function createArranger(host, ctx) {
   function signatureItem(x) {
     const at = barRound(ctx.song(), Math.max(0, timeAt(x)));
     return { label: 'Insert/Edit time-Signature Change…', action: () => ctx.editSig(at) };
+  }
+
+  // Recalculate from the original positions so moving back restores downstream boundaries.
+  function signatureDrag(e, at) {
+    const song = ctx.song();
+    const before = song.sigs;
+    const initial = s.local(e);
+    const grab = timeAt(initial.x) - at;
+    let p = initial;
+    let moved = false;
+    const apply = () => {
+      song.sigs = before;
+      moveSig(song, at, timeAt(clamp(p.x, x0, right())) - grab);
+      ctx.live?.();
+      s.redraw();
+    };
+    const auto = areaScroll(apply, { vertical: false });
+    const cancel = ev => {
+      if (ev.key !== 'Escape') return;
+      ev.preventDefault();
+      finish({ type: 'pointercancel' });
+    };
+    dragging = true;
+    const finish = capture(cv, e, ev => {
+      p = s.local(ev);
+      if (!moved && Math.abs(p.x - initial.x) < 3) return;
+      moved = true;
+      apply();
+      auto.update(p);
+    }, ev => {
+      cv.removeEventListener('keydown', cancel);
+      auto.stop();
+      dragging = false;
+      if (ev.type === 'pointercancel') song.sigs = before;
+      else if (song.sigs !== before) ctx.changed();
+      else if (!moved) ctx.transport.seek(Math.max(0, snapRound(timeAt(initial.x), step())));
+      ctx.live?.();
+      s.redraw();
+    });
+    cv.addEventListener('keydown', cancel);
   }
 
   // drag the restart marker along the ruler (snapped); released at time zero it is removed
@@ -897,6 +937,8 @@ export function createArranger(host, ctx) {
     const st = step();
     if (y < SIG_H) { // signature row: set / scrub the play position (double-click inserts / edits a signature)
       if (x < x0) return;
+      const signature = sigAt(x, y);
+      if (signature?.at > 0) { signatureDrag(e, signature.at); return; }
       let p = { x, y };
       const seek = () => { ctx.transport.seek(Math.max(0, snapRound(timeAt(clamp(p.x, x0, right())), st))); s.redraw(); };
       const auto = areaScroll(seek, { vertical: false });

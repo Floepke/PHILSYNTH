@@ -176,6 +176,25 @@ export function setSig(song, at, n, d, gridBeats) {
   song.sigs = normalizeSigs([...(song.sigs ?? []).filter((x) => Math.abs(x.at - at) > 1e-9), { at, num: n, den: d, gridBeats }]);
   return true;
 }
+// Move a signature to a bar of its preceding meter; realign later changes without reordering.
+export function moveSig(song, at, to) {
+  if (!Number.isFinite(to)) return false;
+  const sigs = normalizeSigs(song.sigs);
+  const index = sigs.findIndex(sig => Math.abs(sig.at - at) < 1e-9);
+  if (index <= 0) return false;
+  const previous = sigs[index - 1];
+  const length = previous.num * 4 / previous.den;
+  sigs[index].at = clean(previous.at + Math.max(1, Math.round((to - previous.at) / length)) * length);
+  for (let i = index + 1; i < sigs.length; i++) {
+    const prev = sigs[i - 1];
+    const len = prev.num * 4 / prev.den;
+    sigs[i].at = clean(prev.at + Math.max(1, Math.round((sigs[i].at - prev.at) / len)) * len);
+  }
+  if (sigs.every((sig, i) => sig.at === song.sigs[i].at)) return false;
+  song.sigs = sigs;
+  return true;
+}
+
 // Remove a change (the first signature at 0 cannot be removed, only changed).
 export function removeSig(song, at) {
   if (at <= 1e-9) return false;

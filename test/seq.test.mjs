@@ -731,6 +731,38 @@ for (const reverse of [false, true]) {
   assert.equal(normalizeSong({ restart: 'x' }).restart, undefined);
 }
 
+// Signature dragging previews the whole grid and records only the released edit.
+{
+  const { song, arranger, ctx, changes } = setup();
+  setSig(song, 8, 3, 4, [0, 2]);
+  setSig(song, 14, 7, 8);
+  setSig(song, 21, 4, 4);
+  arranger.redraw(); flush();
+  const cv = arranger.surface.cv;
+  const before = structuredClone(song.sigs);
+  const start = ax(8) + 6;
+  point(cv, 'pointerdown', start, 17, { buttons: 1 });
+  point(cv, 'pointermove', start + 64, 17, { buttons: 1 });
+  assert.deepEqual(song.sigs.map(sig => sig.at), [0, 12, 15, 22], 'grid changes during drag');
+  assert.equal(changes(), 0, 'no undo step during preview');
+  point(cv, 'pointermove', start, 17, { buttons: 1 });
+  assert.deepEqual(song.sigs, before, 'returning to the original position restores later changes');
+  point(cv, 'pointermove', start + 64, 17, { buttons: 1 });
+  point(cv, 'pointercancel', start + 64, 17);
+  assert.deepEqual(song.sigs, before, 'cancel restores all signature positions');
+  assert.equal(changes(), 0);
+  point(cv, 'pointerdown', start, 17, { buttons: 1 });
+  point(cv, 'pointermove', start + 64, 17, { buttons: 1 });
+  key(cv, 'Escape');
+  point(cv, 'pointerup', start + 64, 17);
+  assert.deepEqual(song.sigs, before, 'Escape restores all signature positions');
+  assert.equal(changes(), 0);
+  drag(cv, start, 17, start + 64, 17);
+  assert.deepEqual(song.sigs.map(sig => sig.at), [0, 12, 15, 22]);
+  assert.equal(changes(), 1, 'one undo step on release');
+  assert.equal(ctx.transport.pos, 0, 'dragging does not scrub playback');
+}
+
 // Signature insertion uses the right-click position, rounded to a bar, in all timeline menus.
 {
   const { arranger, ctx, menus } = setup();

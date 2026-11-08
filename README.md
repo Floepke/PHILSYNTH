@@ -332,6 +332,13 @@ combined into your own MIDI processor or modulator:
 The timeline's time-signature row and measure ruler each match a normal clip
 lane's height, with enlarged signature flags and measure numbers.
 
+Drag a purple time-signature flag horizontally to move it to a whole bar of the
+preceding meter. The initial signature stays at zero. Later changes realign to
+the nearest whole measure, keeping their order and at least one measure between
+changes; clips and notes stay in place. The grid updates live. Returning the
+pointer restores the original alignment, cancellation restores all positions,
+and releasing records one undo step.
+
 Choose **Insert/Edit time-Signature Change…** from the timeline or ruler context menu
 to open the time-signature dialog at the nearest bar to the right-click position.
 Double-clicking the signature row still works; hold right-click on existing

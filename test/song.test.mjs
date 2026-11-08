@@ -3,7 +3,7 @@ import {
   notePitchAt, bendPoints, BEND_MAX,
   snapStep, snapRound, snapFloor, normalizeSong, emptySong, addClip, duplicateClip, removeClip, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource, LANE_H,
   trimClipStart, loopEnd, notesStarting, isBlack, inPiano, formatPos, noteName, clean,
-  meter, barLines, beatLines, barRound, barCeil, barLength, setSig, removeSig, normalizeSigs, gridBeatEnabled,
+  meter, barLines, beatLines, barRound, barCeil, barLength, setSig, moveSig, removeSig, normalizeSigs, gridBeatEnabled,
   addAutoClip, isAuto, autoValue, automationAt, pointIndex,
   notePoints, noteVelAt, groupVelCurve, applyVelCurve, applyVelLine, withVelEnd, velsForLength, canConsolidate, consolidateClips, splitClip,
   clipFileText, parseClipFile, CLIP_FORMAT,
@@ -11,6 +11,21 @@ import {
 } from '../src/song.js';
 import { Transport } from '../src/transport.js';
 import { songFacts } from '../src/songfacts.js';
+
+{
+  const song = emptySong();
+  setSig(song, 8, 3, 4, [0, 2]);
+  setSig(song, 14, 7, 8);
+  setSig(song, 21, 4, 4);
+  assert.equal(moveSig(song, 0, 4), false, 'initial signature stays at zero');
+  assert.equal(moveSig(song, 8, 11), true);
+  assert.deepEqual(song.sigs.map(sig => sig.at), [0, 12, 15, 22]);
+  assert.deepEqual(song.sigs[1].gridBeats, [0, 2]);
+  assert.equal(moveSig(song, 12, -20), true);
+  assert.deepEqual(song.sigs.map(sig => sig.at), [0, 4, 16, 23]);
+  assert.equal(moveSig(song, 4, 40), true);
+  assert.deepEqual(song.sigs.map(sig => sig.at), [0, 40, 43, 46.5], 'later changes stay ordered at whole measures');
+}
 
 {
   const song = emptySong();
