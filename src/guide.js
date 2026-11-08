@@ -251,8 +251,8 @@ export const GUIDE = [
       {
         title: 'Velocity',
         items: [
-          'The strip left of the notes shows each note\'s velocity (stick) and how it changes while the note sounds. With several notes selected, dragging a start dot or curve point sideways shifts all their start velocities and curve points equally. Movement stops at 0 or 100 % to preserve velocity differences; point times and rounding stay unchanged.',
-          `The selected notes share one velocity curve: ${k('Double-click')} inside them adds a point, drag points (${k('Shift')} = fine), the wheel on a point rounds it. ${k('Alt')} + drag moves only the curve point.`,
+          'The strip left of the notes shows each note\'s velocity (stick) and how it changes while the note sounds. Dragging a selected start dot sets every selected note to the same start velocity, regardless of start time. Each curve shifts by its own start-velocity change, clamping points at 0 or 100 %; point times and rounding stay unchanged.',
+          `${k('Double-click')} inside a selected note adds a point for every selected note at the same offset from its start (clamped to shorter notes\' ends). Dragging an existing point edits points at the same timeline time (${k('Shift')} = fine), creating missing points in selected notes sounding then, never changing start velocities or other points. The wheel rounds same-time points. Select just one note to edit it alone.`,
           'Right-click the strip for <b>Snap velocity values</b> (1/16 steps, shown as alternating light/dark bands while on) and <b>Delete point</b>. Drag the bar ruler beside the strip to make it wider (double-click resets).',
         ],
       },

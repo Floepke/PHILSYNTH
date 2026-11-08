@@ -2,17 +2,14 @@
 // velocity runs from 0 (left) to 1 (right).
 // Every note shows a stick from the left edge to its start velocity, plus its velocity curve while
 // it sounds (velocity can change over time, see note.vels in song.js).
-// Editing works on the selected notes: they share ONE curve (a single selected note: its own curve).
-// By default that curve is a single value. Edits are written back into every selected note
-// (applyVelCurve), so each note follows the shared line during its own time.
+// Editing works on selected notes, keeping each note's start velocity and curve independent.
 //   drag a note's handle (start dot)   select that note and set its velocity (Shift: add to selection)
-//   drag a selected note's handle      with several notes selected: moves the start velocity of every
-//                                       selected note and all its curve points by the same amount
-//   drag a curve point                 multiple notes: shift all velocities sideways;
-//                                       Alt or one note: change only this point's velocity and time
-//                                       the first point stays at the start of the selection
+//   drag a selected note's handle      sets every selected start to the dragged velocity;
+//                                       each note's curve shifts by its own start-velocity change
+//   drag a curve point                 edit points at the same timeline time in selected notes,
+//                                       creating missing points in notes sounding at that time
 //   Shift + drag                       fine velocity
-//   double-click inside the selection  insert a curve point (hold the second press to drag it)
+//   double-click inside a selected note insert a point for all selected notes (hold to drag it)
 //   mouse wheel on a point             round the corner
 //   Ctrl/Cmd + drag                    draw a straight dashed line; on release every note start and
 //                                       curve point it spans snaps onto it (the selected notes, or
@@ -20,7 +17,7 @@
 //   right-click                        menu: toggle velocity snapping (1/16 increments, shown as
 //                                       alternating light/dark bands between the levels);
 //                                       on a curve point, the menu also offers Delete point (not the first)
-import { pianoTimeStep, snapRound, clean, notePoints, noteVelAt, groupVelCurve, applyVelCurve, applyVelLine } from '../song.js';
+import { pianoTimeStep, snapRound, clean, notePoints, noteVelAt, applyVelLine } from '../song.js';
 import { curvePolyline, NEW_NOTE_POINT_ROUND } from '../curve.js';
 import { doublePress } from '../doublepress.js';
 import { capture, clamp } from './surface.js';
@@ -38,7 +35,7 @@ const VEL_SNAP = 16; // velocity snapping levels: 0, 1/16 .. 1
 //      edgeScroll(onScroll)? (an edgeScroll() that scrolls the shared time axis),
 //      labelTop()? (top of the label strip, default bottom()) }
 export function createVelocityStrip(o) {
-  let group = null; // { notes, points (absolute clip times), start, end, sig }
+  let group = null; // selected notes and their actual point handles at absolute clip times
   let hover = null; // { kind: 'point', i } | { kind: 'note', note }
   let drag = null;
   let line = null; // Ctrl+drag: { a: {t, v}, b: {t, v} } (absolute clip times)
@@ -52,8 +49,7 @@ export function createVelocityStrip(o) {
   const step = () => pianoTimeStep(o.song().snap);
   const sigOf = (notes) => notes.map((n) => `${n.start},${n.length},${n.vel},${JSON.stringify(n.vels ?? [])}`).join(';');
 
-  // The shared curve follows the selection; it is rebuilt when the selection or the selected
-  // notes change elsewhere (moved, resized, other clip), otherwise kept so edits stay exact.
+  // Keep actual point identities for hit testing; never average or rewrite independent curves.
   function sync() {
     const clip = o.clip();
     const sel = o.selected();
@@ -64,18 +60,32 @@ export function createVelocityStrip(o) {
     if (!same) {
       group = {
         notes,
-        points: groupVelCurve(notes),
-        start: notes[0].start,
-        end: Math.max(...notes.map((n) => n.start + n.length)),
+        points: notes.flatMap((note) => [
+          { t: note.start, v: note.vel, r: 0, note, start: true },
+          ...(note.vels ?? []).filter((p) => p.t <= note.length).map((point) => ({
+            t: clean(note.start + point.t), v: point.v, r: point.r, note, point,
+          })),
+        ]).sort((a, b) => a.t - b.t),
         sig,
       };
     }
     return group;
   }
 
-  function apply() {
-    applyVelCurve(group.notes, group.points);
-    group.sig = sigOf(group.notes);
+  function targetsFor(p, create = false, relative = false) {
+    const offset = clean(p.t - p.note.start);
+    return group.notes.flatMap((note) => {
+      const t = relative ? Math.min(offset, note.length) : clean(p.t - note.start);
+      if (t <= 1e-9 || t > note.length + 1e-9) return [];
+      let point = note.vels?.find((point) => Math.abs(point.t - t) < 1e-9);
+      if (!point && create) {
+        point = { t, v: noteVelAt(note, t), r: p.r };
+        note.vels ??= [];
+        note.vels.push(point);
+        note.vels.sort((a, b) => a.t - b.t);
+      }
+      return point ? [{ note, point }] : [];
+    });
   }
 
   function pointAt(x, y) {
@@ -155,28 +165,12 @@ export function createVelocityStrip(o) {
         g.fill();
       }
       if (group) {
-        // the shared curve of the selection
+        // Selected notes retain their own curves; show handles at their actual points.
         const pts = group.points;
-        const pl = poly(pts);
-        g.strokeStyle = '#fff';
-        g.lineWidth = 1.5;
-        g.beginPath();
-        for (let i = 0; i < pl.length; i += 2) {
-          const px = xv(pl[i + 1]);
-          const py = o.yOf(pl[i]);
-          if (i) g.lineTo(px, py); else g.moveTo(px, py);
-        }
-        g.stroke();
-        const last = pts[pts.length - 1];
-        if (last.t < group.end) {
-          g.setLineDash([3, 3]);
-          g.beginPath(); g.moveTo(xv(last.v), o.yOf(last.t)); g.lineTo(xv(last.v), o.yOf(group.end)); g.stroke();
-          g.setLineDash([]);
-        }
         pts.forEach((p, i) => {
           const x = xv(p.v);
           const y = o.yOf(p.t);
-          const active = drag?.i === i || (hover?.kind === 'point' && hover.i === i);
+          const active = (p.point && drag?.point === p.point) || (hover?.kind === 'point' && hover.i === i);
           g.beginPath();
           g.arc(x, y, active ? 5.5 : 4.5, 0, Math.PI * 2);
           g.fillStyle = active ? '#fff' : SELECT;
@@ -214,7 +208,7 @@ export function createVelocityStrip(o) {
     g.font = '600 9px ui-monospace, monospace';
     g.textBaseline = 'middle';
     g.textAlign = 'center';
-    const p = drag ? group?.points[drag.i] : hover?.kind === 'point' ? group?.points[hover.i] : null;
+    const p = drag?.point ?? (hover?.kind === 'point' ? group?.points[hover.i] : null);
     const v = drag?.note ? drag.note.vel : p ? p.v : hover?.kind === 'note' ? hover.note.vel : null;
     const label = line ? `${Math.round(line.a.v * 127)} → ${Math.round(line.b.v * 127)}` : v === null ? 'VELOCITY' : `VEL ${Math.round(v * 127)}`;
     g.fillText(label, W() / 2, labelTop + (h - labelTop) / 2);
@@ -223,30 +217,44 @@ export function createVelocityStrip(o) {
     g.beginPath(); g.moveTo(W(), 0); g.lineTo(W(), h); g.stroke();
   }
 
-  function dragPoint(e, i, x, y) {
-    const pts = group.points;
-    const p = pts[i];
+  function dragPoint(e, i, x, y, inserted = null) {
+    const p = group.points[i];
+    if (p.start) { dragNotes(e, p.note, x, y); return; }
+    const notes = group.notes;
+    const originals = inserted?.originals ?? notes.map((note) => ({ note, vels: structuredClone(note.vels) }));
+    const targets = inserted?.targets ?? targetsFor(p, true);
+    const created = inserted !== null || notes.some((note, index) => (note.vels?.length ?? 0) !== (originals[index].vels?.length ?? 0));
     const t0 = p.t;
     const v0 = p.v;
+    const values = targets.map(({ point }) => point.v);
+    let minTime = -Infinity;
+    let maxTime = Infinity;
+    const times = targets.map(({ note, point }) => {
+      const index = note.vels.indexOf(point);
+      minTime = Math.max(minTime, (note.vels[index - 1]?.t ?? 0) + 1e-6 - point.t);
+      maxTime = Math.min(maxTime, (note.vels[index + 1] ? note.vels[index + 1].t - 1e-6 : note.length) - point.t);
+      return point.t;
+    });
     const st = step();
     const tStart = o.timeAt(y);
     let q = null;
     let shift = e.shiftKey;
-    drag = { i, moved: false };
+    drag = { point: p.point, moved: false };
     const state = drag;
     const update = () => {
       if (drag !== state || !q) return;
-      p.v = snapVelocity(clamp(v0 + ((q.x - x) * (shift ? 0.1 : 1)) / (W() - 2 * PAD), 0, 1));
-      if (i > 0) {
-        const lo = pts[i - 1].t;
-        const hi = i < pts.length - 1 ? pts[i + 1].t : group.end;
-        p.t = clean(clamp(snapRound(t0 + o.timeAt(clamp(q.y, 0, o.bottom())) - tStart, st), lo, hi));
-      }
-      apply();
+      const target = snapVelocity(v0 + ((q.x - x) * (shift ? 0.1 : 1)) / (W() - 2 * PAD));
+      const delta = target - v0;
+      const dt = clamp(snapRound(t0 + o.timeAt(clamp(q.y, 0, o.bottom())) - tStart, st) - t0, minTime, maxTime);
+      targets.forEach(({ point }, index) => {
+        point.v = clean(clamp(values[index] + delta, 0, 1));
+        point.t = clean(times[index] + dt);
+      });
       o.redraw();
     };
     // a point's time drags along the roll's time axis: past the top / bottom edge the roll scrolls along
-    const auto = i > 0 ? o.edgeScroll?.(update) : null;
+    const auto = o.edgeScroll?.(update);
+    o.redraw();
     capture(o.cv, e, (ev) => {
       q = o.local(ev);
       shift = ev.shiftKey;
@@ -257,23 +265,21 @@ export function createVelocityStrip(o) {
       auto?.update(q);
     }, (ev) => {
       auto?.stop();
-      if (ev.type === 'pointercancel') { p.t = t0; p.v = v0; apply(); }
-      else o.rememberVelocity?.(group.notes[0].vel);
+      if (ev.type === 'pointercancel') originals.forEach(({ note, vels }) => {
+        if (vels) note.vels = vels; else delete note.vels;
+      });
       const moved = drag.moved;
       drag = null;
-      if (moved) o.changed();
+      if ((moved || created) && ev.type !== 'pointercancel') o.changed();
       o.redraw();
     });
   }
 
-  // Clamp one shared offset so all velocity differences survive the edit.
-  function dragNotes(e, note, x, y, value = note.vel) {
+  // A single baseline for selected starts, independent of their positions in time.
+  function dragNotes(e, note, x, y) {
     const notes = group.notes;
     const originals = notes.map((n) => ({ vel: n.vel, vels: n.vels }));
-    const values = originals.flatMap((n) => [n.vel, ...(n.vels ?? []).map((p) => p.v)]);
-    const lower = -Math.min(...values);
-    const upper = 1 - Math.max(...values);
-    const grabbed = value;
+    const grabbed = note.vel;
     drag = { note, moved: false };
     capture(o.cv, e, (ev) => {
       const q = o.local(ev);
@@ -281,10 +287,10 @@ export function createVelocityStrip(o) {
       drag.moved = true;
       presses.reset();
       const target = snapVelocity(clamp(grabbed + ((q.x - x) * (ev.shiftKey ? 0.1 : 1)) / (W() - 2 * PAD), 0, 1));
-      const d = clamp(target - grabbed, lower, upper);
       notes.forEach((n, i) => {
-        n.vel = clean(originals[i].vel + d);
-        if (originals[i].vels) n.vels = originals[i].vels.map((p) => ({ ...p, v: clean(p.v + d) }));
+        const d = target - originals[i].vel;
+        n.vel = target;
+        if (originals[i].vels) n.vels = originals[i].vels.map((p) => ({ ...p, v: clean(clamp(p.v + d, 0, 1)) }));
       });
       o.redraw();
     }, (ev) => {
@@ -295,13 +301,13 @@ export function createVelocityStrip(o) {
       else o.rememberVelocity?.(note.vel);
       const moved = drag.moved;
       drag = null;
-      if (moved) o.changed();
+      if (moved && ev.type !== 'pointercancel') o.changed();
       o.redraw();
     });
   }
-  // the selected note whose handle is under (x, y) when several notes are selected (else null)
-  const groupHandleAt = (x, y, e = null) => {
-    if (e?.altKey || !group || group.notes.length < 2) return null;
+  // A selected start handle always moves that selection's complete curves.
+  const groupHandleAt = (x, y) => {
+    if (!group) return null;
     const n = noteAt(x, y);
     return n && o.selected().has(n) ? n : null;
   };
@@ -346,19 +352,19 @@ export function createVelocityStrip(o) {
     });
   }
 
-  // a curve point at the snapped time under y (an existing one there takes the value): its index,
-  // or -1 outside the selection
+  // Insert at the same note-relative offset, retaining a snapshot for cancellation.
   function insert(x, y) {
     const t = clean(snapRound(o.timeAt(y), step()));
-    if (t <= group.start + 1e-9 || t > group.end + 1e-9) return -1;
-    const pts = group.points;
-    let i = 0;
-    while (i < pts.length && pts[i].t <= t) i++;
+    const note = group.notes.find((n) => t > n.start + 1e-9 && t <= n.start + n.length + 1e-9);
+    if (!note) return null;
+    const originals = group.notes.map((note) => ({ note, vels: structuredClone(note.vels) }));
     const v = snapVelocity(vx(x));
-    if (pts[i - 1]?.t === t) { pts[i - 1].v = v; i--; } else pts.splice(i, 0, { t, v, r: NEW_NOTE_POINT_ROUND });
-    apply();
-    o.changed();
-    return i;
+    const p = { t, v, r: NEW_NOTE_POINT_ROUND, note };
+    const targets = targetsFor(p, true, true);
+    for (const { point } of targets) point.v = v;
+    sync();
+    const point = targets.find((target) => target.note === note).point;
+    return { i: group.points.findIndex((p) => p.note === note && p.point === point), originals, targets };
   }
 
   return {
@@ -373,10 +379,14 @@ export function createVelocityStrip(o) {
         presses.reset();
         const i = pointAt(x, y);
         const target = group;
+        const p = group?.points[i];
+        const targets = p && !p.start ? targetsFor(p) : [];
         const deletePoint = () => {
-          if (sync() !== target || i <= 0 || i >= group.points.length) return;
-          group.points.splice(i, 1);
-          apply();
+          if (sync() !== target || !targets.length) return;
+          for (const { note, point } of targets) {
+            note.vels = note.vels.filter((p) => p !== point);
+            if (!note.vels.length) delete note.vels;
+          }
           hover = null;
           o.changed();
           o.redraw();
@@ -387,24 +397,23 @@ export function createVelocityStrip(o) {
           checked: o.snapVelocity(),
           action: o.toggleSnapVelocity,
         }];
-        if (i >= 0) items.push('-', { label: 'Delete point', disabled: i === 0, action: deletePoint });
+        if (i >= 0) items.push('-', { label: 'Delete point', disabled: p.start === true, action: deletePoint });
         o.menu({ x: e.clientX, y: e.clientY, items });
         return true;
       }
       if (e.button !== 0) return true;
       if ((e.ctrlKey || e.metaKey) && o.clip()) { presses.reset(); dragLine(e, x, y); return true; }
       const second = presses.press(e);
-      const many = groupHandleAt(x, y, e);
+      const many = groupHandleAt(x, y);
       if (many) { dragNotes(e, many, x, y); return true; }
       const i = pointAt(x, y);
       if (i >= 0) {
-        if (group.notes.length > 1 && !e.altKey) dragNotes(e, group.notes[0], x, y, group.points[i].v);
-        else dragPoint(e, i, x, y);
+        dragPoint(e, i, x, y);
         return true;
       }
       if (second && group) { // down-up-DOWN: insert a point and drag it at once
-        const j = insert(x, y);
-        if (j > 0) { dragPoint(e, j, x, y); return true; }
+        const inserted = insert(x, y);
+        if (inserted) { dragPoint(e, inserted.i, x, y, inserted); return true; }
       }
       const n = noteAt(x, y);
       if (!n) return true;
@@ -418,7 +427,7 @@ export function createVelocityStrip(o) {
       }
       if (!(sel.size === 1 && sel.has(n))) o.setSelected(new Set([n]));
       sync();
-      dragPoint(e, 0, x, y);
+      dragNotes(e, n, x, y);
       return true;
     },
     // wheel on a curve point rounds it; returns true when handled
@@ -426,10 +435,11 @@ export function createVelocityStrip(o) {
       if (!contains(x, y)) return false;
       sync();
       const i = pointAt(x, y);
-      if (i <= 0) return false;
+      if (i < 0 || group.points[i].start) return false;
       const p = group.points[i];
-      p.r = clamp(Math.round((p.r + (e.deltaY < 0 ? ROUND_STEP : -ROUND_STEP)) * 100) / 100, 0, 1);
-      apply();
+      for (const { point } of targetsFor(p)) {
+        point.r = clamp(Math.round((point.r + (e.deltaY < 0 ? ROUND_STEP : -ROUND_STEP)) * 100) / 100, 0, 1);
+      }
       o.changed();
       return true;
     },
@@ -446,7 +456,7 @@ export function createVelocityStrip(o) {
       if (many) {
         hover = { kind: 'note', note: many };
         o.redraw();
-        return { cursor: 'ew-resize', title: `Velocity ${Math.round(many.vel * 127)} — drag to shift all start velocities and curve points of ${group.notes.length} selected notes (Alt: only this curve point)` };
+        return { cursor: 'ew-resize', title: `Velocity ${Math.round(many.vel * 127)} — drag to set all ${group.notes.length} selected starts to one velocity; curves follow their own starts` };
       }
       const i = pointAt(x, y);
       const n = i < 0 ? noteAt(x, y) : null;
@@ -454,7 +464,7 @@ export function createVelocityStrip(o) {
       o.redraw();
       if (i >= 0) {
         const p = group.points[i];
-        return { cursor: group.notes.length > 1 ? 'ew-resize' : i ? 'move' : 'ew-resize', title: `Velocity ${Math.round(p.v * 127)} (${Math.round(p.v * 100)} %)${p.r ? `  rounding ${Math.round(p.r * 100)} %` : ''}${group.notes.length > 1 ? ' — drag to shift all selected velocities (Alt: only this point)' : ''}` };
+        return { cursor: p.start ? 'ew-resize' : 'move', title: `Velocity ${Math.round(p.v * 127)} (${Math.round(p.v * 100)} %)${p.r ? `  rounding ${Math.round(p.r * 100)} %` : ''} — drag to edit corresponding points of selected notes only` };
       }
       if (n) return { cursor: 'pointer', title: `Velocity ${Math.round(n.vel * 127)} — drag to change` };
       return { cursor: 'crosshair', title: group ? 'Double-click to add a velocity point · Ctrl+drag: draw a line the velocities snap to' : 'Select notes to edit their velocity · Ctrl+drag: draw a line the velocities snap to' };

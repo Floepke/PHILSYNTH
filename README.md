@@ -336,6 +336,24 @@ If that lane is blocked by an unselected clip, the result moves to a free lane
 below without changing its time. Mixed MIDI/automation or automation-only
 selections cannot be consolidated. At least two clips are required.
 
+In the piano-roll velocity editor, dragging a start handle sets every selected
+note's start velocity to the dragged value, regardless of its start time.
+Each note's curve shifts by its own start-velocity change, with points clamped
+to 0–100%; point times and rounding are unchanged. Use Ctrl/Cmd + drag to draw
+a time-based ramp through selected note starts and curve points instead.
+Editing a curve
+point changes only points at the same timeline time in selected notes, never
+start velocities or other points. Missing points are created only in selected
+notes sounding at that time; differing note starts do not prevent synchronized edits.
+Point velocities clamp individually at 0–100% without blocking the group. During
+a drag, moving back restores their original differences; releasing commits the
+visible values, so points flattened to one level move together on the next drag.
+Double-clicking inside a selected note creates a point for every selected note
+at the same offset from its start; offsets beyond shorter notes are clamped to
+their ends. Dragging an existing point creates missing same-time points
+immediately. Select a single note to edit only that note. Cancel restores the
+original curves, including removing points created by a cancelled point drag.
+
 TimeLine clips show full-height beamed eighth notes (♫) for MIDI and a wave (∿) for
 automation, before the clip name and target.
 Labels are vertically centered and left-aligned, staying clear of the type icon.

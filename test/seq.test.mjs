@@ -2499,7 +2499,7 @@ for (const cancelled of [false, true]) {
   assert.equal(menus.at(-1).items.find((i) => i.label === 'Go to source').disabled, true);
 }
 
-// Velocity strip: drag a note's handle, then shape one shared curve for several notes.
+// Velocity strip: start handles move whole curves; point edits leave starts untouched.
 {
   const { clip, roll, changes, menus } = setup();
   const cv = roll.surface.cv;
@@ -2515,39 +2515,153 @@ for (const cancelled of [false, true]) {
   assert.equal(clip.notes.length, 2, 'the dragged note was selected');
   const a = clip.notes.find((n) => n.start === 0); // 0..1, velocity 0.3
   const b = clip.notes.find((n) => n.start === 2); // 2..4, velocity 0.5
-  // select both (one curve, two points as they differ), Alt + drag the first point to 0.5: flat
-  // (without Alt a selected note's handle moves every selected start velocity, see below)
+  // Start handles move every selected note, even with Alt.
   key(cv, 'a', { ctrlKey: true });
   drag(cv, vx(0.3), ny(0), vx(0.5), ny(0), { altKey: true });
-  assert.equal(b.vel, 0.5, 'Alt: only the curve point there');
+  assert.equal(b.vel, 0.5, 'all selected starts take the dragged value');
   assert.ok(Math.abs(a.vel - 0.5) < 1e-9);
   // double-click inside the selection adds a point at the snapped time; drag it to 1
   dbl(cv, vx(0.5), ny(3.05));
-  assert.deepEqual(b.vels?.map((p) => p.t), [1], 'shared point at t=3 lands inside the second note');
+  assert.deepEqual(b.vels?.map((p) => p.t), [1], 'point offset is relative to each note start');
+  assert.deepEqual(a.vels?.map((p) => p.t), [1], 'point is created for the first selected note too');
   assert.equal(b.vels[0].r, 0.5, 'new points start half rounded');
   drag(cv, vx(b.vels[0].v), ny(3), vx(1), ny(3), { altKey: true });
   assert.equal(b.vels[0].v, 1);
-  assert.equal(b.vel, 0.5, 'the shared point at t=2 keeps the start of the second note');
-  assert.equal('vels' in a, false, 'flat before t=2: the first note stays constant');
-  // move the t=2 point up to t=0.5 (it stays after the first point): now the first note ramps too
-  drag(cv, vx(0.5), ny(2), vx(0.5), ny(0.5), { altKey: true });
+  assert.equal(b.vel, 0.5, 'point edit leaves the second note start unchanged');
+  assert.equal(a.vels[0].v, 0.5, 'point at another timeline time stays unchanged');
+  // Moving the point in time moves each corresponding point by the same offset.
+  drag(cv, vx(1), ny(3), vx(1), ny(2.5));
   assert.equal(a.vel, 0.5);
-  assert.deepEqual(a.vels?.map((p) => p.t), [0.5, 1], 'first note follows the line until its end');
-  assert.ok(b.vel > 0.5 && b.vel < 1, 'second note starts on the line');
+  assert.deepEqual(a.vels?.map((p) => p.t), [1]);
+  assert.deepEqual(b.vels?.map((p) => p.t), [0.5]);
+  assert.equal(b.vel, 0.5, 'moving points never changes start velocity');
   // wheel rounds the point; right click offers deletion without deleting immediately
-  point(cv, 'wheel', vx(1), ny(3), { deltaY: -100 });
+  point(cv, 'wheel', vx(1), ny(2.5), { deltaY: -100 });
   assert.equal(b.vels[0].r, 0.55);
   b.vels[0].r = 1;
-  point(cv, 'wheel', vx(1), ny(3), { deltaY: -100 });
+  point(cv, 'wheel', vx(1), ny(2.5), { deltaY: -100 });
   assert.equal(b.vels[0].r, 1, 'already at maximum rounding');
-  point(cv, 'wheel', vx(1), ny(3), { deltaY: 100 });
+  point(cv, 'wheel', vx(1), ny(2.5), { deltaY: 100 });
   assert.equal(b.vels[0].r, 0.95);
-  holdRightClick(cv, vx(1), ny(3));
+  holdRightClick(cv, vx(1), ny(2.5));
   assert.ok(b.vels, 'releasing after the menu opened does not delete');
   assert.ok(b.vels);
   pick(menus, 'Delete point');
   assert.equal('vels' in b, false);
+  assert.deepEqual(a.vels, [{ t: 1, v: 0.5, r: 0.5 }], 'deleting a point does not remove a different-time point');
   assert.ok(changes() > 4);
+}
+
+// Dragging an existing point creates missing counterparts immediately, not a shared curve.
+{
+  const { clip, roll, changes } = setup();
+  const cv = roll.surface.cv;
+  const vx = (v) => 7 + v * 70;
+  const a = note(60, 1, 4, 0.4);
+  const b = note(64, 1.5, 2, 0.3);
+  const other = note(67, 10, 2, 0.9);
+  a.vels = [{ t: 1, v: 0.6, r: 0.2 }, { t: 3, v: 0.7, r: 0.8 }];
+  other.vels = [{ t: 1, v: 0.8, r: 0.1 }];
+  clip.notes.push(a, b, other);
+  click(cv, vx(a.vel), ny(a.start));
+  click(cv, vx(b.vel), ny(b.start), { shiftKey: true });
+  const original = structuredClone(clip.notes);
+  const count = changes();
+  point(cv, 'pointerdown', vx(0.6), ny(2), { buttons: 1 });
+  assert.deepEqual(b.vels, [{ t: 0.5, v: 0.3, r: 0.2 }], 'missing point appears at the same absolute time, preserving the other curve value');
+  point(cv, 'pointermove', vx(0.8), ny(2.5), { buttons: 1 });
+  assert.deepEqual([a.vel, b.vel], [0.4, 0.3], 'starts stay independent');
+  assert.deepEqual(a.vels, [{ t: 1.5, v: 0.8, r: 0.2 }, { t: 3, v: 0.7, r: 0.8 }], 'other points are untouched');
+  assert.deepEqual(b.vels, [{ t: 1, v: 0.5, r: 0.2 }], 'corresponding point stays at the same timeline time');
+  assert.deepEqual(other, original[2], 'unselected note is never modified');
+  point(cv, 'pointercancel', vx(0.8), ny(2.5));
+  assert.deepEqual(clip.notes, original, 'cancel removes auto-created points and restores edited ones');
+  assert.equal(changes(), count, 'cancel creates no undo step');
+  drag(cv, vx(0.6), ny(2), vx(0.8), ny(2.5));
+  assert.equal(changes(), count + 1, 'point creation and drag commit as one edit');
+  point(cv, 'wheel', vx(0.8), ny(2.5), { deltaY: -100 });
+  assert.deepEqual([a.vels[0].r, b.vels[0].r], [0.25, 0.25]);
+  assert.deepEqual([a.vel, b.vel], [0.4, 0.3], 'rounding never edits starts');
+  // Select only the first note: neither the second note nor its point follows now.
+  click(cv, nx(60), ny(1) + 5);
+  const bBefore = structuredClone(b);
+  drag(cv, vx(0.8), ny(2.5), vx(0.6), ny(2));
+  assert.deepEqual(b, bBefore, 'single-note selection edits only that note');
+  const pointsBefore = structuredClone(a.vels);
+  drag(cv, vx(a.vel), ny(1), vx(0.5), ny(1));
+  assert.equal(a.vel, 0.5);
+  assert.deepEqual(a.vels, pointsBefore.map(p => ({ ...p, v: +(p.v + 0.1).toFixed(9) })), 'single start handle moves its entire curve');
+}
+
+// Existing coincident points move together even with different note starts and values.
+{
+  const { clip, roll } = setup();
+  const cv = roll.surface.cv;
+  const vx = (v) => 7 + v * 70;
+  const a = note(60, 1, 5, 0.4);
+  const b = note(64, 2, 5, 0.3);
+  a.vels = [{ t: 2, v: 0.6, r: 0.2 }];
+  b.vels = [{ t: 1, v: 0.4, r: 0.3 }, { t: 2, v: 0.8, r: 0.5 }];
+  clip.notes.push(a, b);
+  key(cv, 'a', { ctrlKey: true });
+  drag(cv, vx(0.6), ny(3), vx(0.8), ny(3.5));
+  assert.deepEqual(a.vels, [{ t: 2.5, v: 0.8, r: 0.2 }]);
+  assert.deepEqual(b.vels, [{ t: 1.5, v: 0.6, r: 0.3 }, { t: 2, v: 0.8, r: 0.5 }], 'same-time point moves, not the different-time point with matching relative offset');
+  assert.deepEqual([a.vel, b.vel], [0.4, 0.3]);
+}
+
+// Point bounds clamp individually; differences recover within a drag, then commit on release.
+{
+  const { clip, roll, changes } = setup();
+  const cv = roll.surface.cv;
+  const vx = (v) => 7 + v * 70;
+  const notes = [note(60, 1, 3, 0.4), note(64, 1, 3, 0.5), note(67, 1, 3, 0.6)];
+  notes.forEach((n, i) => { n.vels = [{ t: 1, v: [0.2, 0.5, 0.8][i], r: 0.3 }]; });
+  clip.notes.push(...notes);
+  key(cv, 'a', { ctrlKey: true });
+  const values = () => notes.map(n => n.vels[0].v);
+  const count = changes();
+  point(cv, 'pointerdown', vx(0.5), ny(2), { buttons: 1 });
+  point(cv, 'pointermove', vx(0.9), ny(2), { buttons: 1 });
+  assert.deepEqual(values(), [0.6, 0.9, 1], 'one point at the limit does not block the others');
+  point(cv, 'pointermove', vx(1.4), ny(2), { buttons: 1 });
+  assert.deepEqual(values(), [1, 1, 1], 'dragging beyond the edge flattens all points');
+  point(cv, 'pointermove', vx(0.5), ny(2), { buttons: 1 });
+  assert.deepEqual(values(), [0.2, 0.5, 0.8], 'moving back restores original differences before release');
+  point(cv, 'pointermove', vx(1.4), ny(2), { buttons: 1 });
+  point(cv, 'pointerup', vx(1.4), ny(2));
+  assert.deepEqual(values(), [1, 1, 1]);
+  assert.equal(changes(), count + 1);
+  drag(cv, vx(1), ny(2), vx(0.6), ny(2));
+  assert.deepEqual(values(), [0.6, 0.6, 0.6], 'after release the committed equal values move together');
+  drag(cv, vx(0.6), ny(2), vx(-0.1), ny(2));
+  assert.deepEqual(values(), [0, 0, 0], 'minimum also clamps each point');
+  assert.deepEqual(notes.map(n => n.vel), [0.4, 0.5, 0.6], 'start velocities are unaffected');
+}
+
+// Double-click insertion and immediate drag form one cancellable multi-note edit.
+{
+  const { clip, roll, changes } = setup();
+  const cv = roll.surface.cv;
+  const vx = (v) => 7 + v * 70;
+  const a = note(60, 1, 4, 0.4);
+  const b = note(64, 6, 1, 0.3);
+  clip.notes.push(a, b);
+  key(cv, 'a', { ctrlKey: true });
+  const original = structuredClone(clip.notes);
+  const count = changes();
+  point(cv, 'pointerdown', vx(0.7), ny(3), { buttons: 1 });
+  point(cv, 'pointerup', vx(0.7), ny(3));
+  point(cv, 'pointerdown', vx(0.7), ny(3), { buttons: 1 });
+  assert.deepEqual(a.vels, [{ t: 2, v: 0.7, r: 0.5 }]);
+  assert.deepEqual(b.vels, [{ t: 1, v: 0.7, r: 0.5 }], 'short notes get a point at their end');
+  point(cv, 'pointermove', vx(0.8), ny(3), { buttons: 1 });
+  point(cv, 'pointercancel', vx(0.8), ny(3));
+  assert.deepEqual(clip.notes, original);
+  assert.equal(changes(), count);
+  dbl(cv, vx(0.7), ny(3));
+  assert.equal(changes(), count + 1, 'double-click inserts all points in one undo step');
+  assert.deepEqual([a.vel, b.vel], [0.4, 0.3]);
 }
 
 // Velocity strip: Ctrl+drag draws a dashed line; on release the velocities under it snap onto it
@@ -2679,8 +2793,7 @@ for (const free of [false, true]) {
   assert.match(cv.title, /^C#4/, 'the tuned body sits between the columns');
 }
 
-// Several selected notes: dragging one selected note's start handle moves every selected start
-// velocity and every curve point by the same amount; unselected notes stay unchanged.
+// Selected starts share one dragged value even at different times; unselected notes stay unchanged.
 {
   const { clip, roll, changes } = setup();
   const cv = roll.surface.cv;
@@ -2697,16 +2810,45 @@ for (const free of [false, true]) {
   click(cv, vx(0.9), ny(4), { shiftKey: true });
   const c0 = changes();
   drag(cv, vx(0.3), ny(2), vx(0.5), ny(2.4)); // grab the middle note: +0.2, vertical motion ignored
-  assert.deepEqual([a, b, c].map((n) => Math.round(n.vel * 1e9) / 1e9), [0.6, 0.4, 1], 'shared offset stops at 1');
+  assert.deepEqual([a, b, c].map((n) => Math.round(n.vel * 1e9) / 1e9), [0.5, 0.5, 0.5], 'different start times and velocities converge to one baseline');
   assert.equal(other.vel, 0.4, 'unselected note unchanged');
-  assert.deepEqual(b.vels, [{ t: 1, v: 0.9, r: 0 }], 'curve points move with start velocities');
+  assert.deepEqual(b.vels, [{ t: 1, v: 1, r: 0 }], 'curve points follow their own starts, clamping at the boundary');
   assert.equal(changes(), c0 + 1, 'one undo step');
-  // dragging back down: notes keep their distance (the clamped one restarts from its value)
-  drag(cv, vx(0.4), ny(2), vx(0.1), ny(2));
-  assert.deepEqual([a, b, c].map((n) => Math.round(n.vel * 1e9) / 1e9), [0.3, 0.1, 0.7]);
+  drag(cv, vx(0.5), ny(2), vx(0.1), ny(2));
+  assert.deepEqual([a, b, c].map((n) => Math.round(n.vel * 1e9) / 1e9), [0.1, 0.1, 0.1]);
   assert.deepEqual(b.vels, [{ t: 1, v: 0.6, r: 0 }]);
   key(cv, 'Backspace');
   assert.deepEqual(clip.notes, [other], 'the selection was kept');
+}
+
+// Unified start velocities reach both endpoints even with extreme curve points.
+{
+  const { clip, roll, changes } = setup({ snapVelocity: true });
+  const cv = roll.surface.cv;
+  const vx = (v) => 7 + v * 70;
+  const a = note(60, 1, 3, 0.2);
+  const b = note(64, 6, 2, 0.8);
+  a.vels = [{ t: 1, v: 1, r: 0.5 }];
+  b.vels = [{ t: 1, v: 0, r: 0.2 }];
+  clip.notes.push(a, b);
+  key(cv, 'a', { ctrlKey: true });
+  const before = structuredClone(clip.notes);
+  const count = changes();
+  point(cv, 'pointerdown', vx(0.2), ny(1), { buttons: 1 });
+  point(cv, 'pointermove', vx(1), ny(1), { buttons: 1 });
+  assert.deepEqual([a.vel, b.vel], [1, 1]);
+  assert.deepEqual([a.vels[0].v, b.vels[0].v], [1, 0.2]);
+  point(cv, 'pointermove', vx(0.2), ny(1), { buttons: 1 });
+  assert.equal(a.vels[0].v, 0.9875, 'points derive from original values and the snapped target, avoiding cumulative clipping');
+  point(cv, 'pointercancel', vx(0.2), ny(1));
+  assert.deepEqual(clip.notes, before);
+  assert.equal(changes(), count);
+  drag(cv, vx(0.2), ny(1), vx(0.71), ny(1));
+  assert.deepEqual([a.vel, b.vel], [0.6875, 0.6875], 'all selected starts take the same snapped value');
+  assert.deepEqual([a.vels[0].t, b.vels[0].t], [1, 1]);
+  assert.deepEqual([a.vels[0].r, b.vels[0].r], [0.5, 0.2]);
+  drag(cv, vx(0.6875), ny(1), vx(0), ny(1));
+  assert.deepEqual([a.vel, b.vel], [0, 0], 'curve bounds do not prevent setting all starts to zero');
 }
 
 // Velocity snapping: all sixteen intervals, including both endpoints.
@@ -2725,8 +2867,8 @@ for (const free of [false, true]) {
   const count = changes();
   drag(cv, vx(0.8), ny(2), vx(0.6), ny(2.5));
   for (const n of clip.notes) {
-    assert.equal(n.vel, 0.3, 'point drag lowers start velocity too');
-    assert.deepEqual(n.vels, [{ t: 1, v: 0.6, r: 0.5 }, { t: 2, v: 0.4, r: 0.2 }], 'all points shift equally without changing time or rounding');
+    assert.equal(n.vel, 0.5, 'point drag never changes start velocity');
+    assert.deepEqual(n.vels, [{ t: 1.5, v: 0.6, r: 0.5 }, { t: 2, v: 0.6, r: 0.2 }], 'only corresponding points move; other points and rounding are preserved');
   }
   assert.equal(changes(), count + 1, 'one undoable edit');
 }
