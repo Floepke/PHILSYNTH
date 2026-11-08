@@ -158,11 +158,11 @@ function compare(kind, { opts = {}, script = [], input = null, gaps = () => fals
 const param = (id, value) => ({ type: 'param', id, value });
 const noteOn = (id, pitch, velocity = 0.8, phase) => ({ type: 'noteOn', id, pitch, velocity, ...(phase === undefined ? {} : { phase }) });
 
-// SAMPLER: all five playback modes and interpolation choices, non-engine sample rates,
+// SAMPLER: all six playback modes and interpolation choices, non-engine sample rates,
 // stereo/mono, moving selections, glides, sample replacement and one-shot end conditions.
 const sampleL = Float32Array.from({ length: 9001 }, (_, i) => 0.6 * Math.sin(i * 0.13) + 0.1 * Math.cos(i * 0.031));
 const sampleR = Float32Array.from(sampleL, v => -v * 0.4);
-for (const playMode of [0, 1, 2, 3, 4]) for (const interpolation of [0, 1, 2]) {
+for (const playMode of [0, 1, 2, 3, 4, 5]) for (const interpolation of [0, 1, 2]) {
   for (const channels of [1, 2]) compare('sampler', {
     channels, blocks: 160, inHeap: true, tol: 1e-5,
     script: [
@@ -171,6 +171,8 @@ for (const playMode of [0, 1, 2, 3, 4]) for (const interpolation of [0, 1, 2]) {
       [0, param('attack', 0.001)], [0, param('release', 0.012)],
       [0, param('selStart', 12.31)], [0, param('selLength', 60.23)],
       [0, noteOn(1, 60.37, 0.9, 0.75)], [3, noteOn(2, 48.21, 0.4)],
+      [4, noteOn(8, 60, 0.8, 0.25)], [5, noteOn(9, 60, 0.8, 0.5)],
+      [6, noteOn(8, 60, 0.8, -0.25)], [7, noteOn(9, 60, 0.8, 1.25)],
       [8, { type: 'noteMod', notes: [[1, 84.9, 0.25], [2, 51.2, 0.8]] }],
       [12, param('transpose', -5)], [13, param('finetune', 23)],
       [20, param('selStart', 87.3)], [21, param('selLength', 0)],

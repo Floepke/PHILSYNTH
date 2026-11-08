@@ -36,11 +36,12 @@ struct Sampler : SamplePoly {
     b = maxd(a + 1, mind(bank->size, (s + maxd(0, selLength) / 100) * bank->size));
   }
   double speed(double pitch) const { return rate / sr * pow(2, (pitch - 60 + transpose + finetune / 100) / 12); }
-  void start(Voice& v, double) override {
+  void start(Voice& v, double phase) override {
     if (!bank) { v.stage = 0; return; }
     double a, b; region(a, b);
-    v.dir = playMode == 1 || playMode == 4 ? -1 : 1;
-    v.pos = v.dir < 0 ? b - 1 : a;
+    v.dir = playMode == 1 || playMode == 4 || playMode == 5 ? -1 : 1;
+    const double offset = (phase == phase && !isinf(phase) ? phase - floor(phase) : 0) * (b - 1 - a);
+    v.pos = v.dir < 0 ? b - 1 - offset : a + offset;
     v.step = speed(v.pitch);
   }
   int process(const float*, const float*, float* L, float* R, int n) override {
@@ -50,7 +51,7 @@ struct Sampler : SamplePoly {
     const Env e = envelope(n);
     double a, b; region(a, b);
     const double span = b - a, top = b - 1;
-    const bool ping = playMode == 2, loop = playMode == 3 || playMode == 4;
+    const bool ping = playMode == 2 || playMode == 5, loop = playMode == 3 || playMode == 4;
     int active = 0;
     for (int vi = 0; vi < poly; vi++) {
       auto& v = voices[vi];

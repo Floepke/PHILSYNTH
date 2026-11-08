@@ -26,7 +26,7 @@ function run(k, blocks) {
 
 // ---- controllers (numbered by order: append new ones at the end) ----
 assert.deepEqual(sampler.params.map((p) => p.id), ['polyphony', 'selStart', 'selLength', 'playMode', 'transpose', 'finetune', 'interpolation', 'attack', 'decay', 'sustain', 'release', 'gain']);
-assert.deepEqual(sampler.params.find((p) => p.id === 'playMode').options, ['Forward', 'Reverse', 'Ping Pong', 'Forward Loop', 'Reverse Loop']);
+assert.deepEqual(sampler.params.find((p) => p.id === 'playMode').options, ['Forward', 'Reverse', 'Ping Pong', 'Forward Loop', 'Reverse Loop', 'Ping Pong (start reversed)']);
 assert.deepEqual(wavetable.params.map((p) => p.id), ['polyphony', 'block', 'position', 'interpolation', 'attack', 'decay', 'sustain', 'release', 'gain']);
 for (const def of [sampler, wavetable]) {
   const interp = def.params.find((p) => p.id === 'interpolation');
@@ -180,6 +180,19 @@ assert.ok(Math.abs(readWrapped(sine, 64, 10.37, 2) - exact) < Math.abs(readWrapp
   k.message({ type: 'noteOff', id: 11 });
   run(k, 10);
 
+  k.message({ type: 'param', id: 'playMode', value: 5 });
+  k.message({ type: 'noteOn', id: 20, pitch: 60, velocity: 1 });
+  const reversed = run(k, 20);
+  assert.equal(reversed.live, true, 'reversed Ping Pong keeps playing while held');
+  close(pos(reversed, 0), 0.499, 1e-6, 'starts at the region end');
+  close(pos(reversed, 100), 0.399, 1e-6, 'first travels backwards');
+  close(pos(reversed, 299), 0.2, 1e-6, 'turns at the region start');
+  close(pos(reversed, 349), 0.25, 1e-6, 'then travels forwards');
+  close(pos(reversed, 598), 0.499, 1e-6, 'turns at the region end');
+  close(pos(reversed, 650), 0.447, 1e-6, 'travels backwards again');
+  k.message({ type: 'noteOff', id: 20 });
+  assert.equal(run(k, 10).live, false, 'release ends reversed Ping Pong');
+
   k.message({ type: 'param', id: 'selLength', value: 0.15 });
   for (const mode of [3, 4]) {
     k.message({ type: 'param', id: 'playMode', value: mode });
@@ -189,14 +202,50 @@ assert.ok(Math.abs(readWrapped(sine, 64, 10.37, 2) - exact) < Math.abs(readWrapp
     k.message({ type: 'noteOff', id: 12 + mode });
     run(k, 10);
   }
-  k.message({ type: 'param', id: 'playMode', value: 2 });
   k.message({ type: 'param', id: 'selStart', value: 70 });
 
   // a large pitch step over a tiny window stays inside it
   k.message({ type: 'param', id: 'selLength', value: 0.15 });
-  k.message({ type: 'noteOn', id: 4, pitch: 127, velocity: 1 });
-  const tiny = run(k, 4).L.slice(atk);
-  assert.ok(tiny.every((x) => x >= 0.7 - 1e-6 && x <= 0.7015), 'tiny Ping Pong window');
+  for (const mode of [2, 5]) {
+    k.message({ type: 'param', id: 'playMode', value: mode });
+    k.message({ type: 'noteOn', id: 4, pitch: 127, velocity: 1 });
+    const tiny = run(k, 4).L.slice(atk);
+    assert.ok(tiny.every((x) => x >= 0.7 - 1e-6 && x <= 0.7015), `tiny Ping Pong window (mode ${mode})`);
+    k.message({ type: 'noteOff', id: 4 });
+    run(k, 10);
+  }
+}
+
+// ---- SAMPLER note phase offsets within the selected playback region ----
+{
+  const Proc = await loadKernel('sampler.dsp.js', SR);
+  const { region } = await import('../src/modules/sampler.dsp.js');
+  const sample = Float32Array.from({ length: 1000 }, (_, i) => i / 1000);
+  for (const mode of [0, 1, 2, 3, 4, 5]) {
+    const k = new Proc();
+    k.message({ type: 'sample', rate: SR, channels: [sample] });
+    for (const [id, value] of [['playMode', mode], ['attack', 0.001], ['sustain', 1], ['gain', 1], ['interpolation', 1]]) {
+      k.message({ type: 'param', id, value });
+    }
+    const dir = [1, 4, 5].includes(mode) ? -1 : 1;
+    for (const [start, length] of [[20, 30], [90.13, 50], [70, 0]]) {
+      k.message({ type: 'param', id: 'selStart', value: start });
+      k.message({ type: 'param', id: 'selLength', value: length });
+      const { a, b } = region(sample.length, start, length);
+      for (const [phase, fraction] of [[undefined, 0], [0, 0], [0.25, 0.25], [0.5, 0.5], [0.75, 0.75], [1, 0], [1.25, 0.25], [-0.25, 0.75], [NaN, 0], [Infinity, 0]]) {
+        // Retrigger the same voice after playback so previous ping-pong direction cannot leak.
+        k.message({ type: 'noteOn', id: 1, pitch: 60, velocity: 1, phase });
+        const expected = dir < 0 ? b - 1 - fraction * (b - 1 - a) : a + fraction * (b - 1 - a);
+        close(k.voices[0].pos, expected, 1e-9, `phase ${phase}, mode ${mode}: selected-region position`);
+        assert.equal(k.voices[0].dir, dir, 'phase preserves initial playhead direction');
+        const out = run(k, 5);
+        close(out.L[0] * 48, expected / 1000, 1e-6, 'first audible sample uses phase position');
+        if (length === 30) {
+          close(out.L[1] * 24, (expected + dir) / 1000, 1e-6, 'playhead moves in initial direction');
+        }
+      }
+    }
+  }
 }
 
 // ---- sample editor: cutting a region out ----

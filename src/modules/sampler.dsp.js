@@ -3,20 +3,23 @@
 // root key C4 (MIDI 60):
 //   speed = sample rate / engine rate * 2^((pitch - 60 + transpose + finetune / 100) / 12)
 // shaped by the ADSR. Playhead Mode: Forward plays the region once from its start, Reverse once
-// from its end backwards, Ping Pong bounces between both ends for as long as the note sounds,
+// from its end backwards, Ping Pong bounces between both ends for as long as the note sounds
+// (Ping Pong (start reversed) begins at the end),
 // Forward Loop / Reverse Loop repeat the region forwards / backwards while the note sounds.
 // The region is read every block, so modulating it moves the window under playing voices.
 // Stereo samples play in stereo. The sample arrives from the main thread: { type: 'sample', rate, channels }.
 import { PolyKernel, envTick } from './poly.dsp.js';
 import { readClamped } from './interp.js';
+import { startPhase } from './osc.dsp.js';
 
 export const ROOT_KEY = 60;
 // (append new modes at the end: saved projects store the index)
-export const PLAY_MODES = ['Forward', 'Reverse', 'Ping Pong', 'Forward Loop', 'Reverse Loop'];
+export const PLAY_MODES = ['Forward', 'Reverse', 'Ping Pong', 'Forward Loop', 'Reverse Loop', 'Ping Pong (start reversed)'];
 const PING_PONG = 2;
 const FORWARD_LOOP = 3;
 const REVERSE_LOOP = 4;
-const reverse = (mode) => mode === 1 || mode === REVERSE_LOOP;
+const PING_PONG_REVERSED = 5;
+const reverse = (mode) => mode === 1 || mode === REVERSE_LOOP || mode === PING_PONG_REVERSED;
 
 // Playback window [a, b) in samples of a sample `len` long (at least one sample wide)
 export function region(len, startPct, lengthPct) {
@@ -45,11 +48,12 @@ export default class SamplerKernel extends PolyKernel {
     return (d.rate / sampleRate) * Math.pow(2, (pitch - ROOT_KEY + p.transpose + p.finetune / 100) / 12);
   }
 
-  start(v) {
+  start(v, phase) {
     if (!this.data) { v.stage = 0; return; }
     const { a, b } = region(this.data.length, this.p.selStart, this.p.selLength);
     v.dir = reverse(this.p.playMode | 0) ? -1 : 1;
-    v.pos = v.dir < 0 ? b - 1 : a;
+    const offset = startPhase(phase) * (b - 1 - a);
+    v.pos = v.dir < 0 ? b - 1 - offset : a + offset;
     v.step = this.speedOf(v.pitch);
   }
 
@@ -69,7 +73,7 @@ export default class SamplerKernel extends PolyKernel {
     const len = d.length;
     const { a, b } = region(len, this.p.selStart, this.p.selLength);
     const playMode = this.p.playMode | 0;
-    const pingPong = playMode === PING_PONG;
+    const pingPong = playMode === PING_PONG || playMode === PING_PONG_REVERSED;
     const loop = playMode === FORWARD_LOOP || playMode === REVERSE_LOOP;
     const span = b - a; // loop length
     const top = b - 1; // last sample of the window (Ping Pong turns around there)

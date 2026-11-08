@@ -94,10 +94,11 @@ export const DOCS = {
       interpolation: INTERPOLATION,
       selStart: 'Start of the playback region, in % of the sample. Modulate it to move the window through the sample.',
       selLength: 'Length of the playback region, in % of the sample.',
-      playMode: 'How each note plays the region: Forward (once), Reverse (once backwards), Ping Pong (back and forth while the note sounds), Forward Loop / Reverse Loop (repeat while the note sounds).',
+      playMode: 'How each note plays the region: Forward (once), Reverse (once backwards), Ping Pong (back and forth, starting at the region start), Ping Pong (start reversed) (back and forth, starting at the region end), Forward Loop / Reverse Loop (repeat while the note sounds).',
     },
     notes: [
       NOTES_IN,
+      '<b>Start phase:</b> incoming note Phase offsets the starting position within Selection Start / Selection Length. 0 % keeps the normal start; 25 % starts a quarter of the way along the initial playback direction; 50 % starts in the middle. Forward modes measure from the region start; reversed modes measure from its end. Ping Pong keeps its initial direction and bounces normally. Phase wraps every 100 % and is applied on each note trigger.',
       '<b>Load Sample</b> (or drop an audio file on the picture): WAV, AIFF, FLAC, MP3, OGG… up to 60 s, mono or stereo. The audio is saved inside the project and .phmod files.',
       '<b>Sample editor:</b> drag to select the region, drag its edges to trim; double-click (or <kbd>Ctrl/Cmd</kbd> + <kbd>A</kbd>) selects everything. <kbd>Backspace</kbd> / <kbd>Delete</kbd> or a short right-click inside the region cuts it out (undo with <kbd>Ctrl/Cmd</kbd> + <kbd>Z</kbd>). Hold the right button for 250 ms for <b>Normalize</b> (peak to full scale) and <b>Center</b> (removes DC offset) on the selected region.',
     ],
@@ -187,7 +188,7 @@ export const DOCS = {
       overtone: 'Plays the n-th overtone of the harmonic series instead of the note: (n + 1) × its frequency. 0 = the fundamental, 1 = octave, 2 = octave + fifth, 3 = two octaves … up to 128.',
       velSense: '<i>On</i> (default): the played velocity is passed on, scaled by <b>Velocity</b>. <i>Off (fixed)</i>: velocity detection is off, every note gets exactly the <b>Velocity</b> value however hard it was played (Velocity Drift still applies).',
       routeMode: 'Which MIDI cables each note goes out of: <i>Sent to All</i> (every cable), <i>Round Robin</i> (the next cable in turn, in the order they were made), <i>Random</i> (one random cable), <i>Random (no repeat)</i> (random, never the same cable twice in a row).',
-      phase: 'The point of the waveform cycle every note starts at (0–100 % = 0–360°), sent with the note to OSCs and LFOs; an ENVELOPE starts its curve at that position, and an IMAGE SAMPLER\'s Propellor scanner is turned by that angle for the note. <b>Random Phase</b> adds a random offset on top.',
+      phase: 'The point of the waveform cycle every note starts at (0–100 % = 0–360°), sent with the note to OSCs and LFOs; a SAMPLER starts that far through its selected region in its initial playback direction, an ENVELOPE starts its curve at that position, and an IMAGE SAMPLER\'s Propellor scanner is turned by that angle for the note. <b>Random Phase</b> adds a random offset on top.',
     },
     notes: [
       'Notes arrive when it is selected and the MIDI keyboard is played, from a clip sent to it, or from another MULTIMIDI cabled into it. <kbd>Shift</kbd> + drag from it to an OSC, SAMPLER, Patch, ADSR or another MIDI module to send them on.',

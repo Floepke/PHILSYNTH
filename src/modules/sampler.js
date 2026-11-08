@@ -2,7 +2,8 @@
 // original speed and pitch; every semitone up plays it 2^(1/12) faster). Transpose and Finetune
 // tune the sample to the notes; the ADSR shapes each note. Selection Start / Selection Length set
 // the playback region (also what the sample editor below the controllers shows selected, and what
-// Backspace cuts out of the sample); Playhead Mode plays it Forward, Reverse, Ping Pong, or
+// Backspace cuts out of the sample); Playhead Mode plays it Forward, Reverse, Ping Pong
+// (starting forward or reversed), or
 // loops it (Forward Loop / Reverse Loop).
 // Load Sample (below the controllers) reads WAV and anything the browser decodes; the
 // audio is kept in the sample pool (src/samples.js) and saved with the project.
