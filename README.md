@@ -15,6 +15,11 @@ PHILSYNTH > Preferences opens the categorized preferences dialog. The listbox on
 the left selects a category; OK saves all changes, while Cancel or Escape undoes
 live previews. Preferences are independent of projects.
 
+Interface > Controller Panel Divider Width sets only the divider between the
+controller panel and patcher, in CSS px (10–128; default 48). The 10 px minimum
+fits its 6 px grip with padding. App scaling still applies; the widget-bearing
+horizontal dividers keep their existing size.
+
 The desktop app stores a versioned JSON document in `preferences.json` in its
 Electron user-data directory (development: `modsynth-dev`; packaged: `PHILSYNTH`).
 Writes use a temporary file and atomic rename. Browsers, including GitHub Pages,

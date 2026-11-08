@@ -11,6 +11,7 @@ import { openColorDialog } from './colordialog.js';
 import { initWoodTheme, migrateWoodTint } from './woodtheme.js';
 import { createPreferencesManager } from './preferences.js';
 import { createPreferencesDialog } from './preferencesdialog.js';
+import { registerInterfacePreferences } from './interfacepreferences.js';
 import { Transport } from './transport.js';
 import { unsavedDialog } from './dialogs.js';
 import { exitToOS } from './exit.js';
@@ -50,6 +51,7 @@ let patchMonitor = null;
 const $ = (id) => document.getElementById(id);
 const preferencesManager = createPreferencesManager();
 initWoodTheme(preferencesManager);
+registerInterfacePreferences(preferencesManager);
 let preferencesLoadError = '';
 try {
   await preferencesManager.load();

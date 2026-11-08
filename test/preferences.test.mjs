@@ -6,9 +6,27 @@ import { createPreferencesManager, parsePreferences, preferencesStorage, PREFERE
 import { migrateWoodTint, WOOD_TINT_ID, WOOD_TINT_KEY } from '../src/woodtheme.js';
 import { registerPreferences } from '../electron/preferences.mjs';
 import { atomicWrite } from '../electron/atomicwrite.mjs';
+import { registerInterfacePreferences, PANEL_DIVIDER_WIDTH_ID } from '../src/interfacepreferences.js';
 
 const fileText = (values) => JSON.stringify({ format: PREFERENCES_FORMAT, version: 1, values });
 const color = { id: WOOD_TINT_ID, label: 'Wood Tint', category: 'Interface', type: 'color', defaultValue: '#290000' };
+{
+  const properties = new Map();
+  globalThis.document = { documentElement: { style: { setProperty: (key, value) => properties.set(key, value) } } };
+  const manager = createPreferencesManager({ storage: { load: async () => null, save: async () => {} } });
+  registerInterfacePreferences(manager);
+  await manager.load();
+  assert.equal(properties.get('--panel-divider-width'), '48px');
+  manager.preview(PANEL_DIVIDER_WIDTH_ID, 10);
+  assert.equal(properties.get('--panel-divider-width'), '10px');
+  manager.restore();
+  assert.equal(properties.get('--panel-divider-width'), '48px');
+  await manager.save({ [PANEL_DIVIDER_WIDTH_ID]: 16 });
+  assert.equal(properties.get('--panel-divider-width'), '16px');
+  for (const width of [9, 129, 10.5, '16']) await assert.rejects(manager.save({ [PANEL_DIVIDER_WIDTH_ID]: width }), /Invalid value/);
+  assert.deepEqual([...properties.keys()], ['--panel-divider-width'], 'other divider sizes are untouched');
+  delete globalThis.document;
+}
 function setup(text = null) {
   const applied = [];
   let saved = text;

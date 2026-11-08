@@ -14,6 +14,7 @@
   --radius: 10px;
   --radius-sm: 6px;
   --seq-divider: 48px;
+  --panel-divider-width: 48px;
   --window-frame: 6px;
   --wood-tint: #585858;
   --wood-base: color-mix(in srgb, var(--wood-tint) 84%, #000);
@@ -729,10 +730,10 @@ body.panel-collapsed #panel { visibility: hidden; }
   background: var(--surface-1);
 }
 #patcher {
-  --panel-room: max(0px, 100% - var(--seq-divider));
+  --panel-room: max(0px, 100% - var(--panel-divider-width));
   --panel-size: clamp(0px, var(--panel-width, 280px), var(--panel-room));
   display: grid;
-  grid-template-columns: var(--panel-size) var(--seq-divider) minmax(0, 1fr);
+  grid-template-columns: var(--panel-size) var(--panel-divider-width) minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   overflow: hidden;

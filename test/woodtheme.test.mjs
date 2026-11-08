@@ -75,9 +75,11 @@ app.whenReady().then(async () => {
         import { initWoodTheme } from '/src/woodtheme.js';
         import { createPreferencesManager } from '/src/preferences.js';
         import { createPreferencesDialog } from '/src/preferencesdialog.js';
+        import { registerInterfacePreferences } from '/src/interfacepreferences.js';
         window.themeErrors = [];
         window.preferencesManager = createPreferencesManager();
         initWoodTheme(window.preferencesManager);
+        registerInterfacePreferences(window.preferencesManager);
         window.preferencesManager.register({ id: 'test.enabled', category: 'Testing', label: 'Enabled', type: 'boolean', defaultValue: true });
         window.preferencesManager.register({ id: 'test.level', category: 'Testing', label: 'Level', type: 'number', min: 0, max: 1, defaultValue: 0.5 });
         window.preferencesManager.register({ id: 'test.mode', category: 'Testing', label: 'Mode', type: 'select', defaultValue: 'auto', options: [{ value: 'auto', label: 'Automatic' }, { value: 'manual', label: 'Manual' }] });
@@ -87,7 +89,7 @@ app.whenReady().then(async () => {
     const routes = new Map([
       ['/', ['text/html', html]],
       ['/style.css', ['text/css', css]],
-      ...['woodtheme', 'modcolor', 'preferences', 'preferencesdialog'].map(name => [`/src/${name}.js`, ['text/javascript',
+      ...['woodtheme', 'modcolor', 'preferences', 'preferencesdialog', 'interfacepreferences'].map(name => [`/src/${name}.js`, ['text/javascript',
         readFileSync(new URL('../src/' + name + '.js', import.meta.url), 'utf8')]]),
     ]);
     server = http.createServer((req, res) => {
@@ -188,6 +190,47 @@ app.whenReady().then(async () => {
     assert.equal(await tint(), '#804020');
     await win.loadURL(url);
     assert.equal(await tint(), '#804020', 'multiple categories save together');
+    const dividerSizes = () => run(`(() => {
+      const panel = document.getElementById('panel-split');
+      const grip = getComputedStyle(panel, '::after');
+      return {
+        panel: panel.getBoundingClientRect().width,
+        upper: document.getElementById('seq-split').getBoundingClientRect().height,
+        lower: document.getElementById('seq-hsplit').getBoundingClientRect().height,
+        grip: parseFloat(grip.width) + 4,
+        room: getComputedStyle(document.getElementById('patcher')).getPropertyValue('--panel-room')
+      };
+    })()`);
+    await open();
+    const before = await dividerSizes();
+    const widthInput = 'pref-interface-controllerPanelDividerWidth';
+    await run(`(() => {
+      const input = document.getElementById('${widthInput}');
+      input.value = 10; input.dispatchEvent(new Event('change'));
+    })()`);
+    const minimum = await dividerSizes();
+    assert.equal(minimum.panel, 10, 'only controller divider changes to minimum width');
+    assert.equal(minimum.upper, before.upper);
+    assert.equal(minimum.lower, before.lower);
+    assert.ok(minimum.panel >= minimum.grip + 4, 'grip fits with padding');
+    assert.ok(minimum.room.includes('10px'), 'panel layout accounts for the independent divider width');
+    await submit('cancel'); await flushClose();
+    assert.equal((await dividerSizes()).panel, 48, 'Cancel restores divider width');
+    await open();
+    await run(`(() => {
+      const input = document.getElementById('${widthInput}');
+      input.value = 16; input.dispatchEvent(new Event('change'));
+    })()`);
+    await submit('ok'); await flushClose();
+    await win.loadURL(url);
+    assert.equal((await dividerSizes()).panel, 16, 'divider width survives reload');
+    win.webContents.setZoomFactor(1.5);
+    const scaled = await dividerSizes();
+    assert.equal(scaled.panel, 16, 'CSS width is preserved under app scaling');
+    assert.equal(win.webContents.getZoomFactor(), 1.5, 'app scaling remains active');
+    assert.equal(scaled.upper, before.upper);
+    assert.equal(scaled.lower, before.lower);
+    win.webContents.setZoomFactor(1);
     assert.deepEqual(await run('window.themeErrors'), []);
     console.log('preferences controls passed: categories, keyboard navigation, drafts, live preview, Cancel, Reset, persistence, extremes, and storage errors');
     console.log('wood theme tests passed: neutral surfaces, dark textured grain, and preserved signal colors');
