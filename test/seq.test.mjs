@@ -169,7 +169,24 @@ const labels = (menus) => menus.at(-1).items.filter((i) => i !== '-').map((i) =>
 const nx = (pitch) => 120 + pitch * 14 + 7;
 const ny = (start) => start * 48;
 const ax = (start) => 70 + start * 16;
-const ay = (y) => 38 + y + 17; // below the 38 px ruler
+const ay = (y) => 2 * CLIP_H + y + CLIP_H / 2;
+
+// Both timeline header rows match clip-lane height, with larger centered labels.
+{
+  const { arranger } = setup();
+  const cv = arranger.surface.cv;
+  const texts = [];
+  cv.context.fillText = (text, x, y) => texts.push({ text, x, y, font: cv.context.font });
+  cv.drawing.length = 0;
+  arranger.redraw(); flush();
+  const signature = texts.find(t => t.text === '4/4');
+  const bar = texts.find(t => t.text === '1' && t.x > 70 && t.y === 1.5 * CLIP_H);
+  assert.equal(signature.y, CLIP_H / 2 + 0.5);
+  assert.ok(signature.font.includes('20px'));
+  assert.ok(bar.font.includes('20px'));
+  assert.ok(cv.drawing.some(([op, , y, , height, color]) =>
+    op === 'fillRect' && color === '#4b3a78' && y === 2 && height === CLIP_H - 3), 'signature flag fits full-height row');
+}
 const assertNoOverlap = (song) => {
   for (let i = 0; i < song.clips.length; i++) {
     for (let j = i + 1; j < song.clips.length; j++) assert.equal(clipsOverlap(song.clips[i], song.clips[j]), false);
@@ -195,7 +212,7 @@ const assertNoOverlap = (song) => {
     arranger.setView({ ppq });
     flush();
     for (const [c, symbol] of [[clip, '♫'], [auto, '∿'], [linked, '♫']]) {
-      const top = 38 + c.y;
+      const top = 2 * CLIP_H + c.y;
       const icon = texts.find((t) => t.text === symbol && t.y >= top && t.y < top + CLIP_H);
       assert.ok(icon, `${symbol} is drawn separately from the clip name at zoom ${ppq}`);
       assert.equal(icon.baseline, 'alphabetic');
@@ -235,7 +252,7 @@ const assertNoOverlap = (song) => {
       const left = Math.max(x + 2, 70);
       const right = Math.min(x + c.length * 16 - 2, 480 - 32);
       assert.ok(cv.drawing.some(([op, rx, ry, rw, rh]) =>
-        op === 'rect' && rx === left && ry === 38 + c.y && rw === Math.max(0, right - left) && rh === CLIP_H),
+        op === 'rect' && rx === left && ry === 2 * CLIP_H + c.y && rw === Math.max(0, right - left) && rh === CLIP_H),
       'label clipping never extends beyond the clip or viewport, including a narrow remaining sliver');
     }
   }
@@ -297,14 +314,14 @@ const assertNoOverlap = (song) => {
   const notes = cv.drawing.filter(([op, , , , , color]) => op === 'fillRect' && color === 'rgba(0, 0, 0, 0.55)');
   assert.equal(notes.length, 2);
   assert.deepEqual(notes.map(([, x, y, w, h]) => [x, y, w, h]), [
-    [ax(2), 38 + CLIP_H - 4, 15, 2],
-    [ax(4), 38 + 2, 31, 2],
+    [ax(2), 2 * CLIP_H + CLIP_H - 4, 15, 2],
+    [ax(4), 2 * CLIP_H + 2, 31, 2],
   ], 'low and high notes reach the bottom and top padding, preserving their timing');
   clip.notes = [note(60, 2)];
   cv.drawing.length = 0;
   arranger.redraw(); flush();
   const single = cv.drawing.find(([op, , , , , color]) => op === 'fillRect' && color === 'rgba(0, 0, 0, 0.55)');
-  assert.equal(single[2] + single[4] / 2, 38 + CLIP_H / 2, 'a single-pitch preview stays centered');
+  assert.equal(single[2] + single[4] / 2, 2 * CLIP_H + CLIP_H / 2, 'a single-pitch preview stays centered');
 }
 
 // Camera-only interactions schedule persistence without creating undo steps.
@@ -688,9 +705,9 @@ for (const reverse of [false, true]) {
   const cv = arranger.surface.cv;
   const rightClick = (x, y) => { point(cv, 'pointerdown', x, y, { button: 2, buttons: 2 }); point(cv, 'pointerup', x, y, { button: 2 }); };
   ctx.transport.pos = 4;
-  rightClick(ax(10), 27);
-  assert.deepEqual(labels(menus), ['Insert restart point at playhead', 'Remove restart point']);
-  assert.ok(menus.at(-1).items[1].disabled, 'nothing to remove yet');
+  rightClick(ax(10), 1.5 * CLIP_H);
+  assert.deepEqual(labels(menus), ['Insert/Edit time-Signature Change…', 'Insert restart point at playhead', 'Remove restart point']);
+  assert.ok(menus.at(-1).items.find(item => item.label === 'Remove restart point').disabled, 'nothing to remove yet');
   pick(menus, 'Insert restart point at playhead');
   assert.equal(song.restart, 4);
   assert.equal(changes(), 1, 'one undo step');
@@ -707,11 +724,32 @@ for (const reverse of [false, true]) {
   rightClick(ax(30), ay(200));
   assert.ok(labels(menus).includes('Insert restart point at playhead'), 'and the empty-space menu');
   const n = menus.length;
-  rightClick(ax(2.5), 27);
+  rightClick(ax(2.5), 1.5 * CLIP_H);
   assert.equal(menus.length, n, 'the marker opens no menu');
   assert.equal(song.restart, undefined, 'right-click on the marker removes it');
   assert.equal(normalizeSong({ restart: 3 }).restart, 3);
   assert.equal(normalizeSong({ restart: 'x' }).restart, undefined);
+}
+
+// Signature insertion uses the right-click position, rounded to a bar, in all timeline menus.
+{
+  const { arranger, ctx, menus } = setup();
+  const cv = arranger.surface.cv;
+  const edits = [];
+  ctx.editSig = at => edits.push(at);
+  ctx.transport.pos = 1;
+  for (const [time, y, expected] of [[11, 8, 12], [9, 1.5 * CLIP_H, 8], [3, ay(0), 4], [15, ay(200), 16]]) {
+    point(cv, 'pointerdown', ax(time), y, { button: 2, buttons: 2 });
+    point(cv, 'pointerup', ax(time), y, { button: 2 });
+    pick(menus, 'Insert/Edit time-Signature Change…');
+    assert.equal(edits.at(-1), expected);
+    assert.equal(ctx.transport.pos, 1, 'insertion does not use or move the playhead');
+  }
+  arranger.setView({ sx: 64, ppq: 32 }); flush();
+  point(cv, 'pointerdown', 70 + 11 * 32 - 64, ay(200), { button: 2, buttons: 2 });
+  point(cv, 'pointerup', 70 + 11 * 32 - 64, ay(200), { button: 2 });
+  pick(menus, 'Insert/Edit time-Signature Change…');
+  assert.equal(edits.at(-1), 12, 'position respects timeline scrolling and zoom');
 }
 
 // Duration editing needs more than 10 CSS pixels, preserving the remembered length on clicks.
@@ -1146,7 +1184,7 @@ for (const how of ['wheel', 'edge']) {
       assert.ok(!song.clips.includes(far));
       mock.timers.tick(1000);
       arranger.setView({ sx: 0 }); flush();
-      const RY = 27;
+      const RY = 1.5 * CLIP_H;
       point(cv, 'dblclick', ax(4), RY);
       assert.equal(song.restart, 4);
       point(cv, 'pointerdown', ax(4), RY, { buttons: 1 });
@@ -1545,7 +1583,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(song.clips.length, 2);
   assert.equal(ctx.clip().start, 8);
   assert.equal(ctx.clip().y, 102);
-  click(cv, ax(5.37), 27);
+  click(cv, ax(5.37), 1.5 * CLIP_H);
   assert.equal(ctx.transport.pos, 5.25);
 }
 
@@ -1590,7 +1628,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
 {
   const { song, arranger, ctx, changes } = setup();
   const cv = arranger.surface.cv;
-  const RY = 27; // bar number row
+  const RY = 1.5 * CLIP_H; // bar number row
   click(cv, ax(5.37), RY);
   assert.equal(ctx.transport.pos, 5.25);
   drag(cv, ax(4.1), RY, ax(8.05), RY);
@@ -1639,7 +1677,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   const vx = 480 - 16; // right scrollbar
   click(cv, vx, 360);
   assert.ok(arranger.getView().sy > 0, 'the lane scrollbar scrolls down even without clips down there');
-  click(cv, vx, 40);
+  click(cv, vx, 2 * CLIP_H + 2);
   assert.ok(arranger.getView().sy < 0, 'and up into idea storage');
   const n = arranger.getView();
   click(cv, 470, 390); // the corner between the scrollbars does nothing
@@ -1659,13 +1697,13 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   // at the start brings the camera back toward the content
   click(cv, 80, 400 - 16);
   assert.ok(arranger.getView().sx < 64 * 300, 'time scrollbar pans back');
-  click(cv, 480 - 16, 40);
+  click(cv, 480 - 16, 2 * CLIP_H + 2);
   assert.ok(arranger.getView().sy < 34 * 200, 'lane scrollbar pans back');
   const before = arranger.getView();
   arranger.setView({ sx: NaN, sy: Infinity }); flush();
   assert.deepEqual([arranger.getView().sx, arranger.getView().sy], [before.sx, before.sy], 'broken numbers are ignored');
   arranger.setView({ sx: 1e12, sy: -1e12 }); flush();
-  assert.deepEqual([arranger.getView().sx, arranger.getView().sy], [1e7, -336], 'upward limit keeps the idea label visible');
+  assert.deepEqual([arranger.getView().sx, arranger.getView().sy], [1e7, 2 * CLIP_H - 374], 'upward limit keeps the idea label visible');
 }
 
 // Every way of moving the camera respects the visible bottom edge of the idea label.
@@ -1679,7 +1717,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
     const text = cv.drawing.findLast(([op, value]) => op === 'fillText' && value === label);
     assert.ok(text, `${message}: label is drawn`);
     assert.equal(text[3], arrangerHost.clientHeight - 32, `${message}: label stays above the scrollbar`);
-    assert.equal(arranger.getView().sy, 38 - (arrangerHost.clientHeight - 32 + 6), `${message}: exact pan limit`);
+    assert.equal(arranger.getView().sy, 2 * CLIP_H - (arrangerHost.clientHeight - 32 + 6), `${message}: exact pan limit`);
   };
   arranger.setView({ sy: -1e7 }); flush();
   checkLimit('restored view');
@@ -1693,7 +1731,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   drag(cv, 200, 150, 200, 5000, { shiftKey: true });
   checkLimit('Shift + empty-space drag');
   arranger.setView({ sy: 0 }); flush();
-  click(cv, 464, 40);
+  click(cv, 464, 2 * CLIP_H + 2);
   checkLimit('scrollbar');
   arrangerHost.clientHeight = 200;
   arrangerHost.resize(); flush();
@@ -1730,7 +1768,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   clip.length = 4;
   const other = addClip(song, { start: 8, length: 4, y: 0, target: 7 });
   arranger.setView({ sx: 0, sy: -136, ppq: 16 }); flush();
-  const top = 38 + 136; // local y of the first lane
+  const top = 2 * CLIP_H + 136; // local y of the first lane
   const texts = () => cv.drawing.filter(([op]) => op === 'fillText').map(([, t]) => t);
   // the label text is free to change: find it by where it is drawn (time area, above lane 1)
   const ideaLabel = cv.drawing.findLast(([op, t, x, y]) => op === 'fillText' && x > 70 && y === top - 6 && t !== 'Ideas')?.[1];
@@ -1738,9 +1776,9 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   const labelY = (t) => cv.drawing.findLast(([op, text]) => op === 'fillText' && text === t)[3];
   assert.equal(labelY(ideaLabel), top - 6, 'just above the first lane');
   assert.equal(labelY('Ideas'), top - 6, 'beside it in the lane column');
-  drag(cv, ax(1), top + 17, ax(3) + 5, 100);
+  drag(cv, ax(1), top + 17, ax(3) + 5, top - 74);
   assert.deepEqual([clip.start, clip.y], [2.3125, -91], 'dropped exactly where released');
-  drag(cv, ax(9), top + 17, ax(3) + 5, 100);
+  drag(cv, ax(9), top + 17, ax(3) + 5, top - 74);
   assert.deepEqual([other.start, other.y], [2.3125, -91], 'ideas may overlap');
   const ideaMid = top - 91 + 17;
   drag(cv, ax(3.3125), ideaMid, ax(3.3125), ideaMid + 70); // its middle still above the first lane
@@ -1750,14 +1788,14 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   drag(cv, ax(lifted.start + 1), top - 17, ax(lifted.start + 1), top + 34 + 17);
   assert.deepEqual([lifted.start, lifted.y], [2.25, 34], 'back on a lane it snaps to the (16th) grid and the lane');
   // double-click in idea storage inserts an idea right there
-  point(cv, 'dblclick', ax(20) + 3, 80);
+  point(cv, 'dblclick', ax(20) + 3, top - 94);
   const made = song.clips.at(-1);
-  assert.deepEqual([made.start, made.y], [20.1875, 80 - top - 17], 'centred on the pointer, unsnapped');
+  assert.deepEqual([made.start, made.y], [20.1875, -94 - 17], 'centred on the pointer, unsnapped');
   // paste into idea storage: the copies stay ideas
   arranger.setView({ sx: 0, sy: -136, ppq: 16 }); flush();
   click(cv, ax(lifted.start + 1), top + 34 + 17);
   key(cv, 'c', { ctrlKey: true });
-  point(cv, 'pointermove', ax(15), 60);
+  point(cv, 'pointermove', ax(15), top - 114);
   key(cv, 'v', { ctrlKey: true });
   const pasted = song.clips.at(-1);
   assert.ok(pasted.y < 0 && pasted.start === 15, `pasted as an idea (${pasted.start}, ${pasted.y})`);
@@ -2168,7 +2206,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   const clips = song.clips.slice(1);
   assert.deepEqual(clips.map((c) => c.start), [20.1875, 20.1875, 20.1875]);
   assert.ok(clips.every((c) => c.y <= -34), 'all imported tracks remain in idea storage');
-  assert.deepEqual(clips.map((c) => c.y), [-111, -77, -43]);
+  assert.deepEqual(clips.map((c) => c.y), [80 - 2 * CLIP_H - 136 - 17, 80 - 2 * CLIP_H - 136 + 17, 80 - 2 * CLIP_H - 136 + 51]);
 }
 
 {
@@ -2205,7 +2243,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   clip.y = 350;
   arranger.setView({ sx: 80, sy: 20, ppq: 32 });
   flush();
-  point(acv, 'pointermove', 210, 135);
+  point(acv, 'pointermove', 210, 2 * CLIP_H + 97);
   key(acv, 'v', { ctrlKey: true });
   assert.equal(ctx.clip().start, 6.666666667);
   assert.equal(ctx.clip().y, 102);
@@ -2472,7 +2510,7 @@ for (const cancelled of [false, true]) {
   // double-click inserts on the lane under the pointer
   arranger.setView({ sx: 0, sy: 0, ppq: 16 });
   flush();
-  point(cv, 'dblclick', ax(8), 38 + 34 * 2 + 3);
+  point(cv, 'dblclick', ax(8), 2 * CLIP_H + CLIP_H * 2 + 3);
   assert.equal(song.clips.at(-1).y, 68);
 }
 
@@ -3079,6 +3117,7 @@ for (const free of [false, true]) {
     mock.timers.tick(500);
     point(cv, 'pointerup', ax(16) + 6, 8, { button: 2 });
     assert.equal(song.sigs.length, 2, 'holding keeps the signature');
+    assert.ok(labels(menus).includes('Insert/Edit time-Signature Change…'), 'holding an existing signature opens the insertion menu');
     click(cv, ax(16) + 6, 8, { button: 2 });
     assert.equal(song.sigs.length, 1, 'short right-click removes the signature');
   } finally {

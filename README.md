@@ -329,6 +329,14 @@ combined into your own MIDI processor or modulator:
 
 ## Time-signature grid
 
+The timeline's time-signature row and measure ruler each match a normal clip
+lane's height, with enlarged signature flags and measure numbers.
+
+Choose **Insert/Edit time-Signature Change…** from the timeline or ruler context menu
+to open the time-signature dialog at the nearest bar to the right-click position.
+Double-clicking the signature row still works; hold right-click on existing
+signature/restart markers to open the menu without removing them.
+
 The time-signature dialog includes a two-octave measure preview (time downward).
 It uses the piano roll's black-key stave lines, including thicker three-line
 groups and the dashed central pair. All beats fit a fixed editor area that

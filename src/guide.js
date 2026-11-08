@@ -181,6 +181,7 @@ export const GUIDE = [
         items: [
           'Click the ruler to set the play position (on the signature row dragging scrubs).',
           `${k('Double-click')} the time signature row to insert a time signature change at the nearest bar line (or edit it); right-click a change to remove it.`,
+          'Choose Insert/Edit time-Signature Change… from the timeline clip, empty-space or ruler context menu to open the same dialog at the nearest bar to the right-click position. Hold right-click on an existing signature or restart marker to open this menu without removing it.',
           'The time-signature dialog includes a two-octave stave preview with time running downward. The entire measure scales to fit the available editor height. Click a numbered beat row to show or hide its piano-roll line; beat 1 controls the barline. Editing either time-signature field resets all beats to enabled. These choices repeat each measure and do not change snapping, playback or ruler marks.',
           '<b>Restart point</b>: double-click the bar numbers on the ruler (snapped), or right-click the ruler (or a clip / empty space) → <i>Insert restart point at playhead</i>. A green <b>restart:</b> | marks it in the bar number row; drag it to move it. Song playback continues there when it reaches the end of the song, and stopping it (Space, <kbd>\'</kbd> or the stop button) returns the playhead there; the <kbd>/</kbd> clip loop ignores it. Right-click the marker (or drag it to time zero) to remove it.',
         ],

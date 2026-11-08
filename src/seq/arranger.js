@@ -56,8 +56,8 @@ import {
 import { CLIP_H, clipsOverlap, findClipPosition, clipResizeBounds } from './clipplacement.js';
 import { showMenu, shortcut } from './menu.js';
 
-const SIG_H = 16; // time signature row on top of the ruler
-const RULER = 38; // signature row and bar numbers
+const SIG_H = CLIP_H; // time signature row on top of the ruler
+const RULER = 2 * CLIP_H; // signature row and bar numbers
 const FAR = 1e7; // maximum distance before floating-point precision becomes unusable
 const MIN_LANES = 16; // the lanes (and bars) that count as content even when empty
 const IDEA_BG = '#121016';
@@ -560,7 +560,7 @@ export function createArranger(host, ctx) {
     g.beginPath();
     g.rect(x0, 0, w - x0, RULER);
     g.clip();
-    g.font = `500 10px ui-monospace, monospace`;
+    g.font = `500 20px ui-monospace, monospace`;
     g.textBaseline = 'middle';
     const barY = SIG_H + (RULER - SIG_H) / 2;
     g.lineWidth = 2;
@@ -579,7 +579,7 @@ export function createArranger(host, ctx) {
     restartBox = null;
     if (Number.isFinite(song.restart)) {
       const x = Math.round(xOf(song.restart));
-      g.font = `600 10px ui-monospace, monospace`;
+      g.font = `600 20px ui-monospace, monospace`;
       const tw = g.measureText(RESTART_LABEL).width;
       const left = x - tw - 6 >= x0;
       const lx = left ? x - tw - 5 : x + 5;
@@ -595,7 +595,7 @@ export function createArranger(host, ctx) {
     // signature row
     g.fillStyle = 'rgba(255, 255, 255, 0.025)';
     g.fillRect(x0, 0, w - x0, SIG_H);
-    g.font = `600 10px ui-monospace, monospace`;
+    g.font = `600 20px ui-monospace, monospace`;
     sigBoxes = [];
     for (const seg of m) {
       const x = Math.round(xOf(seg.at));
@@ -803,6 +803,10 @@ export function createArranger(host, ctx) {
     { label: 'Insert restart point at playhead', action: insertRestart },
     { label: 'Remove restart point', disabled: !Number.isFinite(ctx.song().restart), action: removeRestart },
   ];
+  function signatureItem(x) {
+    const at = barRound(ctx.song(), Math.max(0, timeAt(x)));
+    return { label: 'Insert/Edit time-Signature Change…', action: () => ctx.editSig(at) };
+  }
 
   // drag the restart marker along the ruler (snapped); released at time zero it is removed
   function restartDrag(e) {
@@ -862,10 +866,14 @@ export function createArranger(host, ctx) {
       if (y < RULER || x < x0) {
         lastRight = null;
         // right-click a time signature: remove it; the restart marker: remove it;
-        // elsewhere on the ruler: the restart point menu
-        if (box) rightHold(cv, e, { onShort: () => { if (removeSig(ctx.song(), box.at)) { ctx.changed(); s.redraw(); } } });
-        else if (x >= x0 && restartAt(x, y)) rightHold(cv, e, { onShort: removeRestart });
-        else if (x >= x0) menu({ x: e.clientX, y: e.clientY, items: restartItems() });
+        // elsewhere on the ruler: the signature / restart point menu
+        const openRulerMenu = () => menu({ x: e.clientX, y: e.clientY, items: [signatureItem(x), '-', ...restartItems()] });
+        if (box) rightHold(cv, e, {
+          onShort: () => { if (removeSig(ctx.song(), box.at)) { ctx.changed(); s.redraw(); } },
+          onHold: openRulerMenu,
+        });
+        else if (x >= x0 && restartAt(x, y)) rightHold(cv, e, { onShort: removeRestart, onHold: openRulerMenu });
+        else if (x >= x0) openRulerMenu();
         return;
       }
       // double right-click on empty space: insert an automation clip
@@ -1183,6 +1191,7 @@ export function createArranger(host, ctx) {
         { label: clips.length > 1 ? 'Save Clips…' : 'Save Clip…', disabled: !ctx.saveClips, action: () => ctx.saveClips(clips) },
         { label: 'Import MIDI…', disabled: !ctx.openMidi || !inTimeArea(p), action: () => importMidi(p) },
         '-',
+        signatureItem(x),
         ...restartItems(),
         '-',
         { label: 'Select all', shortcut: shortcut('A'), action: selectAll },
@@ -1195,6 +1204,7 @@ export function createArranger(host, ctx) {
         { label: 'Load Clip…', disabled: !ctx.openClips || !inTimeArea(p), action: () => loadClips(p) },
         { label: 'Import MIDI…', disabled: !ctx.openMidi || !inTimeArea(p), action: () => importMidi(p) },
         '-',
+        signatureItem(x),
         ...restartItems(),
         '-',
         { label: 'Select all', shortcut: shortcut('A'), disabled: !ctx.song().clips.length, action: selectAll },
