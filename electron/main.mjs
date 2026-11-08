@@ -6,7 +6,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { registerProjectFiles } from './projectfiles.mjs';
 import { registerExit } from './exit.mjs';
-import { registerPreferences } from './preferences.mjs';
+import { registerPreferences, launchFullscreen, showLaunchWindow } from './preferences.mjs';
+import { DEFAULT_LAUNCH_FULLSCREEN } from '../src/interfacepreferences.js';
 
 // PHILSYNTH.app (npm run build:mac) is its own app next to the dev app (npm start): own name,
 // data folder (~/Library/Application Support/PHILSYNTH), single-instance lock and port.
@@ -59,7 +60,7 @@ async function startServer() {
   }
 }
 
-function createWindow(url) {
+function createWindow(url, fullscreen) {
   win = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -69,7 +70,7 @@ function createWindow(url) {
     title: 'PHILSYNTH',
     icon: join(ROOT, 'src', 'icon.png'),
     show: false,
-    fullscreen: true, // F11 toggles
+    fullscreen, // F11 toggles
     webPreferences: {
       contextIsolation: true,
       sandbox: true,
@@ -78,8 +79,7 @@ function createWindow(url) {
     },
   });
   win.once('ready-to-show', () => {
-    win.setFullScreen(true); // some window managers (Wayland) ignore the constructor option
-    win.show();
+    showLaunchWindow(win, fullscreen);
   });
   exit = registerExit(app, win, (u) => typeof u === 'string' && u.startsWith(url));
   // links to other sites open in the normal browser
@@ -143,8 +143,15 @@ if (!app.requestSingleInstanceLock()) {
     });
     session.defaultSession.setPermissionCheckHandler((_wc, permission, origin) => TRUSTED.has(permission) && local(`${origin}/`));
     registerProjectFiles(local);
-    registerPreferences(ipcMain, join(app.getPath('userData'), 'preferences.json'), local);
-    createWindow(url);
+    const preferencesFile = join(app.getPath('userData'), 'preferences.json');
+    registerPreferences(ipcMain, preferencesFile, local);
+    let fullscreen = DEFAULT_LAUNCH_FULLSCREEN;
+    try {
+      fullscreen = await launchFullscreen(preferencesFile);
+    } catch (err) {
+      console.error('Could not load launch preferences; starting in full screen:', err);
+    }
+    createWindow(url, fullscreen);
     console.log(`PHILSYNTH app running (${url})`);
   });
 

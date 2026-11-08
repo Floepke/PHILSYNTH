@@ -1039,8 +1039,16 @@ dialog menu { display: flex; gap: 8px; justify-content: flex-end; padding: 0; ma
 #preferences-categories option { padding: 10px; border-radius: 4px; }
 #preferences-categories option:checked { background: var(--wood-raised); color: var(--wood-ink); }
 #preferences-content { overflow-y: auto; min-width: 0; padding: 0 4px; }
-.preference + .preference { margin-top: 24px; }
-.preference h4 { margin: 0 0 14px; font-size: 13px; }
+.preference {
+  min-width: 0;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid var(--wood-ink);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.18);
+}
+.preference + .preference { margin-top: 16px; }
+.preference legend { padding: 0 6px; font-size: 13px; font-weight: 600; }
 .preference-reset { margin-top: 12px; }
 #preferences-error { color: #ff8a7a; }
 #preferences-error:empty { display: none; }

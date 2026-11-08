@@ -14,11 +14,16 @@ Extreme black/white channel values are softened to preserve visible grain.
 PHILSYNTH > Preferences opens the categorized preferences dialog. The listbox on
 the left selects a category; OK saves all changes, while Cancel or Escape undoes
 live previews. Preferences are independent of projects.
+Each setting has its own labeled groupbox to clearly separate its controls.
 
 Interface > Controller Panel Divider Width sets only the divider between the
 controller panel and patcher, in CSS px (10–128; default 48). The 10 px minimum
 fits its 6 px grip with padding. App scaling still applies; the widget-bearing
 horizontal dividers keep their existing size.
+
+Interface > Launch in full screen is enabled by default. Uncheck it to launch
+the Electron app as a maximized window instead. Changes apply on the next launch;
+F11 still toggles full screen while running. This setting does not affect browsers.
 
 The desktop app stores a versioned JSON document in `preferences.json` in its
 Electron user-data directory (development: `modsynth-dev`; packaged: `PHILSYNTH`).

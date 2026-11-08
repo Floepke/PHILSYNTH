@@ -25,9 +25,9 @@ export function createPreferencesDialog(preferencesManager, { loadError = '' } =
     heading.textContent = categories.value;
     content.append(heading);
     for (const item of preferencesManager.entries().filter((i) => i.category === categories.value)) {
-      const section = document.createElement('section');
+      const section = document.createElement('fieldset');
       section.className = 'preference';
-      const title = document.createElement('h4');
+      const title = document.createElement('legend');
       title.textContent = item.label;
       section.append(title);
       const id = `pref-${item.id.replaceAll('.', '-')}`;

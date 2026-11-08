@@ -113,6 +113,13 @@ app.whenReady().then(async () => {
     await open();
     assert.equal(await run("document.activeElement.id"), 'preferences-categories', 'category list receives focus');
     assert.deepEqual(await run("Array.from(document.getElementById('preferences-categories').options, o => o.text)"), ['Interface', 'Testing']);
+    const groups = await run(`Array.from(document.querySelectorAll('#preferences-content fieldset'), group => ({
+      label: group.querySelector('legend')?.textContent,
+      border: getComputedStyle(group).borderTopWidth,
+      padding: getComputedStyle(group).paddingTop
+    }))`);
+    assert.deepEqual(groups.map(g => g.label), ['Wood Tint', 'Launch in full screen', 'Controller Panel Divider Width']);
+    assert.ok(groups.every(g => g.border === '1px' && g.padding === '16px'), 'each setting has a visible padded groupbox');
     await change([64, 128, 192]);
     assert.equal(await tint(), '#4080c0', 'RGB input previews immediately');
     assert.equal(await run("localStorage.getItem('philsynth:preferences')"), null, 'preview does not save');
@@ -166,6 +173,7 @@ app.whenReady().then(async () => {
     await win.loadURL(url);
     await open();
     await change([128, 64, 32]);
+    await run("document.getElementById('preferences-categories').focus()");
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Down' });
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Down' });
     assert.equal(await run("document.getElementById('preferences-categories').value"), 'Testing', 'keyboard selects categories');
@@ -203,6 +211,11 @@ app.whenReady().then(async () => {
     })()`);
     await open();
     const before = await dividerSizes();
+    assert.equal(await run("document.getElementById('pref-interface-launchFullscreen').checked"), true, 'fullscreen checkbox defaults on');
+    await run(`(() => {
+      const input = document.getElementById('pref-interface-launchFullscreen');
+      input.checked = false; input.dispatchEvent(new Event('change'));
+    })()`);
     const widthInput = 'pref-interface-controllerPanelDividerWidth';
     await run(`(() => {
       const input = document.getElementById('${widthInput}');
@@ -216,14 +229,19 @@ app.whenReady().then(async () => {
     assert.ok(minimum.room.includes('10px'), 'panel layout accounts for the independent divider width');
     await submit('cancel'); await flushClose();
     assert.equal((await dividerSizes()).panel, 48, 'Cancel restores divider width');
+    assert.equal(await run("window.preferencesManager.get('interface.launchFullscreen')"), true, 'Cancel keeps the saved launch mode');
     await open();
     await run(`(() => {
       const input = document.getElementById('${widthInput}');
       input.value = 16; input.dispatchEvent(new Event('change'));
+      const fullscreen = document.getElementById('pref-interface-launchFullscreen');
+      fullscreen.checked = false; fullscreen.dispatchEvent(new Event('change'));
     })()`);
     await submit('ok'); await flushClose();
     await win.loadURL(url);
     assert.equal((await dividerSizes()).panel, 16, 'divider width survives reload');
+    assert.equal(await run("window.preferencesManager.get('interface.launchFullscreen')"), false, 'launch mode survives reload');
+    assert.equal(win.isFullScreen(), false, 'saving launch preference does not change the current window');
     win.webContents.setZoomFactor(1.5);
     const scaled = await dividerSizes();
     assert.equal(scaled.panel, 16, 'CSS width is preserved under app scaling');

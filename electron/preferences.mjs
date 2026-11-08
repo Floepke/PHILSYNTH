@@ -1,8 +1,33 @@
 import { readFile, stat } from 'node:fs/promises';
 import { parsePreferences } from '../src/preferences.js';
 import { atomicWrite } from './atomicwrite.mjs';
+import { LAUNCH_FULLSCREEN_ID, DEFAULT_LAUNCH_FULLSCREEN } from '../src/interfacepreferences.js';
 
 const MAX_BYTES = 1024 * 1024;
+
+export async function readPreferencesFile(file) {
+  try {
+    if ((await stat(file)).size > MAX_BYTES) throw new Error('Preferences file is too large');
+    return await readFile(file, 'utf8');
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+export async function launchFullscreen(file) {
+  const text = await readPreferencesFile(file);
+  const values = text === null ? {} : parsePreferences(text);
+  if (!Object.hasOwn(values, LAUNCH_FULLSCREEN_ID)) return DEFAULT_LAUNCH_FULLSCREEN;
+  if (typeof values[LAUNCH_FULLSCREEN_ID] !== 'boolean') throw new Error('Invalid Launch in full screen preference');
+  return values[LAUNCH_FULLSCREEN_ID];
+}
+
+export function showLaunchWindow(window, fullscreen) {
+  if (fullscreen) window.setFullScreen(true); // Some Wayland window managers ignore the constructor option.
+  else window.maximize();
+  window.show();
+}
 
 export function registerPreferences(ipcMain, file, isLocal) {
   let saving = false;
@@ -11,13 +36,7 @@ export function registerPreferences(ipcMain, file, isLocal) {
   };
   ipcMain.handle('preferences:load', async (event) => {
     check(event);
-    try {
-      if ((await stat(file)).size > MAX_BYTES) throw new Error('Preferences file is too large');
-      return await readFile(file, 'utf8');
-    } catch (err) {
-      if (err.code === 'ENOENT') return null;
-      throw err;
-    }
+    return readPreferencesFile(file);
   });
   ipcMain.handle('preferences:save', async (event, text) => {
     check(event);

@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPreferencesManager, parsePreferences, preferencesStorage, PREFERENCES_KEY, PREFERENCES_FORMAT } from '../src/preferences.js';
 import { migrateWoodTint, WOOD_TINT_ID, WOOD_TINT_KEY } from '../src/woodtheme.js';
-import { registerPreferences } from '../electron/preferences.mjs';
+import { registerPreferences, launchFullscreen, showLaunchWindow } from '../electron/preferences.mjs';
 import { atomicWrite } from '../electron/atomicwrite.mjs';
-import { registerInterfacePreferences, PANEL_DIVIDER_WIDTH_ID } from '../src/interfacepreferences.js';
+import { registerInterfacePreferences, PANEL_DIVIDER_WIDTH_ID, LAUNCH_FULLSCREEN_ID } from '../src/interfacepreferences.js';
 
 const fileText = (values) => JSON.stringify({ format: PREFERENCES_FORMAT, version: 1, values });
 const color = { id: WOOD_TINT_ID, label: 'Wood Tint', category: 'Interface', type: 'color', defaultValue: '#290000' };
@@ -16,6 +16,10 @@ const color = { id: WOOD_TINT_ID, label: 'Wood Tint', category: 'Interface', typ
   const manager = createPreferencesManager({ storage: { load: async () => null, save: async () => {} } });
   registerInterfacePreferences(manager);
   await manager.load();
+  assert.equal(manager.get(LAUNCH_FULLSCREEN_ID), true);
+  await manager.save({ [LAUNCH_FULLSCREEN_ID]: false });
+  assert.equal(manager.get(LAUNCH_FULLSCREEN_ID), false);
+  await assert.rejects(manager.save({ [LAUNCH_FULLSCREEN_ID]: 'false' }), /Invalid value/);
   assert.equal(properties.get('--panel-divider-width'), '48px');
   manager.preview(PANEL_DIVIDER_WIDTH_ID, 10);
   assert.equal(properties.get('--panel-divider-width'), '10px');
@@ -133,6 +137,22 @@ for (const text of ['{', fileText({ [WOOD_TINT_ID]: 'invalid' }), JSON.stringify
     const load = () => handlers.get('preferences:load')(event);
     const save = (text) => handlers.get('preferences:save')(event, text);
     assert.equal(await load(), null);
+    assert.equal(await launchFullscreen(file), true, 'missing file preserves fullscreen launch');
+    await save(fileText({}));
+    assert.equal(await launchFullscreen(file), true, 'older preferences preserve fullscreen launch');
+    for (const fullscreen of [true, false]) {
+      await save(fileText({ [LAUNCH_FULLSCREEN_ID]: fullscreen }));
+      assert.equal(await launchFullscreen(file), fullscreen, 'launch reads the saved JSON checkbox');
+      const calls = [];
+      showLaunchWindow({
+        setFullScreen: (value) => calls.push(['fullscreen', value]),
+        maximize: () => calls.push(['maximize']),
+        show: () => calls.push(['show']),
+      }, await launchFullscreen(file));
+      assert.deepEqual(calls, fullscreen ? [['fullscreen', true], ['show']] : [['maximize'], ['show']], 'launch applies the requested mode before showing');
+    }
+    await save(fileText({ [LAUNCH_FULLSCREEN_ID]: 'false' }));
+    await assert.rejects(launchFullscreen(file), /Invalid Launch/);
     await save(fileText({ [WOOD_TINT_ID]: '#4080c0' }));
     assert.equal(await load(), await readFile(file, 'utf8'));
     assert.deepEqual(await readdir(dir), ['preferences.json'], 'atomic writes leave no temporary files');
