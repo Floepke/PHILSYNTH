@@ -482,8 +482,10 @@ macOS packaging uses `npm run build:mac` on macOS.
 
 ## GitHub Pages
 
-`.github/workflows/pages.yml` tests and publishes `index.html`, `style.css` and
-`src/` on every push to `main`. To enable it once, open
+`.github/workflows/pages.yml` installs runtime dependencies, tests, and publishes
+`index.html`, `style.css`, `src/`, and the local MP3/Ogg encoder dependency on every
+push to `main`. Electron and packaging tools are not installed for this build.
+To enable it once, open
 **Settings → Pages** in the repository and choose **Source: GitHub Actions**.
 The app then runs at `https://floepke.github.io/MODSYNTH/`.
 
