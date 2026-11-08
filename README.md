@@ -329,6 +329,11 @@ combined into your own MIDI processor or modulator:
 
 ## Clip files
 
+Clip looping chases notes already sounding at the loop start on every pass,
+including notes in overlapping clips and notes beginning before a trimmed
+clip's left edge. Chased notes resume at their current velocity and bent pitch
+and stop at their normal end (or the loop boundary).
+
 TimeLine > right-click > Consolidate combines selected MIDI clips across lanes
 and destinations. The result uses the first selected clip's name, destination
 and lane, preserving note timing and trimming notes at their original clip ends.

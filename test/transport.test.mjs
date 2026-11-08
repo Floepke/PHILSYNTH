@@ -41,11 +41,11 @@ function setup() {
   assert.equal(transport.pos, 4.25);
   run(260);
   near(transport.pos, 4.27);
-  assert.deepEqual(events.filter((e) => e.type === 'on').map((e) => e.pitch), [60, 80, 64, 60, 80]);
+  assert.deepEqual(events.filter((e) => e.type === 'on').map((e) => e.pitch), [69, 60, 80, 64, 69, 60, 80]);
   assert.ok(events.every((e) => e.target === 1 || e.target === 2));
   const firstOn = events.find((e) => e.type === 'on');
   assert.ok(events.some((e) => e.type === 'off' && e.id === firstOn.id));
-  assert.equal(transport.active.length, 2);
+  assert.equal(transport.active.length, 3);
   near(transport.active[0].end, 4.75);
   transport.stop();
   assert.equal(transport.playing, false);
@@ -55,6 +55,37 @@ function setup() {
   assert.equal(transport.pos, 3, 'stop can park the playhead');
   transport.stop();
   assert.equal(transport.pos, 3, 'plain stop keeps the position');
+}
+
+// Every loop chases overlapping clips and left-trimmed notes, not just the first pass.
+{
+  const { song, selected, other, transport, events, run } = setup();
+  other.start = 4;
+  other.length = 2;
+  other.notes = [note(80, 0, 2)];
+  const trimmed = selected.notes.find(n => n.pitch === 69);
+  trimmed.vels = [{ t: 0.5, v: 0.3, r: 0 }];
+  const expectedVelocity = 0.5; // halfway from 0.7 to 0.3 at the trimmed clip start
+  transport.playClip(selected.id);
+  run(760); // initial pass plus three 250 ms wraps
+  for (const pitch of [69, 60, 80]) {
+    const ons = events.filter(e => e.type === 'on' && e.pitch === pitch);
+    assert.equal(ons.length, 4, `pitch ${pitch} retriggers exactly once on every pass`);
+    if (pitch === 69) ons.forEach(e => near(e.vel, expectedVelocity));
+    for (const on of ons.slice(0, -1)) {
+      assert.equal(events.filter(e => e.type === 'off' && e.id === on.id).length, 1, 'old voices released at each wrap');
+    }
+  }
+  assert.equal(transport.active.length, 3, 'no accumulated chased voices');
+  transport.stop();
+  transport.chase = false;
+  events.length = 0;
+  transport.playClip(selected.id);
+  run(510);
+  assert.ok(!events.some(e => e.type === 'on' && [69, 80].includes(e.pitch)), 'chase-off remains respected on every pass');
+  assert.equal(events.filter(e => e.type === 'on' && e.pitch === 60).length, 3, 'normal boundary notes still retrigger once');
+  transport.stop();
+  assert.equal(notesSounding(song, selected.start).find(e => e.note === trimmed).start, 4, 'chased note keeps its original onset for curve evaluation');
 }
 
 // Muted lanes are silent in song and clip playback, the auditioned clip included; muting a lane

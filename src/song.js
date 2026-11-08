@@ -634,13 +634,13 @@ export function notesStarting(song, from, to) {
 }
 
 // Notes already sounding at q (started before q, ending after it): for note chasing when playback
-// starts or jumps into the middle of a note. Same clipping to the clip bounds as notesStarting.
+// starts or jumps into the middle of a note, including notes trimmed at the clip's left edge.
 export function notesSounding(song, q) {
   const out = [];
   for (const clip of song.clips) {
-    if (clip.start >= q || clip.start + clip.length <= q) continue;
+    if (clip.start > q || clip.start + clip.length <= q) continue;
     for (const note of clip.notes) {
-      if (note.start < 0 || note.start >= clip.length) continue;
+      if (note.start >= clip.length) continue;
       const start = clip.start + note.start;
       const end = clip.start + Math.min(clip.length, note.start + note.length);
       if (start < q && end > q) out.push({ clip, note, start, end });

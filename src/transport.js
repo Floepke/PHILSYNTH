@@ -209,13 +209,17 @@ export class Transport {
         to -= span;
         if (!clip && back !== start) {
           start = back;
-          if (this.chase) this.chaseAt(start);
         }
+        if (this.chase) this.chaseAt(start);
       }
       this.from = start;
     }
     // Very short clips can wrap many times in one tick; skip stale cycles, not the loop bounds.
-    if (to >= end) to = start + (to - start) % span;
+    if (to >= end) {
+      this.releaseAll();
+      to = start + (to - start) % span;
+      if (this.chase) this.chaseAt(start);
+    }
     this.advance(this.from, to);
     this.pos = this.from = to;
     this.followNotes(to);
