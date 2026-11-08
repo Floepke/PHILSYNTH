@@ -5,8 +5,8 @@ import { newNoteId } from '../modmidi.js';
 import { heldPitches, onHeldChange } from '../midi.js';
 import { getClip, isAuto, SNAP_BASES, SNAP_NAMES, snapStep, formatPos, DEFAULT_VEL, meter, segAt, setSig, removeSig, linkedClips, normalizeSong, clipFileText, parseClipFile } from '../song.js';
 import { saveTextFile, openTextFile, openMidiFile } from '../filedialog.js';
-import { parseMidiFile } from '../midiimport.js';
-import { sigDialog } from '../dialogs.js';
+import { parseMidiFile, midiTempoClip } from '../midiimport.js';
+import { confirmDialog, sigDialog } from '../dialogs.js';
 import { createPianoRoll } from './pianoroll.js';
 import { createArranger } from './arranger.js';
 import { createAutomationLane } from './automation.js';
@@ -150,7 +150,19 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
       try {
         file = await openMidiFile();
         if (!file) return null;
-        return { ...parseMidiFile(file.data, file.name), name: file.name };
+        const importTempo = await confirmDialog('Import the MIDI tempo as Output BPM automation too?', {
+          title: 'Import MIDI tempo?', ok: 'Yes', cancel: 'No', focus: 'cancel',
+        });
+        const output = importTempo ? [...patch().modules.values()].find((entry) => entry.def.isOutput) : null;
+        const params = output ? paramsOf(output) : [];
+        const controller = params.findIndex((p) => p.id === 'bpm');
+        if (importTempo && controller < 0) throw new Error('The Output BPM controller is unavailable');
+        const param = params[controller];
+        const result = parseMidiFile(file.data, file.name, importTempo
+          ? { importTempo: true, minBpm: param.min, maxBpm: param.max }
+          : {});
+        if (importTempo) result.tempoClip = midiTempoClip(result, output.id, controller, param);
+        return { ...result, name: file.name };
       } catch (err) {
         $('status').textContent = `MIDI import failed${file ? ` (${file.name})` : ''}: ${err.message}`;
         return null;
@@ -158,7 +170,8 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
     },
     midiImported(result) {
       const warning = result.warnings ? ` ${result.warnings} unmatched or zero-length note event(s) repaired or ignored.` : '';
-      $('status').textContent = `Imported ${result.clips.length} MIDI track(s) from ${result.name}.${warning}`;
+      const clamped = result.clampedTempos ? ` ${result.clampedTempos} tempo(s) limited to the Output BPM range.` : '';
+      $('status').textContent = `Imported ${result.clips.length} MIDI track(s)${result.tempoClip ? ' and tempo automation' : ''} from ${result.name}.${warning}${clamped}`;
     },
     midiImportCancelled() {
       $('status').textContent = 'MIDI import cancelled because the project or layer changed.';

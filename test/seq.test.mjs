@@ -1997,6 +1997,24 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.deepEqual(clips.map((c) => c.y), [-111, -77, -43]);
 }
 
+{
+  const { song, arranger, ctx, menus, changes } = setup();
+  const noteClip = { name: 'Track', start: 0, y: 0, length: 4, target: null, notes: [note(60, 0)] };
+  const tempoClip = { name: 'MIDI Tempo', kind: 'auto', target: 0, controller: 0, length: 4,
+    notes: [], points: [{ t: 0, v: 0.1, r: 0 }, { t: 2, v: 0.1, r: 0 }, { t: 2, v: 0.2, r: 0 }] };
+  ctx.openMidi = async () => ({ clips: [noteClip], tempoClip });
+  holdRightClick(arranger.surface.cv, ax(10), ay(68));
+  pick(menus, 'Import MIDI…');
+  await new Promise((r) => setImmediate(r));
+  const [imported, tempo] = song.clips.slice(1);
+  assert.equal(imported.start, tempo.start, 'tempo and notes start together');
+  assert.equal(tempo.y, imported.y + 34);
+  assert.deepEqual(tempo.points, tempoClip.points);
+  assert.equal(tempo.target, 0);
+  assert.equal(tempo.kind, 'auto');
+  assert.equal(changes(), 1, 'tracks and tempo are one edit');
+}
+
 // Clipboard placement follows the current triplet grid and scrolled arranger coordinates.
 {
   const { song, clip, roll, arranger, ctx } = setup();

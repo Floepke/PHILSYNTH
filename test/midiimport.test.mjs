@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
-import { parseMidiFile } from '../src/midiimport.js';
+import { parseMidiFile, midiTempoClip } from '../src/midiimport.js';
 import { MAX_MIDI_BYTES } from '../src/fileformat.js';
-import { normalizeSong, emptySong } from '../src/song.js';
+import { normalizeSong, emptySong, autoValue } from '../src/song.js';
+import { fromNorm } from '../src/params.js';
+import out from '../src/modules/out.js';
+import { Transport } from '../src/transport.js';
 
 const be16 = (n) => [n >> 8 & 255, n & 255];
 const be32 = (n) => [n >>> 24, n >>> 16 & 255, n >>> 8 & 255, n & 255];
@@ -13,6 +16,7 @@ const vlq = (n) => {
 };
 const event = (delta, ...data) => [...vlq(delta), ...data];
 const end = event(0, 0xff, 0x2f, 0);
+const tempo = (delta, value) => event(delta, 0xff, 0x51, 3, value >> 16 & 255, value >> 8 & 255, value & 255);
 const track = (...events) => {
   const data = events.flat();
   return [...text('MTrk'), ...be32(data.length), ...data];
@@ -64,6 +68,88 @@ const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-1
   const { clips, warnings } = parseMidiFile(bytes);
   assert.equal(warnings, 3);
   assert.deepEqual(clips[0].notes.map((n) => n.length), [1 / 480, 1 / 480]);
+}
+{
+  const us = 497925;
+  const bytes = midi(1, 480,
+    track(tempo(0, us), tempo(480, 600000), event(480, 0xff, 0x2f, 0)),
+    track(event(240, 0x90, 60, 100), event(480, 0x80, 60, 0), event(240, 0xff, 0x2f, 0)));
+  const without = parseMidiFile(bytes);
+  assert.equal(without.tempoEvents, null);
+  assert.equal(without.clips[1].notes[0].start, 0.5);
+  assert.equal(without.clips[1].notes[0].length, 1);
+  const result = parseMidiFile(bytes, 'song.mid', { importTempo: true });
+  const beatChange = us / 1000000 * 121 / 60;
+  close(result.tempoEvents[1].t, beatChange);
+  assert.deepEqual(result.tempoEvents.map((e) => e.bpm), [121, 100]);
+  const note = result.clips[1].notes[0];
+  close(note.start * 60 / 121, us / 2000000);
+  close((note.start + note.length - beatChange) * 60 / 100, 0.3);
+  const param = out.params.find((p) => p.id === 'bpm');
+  const clip = midiTempoClip(result, 0, out.params.indexOf(param), param);
+  assert.equal(clip.target, 0);
+  assert.equal(clip.controller, 0);
+  assert.deepEqual(clip.points.map((p) => [p.t, fromNorm(param, p.v), p.r]),
+    [[0, 121, 0], [beatChange, 121, 0], [beatChange, 100, 0]]);
+  assert.equal(fromNorm(param, autoValue(clip, beatChange - 0.000001)), 121);
+  assert.equal(fromNorm(param, autoValue(clip, beatChange)), 100);
+  const song = emptySong();
+  song.clips.push({ ...clip, start: 0, y: 0, id: 1 });
+  const restored = normalizeSong(JSON.parse(JSON.stringify(song))).clips[0];
+  assert.deepEqual(restored.points, clip.points);
+  assert.equal(fromNorm(param, autoValue(restored, beatChange)), 100);
+
+  const playbackSong = emptySong();
+  playbackSong.clips = [
+    { ...result.clips[1], start: 0, y: 0, id: 1, target: 7 },
+    { ...clip, start: 0, y: 34, id: 2 },
+  ];
+  let bpm = 120, now = 0, noteOn = null, noteOff = null;
+  const transport = new Transport({
+    getSong: () => playbackSong, getBpm: () => bpm,
+    setAuto: (_id, c, value) => { if (c) bpm = fromNorm(param, value); },
+    getTarget: () => ({ noteOn() { noteOn = now; }, noteOff() { noteOff = now; } }),
+    now: () => now, ticker: () => ({ start() {}, stop() {} }),
+  });
+  transport.play();
+  for (now = 5; now <= 1100; now += 5) {
+    transport.tick();
+    if (now === 250) assert.equal(bpm, 121);
+    if (now === 750) assert.equal(bpm, 100);
+  }
+  assert.ok(Math.abs(noteOn - 250) <= 5, `note started at ${noteOn} ms`);
+  assert.ok(Math.abs(noteOff - 800) <= 10, `note ended at ${noteOff} ms`);
+  transport.stop();
+}
+{
+  const file = midi(2, 100,
+    track(tempo(0, 1000000), event(100, 0xff, 0x2f, 0)),
+    track(tempo(0, 500000), event(0, 0x90, 64, 100), event(100, 0x80, 64, 0), end));
+  const result = parseMidiFile(file, 'format2.mid', { importTempo: true });
+  assert.equal(result.tempoEvents[0].bpm, 60);
+  close(result.clips[1].notes[0].length, 0.5);
+}
+{
+  const division = (256 - 25) * 256 + 40;
+  const file = midi(1, division, track(tempo(100, 1000000), event(100, 0xff, 0x2f, 0)),
+    track(event(0, 0x90, 60, 90), event(200, 0x80, 60, 0), end));
+  const result = parseMidiFile(file, 'smpte.mid', { importTempo: true });
+  close(result.tempoEvents[1].t, 0.2);
+  close(result.clips[1].notes[0].length, 0.3);
+}
+{
+  const file = midi(0, 100, track(tempo(0, 10000000), event(0, 0x90, 60, 100), event(100, 0x80, 60, 0), end));
+  const result = parseMidiFile(file, 'slow.mid', { importTempo: true });
+  assert.equal(result.clampedTempos, 1);
+  assert.equal(result.tempoEvents[0].bpm, 20);
+  close(result.clips[0].notes[0].length * 60 / 20, 10);
+  assert.throws(() => parseMidiFile(file, 'x.mid', { importTempo: true, minBpm: 0 }), /BPM controller range/);
+}
+{
+  const file = midi(0, 100, track(tempo(100, 750000), tempo(0, 1000000), event(100, 0xff, 0x2f, 0)));
+  const result = parseMidiFile(file, 'change.mid', { importTempo: true });
+  assert.deepEqual(result.tempoEvents, [{ t: 0, bpm: 120 }, { t: 1, bpm: 60 }], 'default tempo and last simultaneous event win');
+  close(result.clips[0].length, 2);
 }
 {
   assert.throws(() => parseMidiFile(new Uint8Array(MAX_MIDI_BYTES + 1)), /too large/);

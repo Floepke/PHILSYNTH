@@ -1075,7 +1075,7 @@ export function createArranger(host, ctx) {
       ctx.midiImportCancelled?.();
       return;
     }
-    const tracks = result.clips;
+    const tracks = result.tempoClip ? [...result.clips, result.tempoClip] : result.clips;
     const copies = [];
     if (at.y < 0) {
       const firstY = Math.min(at.y, -tracks.length * CLIP_H);

@@ -1,9 +1,24 @@
 import { BAR, LANE_H } from './song.js';
 import { MAX_MIDI_BYTES } from './fileformat.js';
+import { toNorm } from './params.js';
+
+export function midiTempoClip(result, target, controller, param) {
+  const points = [];
+  for (const event of result.tempoEvents) {
+    const v = toNorm(param, event.bpm);
+    if (points.length && points.at(-1).v !== v) points.push({ t: event.t, v: points.at(-1).v, r: 0 });
+    if (!points.length || points.at(-1).v !== v) points.push({ t: event.t, v, r: 0 });
+  }
+  const end = result.clips.reduce((max, clip) => Math.max(max, clip.length), 0);
+  return {
+    name: 'MIDI Tempo', kind: 'auto', target, controller, notes: [], points,
+    length: Math.max(end, points.at(-1).t + 0.001),
+  };
+}
 
 // Standard MIDI Files use tick deltas and running status; all positions below remain in ticks
 // until the entire tempo map is known (needed for SMPTE time divisions).
-export function parseMidiFile(data, filename = 'MIDI') {
+export function parseMidiFile(data, filename = 'MIDI', { importTempo = false, minBpm = 20, maxBpm = 1000 } = {}) {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
   if (bytes.length > MAX_MIDI_BYTES) throw new Error('MIDI file is too large (maximum 32 MB)');
   let pos = 0;
@@ -138,9 +153,69 @@ export function parseMidiFile(data, filename = 'MIDI') {
     };
   };
   const sharedMap = timeMap(tracks.flatMap((track) => track.tempos));
+  let tempoEvents = null;
+  let clampedTempos = 0;
+  let convertedTimes = null;
+  if (importTempo) {
+    if (!Number.isInteger(minBpm) || !Number.isInteger(maxBpm) || minBpm <= 0 || maxBpm < minBpm) {
+      throw new Error('Invalid BPM controller range');
+    }
+    // SMF format 2 tracks are independent sequences. Their source clocks are mapped through
+    // elapsed seconds onto a single output clock, whose tempo is taken from the first track.
+    const sharedTempos = tracks.flatMap((track) => track.tempos);
+    const sourceClock = (tempos) => {
+      if (ticksPerSecond) return (tick) => tick / ticksPerSecond;
+      const points = [{ tick: 0, seconds: 0, tempo: 500000 }];
+      for (const event of [...tempos].sort((a, b) => a.tick - b.tick)) {
+        const prev = points.at(-1);
+        points.push({ ...event, seconds: prev.seconds + (event.tick - prev.tick) * prev.tempo / (division * 1000000) });
+      }
+      return (tick) => {
+        let lo = 0, hi = points.length;
+        while (lo + 1 < hi) {
+          const mid = (lo + hi) >> 1;
+          if (points[mid].tick <= tick) lo = mid; else hi = mid;
+        }
+        const point = points[lo];
+        return point.seconds + (tick - point.tick) * point.tempo / (division * 1000000);
+      };
+    };
+    const mainTempos = format === 2 ? tracks[0].tempos : sharedTempos;
+    const mainClock = sourceClock(mainTempos);
+    const events = [{ seconds: 0, tempo: 500000 }];
+    for (const event of [...mainTempos].sort((a, b) => a.tick - b.tick)) {
+      const item = { seconds: mainClock(event.tick), tempo: event.tempo };
+      if (events.at(-1).seconds === item.seconds) events[events.length - 1] = item;
+      else events.push(item);
+    }
+    const outputClock = [];
+    for (const event of events) {
+      const rawBpm = 60000000 / event.tempo;
+      const rounded = Math.round(rawBpm);
+      const bpm = Math.max(minBpm, Math.min(maxBpm, rounded));
+      if (rounded !== bpm) clampedTempos++;
+      const prev = outputClock.at(-1);
+      const beat = prev ? prev.beat + (event.seconds - prev.seconds) * prev.bpm / 60 : 0;
+      outputClock.push({ seconds: event.seconds, beat, bpm });
+    }
+    const outputBeat = (seconds) => {
+      let lo = 0, hi = outputClock.length;
+      while (lo + 1 < hi) {
+        const mid = (lo + hi) >> 1;
+        if (outputClock[mid].seconds <= seconds) lo = mid; else hi = mid;
+      }
+      const point = outputClock[lo];
+      return point.beat + (seconds - point.seconds) * point.bpm / 60;
+    };
+    tempoEvents = outputClock.map(({ beat, bpm }) => ({ t: beat, bpm }));
+    convertedTimes = tracks.map((track) => {
+      const clock = format === 2 ? sourceClock(track.tempos) : mainClock;
+      return (tick) => outputBeat(clock(tick));
+    });
+  }
   const basename = filename.replace(/\.(mid|midi)$/i, '') || 'MIDI';
   const clips = tracks.map((track, i) => {
-    const toBeat = format === 2 ? timeMap(track.tempos) : sharedMap;
+    const toBeat = convertedTimes?.[i] ?? (format === 2 ? timeMap(track.tempos) : sharedMap);
     const notes = track.notes.map((note) => ({
       pitch: note.pitch, start: toBeat(note.start), length: toBeat(note.end) - toBeat(note.start), vel: note.vel,
     })).sort((a, b) => a.start - b.start);
@@ -148,5 +223,5 @@ export function parseMidiFile(data, filename = 'MIDI') {
     return { name: track.name || `${basename} - Track ${i + 1}`, start: 0, y: i * LANE_H,
       length: Math.max(0.001, end || BAR), target: null, notes };
   });
-  return { format, clips, warnings };
+  return { format, clips, warnings, tempoEvents, clampedTempos };
 }
