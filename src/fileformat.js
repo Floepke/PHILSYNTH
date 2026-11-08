@@ -22,3 +22,5 @@ export const MODULE_OPEN_EXTS = [MODULE_EXT, '.synth'];
 export const AUDIO_OPEN_EXTS = ['.wav', '.aif', '.aiff', '.flac', '.ogg', '.oga', '.opus', '.mp3', '.m4a', '.aac', '.webm'];
 export const WAVETABLE_OPEN_EXTS = ['.wav', '.wt', ...AUDIO_OPEN_EXTS.slice(1)];
 export const IMAGE_OPEN_EXTS = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp', '.avif'];
+export const MIDI_OPEN_EXTS = ['.mid', '.midi'];
+export const MAX_MIDI_BYTES = 32 * 1024 * 1024;

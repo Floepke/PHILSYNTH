@@ -5,7 +5,7 @@
 //   Chromium browsers     showSaveFilePicker / showOpenFilePicker with `id: kind`: the browser
 //                         remembers the folder per id (per site, across restarts)
 //   other browsers        a download / a file input (the browser decides where)
-import { CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS, AUDIO_OPEN_EXTS, WAVETABLE_OPEN_EXTS, IMAGE_OPEN_EXTS } from './fileformat.js';
+import { CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS, AUDIO_OPEN_EXTS, WAVETABLE_OPEN_EXTS, IMAGE_OPEN_EXTS, MIDI_OPEN_EXTS, MAX_MIDI_BYTES } from './fileformat.js';
 import { pickFile } from './filepicker.js';
 
 // ext: saved files; open: extensions the open dialog offers (older ones included)
@@ -99,4 +99,37 @@ export async function openMediaFile(kind, win = window, pick = pickFile) {
   if (!f) return null;
   const { name, data } = await files.openBinary(kind, f.path);
   return new win.File([data], name, { type: mimeOf(name) });
+}
+
+// Binary Standard MIDI File import, using the desktop picker or the browser's file picker.
+export async function openMidiFile(win = window, pick = pickFile) {
+  const files = win.modsynthFiles;
+  if (files?.openBinary) {
+    const f = await pick(files, { mode: 'open', dialog: 'midi', title: 'Import MIDI', types: 'MIDI files (.mid, .midi)', exts: MIDI_OPEN_EXTS });
+    return f ? files.openBinary('midi', f.path) : null;
+  }
+  const read = async (file) => {
+    if (file.size > MAX_MIDI_BYTES) throw new Error('MIDI file is too large (maximum 32 MB)');
+    return { name: file.name, data: await file.arrayBuffer() };
+  };
+  if (typeof win.showOpenFilePicker === 'function') {
+    let handle;
+    try {
+      [handle] = await win.showOpenFilePicker({ id: 'midi', multiple: false, types: [{ description: 'MIDI file', accept: { 'audio/midi': MIDI_OPEN_EXTS } }] });
+    } catch (err) {
+      if (cancelled(err)) return null;
+      throw err;
+    }
+    return read(await handle.getFile());
+  }
+  return new Promise((resolve, reject) => {
+    const input = Object.assign(win.document.createElement('input'), { type: 'file', accept: MIDI_OPEN_EXTS.join(',') });
+    input.addEventListener('change', async () => {
+      const file = input.files[0];
+      if (!file) return resolve(null);
+      try { resolve(await read(file)); } catch (err) { reject(err); }
+    });
+    input.addEventListener('cancel', () => resolve(null));
+    input.click();
+  });
 }

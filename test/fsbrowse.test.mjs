@@ -28,6 +28,12 @@ try {
   assert.equal(r.crumbs.at(-1).path, root);
   assert.deepEqual((await listDir(root, [])).entries.map((e) => e.name), ['Songs'], 'no extensions: folders only');
   assert.deepEqual((await listDir(root, ['../x', 'txt', 42])).entries.map((e) => e.name), ['Songs'], 'invalid extensions are ignored');
+  await writeFile(join(root, 'song.MID'), 'midi');
+  await writeFile(join(root, 'song.midi'), 'midi');
+  assert.deepEqual((await listDir(root, ['.mid', '.midi'])).entries.map((e) => e.name).sort(), ['Songs', 'song.MID', 'song.midi']);
+  const midiCopy = await transferEntry(join(root, 'song.MID'), false, root);
+  assert.equal(await readFile(midiCopy, 'utf8'), 'midi');
+  await deleteEntry(midiCopy, false);
   await assert.rejects(listDir('relative/path', ['.phproject']), /Invalid path/);
   await assert.rejects(listDir(join(root, 'nope'), ['.phproject']), /ENOENT/);
 

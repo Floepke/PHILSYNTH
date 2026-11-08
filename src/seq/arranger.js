@@ -7,8 +7,8 @@
 //                              press closes the menu the first one opened)
 //   click a clip               select it (the piano roll shows it); when stopped the playhead jumps to its start
 //                              (the border of selected clips pulses white / grey at 50 BPM)
-//   drag on empty space        pan the view (like the patcher; middle-drag pans anywhere)
-//   Shift + drag on empty space  select clips with a rectangle (Ctrl/Cmd + drag adds to the selection)
+//   drag on empty space        select clips with a rectangle (Ctrl/Cmd + drag adds to the selection)
+//   Shift + drag on empty space  pan the view (like the patcher; middle-drag pans anywhere)
 //   Ctrl/Cmd + click a clip    add it to / remove it from the selection
 //   drag a clip                move it, or the whole selection (time snaps, vertical snaps to lanes)
 //   clips snap out of overlaps to the nearest free position; resizing stops at neighbours
@@ -53,7 +53,7 @@ import {
   createSurface, capture, startPan, onWheel, clamp, snapBands, rightHold, edgeScroll, MUTE_COLOR,
   SB, SB_TRACK, scrollThumb, scrollValue, paintThumb, roundRect,
 } from './surface.js';
-import { CLIP_H, findClipPosition, clipResizeBounds } from './clipplacement.js';
+import { CLIP_H, clipsOverlap, findClipPosition, clipResizeBounds } from './clipplacement.js';
 import { showMenu, shortcut } from './menu.js';
 
 const SIG_H = 16; // time signature row on top of the ruler
@@ -129,7 +129,7 @@ export function createArranger(host, ctx) {
     },
   });
   const { cv } = s;
-  cv.title = 'Wheel scrolls sideways, Shift + wheel scrolls the lanes; middle-drag or the scrollbars pan';
+  cv.title = 'Drag empty space to select; Shift + drag, middle-drag or scrollbars pan. Wheel scrolls sideways, Shift + wheel scrolls the lanes';
   const xOf = (t) => x0 + t * view.ppq - view.sx;
   const yOf = (y) => RULER + y - view.sy;
   const timeAt = (x) => (x - x0 + view.sx) / view.ppq;
@@ -886,12 +886,11 @@ export function createArranger(host, ctx) {
     if (x < x0) return;
     const additive = e.ctrlKey || e.metaKey;
     const h = hit(x, y);
-    if (!h) { // empty space: drag pans the view; Shift (or Ctrl/Cmd, adding) + drag: selection rectangle
-      if (e.shiftKey || additive) selectRect(e, x, y, additive);
-      else {
+    if (!h) {
+      if (e.shiftKey) {
         dragging = true;
         startPan(s, e, (dx, dy) => { view.sx -= dx; view.sy -= dy; limitScroll(); ctx.viewChanged?.(); s.redraw(); }, () => { dragging = false; });
-      }
+      } else selectRect(e, x, y, additive);
       return;
     }
     e.preventDefault();
@@ -1066,6 +1065,36 @@ export function createArranger(host, ctx) {
     setSelection(copies, copies[0]);
     ctx.changed();
   }
+  async function importMidi(p) {
+    const song = ctx.song();
+    const layerVersion = ctx.layerVersion?.();
+    const at = dropAt(p);
+    const result = await ctx.openMidi?.();
+    if (!result) return;
+    if (ctx.song() !== song || ctx.layerVersion?.() !== layerVersion) {
+      ctx.midiImportCancelled?.();
+      return;
+    }
+    const tracks = result.clips;
+    const copies = [];
+    if (at.y < 0) {
+      const firstY = Math.min(at.y, -tracks.length * CLIP_H);
+      for (let i = 0; i < tracks.length; i++) {
+        copies.push(duplicateClip(song, { ...tracks[i], start: at.start, y: firstY + i * CLIP_H }));
+      }
+    } else {
+      let y = at.y;
+      for (const track of tracks) {
+        const candidate = { ...track, start: at.start, y };
+        while (song.clips.some((c) => c.y >= 0 && clipsOverlap(candidate, c))) candidate.y += CLIP_H;
+        copies.push(duplicateClip(song, candidate));
+        y = candidate.y + CLIP_H;
+      }
+    }
+    setSelection(copies, copies[0]);
+    ctx.changed();
+    ctx.midiImported?.(result);
+  }
   // copies (or linked clones) of the selection, right after it on the same rows
   function repeat(linkedCopies) {
     const clips = selectedClips();
@@ -1128,6 +1157,7 @@ export function createArranger(host, ctx) {
         { label: 'Split at playhead', disabled: !splittable().length, action: split },
         '-',
         { label: clips.length > 1 ? 'Save Clips…' : 'Save Clip…', disabled: !ctx.saveClips, action: () => ctx.saveClips(clips) },
+        { label: 'Import MIDI…', disabled: !ctx.openMidi || !inTimeArea(p), action: () => importMidi(p) },
         '-',
         ...restartItems(),
         '-',
@@ -1139,6 +1169,7 @@ export function createArranger(host, ctx) {
         { label: 'Insert clip', action: () => insert(x, y, false) },
         { label: 'Insert automation clip', action: () => insert(x, y, true) },
         { label: 'Load Clip…', disabled: !ctx.openClips || !inTimeArea(p), action: () => loadClips(p) },
+        { label: 'Import MIDI…', disabled: !ctx.openMidi || !inTimeArea(p), action: () => importMidi(p) },
         '-',
         ...restartItems(),
         '-',

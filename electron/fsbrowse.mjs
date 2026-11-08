@@ -4,11 +4,11 @@
 import { constants } from 'node:fs';
 import { copyFile, cp, link, lstat, readlink, readdir, realpath, rename, rm, rmdir, stat, mkdir, symlink, unlink } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, parse, resolve, sep } from 'node:path';
-import { PROJECT_OPEN_EXTS, MODULE_OPEN_EXTS, CLIP_EXT, AUDIO_OPEN_EXTS, WAVETABLE_OPEN_EXTS, IMAGE_OPEN_EXTS } from '../src/fileformat.js';
+import { PROJECT_OPEN_EXTS, MODULE_OPEN_EXTS, CLIP_EXT, AUDIO_OPEN_EXTS, WAVETABLE_OPEN_EXTS, IMAGE_OPEN_EXTS, MIDI_OPEN_EXTS } from '../src/fileformat.js';
 
 const MAX_ENTRIES = 10000;
 const FILE_EXTS = new Set([...PROJECT_OPEN_EXTS, ...MODULE_OPEN_EXTS, CLIP_EXT,
-  ...AUDIO_OPEN_EXTS, ...WAVETABLE_OPEN_EXTS, ...IMAGE_OPEN_EXTS, '.scl', '.scala', '.txt']);
+  ...AUDIO_OPEN_EXTS, ...WAVETABLE_OPEN_EXTS, ...IMAGE_OPEN_EXTS, ...MIDI_OPEN_EXTS, '.scl', '.scala', '.txt']);
 
 // An absolute, normalized path from the page, or an error.
 export function checkPath(path) {

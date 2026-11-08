@@ -7,7 +7,7 @@ import { readFile, writeFile, rename, rm, stat } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import { notifyFolderChanged } from './kdirnotify.mjs';
 import { checkPath, cleanExts, deleteEntry, hasExt, listDir, makeDir, places, target, transferEntry } from './fsbrowse.mjs';
-import { PROJECT_EXT, PROJECT_OPEN_EXTS, CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS, AUDIO_OPEN_EXTS, WAVETABLE_OPEN_EXTS, IMAGE_OPEN_EXTS } from '../src/fileformat.js';
+import { PROJECT_EXT, PROJECT_OPEN_EXTS, CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS, AUDIO_OPEN_EXTS, WAVETABLE_OPEN_EXTS, IMAGE_OPEN_EXTS, MIDI_OPEN_EXTS, MAX_MIDI_BYTES } from '../src/fileformat.js';
 
 const bare = (ext) => ext.replace(/^\./, '');
 const PROJECT = bare(PROJECT_EXT);
@@ -24,12 +24,13 @@ export const MEDIA_KINDS = {
   sample: { open: AUDIO_OPEN_EXTS, max: 512 * 1024 * 1024 },
   wavetable: { open: WAVETABLE_OPEN_EXTS, max: 256 * 1024 * 1024 },
   image: { open: IMAGE_OPEN_EXTS, max: 64 * 1024 * 1024 },
+  midi: { open: MIDI_OPEN_EXTS, max: MAX_MIDI_BYTES },
 };
 const MAX_PATHS = 100;
 const MAX_BYTES = 512 * 1024 * 1024;
 const MAX_AUDIO = 2 * 1024 * 1024 * 1024;
 // remembered start folder per dialog
-const DIALOG_KINDS = new Set(['project-open', 'project-save', 'clip', 'module', 'scala', 'audio', 'sample', 'wavetable', 'image']);
+const DIALOG_KINDS = new Set(['project-open', 'project-save', 'clip', 'module', 'scala', 'audio', 'sample', 'wavetable', 'image', 'midi']);
 // extensions a save dialog may add / check (fs:target)
 const SAVE_EXTS = new Set([PROJECT_EXT, CLIP_EXT, MODULE_EXT, '.wav']);
 

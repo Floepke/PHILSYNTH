@@ -19,6 +19,7 @@ await mkdir(files);
 await mkdir(join(files, 'Folder'));
 await writeFile(join(files, 'Folder', '.hidden'), 'hidden');
 await writeFile(join(files, 'one.phproject'), 'original');
+await writeFile(join(files, 'song.MIDI'), Buffer.from([0, 128, 255]));
 app.setPath('userData', data);
 app.setPath('documents', files);
 
@@ -29,8 +30,10 @@ try {
   const index = (await readFile(join(root, 'index.html'), 'utf8'))
     .replace('<script type="module" src="src/main.js"></script>', `<script type="module">
       import { pickFile } from '/src/filepicker.js';
+      import { openMidiFile } from '/src/filedialog.js';
       window.openPicker = mode => { window.pickResult = pickFile(window.modsynthFiles,
         { mode, dialog: 'project-open', exts: ['.phproject'], saveExt: '.phproject' }); };
+      window.openMidi = () => { window.midiResult = openMidiFile(); };
     </script>`);
   server = http.createServer(async (req, res) => {
     try {
@@ -166,6 +169,15 @@ try {
   assert.equal(await run(`window.modsynthFiles.save(${JSON.stringify(join(files, 'one.phproject'))}, 'recreated')`), null, 'saving a deleted project asks for a new file');
   assert.equal(await readFile(join(files, 'one.phproject'), 'utf8').catch(() => null), null);
   await run("document.querySelector('#fd-cancel').click(); window.pickResult");
+  await run('window.openMidi(); true');
+  await wait(() => visible('song.MIDI'));
+  await run(`(() => {
+    const row = [...document.querySelectorAll('.fd-row')].find(el => el.querySelector('.fd-file')?.textContent === 'song.MIDI');
+    row.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  })()`);
+  assert.deepEqual(await run('window.midiResult.then(f => ({ name: f.name, bytes: Array.from(f.data) }))'),
+    { name: 'song.MIDI', bytes: [0, 128, 255] });
+  assert.equal((await run("window.modsynthFiles.start('midi')")).dir, files, 'MIDI picker remembers its folder');
   console.log('file picker UI tests passed');
 } finally {
   win?.destroy();

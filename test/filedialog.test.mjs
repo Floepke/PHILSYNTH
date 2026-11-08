@@ -1,8 +1,43 @@
 import assert from 'node:assert/strict';
-import { saveTextFile, openTextFile, openMediaFile, hasMediaDialog } from '../src/filedialog.js';
+import { saveTextFile, openTextFile, openMediaFile, openMidiFile, hasMediaDialog } from '../src/filedialog.js';
 import { fsaBackend } from '../src/projectfile.js';
 
 const abort = () => Object.assign(new Error('cancelled'), { name: 'AbortError' });
+
+{
+  const bytes = new Uint8Array([0, 128, 255]);
+  const file = { name: 'song.mid', size: bytes.length, arrayBuffer: async () => bytes.buffer };
+  let opts;
+  const win = { showOpenFilePicker: async (o) => { opts = o; return [{ getFile: async () => file }]; } };
+  assert.deepEqual(await openMidiFile(win), { name: file.name, data: bytes.buffer });
+  assert.equal(opts.id, 'midi');
+  assert.deepEqual(opts.types[0].accept['audio/midi'], ['.mid', '.midi']);
+  win.showOpenFilePicker = async () => { throw abort(); };
+  assert.equal(await openMidiFile(win), null);
+  win.showOpenFilePicker = async () => [{ getFile: async () => ({ ...file, size: 33 * 1024 * 1024 }) }];
+  await assert.rejects(openMidiFile(win), /too large/);
+  win.showOpenFilePicker = async () => { throw new Error('denied'); };
+  await assert.rejects(openMidiFile(win), /denied/);
+
+  const desktop = { modsynthFiles: { openBinary: async (kind, path) => ({ kind, path, data: bytes }) } };
+  assert.deepEqual(await openMidiFile(desktop, async (_files, o) => {
+    assert.equal(o.dialog, 'midi');
+    assert.deepEqual(o.exts, ['.mid', '.midi']);
+    return { path: '/music/song.mid' };
+  }), { kind: 'midi', path: '/music/song.mid', data: bytes });
+  assert.equal(await openMidiFile(desktop, async () => null), null);
+
+  let input;
+  const fallback = { document: { createElement: () => (input = Object.assign(new EventTarget(), {
+    files: [file], click() { queueMicrotask(() => this.dispatchEvent(new Event('change'))); },
+  })) } };
+  assert.deepEqual(await openMidiFile(fallback), { name: file.name, data: bytes.buffer });
+  assert.equal(input.accept, '.mid,.midi');
+  fallback.document.createElement = () => Object.assign(new EventTarget(), {
+    click() { queueMicrotask(() => this.dispatchEvent(new Event('cancel'))); },
+  });
+  assert.equal(await openMidiFile(fallback), null);
+}
 
 // Chromium: each kind of file has its own picker id, so the browser reopens the folder last used for it.
 {

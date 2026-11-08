@@ -535,7 +535,7 @@ for (const reverse of [false, true]) {
   const other = addClip(song, { start: 8, length: 4, y: 34, target: 7 });
   click(cv, ax(20), ay(200));
   assert.equal(song.selected, clip.id, 'empty click');
-  drag(cv, ax(20), ay(200), ax(24), ay(240), { shiftKey: true });
+  drag(cv, ax(20), ay(200), ax(24), ay(240));
   assert.equal(song.selected, clip.id, 'empty rectangle');
   click(cv, ax(1), ay(0), { ctrlKey: true });
   assert.equal(song.selected, clip.id, 'Ctrl/Cmd + click cannot deselect the last clip');
@@ -1003,10 +1003,10 @@ for (const how of ['wheel', 'edge']) {
       const cv = arranger.surface.cv;
       clip.length = 4;
       const far = addClip(song, { start: 60, length: 4 });
-      point(cv, 'pointerdown', ax(5), ay(60), { buttons: 1, shiftKey: true });
-      point(cv, 'pointermove', 478, ay(0), { buttons: 1, shiftKey: true });
+      point(cv, 'pointerdown', ax(5), ay(60), { buttons: 1 });
+      point(cv, 'pointermove', 478, ay(0), { buttons: 1 });
       mock.timers.tick(2000); flush();
-      point(cv, 'pointerup', 478, ay(0), { shiftKey: true });
+      point(cv, 'pointerup', 478, ay(0));
       assert.ok(arranger.getView().sx > 500, 'the rectangle scrolled the TimeLine');
       key(cv, 'Delete');
       assert.deepEqual(song.clips, [clip], 'the far clip was selected by the scrolled rectangle');
@@ -1557,8 +1557,8 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   drag(cv, 200, 150, 200, 5000, { button: 1 });
   checkLimit('middle drag');
   arranger.setView({ sy: 0 }); flush();
-  drag(cv, 200, 150, 200, 5000);
-  checkLimit('empty-space drag');
+  drag(cv, 200, 150, 200, 5000, { shiftKey: true });
+  checkLimit('Shift + empty-space drag');
   arranger.setView({ sy: 0 }); flush();
   click(cv, 464, 40);
   checkLimit('scrollbar');
@@ -1574,11 +1574,11 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   arranger.setView({ sy: 0 }); flush();
   mock.timers.enable({ apis: ['setInterval'] });
   try {
-    point(cv, 'pointerdown', 200, 150, { buttons: 1, shiftKey: true });
-    point(cv, 'pointermove', 200, 0, { buttons: 1, shiftKey: true });
+    point(cv, 'pointerdown', 200, 150, { buttons: 1 });
+    point(cv, 'pointermove', 200, 0, { buttons: 1 });
     mock.timers.tick(5000); flush();
     checkLimit('selection auto-scroll');
-    point(cv, 'pointerup', 200, 0, { shiftKey: true });
+    point(cv, 'pointerup', 200, 0);
   } finally {
     mock.timers.reset();
   }
@@ -1934,6 +1934,69 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assertNoOverlap(song);
 }
 
+// MIDI tracks import together without overlapping occupied lanes.
+{
+  const { song, clip, arranger, ctx, menus, changes } = setup();
+  const cv = arranger.surface.cv;
+  clip.length = 16;
+  addClip(song, { start: 4, y: 34, length: 8 });
+  let version = 0;
+  let completed = null;
+  let cancelled = 0;
+  ctx.layerVersion = () => version;
+  ctx.midiImported = (result) => { completed = result; };
+  ctx.midiImportCancelled = () => { cancelled++; };
+  const tracks = [
+    { name: 'one', start: 0, y: 0, length: 4, target: null, notes: [note(60, 0.5)] },
+    { name: 'two', start: 0, y: 34, length: 8, target: null, notes: [] },
+  ];
+  ctx.openMidi = async () => ({ clips: tracks, name: 'test.mid', warnings: 0 });
+  holdRightClick(cv, ax(5), ay(0));
+  assert.ok(labels(menus).includes('Import MIDI…'), 'import is available on clips');
+  const before = changes();
+  pick(menus, 'Import MIDI…');
+  await new Promise((r) => setImmediate(r));
+  const imported = song.clips.slice(2);
+  assert.deepEqual(imported.map((c) => [c.start, c.y, c.target]), [[5, 68, null], [5, 102, null]]);
+  assert.deepEqual(imported[0].notes, tracks[0].notes);
+  assert.equal(changes(), before + 1, 'one edit for all tracks');
+  assert.equal(completed.name, 'test.mid');
+  assertNoOverlap(song);
+
+  let resolve;
+  ctx.openMidi = () => new Promise((r) => { resolve = r; });
+  holdRightClick(cv, ax(20), ay(0));
+  pick(menus, 'Import MIDI…');
+  version++;
+  resolve({ clips: tracks });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(song.clips.length, 4, 'layer changes cancel in-flight import');
+  assert.equal(cancelled, 1);
+  ctx.openMidi = async () => null;
+  holdRightClick(cv, ax(18), ay(0));
+  pick(menus, 'Import MIDI…');
+  await new Promise((r) => setImmediate(r));
+  assert.equal(song.clips.length, 4, 'cancelling does not change song');
+}
+
+{
+  const { song, arranger, ctx, menus } = setup();
+  arranger.setView({ sx: 0, sy: -136, ppq: 16 });
+  flush();
+  ctx.openMidi = async () => ({ clips: [
+    { name: 'one', length: 1, notes: [], target: null },
+    { name: 'two', length: 1, notes: [], target: null },
+    { name: 'three', length: 1, notes: [], target: null },
+  ] });
+  holdRightClick(arranger.surface.cv, ax(20) + 3, 80);
+  pick(menus, 'Import MIDI…');
+  await new Promise((r) => setImmediate(r));
+  const clips = song.clips.slice(1);
+  assert.deepEqual(clips.map((c) => c.start), [20.1875, 20.1875, 20.1875]);
+  assert.ok(clips.every((c) => c.y <= -34), 'all imported tracks remain in idea storage');
+  assert.deepEqual(clips.map((c) => c.y), [-111, -77, -43]);
+}
+
 // Clipboard placement follows the current triplet grid and scrolled arranger coordinates.
 {
   const { song, clip, roll, arranger, ctx } = setup();
@@ -2052,20 +2115,24 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(blocker.y, 0);
 }
 
-// TimeLine: Shift + drag on empty space draws a selection rectangle; a plain drag there pans the
-// view (like the patcher) and keeps the selection; group move, delete.
+// TimeLine: Shift + drag on empty space pans; a plain drag selects clips for group move and delete.
 {
-  const { song, clip, arranger } = setup();
+  const { song, clip, arranger, ctx, changes } = setup();
   const cv = arranger.surface.cv;
   clip.length = 4;
   const b = addClip(song, { start: 6, length: 4 });
   const c = addClip(song, { start: 20, length: 4 });
   const view = { ...arranger.getView() };
-  drag(cv, ax(0.5), ay(60), ax(7), ay(0));
-  assert.deepEqual([arranger.getView().sx, arranger.getView().sy], [view.sx - (ax(7) - ax(0.5)), view.sy + 60], 'a plain drag pans');
-  assert.equal(song.selected, clip.id, 'and keeps the selection');
-  arranger.setView({ sx: view.sx, sy: view.sy }); flush();
+  let viewChanges = 0;
+  ctx.viewChanged = () => viewChanges++;
   drag(cv, ax(0.5), ay(60), ax(7), ay(0), { shiftKey: true });
+  assert.deepEqual([arranger.getView().sx, arranger.getView().sy], [view.sx - (ax(7) - ax(0.5)), view.sy + 60], 'Shift + drag pans');
+  assert.equal(song.selected, clip.id, 'and keeps the selection');
+  assert.ok(viewChanges > 0, 'panning saves the view');
+  assert.equal(changes(), 0, 'panning does not edit the song');
+  arranger.setView({ sx: view.sx, sy: view.sy }); flush();
+  drag(cv, ax(0.5), ay(60), ax(7), ay(0));
+  assert.deepEqual([arranger.getView().sx, arranger.getView().sy], [view.sx, view.sy], 'plain selection drag does not pan');
   point(cv, 'pointerdown', ax(1), ay(0), { buttons: 1 });
   point(cv, 'pointermove', ax(3), ay(0), { buttons: 1 });
   point(cv, 'pointerup', ax(3), ay(0));
@@ -2073,6 +2140,20 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assertNoOverlap(song);
   key(cv, 'Delete');
   assert.deepEqual(song.clips, [c]);
+}
+
+// Ctrl/Cmd + empty-space drag adds clips; cancelling a plain rectangle restores the selection.
+for (const modifier of ['ctrlKey', 'metaKey']) {
+  for (const cancelled of [false, true]) {
+    const { song, clip, arranger } = setup();
+    const cv = arranger.surface.cv;
+    clip.length = 4;
+    const b = addClip(song, { start: 6, length: 4 });
+    const c = addClip(song, { start: 20, length: 4 });
+    drag(cv, ax(5), ay(60), ax(11), ay(0), cancelled ? {} : { [modifier]: true }, cancelled ? 'pointercancel' : 'pointerup');
+    key(cv, 'Delete');
+    assert.deepEqual(song.clips, cancelled ? [b, c] : [c], cancelled ? 'cancel restores selection' : 'modifier adds to selection');
+  }
 }
 
 // Ctrl/Cmd + click toggles; Alt + drag copies keep the name (no " copy" suffix).

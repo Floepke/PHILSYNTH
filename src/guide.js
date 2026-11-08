@@ -154,14 +154,14 @@ export const GUIDE = [
       {
         title: 'Arrange clips',
         items: [
-          `Click a clip to select it (when stopped the playhead jumps to its start). Double-click a clip to focus its editor and maximize the piano roll area by moving both dividers to the bottom; drag the dividers back to show the other panes. Drag on empty space to pan the view (like the patcher); ${k('Shift')} + drag there or the mouse <b>Forward</b> button + drag draws a selection rectangle (${k(CMD)} + drag adds). Forward-drag can also start over a clip. ${k(CMD)} + click toggles a clip. One clip always stays selected (a new project starts with one empty bar, selected), so the piano roll always shows a clip.`,
+          `Click a clip to select it (when stopped the playhead jumps to its start). Double-click a clip to focus its editor and maximize the piano roll area by moving both dividers to the bottom; drag the dividers back to show the other panes. Drag on empty space or use the mouse <b>Forward</b> button + drag to draw a selection rectangle (${k(CMD)} + drag adds); ${k('Shift')} + drag on empty space pans the view (like the patcher). Forward-drag can also start over a clip. ${k(CMD)} + click toggles a clip. One clip always stays selected (a new project starts with one empty bar, selected), so the piano roll always shows a clip.`,
           'Drag a clip (or the selection) to move it in time and up / down over the lanes; drag its left / right edge to trim the start / set the length. Every drag (clips, the selection rectangle, the restart marker, scrubbing, the M / S buttons) scrolls the TimeLine along near / past an edge of the view.',
           'A new clip (double-click empty TimeLine space or <b>Insert clip</b>) plays the module selected in the patcher. When none is selected, or the selected one takes no notes (Filter, Output…), it plays the last selected module of this patch level that does.',
           'Clips never overlap: a moved, pasted or new clip snaps to the nearest free position, and resizing stops at neighbours. Use separate lanes for clips that play together.',
           `${k('Alt')} + drag copies; ${k('Shift')} + drag makes <i>linked clones</i> (hatched, ⧉) that share their notes: editing one edits all. ${k(CMD, 'D')} clones the selection right after itself, ${k(CMD, 'Shift', 'D')} duplicates it.`,
           'Park clips left of the bright zero line: they are not played by the song (<kbd>/</kbd> still auditions them), handy for source clips whose clones make up the song.',
           '<b>Idea storage</b>: scroll up above lane 1. Clips there sit wherever you drop them (no grid, no lanes, overlaps allowed) and are never played by the song; <kbd>/</kbd> loops an idea solo, without the lane clips around it. Drag an idea onto a lane to play it; it snaps like any clip.',
-          'Pan the TimeLine with the wheel (sideways), Shift + wheel (lanes), dragging empty space, middle-drag or the scrollbars below and right of it. Upward scrolling stops when the idea-storage message reaches the bottom of the view; the scrollbars bring you back to your clips.',
+          'Pan the TimeLine with the wheel (sideways), Shift + wheel (lanes), Shift + drag on empty space, middle-drag or the scrollbars below and right of it. Upward scrolling stops when the idea-storage message reaches the bottom of the view; the scrollbars bring you back to your clips.',
           'The <b>M</b> / <b>S</b> buttons left of a lane number mute / solo it; drag over a column of buttons to switch many lanes. Mute wins over solo; a silenced clip shows a big M in its editor.',
         ],
       },
@@ -170,6 +170,8 @@ export const GUIDE = [
         items: [
           '<b>Right-click</b> a clip: cut, copy, paste, delete, duplicate, clone, detach (a clone becomes standalone), go to source, <i>Consolidate</i> (selected clips on one lane become one clip), <i>Split at playhead</i> and <i>Save Clip…</i> (a <b>.clip</b> file).',
           '<b>Right-click</b> empty space: paste, insert a clip, or <i>Load Clip…</i> to place the clips of a .clip file there.',
+          '<i>Import MIDI…</i> imports a Standard MIDI File (.mid or .midi, formats 0, 1 or 2) as one unassigned note clip per track, including empty tracks. Assign a <i>Send to</i> module to hear each clip. Tracks start together at the clicked time; occupied lanes are skipped. Imports into idea storage stay there and do not play unless looped.',
+          'MIDI notes, velocities and track names are imported. MIDI channels are combined within each track; controllers, programs, pitch bends and other events are not imported. The project tempo and time signatures are unchanged. PPQN timing uses MIDI beats; SMPTE timing uses MIDI tempo events (120 BPM before the first tempo). Unmatched note-offs are ignored; unfinished or zero-length notes are repaired and reported in the status bar.',
           'File dialogs remember their folder per kind (projects opened, projects saved, clips, modules).',
         ],
       },
@@ -202,8 +204,8 @@ export const GUIDE = [
       [`${k('Backspace')} ${k('Delete')}`, 'delete the selected clips (the nearest clip gets selected)'],
       [`${k('Space')} ${k('.')} ${k(',')} ${k('/')} ${k("'")}`, 'play/stop, song, restart, loop clip, stop/panic'],
       [`wheel / ${k('Shift')} + wheel`, 'scroll time / scroll lanes'],
-      [`${k(CMD)} + wheel, drag empty space / ${k('Middle mouse')} drag`, 'zoom, pan'],
-      [`${k('Shift')} + drag empty space`, 'selection rectangle'],
+      [`${k(CMD)} + wheel, ${k('Shift')} + drag empty space / ${k('Middle mouse')} drag`, 'zoom, pan'],
+      ['drag empty space', 'selection rectangle'],
     ],
   },
   {

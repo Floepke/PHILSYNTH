@@ -4,7 +4,8 @@
 import { newNoteId } from '../modmidi.js';
 import { heldPitches, onHeldChange } from '../midi.js';
 import { getClip, isAuto, SNAP_BASES, SNAP_NAMES, snapStep, formatPos, DEFAULT_VEL, meter, segAt, setSig, removeSig, linkedClips, normalizeSong, clipFileText, parseClipFile } from '../song.js';
-import { saveTextFile, openTextFile } from '../filedialog.js';
+import { saveTextFile, openTextFile, openMidiFile } from '../filedialog.js';
+import { parseMidiFile } from '../midiimport.js';
 import { sigDialog } from '../dialogs.js';
 import { createPianoRoll } from './pianoroll.js';
 import { createArranger } from './arranger.js';
@@ -36,6 +37,7 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
   };
   const song = () => getSong?.() ?? engine.song;
   const patch = () => getPatch?.() ?? engine.root;
+  let layerVersion = 0;
   const clip = () => getClip(song(), song().selected);
   const entryOf = (id) => (id === null ? null : patch().modules.get(id) ?? null);
   // the module's name in the patcher: its custom name, else the default for its type
@@ -43,6 +45,7 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
 
   const ctx = {
     song,
+    layerVersion: () => layerVersion,
     clip,
     transport,
     color: (c) => colorOf(entryOf(c.target)) ?? NO_COLOR,
@@ -141,6 +144,24 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
         $('status').textContent = `Loading ${file?.name ?? 'the clip'} failed: ${err.message}`;
         return null;
       }
+    },
+    async openMidi() {
+      let file;
+      try {
+        file = await openMidiFile();
+        if (!file) return null;
+        return { ...parseMidiFile(file.data, file.name), name: file.name };
+      } catch (err) {
+        $('status').textContent = `MIDI import failed${file ? ` (${file.name})` : ''}: ${err.message}`;
+        return null;
+      }
+    },
+    midiImported(result) {
+      const warning = result.warnings ? ` ${result.warnings} unmatched or zero-length note event(s) repaired or ignored.` : '';
+      $('status').textContent = `Imported ${result.clips.length} MIDI track(s) from ${result.name}.${warning}`;
+    },
+    midiImportCancelled() {
+      $('status').textContent = 'MIDI import cancelled because the project or layer changed.';
     },
     preview: {
       on(c, pitch) {
@@ -513,6 +534,7 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
   return {
     // after a project was loaded
     reload() {
+      layerVersion++;
       transport.stop();
       transport.seek(0);
       watchLayer();
@@ -520,6 +542,7 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
     },
     // the shown layer changed (entered / left a Patch): show its TimeLine
     setLayer() {
+      layerVersion++;
       watchLayer();
       sync();
     },
