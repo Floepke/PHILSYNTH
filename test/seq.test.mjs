@@ -186,6 +186,16 @@ const ay = (y) => 2 * CLIP_H + y + CLIP_H / 2;
   const movements = [];
   const releases = [];
   rulerDrag(cv, { pointerId: 1, clientX: 100, clientY: 150 }, (x, y) => movements.push([x, y]), e => releases.push(e.type));
+  assert.equal(doc.pointerLockElement, null, 'web browsers never request pointer lock even when supported');
+  cv.dispatchEvent(Object.assign(new Event('pointermove'), { pointerId: 1, clientX: 120, clientY: 140 }));
+  assert.deepEqual(movements, [[20, -10]], 'web dragging applies both axes using cursor coordinates');
+  cv.dispatchEvent(Object.assign(new Event('pointerup'), { pointerId: 1 }));
+  assert.deepEqual(releases, ['pointerup'], 'web dragging finishes normally');
+  assert.equal(exits, 0, 'web dragging does not lock or unlock the cursor');
+  movements.length = releases.length = 0;
+  const originalFiles = window.modsynthFiles;
+  window.modsynthFiles = {};
+  rulerDrag(cv, { pointerId: 1, clientX: 100, clientY: 150 }, (x, y) => movements.push([x, y]), e => releases.push(e.type));
   doc.dispatchEvent(Object.assign(new Event('mousemove'), { movementX: -518, movementY: -249 }));
   assert.deepEqual(movements, [], 'Firefox pointer-lock recentering does not jump the view');
   for (const [movementX, movementY] of [[20, -10], [-5, 4]]) {
@@ -198,6 +208,8 @@ const ay = (y) => 2 * CLIP_H + y + CLIP_H / 2;
   doc.dispatchEvent(Object.assign(new Event('mousemove'), { movementX: 50, movementY: 50 }));
   assert.equal(movements.length, 2, 'release removes drag listeners');
   await Promise.resolve();
+  if (originalFiles === undefined) delete window.modsynthFiles;
+  else window.modsynthFiles = originalFiles;
   globalThis.document = originalDocument;
 }
 

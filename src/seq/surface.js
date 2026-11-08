@@ -54,8 +54,11 @@ export function capture(cv, e, onMove, onUp) {
   return up;
 }
 
-// Relative ruler drag: pointer lock restores the cursor to its press position on release.
+// Electron locks the cursor; browsers use ordinary pointer-captured dragging.
 export function rulerDrag(cv, e, onMove, onUp) {
+  if (!window.modsynthFiles) {
+    return capture(cv, e, ev => onMove(ev.clientX - e.clientX, ev.clientY - e.clientY), onUp);
+  }
   let ended = false;
   let locked = false;
   let firstLockedMove = true;
