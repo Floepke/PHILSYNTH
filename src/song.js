@@ -554,44 +554,35 @@ export function trimClipStart(clip, newStart, original = clip) {
   clip.points?.forEach((p, i) => (p.t = clean(original.points[i].t - delta)));
 }
 
-// Clips that can be consolidated: two or more of one kind on one lane, with no other clip of that
-// lane inside their span.
+// Consolidation combines MIDI clips only, regardless of lane or destination.
 export function canConsolidate(song, clips) {
-  if (clips.length < 2 || clips.some((c) => isIdea(c) || c.y !== clips[0].y || isAuto(c) !== isAuto(clips[0]))) return false;
-  const start = Math.min(...clips.map((c) => c.start));
-  const end = Math.max(...clips.map((c) => c.start + c.length));
-  return !song.clips.some((c) => !clips.includes(c) && c.y === clips[0].y && c.start < end - 1e-9 && start < c.start + c.length - 1e-9);
+  return clips.length >= 2 && clips.every((c) => song.clips.includes(c) && !isAuto(c));
 }
 
-// Replace clips (see canConsolidate) by one standalone clip spanning them. It keeps what played:
-// the notes inside each clip (cut at its end), the automation curves (with points at each clip's
-// edges). Name, module and controller come from the first clip in time. Returns the new clip.
+// Keep note times and clip-end trimming; name, destination and preferred lane come from
+// the first selected clip. A blocked lane moves downward, never shifting the notes in time.
 export function consolidateClips(song, clips) {
   if (!canConsolidate(song, clips)) return null;
   const order = [...clips].sort((a, b) => a.start - b.start || a.id - b.id);
   const start = order[0].start;
   const end = Math.max(...order.map((c) => c.start + c.length));
-  const merged = duplicateClip(song, order[0]);
+  const merged = duplicateClip(song, clips[0]);
   merged.start = start;
   merged.length = clean(end - start);
   merged.notes = [];
-  if (merged.points) merged.points = [];
   for (const c of order) {
     const dt = c.start - start;
     for (const n of c.notes) {
       if (n.start < -1e-9 || n.start >= c.length - 1e-9) continue; // not played
       merged.notes.push({ ...structuredClone(n), start: clean(n.start + dt), length: clean(Math.min(n.length, c.length - n.start)) });
     }
-    const poly = isAuto(c) ? autoPolyline(c) : null;
-    if (poly) {
-      merged.points.push(
-        { t: clean(dt), v: autoValue(c, 0, poly), r: 0 },
-        ...c.points.filter((p) => p.t > 1e-9 && p.t < c.length - 1e-9).map((p) => ({ ...p, t: clean(p.t + dt) })),
-        { t: clean(dt + c.length), v: autoValue(c, c.length, poly), r: 0 },
-      );
-    }
   }
   for (const c of order) removeClip(song, c.id);
+  if (!isIdea(merged)) {
+    while (song.clips.some((c) => c !== merged && !isIdea(c) &&
+      c.y < merged.y + LANE_H && merged.y < c.y + LANE_H &&
+      c.start < end - 1e-9 && start < c.start + c.length - 1e-9)) merged.y += LANE_H;
+  }
   return merged;
 }
 

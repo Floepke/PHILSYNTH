@@ -1989,7 +1989,48 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   }
 }
 
-// Context menu: Consolidate the selected clips of one lane, Split at the playhead; the signature
+// A selection rectangle consolidates MIDI clips across lanes, but not automation.
+{
+  const { song, clip, arranger, menus, ctx } = setup();
+  clip.length = 4;
+  clip.target = 12;
+  clip.notes.push(note(60, 1));
+  const lower = addClip(song, { start: 6, length: 2, y: 34, target: 9 });
+  lower.notes.push(note(64, 0.5));
+  const auto = addAutoClip(song, { start: 0, length: 2, y: 68 });
+  const secondAuto = addAutoClip(song, { start: 6, length: 2, y: 68 });
+  const cv = arranger.surface.cv;
+  drag(cv, ax(9), ay(68) + 14, ax(0) + 2, ay(68) - 14);
+  holdRightClick(cv, ax(1), ay(68));
+  assert.ok(menus.at(-1).items.find(i => i.label === 'Consolidate').disabled, 'automation-only rectangle is disabled');
+  drag(cv, ax(9), ay(68) + 14, ax(0) + 2, 39);
+  holdRightClick(cv, ax(1), ay(0));
+  assert.ok(menus.at(-1).items.find(i => i.label === 'Consolidate').disabled, 'mixed rectangle is disabled');
+  drag(cv, ax(9), ay(34) + 14, ax(0) + 2, 39);
+  holdRightClick(cv, ax(1), ay(0));
+  pick(menus, 'Consolidate');
+  const merged = ctx.clip();
+  assert.equal(merged.target, 12);
+  assert.deepEqual(merged.notes.map(n => [n.pitch, n.start]), [[60, 1], [64, 6.5]]);
+  assert.ok(song.clips.includes(auto) && song.clips.includes(secondAuto));
+}
+
+// Individual selection order, not creation or time order, supplies the destination.
+{
+  const { song, clip, arranger, menus, ctx } = setup();
+  clip.length = 4;
+  clip.target = 12;
+  const first = addClip(song, { start: 6, length: 2, y: 34, target: 9 });
+  const cv = arranger.surface.cv;
+  click(cv, ax(7), ay(34));
+  click(cv, ax(1), ay(0), { ctrlKey: true });
+  holdRightClick(cv, ax(1), ay(0));
+  pick(menus, 'Consolidate');
+  assert.equal(ctx.clip().target, first.target, 'first selected destination wins even after right-clicking another selected clip');
+  assert.equal(ctx.clip().y, 34);
+}
+
+// Context menu: Consolidate selected MIDI clips across lanes, Split at the playhead; the signature
 // row sets / scrubs the play position.
 {
   const { song, clip, arranger, ctx, menus, changes } = setup();
@@ -2004,7 +2045,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   click(cv, ax(7), ay(0), { ctrlKey: true });
   click(cv, ax(1), ay(34), { ctrlKey: true });
   holdRightClick(cv, ax(7), ay(0));
-  assert.ok(menus.at(-1).items.find((i) => i.label === 'Consolidate').disabled, 'clips on different lanes');
+  assert.ok(!menus.at(-1).items.find((i) => i.label === 'Consolidate').disabled, 'MIDI clips on different lanes are enabled');
   click(cv, ax(1), ay(34), { ctrlKey: true }); // drop the lower clip again
   holdRightClick(cv, ax(7), ay(0));
   const c0 = changes();

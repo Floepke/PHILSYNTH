@@ -23,7 +23,7 @@
 //   Shift + drag               linked clone: shares the notes with the source (see song.js); clones
 //                              are hatched, a selected clone shows a dashed arrow to its source
 //   right-click                menu: cut / copy / paste / delete / duplicate / clone / detach / go to source /
-//                              consolidate (selected clips on one lane -> one clip) / split at the playhead
+//                              consolidate (selected MIDI clips -> one clip) / split at the playhead
 //                              / save clip (.clip file); on empty space: paste / insert / load clip
 //   Backspace / Delete         delete the selected clips
 //   Ctrl/Cmd + X / C / V       cut / copy / paste clips at the snapped pointer position
@@ -1133,7 +1133,10 @@ export function createArranger(host, ctx) {
     if (n) ctx.changed();
   }
   function consolidate() {
-    const merged = consolidateClips(ctx.song(), selectedClips());
+    syncSel();
+    const song = ctx.song();
+    const clips = [...sel].map((id) => getClip(song, id)).filter(Boolean);
+    const merged = consolidateClips(song, clips);
     if (!merged) return;
     setSelection([merged], merged);
     ctx.changed();

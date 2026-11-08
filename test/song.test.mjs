@@ -453,13 +453,13 @@ console.log('song tests passed');
   const other = addClip(song, { start: 2, length: 4, y: LANE_H, target: 1 });
   const auto = addAutoClip(song, { start: 0, length: 2, y: 2 * LANE_H });
   assert.equal(canConsolidate(song, [a]), false, 'one clip');
-  assert.equal(canConsolidate(song, [a, other]), false, 'different lanes');
-  assert.equal(canConsolidate(song, [a, clone]), false, 'b sits between them');
+  assert.equal(canConsolidate(song, [a, other]), true, 'different lanes');
+  assert.equal(canConsolidate(song, [a, clone]), true, 'unselected clips do not disable consolidation');
   assert.equal(canConsolidate(song, [a, auto]), false);
   const before = played(song);
   const m = consolidateClips(song, [clone, a, b]);
   assert.deepEqual(played(song), before, 'same notes, same times, cut where the clips ended');
-  assert.deepEqual([m.start, m.length, m.target, m.name, m.link], [0, 10, 3, a.name, undefined], 'module and name of the first clip');
+  assert.deepEqual([m.start, m.length, m.target, m.name, m.link], [0, 10, 9, clone.name, undefined], 'module and name of the first selected clip');
   assert.equal(song.clips.length, 3);
   assert.ok(!song.clips.includes(a) && !song.clips.includes(b) && !song.clips.includes(clone));
   assert.equal(m.notes.find((n) => n.pitch === 60).length, 4, 'cut at the old clip end');
@@ -472,7 +472,7 @@ console.log('song tests passed');
   assert.equal(splitClip(song, m, 0), null);
   assert.equal(splitClip(song, m, 10), null);
   const r = splitClip(song, m, 7.5);
-  assert.deepEqual([m.start, m.length, r.start, r.length, r.target, r.y], [0, 7.5, 7.5, 2.5, 3, m.y]);
+  assert.deepEqual([m.start, m.length, r.start, r.length, r.target, r.y], [0, 7.5, 7.5, 2.5, 9, m.y]);
   assert.deepEqual(played(song).filter((x) => !x.startsWith('64@7')), before2.filter((x) => !x.startsWith('64@7')));
   assert.ok(played(song).includes('64@7-7.5v0.1'), 'a note across the cut ends there');
   assert.ok(r.notes.every((n) => n.start >= 0) && m.notes.every((n) => n.start < 7.5));
@@ -485,7 +485,7 @@ console.log('song tests passed');
   assert.equal(src.length, 4);
   assert.equal(src.notes.length, 1);
   assert.equal(tr.notes[0].start, 1);
-  // automation: the curve plays the same after consolidating and splitting
+  // Automation cannot consolidate; splitting still preserves its curve.
   const s2 = emptySong();
   const p = addAutoClip(s2, { start: 0, length: 2, target: 4, controller: 2 });
   p.points = [{ t: -1, v: 0, r: 0 }, { t: 1, v: 1, r: 0 }];
@@ -494,12 +494,29 @@ console.log('song tests passed');
   const values = (sg, ts) => ts.map((t) => automationAt(sg, t)[0]?.value ?? null);
   const ts = [0, 0.5, 1, 1.5, 1.99, 3, 3.5, 4.5, 4.99];
   const v0 = values(s2, ts);
-  const am = consolidateClips(s2, [p, q]);
-  assert.deepEqual([am.target, am.controller, am.kind], [4, 2, 'auto']);
-  values(s2, ts).forEach((v, i) => assert.ok(Math.abs(v - v0[i]) < 1e-9, `auto at ${ts[i]}: ${v} vs ${v0[i]}`));
-  const ar = splitClip(s2, am, 3.5);
+  assert.equal(canConsolidate(s2, [p, q]), false, 'automation-only consolidation is disabled');
+  assert.equal(consolidateClips(s2, [p, q]), null);
+  const ar = splitClip(s2, q, 3.5);
   values(s2, ts).forEach((v, i) => assert.ok(Math.abs(v - v0[i]) < 1e-9, `split auto at ${ts[i]}`));
   assert.equal(ar.start, 3.5);
+}
+
+// Cross-lane consolidation preserves timing, routes to the first selected target,
+// and skips occupied lanes without moving unselected clips.
+{
+  const song = emptySong();
+  const early = addClip(song, { start: 0, length: 4, y: 2 * LANE_H, target: 3 });
+  early.notes.push({ pitch: 60, start: 1, length: 6, vel: 0.7 });
+  const first = addClip(song, { start: 6, length: 4, y: 0, target: 9 });
+  first.name = 'First selected';
+  first.notes.push({ pitch: 64, start: 0.5, length: 2, vel: 0.9 });
+  const blocker = addClip(song, { start: 4, length: 2, y: 0, target: 1 });
+  const secondBlocker = addClip(song, { start: 2, length: 2, y: LANE_H });
+  const before = structuredClone([blocker, secondBlocker]);
+  const merged = consolidateClips(song, [first, early]);
+  assert.deepEqual([merged.start, merged.length, merged.target, merged.name, merged.y], [0, 10, 9, 'First selected', 2 * LANE_H]);
+  assert.deepEqual(merged.notes.map(n => [n.pitch, n.start, n.length]), [[60, 1, 3], [64, 6.5, 2]]);
+  assert.deepEqual([blocker, secondBlocker], before, 'unselected clips are untouched');
 }
 
 // .clip files: relative positions, no ids / links, module types kept; parsing validates
@@ -581,7 +598,7 @@ console.log('micropitch tests passed');
   assert.ok(clipSilent(song, idea) && !clipSilent(song, lane));
   assert.equal(songEnd(song), 4, 'ideas do not lengthen the song');
   assert.equal(loopEnd(song), 4);
-  assert.equal(canConsolidate(song, [idea, twin]), false, 'ideas are not consolidated');
+  assert.equal(canConsolidate(song, [idea, twin]), true, 'MIDI ideas can be consolidated');
   const back = normalizeSong(JSON.parse(JSON.stringify(song)));
   assert.deepEqual(back.clips.map((c) => [c.start, c.y]), [[0, LANE_H], [1.37, -50], [1.37, -50]], 'saved ideas keep their free place');
   assert.equal(normalizeSong({ clips: [{ start: 0, y: -10 }] }).clips[0].y, -LANE_H);

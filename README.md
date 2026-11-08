@@ -329,6 +329,13 @@ combined into your own MIDI processor or modulator:
 
 ## Clip files
 
+TimeLine > right-click > Consolidate combines selected MIDI clips across lanes
+and destinations. The result uses the first selected clip's name, destination
+and lane, preserving note timing and trimming notes at their original clip ends.
+If that lane is blocked by an unselected clip, the result moves to a free lane
+below without changing its time. Mixed MIDI/automation or automation-only
+selections cannot be consolidated. At least two clips are required.
+
 TimeLine clips show full-height beamed eighth notes (♫) for MIDI and a wave (∿) for
 automation, before the clip name and target.
 Labels are vertically centered and left-aligned, staying clear of the type icon.
