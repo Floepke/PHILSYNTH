@@ -46,6 +46,7 @@ export const tremoloGain = (x, amp, outMin, outMax) => (outMin + (outMax - outMi
 export default class LfoKernel extends Kernel {
   static modulator = true;
   static audioThrough = true; // sound cabled in: audio order, output = input × wave (see graph.js)
+  static meter = true;
 
   constructor() {
     super();
@@ -63,10 +64,11 @@ export default class LfoKernel extends Kernel {
     this.amp = 100; // tremolo mapping (the graph maps the same controllers for control cables)
     this.outMin = 0;
     this.outMax = 100;
-    // Random: every cycle glides (smoothstep) from the previous target to a new random one
+    // Random uses smoothstep ramps; linear and stepped variants share its targets.
     this.from = 0.5;
     this.to = Math.random();
     this.value = this.at();
+    this.meter = 0;
   }
 
   param(id, v) {
@@ -76,7 +78,7 @@ export default class LfoKernel extends Kernel {
       this.updateRate();
     } else if (id === 'wave') {
       v |= 0;
-      if (v === 4 && this.wave !== 4) this.from = this.to = this.at(); // continue from where the wave is
+      if ((v === 4 || v === 5 || v === 6) && this.wave !== v) this.from = this.to = this.at(); // continue from where the wave is
       this.wave = v;
     } else if (id === 'amp' || id === 'outMin' || id === 'outMax') {
       this[id] = Number(v) || 0;
@@ -131,6 +133,8 @@ export default class LfoKernel extends Kernel {
       case 2: return ph; // saw (ramp up)
       case 3: return ph < 0.5 ? 1 : 0; // square
       case 4: { const k = ph * ph * (3 - 2 * ph); return this.from + (this.to - this.from) * k; } // random smooth ramps
+      case 5: return this.to; // random sample-and-hold
+      case 6: return this.from + (this.to - this.from) * ph; // random linear ramps
       default: return 0.5 - 0.5 * Math.cos(2 * Math.PI * ph); // sine, starts at the bottom
     }
   }
@@ -165,6 +169,7 @@ export default class LfoKernel extends Kernel {
     const n = outputs[0]?.[0]?.length ?? 128;
     this.ran = true;
     this.value = this.at();
+    this.meter = tremoloGain(this.value, this.amp, this.outMin, this.outMax) * 100;
     const i = inputs[0];
     if (!i || !i.length) {
       this.advance(n);

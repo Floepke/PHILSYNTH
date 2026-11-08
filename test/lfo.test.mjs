@@ -1,12 +1,13 @@
 // Run: node test/lfo.test.mjs   (runs the real LFO DSP kernel)
 import assert from 'node:assert/strict';
 import { loadKernel } from './kernelproc.mjs';
+import lfo from '../src/modules/lfo.js';
 
 const SR = 48000;
 const Proc = await loadKernel('lfo.dsp.js', SR);
 
 // On/Off pauses both control-rate and audio-rate LFOs without losing phase or random state.
-for (const audio of [false, true]) for (const wave of [0, 1, 2, 3, 4]) {
+for (const audio of [false, true]) for (const wave of [0, 1, 2, 3, 4, 5, 6]) {
   const k = new Proc();
   const m = (data) => k.port.onmessage({ data });
   const output = [[new Float32Array(128), new Float32Array(128)]];
@@ -77,22 +78,102 @@ const l = new Proc();
 const msg = (data) => l.port.onmessage({ data });
 const values = [];
 l.port.postMessage = (v) => values.push(v);
-msg({ type: 'rate', value: 10 });
-msg({ type: 'wave', value: 2 });
+msg({ type: 'param', id: 'freq', value: 10 });
+msg({ type: 'param', id: 'wave', value: 2 });
 for (let b = 0; b < 100; b++) l.process([], [[new Float32Array(128)]]);
-msg({ type: 'wave', value: 4 }); // Random
+msg({ type: 'param', id: 'wave', value: 4 }); // Original Random
 const start = values.length;
 for (let b = 0; b < 3000; b++) l.process([], [[new Float32Array(128)]]); // 8 s = 80 cycles
 const r = values.slice(start);
 
 assert.ok(r.every((v) => v >= 0 && v <= 1), 'stays in 0..1');
 const maxStep = Math.max(...r.slice(1).map((v, i) => Math.abs(v - r[i])));
-// smoothstep slope ≤ 1.5 per cycle; one post = 256 samples = 0.0533 cycles at 10 Hz
+// Smoothstep slope ≤ 1.5 per cycle; one post = 256 samples at 10 Hz.
 assert.ok(maxStep < 1.5 * (256 * 10 / SR) + 1e-9, `smooth, no jumps (max step ${maxStep})`);
 // a new target every cycle: the values at cycle boundaries differ and cover the range
 const ends = r.filter((_, i) => i % 19 === 0);
 assert.ok(Math.max(...r) - Math.min(...r) > 0.6, 'random targets spread over the range');
 assert.ok(new Set(ends.map((v) => v.toFixed(3))).size > 30, 'keeps moving to new targets');
+
+{
+  assert.deepEqual(lfo.params[0].options, ['Sine', 'Triangle', 'Saw', 'Square', 'Random (smooth step)', 'Random (steps)', 'Random (linear)']);
+  assert.equal(lfo.params[0].max, 6, 'append new waveforms without changing saved indices');
+  const k = new Proc();
+  k.param('wave', 4);
+  k.from = 0.2; k.to = 0.8;
+  k.phase = 0.25;
+  assert.ok(Math.abs(k.at() - (0.2 + 0.6 * 0.15625)) < 1e-12, 'original Random keeps its smoothstep interpolation');
+  k.param('wave', 6);
+  k.from = 0.2; k.to = 0.8;
+  for (const phase of [0, 0.25, 0.5, 0.75]) {
+    k.phase = phase;
+    assert.ok(Math.abs(k.at() - (0.2 + 0.6 * phase)) < 1e-12, 'Random (linear) interpolates in a straight line');
+  }
+  k.param('wave', 5);
+  k.to = 0.8;
+  k.phase = 0;
+  k.param('freq', 2);
+  k.advance(SR / 2 - 1);
+  assert.equal(k.at(), 0.8, 'Random (steps) holds its value for the Frequency period');
+  k.advance(1);
+  assert.ok(k.phase < 1e-12, 'new step at the cycle boundary');
+  assert.equal(k.at(), k.to, 'step changes immediately to the newly drawn target');
+  assert.notEqual(k.to, 0.8, 'cycle chooses another random value');
+  const target = k.to;
+  k.advance(SR / 4);
+  assert.equal(k.at(), target, 'no interpolation within a step');
+  k.param('amp', 50); k.param('outMin', 20); k.param('outMax', 60);
+  k.process([], [[new Float32Array(128)]]);
+  assert.ok(Math.abs(k.meter - (20 + 40 * (0.5 + (target - 0.5) * 0.5))) < 1e-10, 'plot reports actual mapped DSP output');
+}
+
+// Live plot receives actual graph reports, stays bounded, and unsubscribes when the panel closes.
+{
+  const { dspTestHost } = await import('./dsphost.mjs');
+  const { dsp, render, graph } = dspTestHost();
+  const inst = lfo.create(null, lfo, { dsp });
+  inst.setParam('wave', 2);
+  inst.setParam('amp', 50);
+  inst.setParam('outMin', 20);
+  inst.setParam('outMax', 60);
+  const originalDocument = globalThis.document;
+  const originalWindow = globalThis.window;
+  const originalObserver = globalThis.ResizeObserver;
+  let disconnected = false;
+  const strokes = [];
+  const context = Object.fromEntries(['setTransform', 'clearRect', 'beginPath', 'stroke'].map(id => [id, () => {}]));
+  context.moveTo = context.lineTo = (x, y) => strokes.push([x, y]);
+  globalThis.document = { createElement: tag => ({
+    tag, children: [], isConnected: true, clientWidth: 300, clientHeight: 100,
+    append(...children) { this.children.push(...children); },
+    setAttribute() {}, getContext: () => context,
+  }) };
+  globalThis.window = { devicePixelRatio: 2 };
+  globalThis.ResizeObserver = class { observe() {} disconnect() { disconnected = true; } };
+  try {
+    const view = lfo.view({ inst }, { color: '#05a6de' });
+    render(10);
+    assert.ok(inst.signal >= 0.3 && inst.signal < 0.31, 'display receives Amplitude / Out Min / Out Max from DSP without cables');
+    const [wrap, info] = view.el.children;
+    assert.match(info.textContent, /Live output: 30\.\d %/);
+    assert.equal(wrap.children[0].width, 600, 'plot uses HiDPI sizing');
+    render(2500);
+    strokes.length = 0;
+    view.refresh();
+    assert.ok(strokes.length < 4000, 'plot retains only the last five seconds');
+    assert.ok(strokes.every(([x, y]) => x >= -1e-8 && x <= 300 && y >= 6 && y <= 94 || y === 0 || y === 100), 'plot stays within its canvas');
+    view.el.isConnected = false;
+    render(1);
+    assert.equal(dsp.clocks.size, 0, 'closing the panel stops its audio-clock subscription');
+    assert.ok(disconnected, 'closing the panel disconnects its ResizeObserver');
+    inst.destroy();
+    assert.equal(graph.meters.size, 0, 'destroying the LFO removes its meter');
+  } finally {
+    globalThis.document = originalDocument;
+    globalThis.window = originalWindow;
+    globalThis.ResizeObserver = originalObserver;
+  }
+}
 
 // Frequency Unit MIDI Pitch: follows the newest held note (pitch curve too), falls back, keeps the last
 {

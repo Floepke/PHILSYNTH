@@ -590,6 +590,7 @@ body.panel-collapsed #panel { visibility: hidden; }
   display: flex;
   align-items: center;
   gap: 10px;
+  width: max-content;
   min-width: 112px;
   height: 40px;
   padding: 0 14px 0 16px;
@@ -606,7 +607,7 @@ body.panel-collapsed #panel { visibility: hidden; }
 .module:hover { border-color: #4a4a52; }
 .module:active { cursor: grabbing; }
 .module-name { flex: 1; font-weight: 600; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
-.module-name.custom { text-transform: none; letter-spacing: 0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; }
+.module-name.custom { text-transform: none; letter-spacing: 0.02em; }
 .module-rename {
   flex: 1;
   min-width: 0;

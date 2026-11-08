@@ -47,7 +47,7 @@ export default {
   modulator: true, // its cables are control cables: they modulate a controller instead of carrying audio
   audioThrough: true, // ...except, with sound cabled in, those to modules that take audio (tremolo)
   params: [
-    { id: 'wave', label: 'Waveform', min: 0, max: 4, default: 0, step: 1, options: ['Sine', 'Triangle', 'Saw', 'Square', 'Random'] },
+    { id: 'wave', label: 'Waveform', min: 0, max: 6, default: 0, step: 1, options: ['Sine', 'Triangle', 'Saw', 'Square', 'Random (smooth step)', 'Random (steps)', 'Random (linear)'] },
     { id: 'unit', label: 'Frequency Unit', min: 0, max: UNITS.length - 1, default: 0, step: 1, options: UNITS },
     { id: 'freq', label: 'Frequency', min: 0.01, max: 50, default: 1, scale: 'log', format: formatFreq, snapValues: freqSnaps },
     { id: 'phase', label: 'Phase', min: 0, max: 1, default: 0, step: 0.01, format: phaseLabel },
@@ -55,6 +55,61 @@ export default {
     ...outParams(),
     { id: 'enabled', label: 'LFO On/Off', min: 0, max: 1, default: 1, step: 1, options: ['Off', 'On'] },
   ],
+  view(entry, api) {
+    const el = document.createElement('div');
+    const wrap = document.createElement('div');
+    wrap.className = 'wave-view';
+    const cv = document.createElement('canvas');
+    cv.setAttribute('role', 'img');
+    cv.setAttribute('aria-label', 'Live LFO output: last 5 seconds, 0 to 100 percent, before Out Smooth');
+    const info = document.createElement('div');
+    info.className = 'dialog-note';
+    wrap.append(cv);
+    el.append(wrap, info);
+    const g = cv.getContext('2d');
+    const points = [];
+    let lastTime = -Infinity;
+    let drawnAt = -Infinity;
+    const draw = () => {
+      const w = cv.clientWidth, h = cv.clientHeight;
+      if (!w || !h) return;
+      const dpr = window.devicePixelRatio || 1;
+      if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+        cv.width = Math.round(w * dpr);
+        cv.height = Math.round(h * dpr);
+      }
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      g.clearRect(0, 0, w, h);
+      const y = value => h - 6 - value * (h - 12);
+      g.strokeStyle = '#2c2c32';
+      g.lineWidth = 1;
+      g.beginPath();
+      for (const value of [0, 0.5, 1]) { g.moveTo(0, y(value)); g.lineTo(w, y(value)); }
+      for (let i = 1; i < 5; i++) { g.moveTo(w * i / 5, 0); g.lineTo(w * i / 5, h); }
+      g.stroke();
+      g.strokeStyle = api.color;
+      g.lineWidth = 2;
+      g.beginPath();
+      points.forEach(([time, value], i) => {
+        const x = w * (1 - (lastTime - time) / 5);
+        if (i) g.lineTo(x, y(points[i - 1][1]));
+        else g.moveTo(x, y(value));
+        g.lineTo(x, y(value));
+      });
+      g.stroke();
+      info.textContent = `Live output: ${(entry.inst.signal * 100).toFixed(1)} % · last 5 s · before Out Smooth`;
+    };
+    const observer = new ResizeObserver(draw);
+    observer.observe(cv);
+    const stop = entry.inst.node.host.onClock(time => {
+      if (!el.isConnected || entry.inst.node.dead) { stop(); observer.disconnect(); return; }
+      lastTime = time;
+      points.push([time, entry.inst.signal]);
+      while (points.length && points[0][0] < time - 5) points.shift();
+      if (time - drawnAt >= 1 / 60) { drawnAt = time; draw(); }
+    });
+    return { el, refresh: draw };
+  },
   create(_ctx, def, host) {
     // DSP: lfo.dsp.js; the engine graph maps its value onto the controllers it is cabled to
     const node = host.dsp.create('lfo');
@@ -62,6 +117,7 @@ export default {
     const inst = {
       node,
       input: node,
+      signal: 0,
       getTargets: () => [], // set by the patch: modules this LFO is cabled to
       params: () => modulatorParams(inst, def),
       setParam: (id, v) => node.param(id, v),
@@ -72,6 +128,7 @@ export default {
       allOff: () => send({ type: 'allOff' }),
       destroy: () => node.destroy(),
     };
+    node.onMeter = value => { inst.signal = value / 100; };
     return inst;
   },
 };

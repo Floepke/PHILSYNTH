@@ -252,6 +252,13 @@ the processor's own voices. WAV export includes delayed MIDI in its bounded tail
 
 ## CTL2NOTE generator
 
+The LFO offers **Random (linear)** (straight ramps between random targets) and
+**Random (steps)** (sample-and-hold, a new value each Frequency cycle).
+The original mode, now named **Random (smooth step)**, retains its smoothstep curves and saved index.
+The live plot below its controllers shows the last five seconds of actual DSP
+output after Amplitude and Out Min/Max, before each destination's Out Smooth.
+It also works without a control cable connected.
+
 The LFO's **LFO On/Off** controller defaults to On. Off pauses its cycle and
 holds the output level (also for audio tremolo), while output trimming remains
 live. On resumes at the remembered phase. A MIDI note received while paused
@@ -494,6 +501,19 @@ The app then runs at `https://floepke.github.io/MODSYNTH/`.
 Without `server.mjs` the web version autosaves to browser storage only and has no
 live reload. Projects still open and save as files (Chromium browsers) or downloads.
 Web MIDI works because Pages is served over HTTPS.
+
+## PHASE2CTL
+
+**PHASE2CTL** converts the newest note's start phase into a controller value,
+with the same Smooth, Noteoff Action, Out Controller, Out Min/Max and Out Smooth
+controls as VELOCITY2CTL. Phase 0 maps to Out Min and 0.5 to the middle.
+Phase wraps at 1; notes without phase use 0. Pitch/velocity curves do not change
+the captured phase. Use MULTIMIDI Phase / Random Phase to supply it.
+
+## Module names
+
+Module boxes grow horizontally to fit their complete names without truncation
+or a maximum width, even when a name is wider than the viewport.
 
 ## App icon
 

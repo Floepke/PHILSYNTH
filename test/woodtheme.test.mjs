@@ -26,6 +26,19 @@ app.whenReady().then(async () => {
       <div class="module" style="--mod-color: #ff0000"></div>`)}`);
     const results = await win.webContents.executeJavaScript(`(async () => {
       const dialogs = [];
+      const module = document.querySelector('.module');
+      const name = document.createElement('span');
+      name.className = 'module-name custom';
+      module.append(name);
+      name.textContent = 'Short';
+      const shortWidth = module.getBoundingClientRect().width;
+      name.textContent = 'A very long module name that must be completely visible '.repeat(20);
+      const moduleStyle = getComputedStyle(name);
+      const moduleSizing = {
+        shortWidth, width: module.getBoundingClientRect().width, viewport: innerWidth,
+        labelWidth: name.clientWidth, textWidth: name.scrollWidth,
+        overflow: moduleStyle.overflow, maxWidth: moduleStyle.maxWidth,
+      };
       for (const modal of [false, true]) {
         const dialog = document.createElement('dialog');
         document.body.append(dialog);
@@ -63,11 +76,15 @@ app.whenReady().then(async () => {
         }
         textures.push({ axis, min, max, tint });
       }
-      return { surfaces, textures, dialogs,
+      return { surfaces, textures, dialogs, moduleSizing,
         ink: getComputedStyle(document.querySelector('dialog p')).color,
         playing: getComputedStyle(document.querySelector('.playing')).backgroundColor,
         moduleColor: getComputedStyle(document.querySelector('.module')).getPropertyValue('--mod-color').trim() };
     })()`);
+    assert.ok(results.moduleSizing.width > results.moduleSizing.viewport, 'long module names can grow beyond the viewport');
+    assert.ok(results.moduleSizing.width > results.moduleSizing.shortWidth, 'module width follows its name');
+    assert.equal(results.moduleSizing.labelWidth, results.moduleSizing.textWidth, 'full module name fits without clipping');
+    assert.equal(results.moduleSizing.maxWidth, 'none', 'custom names have no width cap');
     for (const dialog of results.dialogs) {
       assert.equal(dialog.animation, 'none', 'dialogs open without animation');
       assert.equal(dialog.transition, '0s', 'dialogs open without transition');

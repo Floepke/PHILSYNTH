@@ -17,6 +17,7 @@ import LfoKernel from '../modules/lfo.dsp.js';
 import AdsrKernel from '../modules/adsr.dsp.js';
 import EnvelopeKernel from '../modules/envelope.dsp.js';
 import Velocity2CtlKernel from '../modules/velocity2ctl.dsp.js';
+import Phase2CtlKernel from '../modules/phase2ctl.dsp.js';
 import Pitch2CtlKernel from '../modules/pitch2ctl.dsp.js';
 import Sound2CtlKernel from '../modules/sound2ctl.dsp.js';
 import MultiCtlKernel from '../modules/multictl.dsp.js';
@@ -48,6 +49,7 @@ export const KERNELS = {
   adsr: AdsrKernel,
   envelope: EnvelopeKernel,
   velocity2ctl: Velocity2CtlKernel,
+  phase2ctl: Phase2CtlKernel,
   pitch2ctl: Pitch2CtlKernel,
   sound2ctl: Sound2CtlKernel,
   multictl: MultiCtlKernel,

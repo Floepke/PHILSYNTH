@@ -81,4 +81,61 @@ assert.equal(sp.format(1500), '1.50 s');
   assert.equal(k.value, 0.9);
 }
 
-console.log('velocity2ctl tests passed');
+{
+  const { default: Phase2Ctl } = await import('../src/modules/phase2ctl.dsp.js');
+  const phaseDef = getModule('PHASE2CTL');
+  assert.deepEqual(phaseDef.params, def.params, 'phase converter shares velocity converter controls');
+  assert.equal(phaseDef.liveMidi, false);
+  const k = new Phase2Ctl();
+  assert.equal(k.value, null, 'phase converter does nothing until the first note');
+  for (const [phase, expected] of [[undefined, 0], [0.25, 0.25], [0.5, 0.5], [1, 0], [1.25, 0.25], [-0.25, 0.75], [NaN, 0]]) {
+    k.message({ type: 'noteOn', id: 1, phase, velocity: 0.99 });
+    assert.equal(k.value, expected, 'phase, not velocity, determines value');
+    k.message({ type: 'noteMod', notes: [[1, 90, 0.1]] });
+    assert.equal(k.value, expected, 'note curves do not alter start phase');
+  }
+  k.param('smooth', 1000);
+  k.message({ type: 'noteOn', id: 2, phase: 0.8 });
+  run(k, 375);
+  near(k.value, 0.8, 'phase smoothing reaches target');
+  k.param('noteOffAction', 1);
+  k.message({ type: 'noteOff', id: 1 });
+  assert.equal(k.target, 0.8, 'older note-off does not release newest phase');
+  k.message({ type: 'noteOff', id: 2 });
+  run(k, 375);
+  near(k.value, 0, 'Control Down smooths to zero');
+  k.param('noteOffAction', 2);
+  k.message({ type: 'noteOn', id: 3, phase: 0.4 });
+  k.panic();
+  run(k, 375);
+  assert.equal(k.value, 1, 'panic respects Control Up');
+
+  const { dspTestHost } = await import('./dsphost.mjs');
+  const { PatchRuntime } = await import('../src/patch.js');
+  const { dsp, render, kernel } = dspTestHost();
+  const engine = { ctx: { currentTime: 0 }, dsp };
+  const patch = await PatchRuntime.create(engine, dsp.destination);
+  const phase = await patch.addModule('PHASE2CTL', { values: { outController: 3, outMin: 20, outMax: 80 } });
+  const amp = await patch.addModule('AMP');
+  assert.ok(patch.connect(phase.id, amp.id));
+  phase.inst.noteOn(1, 60, 0.9, 0.25);
+  render(2);
+  assert.equal(kernel(phase.inst.node).value, 0.25, 'module forwards incoming phase to DSP');
+  near(amp.values.fine, 0.35, 'phase routes through Out Min/Max to destination', 1 / 32768);
+  phase.inst.noteMod(1, 72, 0.1);
+  render(2);
+  near(amp.values.fine, 0.35, 'velocity changes do not alter routed phase', 1 / 32768);
+  const copy = await PatchRuntime.create(engine, dsp.destination);
+  await copy.load(patch.toJSON());
+  const restored = copy.modules.get(phase.id);
+  assert.equal(restored.def.type, 'PHASE2CTL', 'new module persists and reloads');
+  restored.inst.noteOn(2, 60, 0.2, 0.5);
+  render(2);
+  near(copy.modules.get(amp.id).values.fine, 0.5, 'restored phase routing works');
+  phase.inst.allOff();
+  render(2);
+  near(kernel(phase.inst.node).value, 0.25, 'default note-off holds phase');
+  patch.destroy(); copy.destroy();
+}
+
+console.log('velocity2ctl and phase2ctl tests passed');

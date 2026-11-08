@@ -425,7 +425,7 @@ export const DOCS = {
       enabled: 'On (default) runs the LFO. Off pauses it at its current phase and holds the wave level, including audio tremolo; output trimming remains live. On resumes from the remembered phase. Incoming MIDI notes still set Phase plus the note phase while paused; changing the Phase controller alone does not reset an already-running LFO.',
       freq: 'Speed of the wave: 0.01–50 Hz, or (with a synced Frequency Unit) a cycle length in note values, which the slider snaps to. Ignored with Frequency Unit MIDI Pitch.',
       unit: 'Hz runs freely; 1/4, 1/8 or 1/16 syncs the cycle to note lengths at the BPM of this patch level\'s Output. <i>MIDI Pitch</i> runs the wave at the frequency of the incoming note (A4 = 440 Hz), following pitch bends; Frequency is ignored. Notes come from a clip sent to the LFO or a MULTIMIDI (or other MIDI module) cabled into it. With no note held it keeps the last pitch; before the first note it stands still.',
-      wave: 'Shape of the wave: Sine, Triangle, Saw, Square, or Random (glides smoothly to a new random value every cycle).',
+      wave: 'Shape of the wave: Sine, Triangle, Saw, Square, Random (smooth step) (smoothstep ramps between random values), Random (steps) (holds a random value, choosing a new one each Frequency cycle), or Random (linear) (straight ramps between random values).',
       ...MOD_PARAMS,
       amp: 'Depth of the wave around its centre: 100 % = full swing between Out Min and Out Max, 0 % = steady in the middle.',
       phase: 'Where in its cycle the wave starts (0–100 % = 0–360°). The LFO jumps there when the project loads, after a panic (<kbd>\'</kbd> twice: stop, then panic) and on every incoming note; a note\'s own phase (from a MULTIMIDI\'s Phase / Random Phase) is added to it. Turning it while running does not make the wave jump.',
@@ -481,6 +481,20 @@ export const DOCS = {
       'Use <kbd>Shift</kbd> + drag from CTL2NOTE to OSC, SAMPLER, a MIDI processor or a Patch. It generates notes; it does not accept notes or audio.',
       'Controller modulation received together is applied at the audio clock, so a new note uses the latest pitch, velocity and phase from that report.',
       'Saved On notes start after their MIDI cables are restored. Removing a cable releases only this module\'s note on that target. Panic releases the note and requires a fresh Off-to-On transition.',
+    ],
+  },
+
+  PHASE2CTL: {
+    summary: 'Turns the start phase of the newest incoming note into a controller value. It makes no sound.',
+    params: {
+      ...MOD_PARAMS,
+      noteOffAction: 'When the newest note ends: Do Nothing holds its phase value, Control Down moves to Out Min, Control Up moves to Out Max. Older notes do not take over.',
+      smooth: 'Glide time to each new phase or note-off target, 0–5000 ms. Off jumps immediately; the first note always jumps.',
+    },
+    notes: [
+      MOD_CABLE,
+      'Phase 0 maps to Out Min, phase 0.5 halfway between Out Min and Out Max. Phase wraps every full turn (1 is equivalent to 0); a missing phase is 0. MULTIMIDI Phase / Random Phase supplies the incoming phase.',
+      'The newest note wins. Pitch and velocity curves do not change its captured start phase. Selecting this module does not take the live MIDI keyboard away from the current synth.',
     ],
   },
 
