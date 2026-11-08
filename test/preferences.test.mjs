@@ -7,6 +7,39 @@ import { migrateWoodTint, WOOD_TINT_ID, WOOD_TINT_KEY } from '../src/woodtheme.j
 import { registerPreferences, launchFullscreen, showLaunchWindow } from '../electron/preferences.mjs';
 import { atomicWrite } from '../electron/atomicwrite.mjs';
 import { registerInterfacePreferences, PANEL_DIVIDER_WIDTH_ID, LAUNCH_FULLSCREEN_ID } from '../src/interfacepreferences.js';
+import { registerMidiPreferences, migrateMidiInput, MIDI_INPUT_ID } from '../src/midipreferences.js';
+
+{
+  let stored = null;
+  let selected = 'auto';
+  let inputs = [{ name: 'Keyboard' }];
+  let selections = 0;
+  const midi = { selected: () => selected, select: value => { selected = value; selections++; }, inputs: () => inputs, enable: async () => true };
+  const manager = createPreferencesManager({ storage: { load: async () => stored, save: async text => { stored = text; } } });
+  registerMidiPreferences(manager, () => midi);
+  await manager.load();
+  await migrateMidiInput(manager, { getItem: () => 'Disconnected Controller' });
+  assert.equal(manager.get(MIDI_INPUT_ID), 'Disconnected Controller', 'legacy device selection migrates into JSON');
+  const item = manager.entries()[0];
+  assert.equal(item.options(manager.get(MIDI_INPUT_ID)).at(-1).label, 'Disconnected Controller (not connected)');
+  manager.preview(MIDI_INPUT_ID, 'Keyboard');
+  assert.equal(selected, 'Keyboard');
+  manager.restore();
+  assert.equal(selected, 'Disconnected Controller', 'Cancel restores the stored device');
+  const count = selections;
+  manager.restore();
+  assert.equal(selections, count, 'unchanged preferences do not release held MIDI notes');
+  await manager.save({ [MIDI_INPUT_ID]: 'Keyboard' });
+  assert.equal(parsePreferences(stored)[MIDI_INPUT_ID], 'Keyboard');
+  await migrateMidiInput(manager, { getItem: () => 'Old Controller' });
+  assert.equal(manager.get(MIDI_INPUT_ID), 'Keyboard', 'JSON takes precedence over legacy storage');
+  inputs = [{ name: 'New Keyboard' }];
+  await item.refresh();
+  assert.equal(item.options('Keyboard')[1].value, 'New Keyboard');
+  midi.enable = async () => false;
+  await assert.rejects(item.refresh(), /MIDI access is unavailable/);
+  await assert.rejects(manager.save({ [MIDI_INPUT_ID]: 7 }), /Invalid value/);
+}
 
 const fileText = (values) => JSON.stringify({ format: PREFERENCES_FORMAT, version: 1, values });
 const color = { id: WOOD_TINT_ID, label: 'Wood Tint', category: 'Interface', type: 'color', defaultValue: '#290000' };

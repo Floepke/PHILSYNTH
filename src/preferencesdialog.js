@@ -79,7 +79,8 @@ export function createPreferencesDialog(preferencesManager, { loadError = '' } =
         input.id = id;
         input.setAttribute('aria-label', item.label);
         if (item.type === 'select') {
-          for (const option of item.options) input.add(new Option(option.label, option.value));
+          const options = typeof item.options === 'function' ? item.options(draft[item.id]) : item.options;
+          for (const option of options) input.add(new Option(option.label, option.value));
         } else {
           input.type = item.type === 'boolean' ? 'checkbox' : 'number';
           if (item.type === 'number') {
@@ -93,6 +94,25 @@ export function createPreferencesDialog(preferencesManager, { loadError = '' } =
         section.append(input);
       }
       set(draft[item.id]);
+      if (item.refresh) {
+        const refresh = document.createElement('button');
+        refresh.type = 'button';
+        refresh.className = 'preference-refresh';
+        refresh.textContent = item.refreshLabel ?? 'Refresh';
+        refresh.addEventListener('click', async () => {
+          refresh.disabled = true;
+          try {
+            await item.refresh();
+            if (dialog.open && !saving) render();
+          } catch (err) {
+            console.error(`Could not refresh ${item.label}:`, err);
+            if (dialog.open) error.textContent = `Could not refresh ${item.label}: ${err.message}`;
+          } finally {
+            refresh.disabled = false;
+          }
+        });
+        section.append(refresh);
+      }
       if (item.description) {
         const description = document.createElement('p');
         description.className = 'dialog-note';

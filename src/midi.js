@@ -135,8 +135,8 @@ export function initMidi({ getTarget, onStatus, onActivity, onNoTarget, onSelect
     const ignored = off.length ? ` (ignored: ${off.join(', ')})` : '';
     if (!all.length) onStatus('MIDI enabled, but no input devices found. Plug in a controller.');
     else if (on.length) onStatus(`MIDI: ${on.join(', ')}${ignored}`);
-    else if (selected === MIDI_AUTO) onStatus(`MIDI: only Through ports found${ignored}. Plug in a controller or pick an input in the main menu → MIDI Input.`);
-    else onStatus(`MIDI input "${selected}" is not connected${ignored}. Pick another one in the main menu → MIDI Input.`);
+    else if (selected === MIDI_AUTO) onStatus(`MIDI: only Through ports found${ignored}. Plug in a controller or pick an input in Preferences → MIDI.`);
+    else onStatus(`MIDI input "${selected}" is not connected${ignored}. Pick another one in Preferences → MIDI.`);
   };
 
   function select(name) {
@@ -175,8 +175,8 @@ export function initMidi({ getTarget, onStatus, onActivity, onNoTarget, onSelect
       access = null;
       onStatus(err.name === 'SecurityError'
         // Firefox rejects like this without a prompt
-        ? 'MIDI denied by Firefox without a prompt: it sees no MIDI device (plug in the controller, then restart Firefox completely) or access was blocked earlier (click the icon left of the address bar and clear the MIDI permission). Then open the main menu → MIDI Input…'
-        : `MIDI blocked (${err.name}: ${err.message}). Open the main menu → MIDI Input… to retry and allow access.`);
+        ? 'MIDI denied by Firefox without a prompt: it sees no MIDI device (plug in the controller, then restart Firefox completely) or access was blocked earlier (click the icon left of the address bar and clear the MIDI permission). Then open Preferences → MIDI → Re-scan MIDI Inputs.'
+        : `MIDI blocked (${err.name}: ${err.message}). Open Preferences → MIDI → Re-scan MIDI Inputs to retry and allow access.`);
       return false;
     }
   }

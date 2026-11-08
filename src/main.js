@@ -1,6 +1,7 @@
 import { Engine } from './engine.js';
 import { modules, getModule } from './modules/index.js';
-import { initMidi, initKeyboard, MIDI_AUTO } from './midi.js';
+import { initMidi, initKeyboard } from './midi.js';
+import { registerMidiPreferences, migrateMidiInput, MIDI_INPUT_ID } from './midipreferences.js';
 import { createPersistence, connectLiveReload } from './persist.js';
 import { paramsOf } from './params.js';
 import { initCpuMeter } from './cpumeter.js';
@@ -47,6 +48,7 @@ import { initMouseNavigation, MOUSE_FORWARD } from './mousebuttons.js';
 const engine = new Engine();
 let transport = null; // song playback (created after the engine)
 let seq = null; // piano roll + TimeLine UI
+let midi = null; // MIDI input, initialized after the project is restored
 let undoHistory = null;
 let scope = null; // live audio drawn on the cables (created after the engine)
 let patchMonitor = null;
@@ -55,10 +57,12 @@ const preferencesManager = createPreferencesManager();
 initWoodTheme(preferencesManager);
 registerInterfacePreferences(preferencesManager);
 const timelineDisplay = registerTimelinePreferences(preferencesManager, () => seq?.redrawTimeline());
+registerMidiPreferences(preferencesManager, () => midi);
 let preferencesLoadError = '';
 try {
   await preferencesManager.load();
   await migrateWoodTint(preferencesManager);
+  await migrateMidiInput(preferencesManager);
 } catch (err) {
   console.error('Could not load preferences:', err);
   preferencesLoadError = `Could not load preferences: ${err.message}`;
@@ -1499,7 +1503,6 @@ const openFile = () => fileCommand('Open', async () => {
 const saveCommand = (as) => fileCommand(as ? 'Save As' : 'Save', () => saveFile(as));
 
 const brand = $('brand');
-let midi = null; // MIDI input, set up once the project is restored (see the end of this file)
 let mainMenuOpen = false;
 let brandClosesMenu = false;
 // a click on the logo while its menu is open only closes the menu (runs before the menu's own listener)
@@ -1527,43 +1530,12 @@ function openMainMenu(focusFirst) {
         { label: 'Export MIDI…', disabled: exportingMidi, action: exportMidiFile },
       ] },
       '-',
-      { label: 'MIDI Input…', disabled: !midi, action: openMidiMenu },
       { label: 'Preferences…', action: openPreferences },
       '-',
       { label: 'Exit', shortcut: 'Esc', action: () => exitToOS(persist, (message) => { $('status').textContent = message; }) },
     ],
   });
   if (focusFirst) document.querySelector('.main-menu .ctx-item')?.focus();
-}
-// MIDI Input menu (opened from the main menu): Auto = every input except Through ports, or one input.
-// Asks for MIDI access first if needed, so the list is current.
-async function openMidiMenu() {
-  const granted = await midi.enable();
-  const r = brand.getBoundingClientRect();
-  const sel = midi.selected();
-  const inputs = midi.inputs();
-  if (sel !== MIDI_AUTO && !inputs.some((i) => i.name === sel)) inputs.push({ name: sel, missing: true });
-  mainMenuOpen = true;
-  brand.setAttribute('aria-expanded', 'true');
-  showMenu({
-    x: r.left - 2,
-    y: r.bottom + 2,
-    className: 'main-menu',
-    onClose: () => {
-      mainMenuOpen = false;
-      brand.setAttribute('aria-expanded', 'false');
-    },
-    items: [
-      { label: 'Auto (all inputs except MIDI Through)', checked: sel === MIDI_AUTO, action: () => midi.select(MIDI_AUTO) },
-      '-',
-      ...(inputs.length
-        ? inputs.map((i) => ({ label: `${i.name}${i.missing ? ' (not connected)' : ''}`, checked: sel === i.name, action: () => midi.select(i.name) }))
-        : [{ label: granted ? 'No MIDI inputs found' : 'No MIDI access (see the status bar)', disabled: true, action() {} }]),
-      '-',
-      { label: 'Re-scan MIDI Inputs', action: openMidiMenu },
-    ],
-  });
-  document.querySelector('.main-menu .ctx-item')?.focus();
 }
 brand.addEventListener('click', (e) => {
   if (brandClosesMenu) {
@@ -1908,14 +1880,10 @@ const flushAll = () => {
 };
 window.addEventListener('pagehide', flushAll);
 connectLiveReload(flushAll);
-const MIDI_INPUT_KEY = 'modsynth:midiInput'; // chosen MIDI input: a setting of this computer, not of the project
-let savedMidiInput = MIDI_AUTO;
-try { savedMidiInput = localStorage.getItem(MIDI_INPUT_KEY) || MIDI_AUTO; } catch { /* storage blocked */ }
 midi = initMidi({
   getTarget: midiTarget,
   pitchOffset,
-  selected: savedMidiInput,
-  onSelect: (name) => { try { localStorage.setItem(MIDI_INPUT_KEY, name); } catch { /* storage blocked */ } },
+  selected: preferencesManager.get(MIDI_INPUT_ID),
   onStatus: (msg) => ($('status').textContent = msg),
   onActivity: () => engine.resume(),
   onNoTarget: () => ($('status').textContent = 'MIDI note received, but no module to play: select a module that takes MIDI (e.g. OSC).'),

@@ -77,7 +77,7 @@ export const GUIDE = [
         items: [
           'Notes from your MIDI controller, the piano-roll keyboard and the computer keyboard play the module with the <b>MIDI</b> badge: the last selected MIDI module. Click the badge to lock MIDI to it (red), again to unlock. Every patch level has its own MIDI module and lock.',
           `Computer keyboard: ${k('Q')} … ${k('P')} are the white keys C4–E5, the number row above them (${k('2')} ${k('3')} ${k('5')} ${k('6')} ${k('7')} ${k('9')} ${k('0')}) the black keys. (In a focused piano roll ${k('Q')} quantizes instead.)`,
-          'Choose the MIDI controller under <b>MIDI Input…</b> in the main menu.',
+          'Choose the MIDI controller under <b>Preferences… > MIDI > MIDI Input</b> in the main menu.',
         ],
       },
       {
@@ -303,12 +303,12 @@ export const GUIDE = [
       {
         title: 'Main menu',
         items: [
-          `Click <b>PHILSYNTH</b> (in the upper divider, left side) for <b>New</b> (${k(CMD, 'N')}), <b>Open…</b> (${k(CMD, 'O')}), <b>Save</b> (${k(CMD, 'S')}), <b>Save As…</b> (${k(CMD, 'Shift', 'S')}), <b>Export…</b> (folds open to <b>Export Audio…</b> and <b>Export MIDI…</b>), <b>MIDI Input…</b>, <b>Preferences…</b> and <b>Exit</b>. Audio export still uses ${k(CMD, 'E')}.`,
+          `Click <b>PHILSYNTH</b> (in the upper divider, left side) for <b>New</b> (${k(CMD, 'N')}), <b>Open…</b> (${k(CMD, 'O')}), <b>Save</b> (${k(CMD, 'S')}), <b>Save As…</b> (${k(CMD, 'Shift', 'S')}), <b>Export…</b> (folds open to <b>Export Audio…</b> and <b>Export MIDI…</b>), <b>Preferences…</b> and <b>Exit</b>. Audio export still uses ${k(CMD, 'E')}.`,
           'Menu groups fold inline like folders, without opening a second menu. Menus widen only as needed to fit labels, up to the available window width. Long menus use the available window height and scroll. Use Up/Down to navigate, Right/Left to expand/collapse, Enter/Space to choose, and Escape to close.',
           '<b>Preferences…</b> has a category list on the left. <b>Interface > Wood Tint</b> previews any RGB tint on the wooden frame, dividers, controls and dialogs without changing module colors. <b>OK</b> remembers it on this device; <b>Cancel</b> or Escape restores the saved tint. <b>Reset to default</b> previews the default tint.',
           'Projects are <b>.phproject</b> files (older .mds / .json projects open too). The file name shows in the status bar and the window title, with <b>•</b> for unsaved changes; New and Open ask to save them first. Every change is also autosaved, so the app starts with your latest project.',
           'Project, module and clip files are saved as compact JSON to save disk space. Older formatted files still open.',
-          '<b>MIDI Input…</b> picks the MIDI controller; <i>Auto</i> uses every input except Linux\'s <i>Midi Through</i>, <b>Re-scan</b> finds newly plugged-in devices.',
+          '<b>Preferences… > MIDI > MIDI Input</b> picks the MIDI controller; <i>Auto</i> uses every input except Linux\'s <i>Midi Through</i>, <b>Re-scan MIDI Inputs</b> finds newly plugged-in devices and retries access. Changes preview immediately; OK saves the input on this device, Cancel restores it. Disconnected saved controllers remain listed.',
           `${k('Esc')} (when nothing else is open) goes up one patch level. In the main patch it asks <b>Exit to OS?</b>: ${k('Enter')} saves and closes, ${k('Esc')} cancels.`,
         ],
       },

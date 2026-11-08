@@ -329,6 +329,12 @@ combined into your own MIDI processor or modulator:
 
 ## Menus and export
 
+MIDI input selection is under **PHILSYNTH > Preferences… > MIDI > MIDI Input**.
+Auto uses every input except MIDI Through ports; **Re-scan MIDI Inputs** refreshes
+the device list and retries MIDI access. Changes preview immediately, OK saves
+to the JSON preferences, and Cancel restores the saved device. Existing input
+selections are migrated, and disconnected controllers remain listed.
+
 All context menus use `showMenu()` in `src/seq/menu.js`. A menu item with
 `children: [...]` folds inline like a file-explorer folder; leaf items use
 `action()`. Existing `checked`, `disabled`, `shortcut` and separator (`'-'`)

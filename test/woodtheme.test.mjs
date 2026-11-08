@@ -77,6 +77,7 @@ app.whenReady().then(async () => {
         import { createPreferencesDialog } from '/src/preferencesdialog.js';
         import { registerInterfacePreferences } from '/src/interfacepreferences.js';
         import { registerTimelinePreferences } from '/src/timelinepreferences.js';
+        import { registerMidiPreferences } from '/src/midipreferences.js';
         import { sigDialog } from '/src/dialogs.js';
         import { showMenu, closeMenu } from '/src/seq/menu.js';
         window.openTestMenu = () => showMenu({ x: 620, y: 300, items: [
@@ -97,6 +98,14 @@ app.whenReady().then(async () => {
         window.preferencesManager.register({ id: 'test.level', category: 'Testing', label: 'Level', type: 'number', min: 0, max: 1, defaultValue: 0.5 });
         window.preferencesManager.register({ id: 'test.mode', category: 'Testing', label: 'Mode', type: 'select', defaultValue: 'auto', options: [{ value: 'auto', label: 'Automatic' }, { value: 'manual', label: 'Manual' }] });
         window.timelineDisplay = registerTimelinePreferences(window.preferencesManager);
+        window.midiSelection = 'auto';
+        window.midiDevices = [{ name: 'Keyboard' }];
+        registerMidiPreferences(window.preferencesManager, () => ({
+          selected: () => window.midiSelection,
+          select: value => { window.midiSelection = value; },
+          inputs: () => window.midiDevices,
+          enable: async () => { window.midiDevices = [{ name: 'Keyboard' }, { name: 'New Controller' }]; return true; },
+        }));
         await window.preferencesManager.load();
         window.openPreferences = createPreferencesDialog(window.preferencesManager);
       </script>`);
@@ -104,7 +113,7 @@ app.whenReady().then(async () => {
       ['/', ['text/html', html]],
       ['/style.css', ['text/css', css]],
       ['/src/seq/menu.js', ['text/javascript', readFileSync(new URL('../src/seq/menu.js', import.meta.url), 'utf8')]],
-      ...['woodtheme', 'modcolor', 'preferences', 'preferencesdialog', 'interfacepreferences', 'timelinepreferences', 'dialogs', 'song', 'curve', 'fileformat'].map(name => [`/src/${name}.js`, ['text/javascript',
+      ...['woodtheme', 'modcolor', 'preferences', 'preferencesdialog', 'interfacepreferences', 'timelinepreferences', 'midipreferences', 'midi', 'modmidi', 'dialogs', 'song', 'curve', 'fileformat'].map(name => [`/src/${name}.js`, ['text/javascript',
         readFileSync(new URL('../src/' + name + '.js', import.meta.url), 'utf8')]]),
     ]);
     server = http.createServer((req, res) => {
@@ -127,7 +136,7 @@ app.whenReady().then(async () => {
     assert.equal(await tint(), defaultTint, 'existing default tint is preserved');
     await open();
     assert.equal(await run("document.activeElement.id"), 'preferences-categories', 'category list receives focus');
-    assert.deepEqual(await run("Array.from(document.getElementById('preferences-categories').options, o => o.text)"), ['Interface', 'Testing', 'Timeline']);
+    assert.deepEqual(await run("Array.from(document.getElementById('preferences-categories').options, o => o.text)"), ['Interface', 'Testing', 'Timeline', 'MIDI']);
     const groups = await run(`Array.from(document.querySelectorAll('#preferences-content fieldset'), group => ({
       label: group.querySelector('legend')?.textContent,
       border: getComputedStyle(group).borderTopWidth,
@@ -284,6 +293,32 @@ app.whenReady().then(async () => {
     await win.loadURL(url);
     assert.deepEqual(await run('window.timelineDisplay'), { showInputGrid: false, showVerticalBarlines: false }, 'timeline display preferences survive reload');
     assert.deepEqual(await run('window.themeErrors'), []);
+    await open();
+    const midiCategory = () => run(`(() => {
+      const list = document.getElementById('preferences-categories');
+      list.value = 'MIDI'; list.dispatchEvent(new Event('change'));
+    })()`);
+    await midiCategory();
+    assert.deepEqual(await run("Array.from(document.querySelector('#pref-midi-input').options, o => o.value)"), ['auto', 'Keyboard']);
+    await run("document.querySelector('#pref-midi-input').value = 'Keyboard'; document.querySelector('#pref-midi-input').dispatchEvent(new Event('change'))");
+    assert.equal(await run('window.midiSelection'), 'Keyboard');
+    await run("document.querySelector('.preference-refresh').click()");
+    await flushClose();
+    assert.deepEqual(await run("Array.from(document.querySelector('#pref-midi-input').options, o => o.value)"), ['auto', 'Keyboard', 'New Controller']);
+    assert.equal(await run("document.querySelector('#pref-midi-input').value"), 'Keyboard', 're-scan preserves the draft');
+    await submit('cancel'); await flushClose();
+    assert.equal(await run('window.midiSelection'), 'auto', 'Cancel restores MIDI input');
+    await open(); await midiCategory();
+    await run("document.querySelector('#pref-midi-input').value = 'New Controller'; document.querySelector('#pref-midi-input').dispatchEvent(new Event('change'))");
+    await submit('ok'); await flushClose();
+    await win.loadURL(url);
+    assert.equal(await run('window.midiSelection'), 'New Controller', 'input selection persists through reload');
+    await open(); await midiCategory();
+    assert.equal(await run("document.querySelector('#pref-midi-input option:checked').textContent"), 'New Controller (not connected)');
+    await run("document.querySelector('.preference-reset').click()");
+    assert.equal(await run('window.midiSelection'), 'auto');
+    await submit('cancel'); await flushClose();
+    assert.equal(await run('window.midiSelection'), 'New Controller');
     await run("window.openSig({ num: 7, den: 8 })");
     assert.equal(await run("document.querySelectorAll('#sig-measure .sig-beat').length"), 7);
     assert.equal(await run("document.querySelectorAll('#sig-measure .sig-stave-line').length"), 10, 'two octaves have ten black-key stave lines, not key rectangles');

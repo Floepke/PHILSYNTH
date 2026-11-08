@@ -33,7 +33,8 @@ export function createPreferencesManager({ storage = preferencesStorage() } = {}
     const valid = item.type === 'color' ? typeof value === 'string' && /^#[0-9a-f]{6}$/.test(value)
       : item.type === 'boolean' ? typeof value === 'boolean'
         : item.type === 'number' ? Number.isFinite(value) && value >= item.min && value <= item.max
-          : item.type === 'select' && item.options.some((o) => o.value === value);
+          : item.type === 'select' && typeof value === 'string' &&
+            (typeof item.options === 'function' ? item.options(value) : item.options).some((o) => o.value === value);
     if (!valid || (item.validate && !item.validate(value))) throw new Error(`Invalid value for ${item.label}`);
   }
   const get = (id) => {
@@ -53,13 +54,17 @@ export function createPreferencesManager({ storage = preferencesStorage() } = {}
       if (item.type === 'number' && (!Number.isFinite(item.min) || !Number.isFinite(item.max) || item.min > item.max)) {
         throw new Error('Number preferences need a valid min and max');
       }
-      if (item.type === 'select' && (!Array.isArray(item.options) || !item.options.length ||
-          item.options.some((o) => typeof o.value !== 'string' || typeof o.label !== 'string'))) {
+      const options = typeof item.options === 'function' ? item.options(item.defaultValue) : item.options;
+      if (item.type === 'select' && (!Array.isArray(options) || !options.length ||
+          options.some((o) => typeof o.value !== 'string' || typeof o.label !== 'string'))) {
         throw new Error('Select preferences need labeled string options');
       }
-      const registered = structuredClone({ ...item, apply: undefined, validate: undefined });
+      const registered = structuredClone({ ...item, apply: undefined, validate: undefined, refresh: undefined,
+        options: typeof item.options === 'function' ? undefined : item.options });
       registered.apply = item.apply;
       registered.validate = item.validate;
+      registered.refresh = item.refresh;
+      if (typeof item.options === 'function') registered.options = item.options;
       validate(registered, registered.defaultValue);
       if (Object.hasOwn(values, item.id)) validate(registered, values[item.id]);
       definitions.set(item.id, registered);
