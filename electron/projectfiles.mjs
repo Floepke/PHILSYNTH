@@ -3,9 +3,11 @@
 // types: projects, clips, modules, Scala tunings (open only), exported WAV audio and the audio /
 // pictures modules load (open only).
 import { app, ipcMain, BrowserWindow } from 'electron';
-import { readFile, writeFile, rename, rm, stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import { notifyFolderChanged } from './kdirnotify.mjs';
+import { atomicWrite } from './atomicwrite.mjs';
+export { atomicWrite } from './atomicwrite.mjs';
 import { checkPath, cleanExts, deleteEntry, hasExt, listDir, makeDir, places, target, transferEntry } from './fsbrowse.mjs';
 import { PROJECT_EXT, PROJECT_OPEN_EXTS, CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS, AUDIO_OPEN_EXTS, WAVETABLE_OPEN_EXTS, IMAGE_OPEN_EXTS, MIDI_OPEN_EXTS, MAX_MIDI_BYTES } from '../src/fileformat.js';
 
@@ -63,20 +65,6 @@ export function createDirMemory(file) {
       await atomicWrite(file, JSON.stringify(d)).catch((err) => console.warn('Could not store dialog folders:', err));
     },
   };
-}
-
-// Write to a temp file next to the target, then rename: a crash never leaves half a project.
-export async function atomicWrite(path, text, { signal } = {}) {
-  const tmp = join(dirname(path), `.${basename(path)}.${process.pid}.${Date.now()}.tmp`);
-  try {
-    signal?.throwIfAborted();
-    await writeFile(tmp, text, { encoding: 'utf8', signal });
-    signal?.throwIfAborted();
-    await rename(tmp, path);
-  } catch (err) {
-    await rm(tmp, { force: true }).catch((cleanupError) => console.error('Could not remove temporary export/project file:', cleanupError));
-    throw err;
-  }
 }
 
 const exists = (path) => stat(path).then(() => true, () => false);

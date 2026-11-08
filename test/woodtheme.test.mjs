@@ -3,9 +3,16 @@ import assert from 'node:assert/strict';
 import { app, BrowserWindow } from 'electron';
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
+import { DEFAULT_WOOD_TINT } from '../src/woodtheme.js';
+import { hexToRgb, rgbToHex } from '../src/modcolor.js';
+
+const defaultTint = rgbToHex(...hexToRgb(DEFAULT_WOOD_TINT).map((v) => Math.min(216, Math.max(24, v))));
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true } });
+  win.webContents.on('console-message', (event) => {
+    if (event.level === 'error' || event.level === 'warning') console.error(event.message);
+  });
   let server;
   try {
     const css = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
@@ -66,13 +73,21 @@ app.whenReady().then(async () => {
     const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
       .replace('<script type="module" src="src/main.js"></script>', `<script type="module">
         import { initWoodTheme } from '/src/woodtheme.js';
+        import { createPreferencesManager } from '/src/preferences.js';
+        import { createPreferencesDialog } from '/src/preferencesdialog.js';
         window.themeErrors = [];
-        window.openWoodTint = initWoodTheme(message => window.themeErrors.push(message));
+        window.preferencesManager = createPreferencesManager();
+        initWoodTheme(window.preferencesManager);
+        window.preferencesManager.register({ id: 'test.enabled', category: 'Testing', label: 'Enabled', type: 'boolean', defaultValue: true });
+        window.preferencesManager.register({ id: 'test.level', category: 'Testing', label: 'Level', type: 'number', min: 0, max: 1, defaultValue: 0.5 });
+        window.preferencesManager.register({ id: 'test.mode', category: 'Testing', label: 'Mode', type: 'select', defaultValue: 'auto', options: [{ value: 'auto', label: 'Automatic' }, { value: 'manual', label: 'Manual' }] });
+        await window.preferencesManager.load();
+        window.openPreferences = createPreferencesDialog(window.preferencesManager);
       </script>`);
     const routes = new Map([
       ['/', ['text/html', html]],
       ['/style.css', ['text/css', css]],
-      ...['woodtheme', 'modcolor'].map(name => [`/src/${name}.js`, ['text/javascript',
+      ...['woodtheme', 'modcolor', 'preferences', 'preferencesdialog'].map(name => [`/src/${name}.js`, ['text/javascript',
         readFileSync(new URL('../src/' + name + '.js', import.meta.url), 'utf8')]]),
     ]);
     server = http.createServer((req, res) => {
@@ -86,17 +101,19 @@ app.whenReady().then(async () => {
     const run = code => win.webContents.executeJavaScript(code);
     const tint = () => run("document.documentElement.style.getPropertyValue('--wood-tint')");
     const change = rgb => run(`(() => {
-      ['r', 'g', 'b'].forEach((c, i) => { document.getElementById('wood-' + c).value = ${JSON.stringify(rgb)}[i]; });
-      document.getElementById('wood-r').dispatchEvent(new Event('input'));
+      ['r', 'g', 'b'].forEach((c, i) => { document.getElementById('pref-interface-woodTint-' + c).value = ${JSON.stringify(rgb)}[i]; });
+      document.getElementById('pref-interface-woodTint-r').dispatchEvent(new Event('input'));
     })()`);
-    const submit = value => run(`document.querySelector('#wood-dialog form').requestSubmit(document.querySelector('#wood-dialog button[value="${value}"]'))`);
-    const open = () => run('window.openWoodTint()');
+    const submit = value => run(`document.querySelector('#preferences-dialog form').requestSubmit(document.querySelector('#preferences-dialog button[value="${value}"]'))`);
+    const open = () => run('window.openPreferences()');
     const flushClose = () => run('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
-    assert.equal(await tint(), '#585858', 'charcoal is the default');
+    assert.equal(await tint(), defaultTint, 'existing default tint is preserved');
     await open();
+    assert.equal(await run("document.activeElement.id"), 'preferences-categories', 'category list receives focus');
+    assert.deepEqual(await run("Array.from(document.getElementById('preferences-categories').options, o => o.text)"), ['Interface', 'Testing']);
     await change([64, 128, 192]);
     assert.equal(await tint(), '#4080c0', 'RGB input previews immediately');
-    assert.equal(await run("localStorage.getItem('philsynth:woodTint')"), null, 'preview does not save');
+    assert.equal(await run("localStorage.getItem('philsynth:preferences')"), null, 'preview does not save');
     const tintedGrain = await run(`(async () => {
       const image = new Image();
       const url = getComputedStyle(document.documentElement).getPropertyValue('--wood-h').trim();
@@ -117,7 +134,7 @@ app.whenReady().then(async () => {
     assert.ok(tintedGrain.max - tintedGrain.min > 20, 'tinted grain keeps tonal detail');
     await submit('cancel');
     await flushClose();
-    assert.equal(await tint(), '#585858', 'Cancel restores the previous tint');
+    assert.equal(await tint(), defaultTint, 'Cancel restores the previous tint');
     await open();
     await change([64, 128, 192]);
     await submit('ok');
@@ -125,12 +142,12 @@ app.whenReady().then(async () => {
     await win.loadURL(url);
     assert.equal(await tint(), '#4080c0', 'saved tint survives reload');
     await open();
-    await run("document.getElementById('wood-reset').click()");
-    assert.equal(await tint(), '#585858', 'Reset previews gray');
+    await run("document.querySelector('.preference-reset').click()");
+    assert.equal(await tint(), defaultTint, 'Reset previews the existing default');
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
     await flushClose();
-    assert.equal(await run("document.getElementById('wood-dialog').open"), false, 'Escape closes the dialog');
+    assert.equal(await run("document.getElementById('preferences-dialog').open"), false, 'Escape closes the dialog');
     assert.equal(await tint(), '#4080c0', 'Escape restores saved tint');
     await open();
     await change([0, 0, 0]);
@@ -139,13 +156,40 @@ app.whenReady().then(async () => {
     assert.equal(await tint(), '#d8d8d8', 'white preserves shading headroom');
     await run("Storage.prototype.setItem = () => { throw new Error('Storage blocked'); }; void 0");
     await submit('ok');
-    assert.equal(await run("document.getElementById('wood-dialog').open"), true, 'save failures keep the dialog open');
-    assert.match(await run("document.getElementById('wood-error').textContent"), /Could not save.*Storage blocked/);
+    assert.equal(await run("document.getElementById('preferences-dialog').open"), true, 'save failures keep the dialog open');
+    assert.match(await run("document.getElementById('preferences-error').textContent"), /Could not save.*Storage blocked/);
     await submit('cancel');
     await flushClose();
     assert.equal(await tint(), '#4080c0');
+    await win.loadURL(url);
+    await open();
+    await change([128, 64, 32]);
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Down' });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Down' });
+    assert.equal(await run("document.getElementById('preferences-categories').value"), 'Testing', 'keyboard selects categories');
+    await run(`(() => {
+      const input = document.getElementById('pref-test-enabled');
+      input.checked = false; input.dispatchEvent(new Event('change'));
+      const mode = document.getElementById('pref-test-mode');
+      mode.value = 'manual'; mode.dispatchEvent(new Event('change'));
+      const level = document.getElementById('pref-test-level');
+      level.value = 0.75; level.dispatchEvent(new Event('change'));
+    })()`);
+    await run(`(() => {
+      const list = document.getElementById('preferences-categories');
+      list.value = 'Interface'; list.dispatchEvent(new Event('change'));
+    })()`);
+    assert.equal(await run("document.getElementById('pref-interface-woodTint-r').value"), '128', 'drafts survive category switches');
+    await submit('ok');
+    await flushClose();
+    assert.equal(await run("window.preferencesManager.get('test.enabled')"), false);
+    assert.equal(await run("window.preferencesManager.get('test.mode')"), 'manual');
+    assert.equal(await run("window.preferencesManager.get('test.level')"), 0.75);
+    assert.equal(await tint(), '#804020');
+    await win.loadURL(url);
+    assert.equal(await tint(), '#804020', 'multiple categories save together');
     assert.deepEqual(await run('window.themeErrors'), []);
-    console.log('wood tint controls passed: live preview, Cancel, Reset, persistence, extremes, and storage errors');
+    console.log('preferences controls passed: categories, keyboard navigation, drafts, live preview, Cancel, Reset, persistence, extremes, and storage errors');
     console.log('wood theme tests passed: neutral surfaces, dark textured grain, and preserved signal colors');
     app.exit(0);
   } catch (err) {

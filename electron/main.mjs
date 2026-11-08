@@ -1,11 +1,12 @@
 // PHILSYNTH desktop app:  npm start   (or: npx electron .)
 // Runs the dev server in-process (static files, disk autosave, live reload) and opens the app
 // in a Chromium window where Web MIDI is allowed without a prompt.
-import { app, BrowserWindow, Menu, session, shell, systemPreferences } from 'electron';
+import { app, BrowserWindow, Menu, session, shell, systemPreferences, ipcMain } from 'electron';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { registerProjectFiles } from './projectfiles.mjs';
 import { registerExit } from './exit.mjs';
+import { registerPreferences } from './preferences.mjs';
 
 // PHILSYNTH.app (npm run build:mac) is its own app next to the dev app (npm start): own name,
 // data folder (~/Library/Application Support/PHILSYNTH), single-instance lock and port.
@@ -142,6 +143,7 @@ if (!app.requestSingleInstanceLock()) {
     });
     session.defaultSession.setPermissionCheckHandler((_wc, permission, origin) => TRUSTED.has(permission) && local(`${origin}/`));
     registerProjectFiles(local);
+    registerPreferences(ipcMain, join(app.getPath('userData'), 'preferences.json'), local);
     createWindow(url);
     console.log(`PHILSYNTH app running (${url})`);
   });

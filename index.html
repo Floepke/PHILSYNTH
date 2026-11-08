@@ -13,7 +13,7 @@
       <div id="roll" class="seq-view"></div>
     </section>
     <div id="seq-split" class="splitter horizontal" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Piano roll / patcher divider" aria-controls="seq patcher" title="Drag the exposed divider to resize the piano roll and controller panel; pushes the lower divider when they meet. Arrow keys resize; Home/End move to an edge.">
-      <button id="brand" class="brand" type="button" aria-haspopup="menu" aria-expanded="false" title="Main menu: New, Open, Save, Export Audio, MIDI Input, Wood Tint…"><span class="logo"></span>PHILSYNTH</button>
+      <button id="brand" class="brand" type="button" aria-haspopup="menu" aria-expanded="false" title="Main menu: New, Open, Save, Export Audio, MIDI Input, Preferences…"><span class="logo"></span>PHILSYNTH</button>
       <div id="seq-bar" role="toolbar" aria-label="Sequencer controls">
         <div id="seq-bar-content">
           <label class="seq-field seq-clip" title="Name of the selected clip"><span class="seq-grab">Clip:</span><input id="seq-name" type="text" spellcheck="false"></label>
@@ -166,19 +166,15 @@
     </div>
   </dialog>
 
-  <dialog id="wood-dialog" aria-labelledby="wood-title">
+  <dialog id="preferences-dialog" aria-labelledby="preferences-title">
     <form method="dialog">
-      <h3 id="wood-title">Wood Tint</h3>
-      <div class="color-sliders">
-        <label class="color-row"><span>R</span><input id="wood-r" type="range" min="0" max="255" step="1" aria-label="Wood red"><output id="wood-r-val" for="wood-r"></output></label>
-        <label class="color-row"><span>G</span><input id="wood-g" type="range" min="0" max="255" step="1" aria-label="Wood green"><output id="wood-g-val" for="wood-g"></output></label>
-        <label class="color-row"><span>B</span><input id="wood-b" type="range" min="0" max="255" step="1" aria-label="Wood blue"><output id="wood-b-val" for="wood-b"></output></label>
+      <h3 id="preferences-title">Preferences</h3>
+      <div class="preferences-layout">
+        <select id="preferences-categories" size="8" aria-label="Preference categories"></select>
+        <div id="preferences-content"></div>
       </div>
-      <p id="wood-note" class="dialog-note"></p>
-      <p class="dialog-note">Previewed on all wood surfaces. Saved for this browser or app, not the project. Extreme tints are softened to keep the grain visible.</p>
-      <p id="wood-error" class="dialog-note" role="alert"></p>
+      <p id="preferences-error" class="dialog-note" role="alert"></p>
       <menu>
-        <button type="button" id="wood-reset">Reset to gray</button>
         <button value="cancel">Cancel</button>
         <button value="ok" class="primary">OK</button>
       </menu>

@@ -2,6 +2,11 @@
 // See the 'project:*' handlers in electron/main.mjs and src/projectfile.js.
 const { contextBridge, ipcRenderer } = require('electron');
 
+contextBridge.exposeInMainWorld('modsynthPreferences', {
+  load: () => ipcRenderer.invoke('preferences:load'),
+  save: (text) => ipcRenderer.invoke('preferences:save', text),
+});
+
 contextBridge.exposeInMainWorld('modsynthExit', {
   onRequest: (callback) => {
     ipcRenderer.on('exit:request', () => callback());

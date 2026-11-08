@@ -2,12 +2,47 @@
 
 Modular synthesizer for the browser and Electron.
 
-The frame, dividers, toolbar controls, menus, and dialogs default to charcoal
-wood. Main menu > Wood Tint opens live RGB controls for any tint, preserving
+The frame, dividers, toolbar controls, menus, and dialogs default to dark
+wood. Main menu > Preferences > Interface > Wood Tint opens live RGB controls for any tint, preserving
 grain and bevel shading while keeping signal and module colors unchanged.
 OK saves the tint locally for this browser or app (not in the project); Cancel
-or Escape restores the previous tint, and Reset to gray previews the default.
+or Escape restores the previous tint, and Reset to default previews the default.
 Extreme black/white channel values are softened to preserve visible grain.
+
+## Preferences
+
+PHILSYNTH > Preferences opens the categorized preferences dialog. The listbox on
+the left selects a category; OK saves all changes, while Cancel or Escape undoes
+live previews. Preferences are independent of projects.
+
+The desktop app stores a versioned JSON document in `preferences.json` in its
+Electron user-data directory (development: `modsynth-dev`; packaged: `PHILSYNTH`).
+Writes use a temporary file and atomic rename. Browsers, including GitHub Pages,
+store the same JSON document under `philsynth:preferences` in localStorage.
+Existing Wood Tint settings are migrated automatically without changing the tint.
+Load errors are reported in the status bar, console and preferences dialog;
+save errors keep the dialog open.
+
+Register settings with `preferencesManager.register()` from
+[`src/preferences.js`](src/preferences.js):
+
+```js
+preferencesManager.register({
+  id: 'interface.example',
+  category: 'Interface',
+  label: 'Example',
+  type: 'boolean',
+  defaultValue: false,
+  apply: (value) => { /* update the interface */ },
+});
+```
+
+Supported controls are `color` (`#rrggbb`), `boolean`, `number` (with `min`, `max`
+and optional `step`), and `select` (with `{ value, label }` string options).
+Optional `description` and `validate(value)` provide help and extra validation.
+`apply(value)` must accept both preview and restored values. The manager exposes
+`get(id)`, `load()`, `save(changes)`, `preview(id, value)` and `restore()`.
+Unregistered JSON values are retained for future settings.
 
 ## Module CPU benchmarks
 

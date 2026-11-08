@@ -8,7 +8,9 @@ import { createController } from './controller.js';
 import { linePath, arrowPath, arrowPoints, centerOf, visibleSegment } from './cable.js';
 import { colorOf, stockColor } from './modcolor.js';
 import { openColorDialog } from './colordialog.js';
-import { initWoodTheme } from './woodtheme.js';
+import { initWoodTheme, migrateWoodTint } from './woodtheme.js';
+import { createPreferencesManager } from './preferences.js';
+import { createPreferencesDialog } from './preferencesdialog.js';
 import { Transport } from './transport.js';
 import { unsavedDialog } from './dialogs.js';
 import { exitToOS } from './exit.js';
@@ -46,7 +48,18 @@ let undoHistory = null;
 let scope = null; // live audio drawn on the cables (created after the engine)
 let patchMonitor = null;
 const $ = (id) => document.getElementById(id);
-const openWoodTint = initWoodTheme((message) => { $('status').textContent = message; });
+const preferencesManager = createPreferencesManager();
+initWoodTheme(preferencesManager);
+let preferencesLoadError = '';
+try {
+  await preferencesManager.load();
+  await migrateWoodTint(preferencesManager);
+} catch (err) {
+  console.error('Could not load preferences:', err);
+  preferencesLoadError = `Could not load preferences: ${err.message}`;
+  $('status').textContent = preferencesLoadError;
+}
+const openPreferences = createPreferencesDialog(preferencesManager, { loadError: preferencesLoadError });
 const canvas = $('canvas');
 const noiseBg = createNoiseBackground(canvas);
 const svg = $('cables');
@@ -1507,7 +1520,7 @@ function openMainMenu(focusFirst) {
       { label: 'Export Audio…', shortcut: shortcut('E'), disabled: exporting, action: exportAudio },
       '-',
       { label: 'MIDI Input…', disabled: !midi, action: openMidiMenu },
-      { label: 'Wood Tint…', action: openWoodTint },
+      { label: 'Preferences…', action: openPreferences },
       '-',
       { label: 'Exit', shortcut: 'Esc', action: () => exitToOS(persist, (message) => { $('status').textContent = message; }) },
     ],
