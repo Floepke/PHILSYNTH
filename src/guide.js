@@ -178,7 +178,7 @@ export const GUIDE = [
       {
         title: 'Ruler, restart point and time signatures',
         items: [
-          'Click the timeline measure ruler to position the playhead. Drag it left/right to pan horizontally and up/down to zoom around the grabbed time; both axes act together. The cursor locks during the drag and returns to its press position on release. Escape cancels navigation. Restart markers still drag to change their position.',
+          'Click the timeline measure ruler to position the playhead. Drag it left/right to pan horizontally and up/down to zoom around the grabbed time; both axes act together. The cursor locks during the drag and returns to its press position on release. Browsers may show a pointer-control notice while locked; this is normal. Escape cancels navigation. Restart markers still drag to change their position.',
           'Click the ruler to set the play position (on the signature row dragging scrubs).',
           `${k('Double-click')} the time signature row to insert a time signature change at the nearest bar line (or edit it); right-click a change to remove it.`,
           'Drag a purple signature flag left or right to move it by whole bars of the preceding meter. The initial signature stays at zero. Later changes snap to their nearest whole measure without reordering or overlapping; clips and notes do not move. The grid updates during the drag; Escape cancels, and release records one undo step.',

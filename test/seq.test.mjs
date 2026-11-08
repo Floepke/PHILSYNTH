@@ -186,6 +186,8 @@ const ay = (y) => 2 * CLIP_H + y + CLIP_H / 2;
   const movements = [];
   const releases = [];
   rulerDrag(cv, { pointerId: 1, clientX: 100, clientY: 150 }, (x, y) => movements.push([x, y]), e => releases.push(e.type));
+  doc.dispatchEvent(Object.assign(new Event('mousemove'), { movementX: -518, movementY: -249 }));
+  assert.deepEqual(movements, [], 'Firefox pointer-lock recentering does not jump the view');
   for (const [movementX, movementY] of [[20, -10], [-5, 4]]) {
     doc.dispatchEvent(Object.assign(new Event('mousemove'), { movementX, movementY }));
   }

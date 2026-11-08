@@ -58,11 +58,14 @@ export function capture(cv, e, onMove, onUp) {
 export function rulerDrag(cv, e, onMove, onUp) {
   let ended = false;
   let locked = false;
+  let firstLockedMove = true;
   let dx = 0, dy = 0;
   const move = ev => {
     if (ended) return;
     if (document.pointerLockElement === cv) {
       if (ev.type !== 'mousemove') return;
+      // Firefox can report cursor recentering as movement when pointer lock begins.
+      if (firstLockedMove) { firstLockedMove = false; return; }
       dx += ev.movementX;
       dy += ev.movementY;
     } else {
