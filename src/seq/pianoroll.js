@@ -245,6 +245,7 @@ export function createPianoRoll(host, ctx) {
     const offset = inside ? p.x - b.pos : b.thumb / 2;
     const scrollTo = (q) => {
       view.hx = scrollValue(b, q.x - offset);
+      ctx.viewChanged?.();
       s.redraw();
     };
     hbActive = true;
@@ -270,6 +271,7 @@ export function createPianoRoll(host, ctx) {
     const offset = inside ? p.y - b.pos : b.thumb / 2;
     const scrollTo = (q) => {
       view.sy = scrollValue(b, q.y - offset);
+      ctx.viewChanged?.();
       s.redraw();
     };
     sbActive = true;
@@ -285,7 +287,7 @@ export function createPianoRoll(host, ctx) {
     area: () => (horizontal && zoomedX()
       ? { left: gridX(), right: rollRight(), top: 0, bottom: gridBottom() }
       : { left: -Infinity, right: Infinity, top: 0, bottom: gridBottom() }),
-    scroll: (dx, dy) => { view.sy += dy; view.hx += dx; limitScroll(); },
+    scroll: (dx, dy) => { view.sy += dy; view.hx += dx; limitScroll(); ctx.viewChanged?.(); },
     onScroll,
   });
 
@@ -1069,7 +1071,7 @@ export function createPianoRoll(host, ctx) {
     syncSelection();
     if (e.button === 1) {
       drag = { kind: 'pan' };
-      startPan(s, e, (dx, dy) => { view.sy -= dy; view.hx -= dx; limitX(); s.redraw(); }, () => { drag = null; });
+      startPan(s, e, (dx, dy) => { view.sy -= dy; view.hx -= dx; limitScroll(); ctx.viewChanged?.(); s.redraw(); }, () => { drag = null; });
       return;
     }
     const clip = ctx.clip();
@@ -1463,6 +1465,7 @@ export function createPianoRoll(host, ctx) {
       if (!d) return;
       pointer = s.local(e);
       zoomX(wheelNotches(d, e.deltaMode), pointer.x);
+      ctx.viewChanged?.();
       drag?.refresh?.();
       s.redraw();
       return;
@@ -1479,7 +1482,9 @@ export function createPianoRoll(host, ctx) {
       const t = timeAt(y);
       view.ppq = clamp(view.ppq * Math.pow(1.15, notches), 6, 600);
       view.sy = t * view.ppq - y;
-      if (drag?.refresh) { limitScroll(); drag.refresh(); }
+      limitScroll();
+      if (drag?.refresh) drag.refresh();
+      ctx.viewChanged?.();
       s.redraw();
     },
     scroll(dx, dy, e) { // pixel deltas as the wheel / trackpad sends them (smooth on trackpads)
@@ -1487,7 +1492,9 @@ export function createPianoRoll(host, ctx) {
       if (!dx && !dy) return;
       if (zoomedX()) { view.hx += dx; limitX(); } // sideways (trackpad): pan the zoomed keys
       view.sy += dy;
-      if (drag?.refresh) { limitScroll(); drag.refresh(); } // the rectangle follows the scroll
+      limitScroll();
+      if (drag?.refresh) drag.refresh(); // the rectangle follows the scroll
+      ctx.viewChanged?.();
       s.redraw();
     },
   });
@@ -1502,12 +1509,12 @@ export function createPianoRoll(host, ctx) {
     },
     // scroll so the clip start is visible (called when another clip gets selected)
     reveal() { view.sy = -TOP_MARGIN; s.redraw(); },
-    getView: () => { const { hz, hx, ...saved } = view; return saved; },
+    getView: () => ({ ...view }),
     setView(v) {
       view.snapVelocity = typeof v?.snapVelocity === 'boolean' ? v.snapVelocity : true;
       view.velW = Number.isFinite(v?.velW) ? Math.max(VEL_MIN, v.velW) : VEL_W;
-      view.hz = 1; // the pitch zoom is a working view: not saved, every loaded view starts unzoomed
-      view.hx = 0;
+      view.hz = Number.isFinite(v?.hz) ? clamp(v.hz, 1, HZ_MAX) : 1;
+      view.hx = Number.isFinite(v?.hx) ? Math.max(0, v.hx) : 0;
       if (!v) { s.redraw(); return; }
       for (const k of ['sy', 'ppq']) if (Number.isFinite(v[k])) view[k] = v[k];
       view.ppq = clamp(view.ppq, 6, 600);

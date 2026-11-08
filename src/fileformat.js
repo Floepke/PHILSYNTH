@@ -9,6 +9,9 @@ const LEGACY = { [PROJECT_FORMAT]: 'modsynth', [MODULE_FORMAT]: 'modsynth-module
 export const isFormat = (value, format) => value === format || value === LEGACY[format];
 export const isProject = (data) => isFormat(data?.format, PROJECT_FORMAT);
 
+// Compact JSON for saved project, module, clip and autosave files.
+export const jsonFileText = (data) => JSON.stringify(data);
+
 export const PROJECT_EXT = '.phproject';
 export const MODULE_EXT = '.phmod';
 export const CLIP_EXT = '.clip';

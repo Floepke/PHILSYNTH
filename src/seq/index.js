@@ -87,7 +87,7 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
       onChange();
       sync();
     },
-    viewChanged: () => onChange(), // view-only change (velocity strip width): saved, no undo step
+    viewChanged: () => onChange(), // view-only changes are saved without an undo step
     live: () => { roll.redraw(); lane.redraw(); }, // arranger drag in progress: keep the piano roll in step
     // insert / edit / remove the time signature that starts at `at` (a bar line)
     async editSig(at) {
@@ -525,7 +525,6 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
     },
     viewState: () => ({ ...layout, roll: roll.getView(), lane: lane.getView(), arranger: arranger.getView() }),
     applyView(v) {
-      roll.setView(v?.roll);
       if (v) {
         if (!Number.isFinite(v.top) && !Number.isFinite(v.bottom)
           && (Number.isFinite(v.width) || Number.isFinite(v.split) || v.open === false)) {
@@ -545,10 +544,11 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
         if (Number.isFinite(v.restoreBottom)) layout.restoreBottom = clamp(v.restoreBottom, 0, 1);
         layout.restoreBottom = Math.max(layout.restoreTop, layout.restoreBottom);
         if (Number.isFinite(v.panelWidth)) layout.panelWidth = Math.max(0, v.panelWidth);
-        lane.setView(v.lane);
-        arranger.setView(v.arranger);
       } else Object.assign(layout, defaults);
       applyLayout();
+      roll.setView(v?.roll);
+      lane.setView(v?.lane);
+      arranger.setView(v?.arranger);
       sync();
     },
   };

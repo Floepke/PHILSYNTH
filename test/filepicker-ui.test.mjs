@@ -1,0 +1,175 @@
+// Run with Electron: xvfb-run -a node_modules/.bin/electron test/filepicker-ui.test.mjs
+import assert from 'node:assert/strict';
+import { app, BrowserWindow } from 'electron';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import http from 'node:http';
+import { registerProjectFiles } from '../electron/projectfiles.mjs';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+app.on('window-all-closed', () => {});
+app.whenReady().then(async () => {
+const temp = await mkdtemp(join(tmpdir(), 'filepicker-ui-'));
+const data = join(temp, 'data');
+const files = join(temp, 'files');
+await mkdir(data);
+await mkdir(files);
+await mkdir(join(files, 'Folder'));
+await writeFile(join(files, 'Folder', '.hidden'), 'hidden');
+await writeFile(join(files, 'one.phproject'), 'original');
+app.setPath('userData', data);
+app.setPath('documents', files);
+
+let server;
+let win;
+try {
+  registerProjectFiles(() => true);
+  const index = (await readFile(join(root, 'index.html'), 'utf8'))
+    .replace('<script type="module" src="src/main.js"></script>', `<script type="module">
+      import { pickFile } from '/src/filepicker.js';
+      window.openPicker = mode => { window.pickResult = pickFile(window.modsynthFiles,
+        { mode, dialog: 'project-open', exts: ['.phproject'], saveExt: '.phproject' }); };
+    </script>`);
+  server = http.createServer(async (req, res) => {
+    try {
+      const path = resolve(root, '.' + new URL(req.url, 'http://localhost').pathname);
+      if (path !== root && !path.startsWith(root + sep)) throw new Error('Invalid path');
+      const body = path === root ? index : await readFile(path);
+      res.writeHead(200, { 'Content-Type': path.endsWith('.js') ? 'text/javascript' : path.endsWith('.css') ? 'text/css' : 'text/html' });
+      res.end(body);
+    } catch {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  win = new BrowserWindow({ show: false, webPreferences: {
+    preload: join(root, 'electron', 'preload.cjs'), sandbox: true, contextIsolation: true,
+  } });
+  await win.loadURL(`http://127.0.0.1:${server.address().port}/`);
+  const run = (code) => win.webContents.executeJavaScript(code);
+  const wait = async (condition) => {
+    for (let i = 0; i < 100; i++) {
+      if (await condition()) return;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error('Timed out waiting for picker');
+  };
+  const visible = (name) => run(`Array.from(document.querySelectorAll('.fd-row .fd-file')).some(el => el.textContent === ${JSON.stringify(name)})`);
+  const open = async (mode) => {
+    await run(`window.openPicker(${JSON.stringify(mode)}); true`);
+    await wait(() => visible('one.phproject'));
+  };
+  const context = async (name) => {
+    await wait(() => run(`(() => {
+      const row = [...document.querySelectorAll('.fd-row')].find(el => el.querySelector('.fd-file')?.textContent === ${JSON.stringify(name)});
+      if (!row) throw new Error('Missing row');
+      row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 200 }));
+      return !!document.querySelector('#file-dialog .fd-context-menu');
+    })()`));
+    assert.equal(await run("!!document.querySelector('#file-dialog .fd-context-menu')"), true, 'menu appears inside the modal dialog');
+    assert.equal(await run(`(() => {
+      const menu = document.querySelector('.fd-context-menu').getBoundingClientRect();
+      const dialog = document.querySelector('#file-dialog').getBoundingClientRect();
+      return menu.left >= dialog.left && menu.right <= dialog.right && menu.top >= dialog.top && menu.bottom <= dialog.bottom;
+    })()`), true, 'menu stays inside the dialog');
+  };
+  const choose = (label) => run(`(() => {
+    const button = [...document.querySelectorAll('.fd-context-menu button')].find(el => el.textContent === ${JSON.stringify(label)});
+    if (!button || button.disabled) throw new Error('Menu item unavailable');
+    button.click();
+  })()`);
+  const confirm = async (expected, answer) => {
+    await wait(() => run("document.querySelector('#confirm-dialog').open"));
+    assert.match(await run("document.querySelector('#confirm-text').textContent"), expected);
+    assert.deepEqual(await run("[document.querySelector('#confirm-ok').textContent, document.querySelector('#confirm-cancel').textContent]"), ['Yes', 'No']);
+    assert.equal(await run("document.activeElement.id"), 'confirm-cancel', 'No is focused by default');
+    await run(`document.querySelector('#confirm-dialog').close(${JSON.stringify(answer)})`);
+  };
+  const contextBackground = () => run(`document.querySelector('#fd-list').dispatchEvent(
+    new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 200 }))`);
+
+  await open('open');
+  await run(`window.modsynthFiles.saveAs(${JSON.stringify(join(files, 'one.phproject'))}, 'original')`);
+  await writeFile(join(files, 'Folder', 'one.phproject'), 'do not overwrite');
+  await context('one.phproject');
+  await choose('Cut');
+  await context('Folder');
+  await choose('Paste');
+  await wait(() => run("document.querySelector('#fd-error').textContent.includes('Cannot paste')"));
+  assert.equal(await readFile(join(files, 'one.phproject'), 'utf8'), 'original');
+  assert.equal(await readFile(join(files, 'Folder', 'one.phproject'), 'utf8'), 'do not overwrite');
+  await rm(join(files, 'Folder', 'one.phproject'));
+  await context('Folder');
+  await choose('Copy');
+  await contextBackground();
+  await choose('Paste');
+  await wait(() => visible('Folder copy'));
+  assert.equal(await readFile(join(files, 'Folder copy', '.hidden'), 'utf8'), 'hidden');
+  await context('Folder copy');
+  await choose('Rename');
+  await run(`(() => {
+    const input = document.querySelector('[aria-label="New name"]');
+    input.value = 'Folder renamed';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  })()`);
+  await wait(() => visible('Folder renamed'));
+  await context('Folder renamed');
+  await choose('Cut');
+  await context('Folder');
+  await choose('Paste');
+  await wait(async () => (await readFile(join(files, 'Folder', 'Folder renamed', '.hidden'), 'utf8').catch(() => null)) === 'hidden');
+  await context('one.phproject');
+  await choose('Copy');
+  await context('one.phproject');
+  await choose('Paste');
+  await wait(() => visible('one copy.phproject'));
+  assert.equal(await readFile(join(files, 'one copy.phproject'), 'utf8'), 'original');
+  await context('one copy.phproject');
+  await choose('Rename');
+  await run(`(() => {
+    const input = document.querySelector('[aria-label="New name"]');
+    input.value = 'renamed.phproject';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  })()`);
+  await wait(() => visible('renamed.phproject'));
+  await context('renamed.phproject');
+  await choose('Cut');
+  await context('Folder');
+  await choose('Paste');
+  await wait(async () => (await readFile(join(files, 'Folder', 'renamed.phproject'), 'utf8').catch(() => null)) === 'original');
+  await context('Folder');
+  await choose('Delete');
+  await confirm(/all its contents/, 'ok');
+  await confirm(/absolutely sure/, 'cancel');
+  assert.equal(await readFile(join(files, 'Folder', '.hidden'), 'utf8'), 'hidden', 'second No preserves the folder');
+  await context('Folder');
+  await choose('Delete');
+  await confirm(/all its contents/, 'ok');
+  await confirm(/absolutely sure/, 'ok');
+  await wait(async () => !(await visible('Folder')));
+  assert.equal(await readFile(join(files, 'Folder', '.hidden'), 'utf8').catch(() => null), null);
+  await run("document.querySelector('#fd-cancel').click(); window.pickResult");
+
+  await open('save');
+  await context('one.phproject');
+  await choose('Delete');
+  await confirm(/Permanently delete file/, 'cancel');
+  assert.equal(await readFile(join(files, 'one.phproject'), 'utf8'), 'original');
+  await context('one.phproject');
+  await choose('Delete');
+  await confirm(/Permanently delete file/, 'ok');
+  await wait(async () => !(await visible('one.phproject')));
+  assert.equal(await run("document.querySelector('#confirm-dialog').open"), false, 'file deletion needs only one confirmation');
+  assert.equal(await run(`window.modsynthFiles.save(${JSON.stringify(join(files, 'one.phproject'))}, 'recreated')`), null, 'saving a deleted project asks for a new file');
+  assert.equal(await readFile(join(files, 'one.phproject'), 'utf8').catch(() => null), null);
+  await run("document.querySelector('#fd-cancel').click(); window.pickResult");
+  console.log('file picker UI tests passed');
+} finally {
+  win?.destroy();
+  if (server) await new Promise((resolve) => server.close(resolve));
+  await rm(temp, { recursive: true, force: true });
+}
+}).then(() => app.quit()).catch((err) => { console.error(err); app.exit(1); });

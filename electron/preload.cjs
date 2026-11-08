@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld('modsynthFiles', {
   list: (dir, exts) => ipcRenderer.invoke('fs:list', dir, exts),
   target: (dir, name, ext) => ipcRenderer.invoke('fs:target', dir, name, ext),
   mkdir: (dir, name) => ipcRenderer.invoke('fs:mkdir', dir, name),
+  transfer: (path, isDir, dir, move, name = null) => ipcRenderer.invoke('fs:transfer', path, isDir, dir, move, name),
+  deleteEntry: (path, isDir) => ipcRenderer.invoke('fs:delete', path, isDir),
   // projects
   open: (path) => ipcRenderer.invoke('project:open', path),
   save: (ref, text) => ipcRenderer.invoke('project:save', ref, text),

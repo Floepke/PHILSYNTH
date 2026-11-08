@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { PROJECT_FORMAT, MODULE_FORMAT, CLIP_FORMAT, isFormat, isProject, PROJECT_EXT, MODULE_EXT, PROJECT_OPEN_EXTS, MODULE_OPEN_EXTS } from '../src/fileformat.js';
+import { PROJECT_FORMAT, MODULE_FORMAT, CLIP_FORMAT, isFormat, isProject, jsonFileText, PROJECT_EXT, MODULE_EXT, PROJECT_OPEN_EXTS, MODULE_OPEN_EXTS } from '../src/fileformat.js';
 import { KINDS } from '../src/filedialog.js';
 
 assert.equal(PROJECT_FORMAT, 'philsynth');
@@ -20,5 +20,14 @@ assert.deepEqual(MODULE_OPEN_EXTS, ['.phmod', '.synth']);
 assert.deepEqual(KINDS.module.open, ['.phmod', '.synth']);
 assert.equal(KINDS.module.ext, '.phmod');
 assert.deepEqual(KINDS.clip.open, ['.clip']);
+
+for (const format of [PROJECT_FORMAT, MODULE_FORMAT, CLIP_FORMAT]) {
+  const data = { format, name: 'A "name"\nwith spaces', nested: [{ text: 'a  b', values: [0, 1, null] }] };
+  const text = jsonFileText(data);
+  assert.equal(text, JSON.stringify(data), `${format}: compact JSON`);
+  assert.ok(!text.includes('\n'), `${format}: one physical line`);
+  assert.deepEqual(JSON.parse(text), data, `${format}: content round-trips`);
+  assert.ok(Buffer.byteLength(text) < Buffer.byteLength(JSON.stringify(data, null, 2)), `${format}: less disk space`);
+}
 
 console.log('file format tests passed');

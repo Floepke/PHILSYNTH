@@ -174,6 +174,73 @@ const assertNoOverlap = (song) => {
   }
 };
 
+// Camera-only interactions schedule persistence without creating undo steps.
+{
+  const { roll, arranger, ctx, changes } = setup();
+  let viewChanges = 0;
+  ctx.viewChanged = () => viewChanges++;
+  const expectViewChange = (action, label) => {
+    const before = viewChanges;
+    action();
+    assert.ok(viewChanges > before, `${label} schedules a view save`);
+  };
+  const rollCv = roll.surface.cv;
+  expectViewChange(() => fire(rollCv, 'wheel', { clientX: 400, clientY: 100, deltaY: 60, deltaMode: 0 }), 'roll scroll');
+  expectViewChange(() => fire(rollCv, 'wheel', { clientX: 400, clientY: 100, deltaY: -100, deltaMode: 0, ctrlKey: true }), 'roll time zoom');
+  expectViewChange(() => fire(rollCv, 'wheel', { clientX: 400, clientY: 100, deltaY: -100, deltaMode: 0, shiftKey: true }), 'roll pitch zoom');
+  expectViewChange(() => drag(rollCv, 400, 100, 430, 120, { button: 1 }), 'roll pan');
+  expectViewChange(() => click(rollCv, ROLL_WIDTH - ROLL_SB / 2, 300), 'roll vertical scrollbar');
+  expectViewChange(() => click(rollCv, ROLL_WIDTH - ROLL_SB - 2, 360), 'roll horizontal scrollbar');
+  const arrangerCv = arranger.surface.cv;
+  expectViewChange(() => fire(arrangerCv, 'wheel', { clientX: 200, clientY: 100, deltaY: 60, deltaMode: 0 }), 'timeline scroll');
+  expectViewChange(() => fire(arrangerCv, 'wheel', { clientX: 200, clientY: 100, deltaY: -100, deltaMode: 0, ctrlKey: true }), 'timeline zoom');
+  expectViewChange(() => drag(arrangerCv, 200, 150, 230, 170, { button: 1 }), 'timeline pan');
+  expectViewChange(() => click(arrangerCv, 400, 390), 'timeline scrollbar');
+  assert.equal(changes(), 0, 'camera interactions do not create undo steps');
+}
+
+// Restoring the TimeLine after layout changes must not apply the old viewport's resize again.
+{
+  const { arranger, arrangerHost } = setup();
+  arrangerHost.clientWidth = 600;
+  arrangerHost.clientHeight = 250;
+  const saved = { sx: 170, sy: -90, ppq: 32 };
+  arranger.setView(saved);
+  arrangerHost.resize();
+  flush();
+  assert.deepEqual(arranger.getView(), saved);
+}
+
+{
+  const song = emptySong();
+  const clip = addAutoClip(song, { length: 16 });
+  song.selected = clip.id;
+  let viewChanges = 0;
+  let changes = 0;
+  const lane = createAutomationLane(host(), {
+    song: () => song, clip: () => clip, color: () => '#e76f51',
+    transport: { playing: false, pos: 0 }, autoParam: () => null,
+    changed: () => changes++, viewChanged: () => viewChanges++,
+  });
+  flush();
+  const cv = lane.surface.cv;
+  for (const action of [
+    () => fire(cv, 'wheel', { clientX: 200, clientY: 100, deltaY: 60, deltaMode: 0 }),
+    () => fire(cv, 'wheel', { clientX: 200, clientY: 100, deltaY: -100, deltaMode: 0, ctrlKey: true }),
+    () => drag(cv, 200, 150, 200, 170, { button: 1 }),
+  ]) {
+    const before = viewChanges;
+    action();
+    assert.ok(viewChanges > before, 'automation camera schedules a view save');
+  }
+  const saved = lane.getView();
+  lane.setView({ sy: 0, ppq: 48 });
+  lane.setView(saved);
+  flush();
+  assert.deepEqual(lane.getView(), saved, 'automation view survives a round trip');
+  assert.equal(changes, 0, 'automation camera does not create undo steps');
+}
+
 // TimeLine resizing retains the time/lane at its centre, including hide/restore.
 {
   const { arranger, arrangerHost, changes } = setup();
@@ -1446,15 +1513,14 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.deepEqual(arranger.getView(), n);
 }
 
-// Free camera: pans anywhere, also far into empty space away from every clip; the scrollbars
-// follow it there and pan back.
+// The camera can pan far horizontally and downward, but stops above at the idea label.
 {
   const { song, arranger } = setup();
   const cv = arranger.surface.cv;
   addClip(song, { start: 8, length: 4, y: 2 * 34 });
-  for (const [sx, sy] of [[5000, 3000], [-4000, -2500], [64 * 300, 34 * 200]]) {
+  for (const [sx, sy] of [[5000, 3000], [-4000, -200], [64 * 300, 34 * 200]]) {
     arranger.setView({ sx, sy }); flush();
-    assert.deepEqual([arranger.getView().sx, arranger.getView().sy], [sx, sy], `no pan limit at ${sx}, ${sy}`);
+    assert.deepEqual([arranger.getView().sx, arranger.getView().sy], [sx, sy], `view remains at ${sx}, ${sy}`);
   }
   // the scrollbars still work out there: the thumb sits at the far end, pressing the track
   // at the start brings the camera back toward the content
@@ -1466,7 +1532,61 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   arranger.setView({ sx: NaN, sy: Infinity }); flush();
   assert.deepEqual([arranger.getView().sx, arranger.getView().sy], [before.sx, before.sy], 'broken numbers are ignored');
   arranger.setView({ sx: 1e12, sy: -1e12 }); flush();
-  assert.deepEqual([arranger.getView().sx, arranger.getView().sy], [1e7, -1e7], 'only absurd distances are capped');
+  assert.deepEqual([arranger.getView().sx, arranger.getView().sy], [1e7, -336], 'upward limit keeps the idea label visible');
+}
+
+// Every way of moving the camera respects the visible bottom edge of the idea label.
+{
+  const { song, arranger, arrangerHost } = setup();
+  const cv = arranger.surface.cv;
+  const label = 'Playback of clips in this area is ignored except if you loop the clip.';
+  const checkLimit = (message) => {
+    cv.drawing.length = 0;
+    arranger.redraw(); flush();
+    const text = cv.drawing.findLast(([op, value]) => op === 'fillText' && value === label);
+    assert.ok(text, `${message}: label is drawn`);
+    assert.equal(text[3], arrangerHost.clientHeight - 32, `${message}: label stays above the scrollbar`);
+    assert.equal(arranger.getView().sy, 38 - (arrangerHost.clientHeight - 32 + 6), `${message}: exact pan limit`);
+  };
+  arranger.setView({ sy: -1e7 }); flush();
+  checkLimit('restored view');
+  arranger.setView({ sy: 0 }); flush();
+  fire(cv, 'wheel', { clientX: 200, clientY: 100, deltaY: -100000, deltaMode: 0, shiftKey: true });
+  checkLimit('wheel');
+  arranger.setView({ sy: 0 }); flush();
+  drag(cv, 200, 150, 200, 5000, { button: 1 });
+  checkLimit('middle drag');
+  arranger.setView({ sy: 0 }); flush();
+  drag(cv, 200, 150, 200, 5000);
+  checkLimit('empty-space drag');
+  arranger.setView({ sy: 0 }); flush();
+  click(cv, 464, 40);
+  checkLimit('scrollbar');
+  arrangerHost.clientHeight = 200;
+  arrangerHost.resize(); flush();
+  checkLimit('resize');
+  arrangerHost.clientHeight = 0;
+  arrangerHost.resize(); flush();
+  arranger.setView({ sy: -5000 });
+  arrangerHost.clientHeight = 300;
+  arrangerHost.resize(); flush();
+  checkLimit('restore while collapsed');
+  arranger.setView({ sy: 0 }); flush();
+  mock.timers.enable({ apis: ['setInterval'] });
+  try {
+    point(cv, 'pointerdown', 200, 150, { buttons: 1, shiftKey: true });
+    point(cv, 'pointermove', 200, 0, { buttons: 1, shiftKey: true });
+    mock.timers.tick(5000); flush();
+    checkLimit('selection auto-scroll');
+    point(cv, 'pointerup', 200, 0, { shiftKey: true });
+  } finally {
+    mock.timers.reset();
+  }
+  const deepIdea = addClip(song, { start: 5, length: 4, y: -5000 });
+  arranger.reveal(deepIdea.id); flush();
+  checkLimit('reveal an existing deep idea');
+  assert.equal(deepIdea.y, -5000, 'old ideas outside the limit are not modified');
+  assert.equal(song.clips.length, 2, 'limiting the camera does not remove clips');
 }
 
 // Idea storage above the first lane: clips go there freely (no snapping, overlaps allowed) and
@@ -3051,7 +3171,7 @@ for (const width of [300, 480, 900, 1912]) {
 }
 
 // Shift + wheel zooms pitch (stave and keyboard) around the pointer; zoomed in, a horizontal
-// scrollbar shows above the keys and middle-drag pans sideways. The zoom is not saved.
+// scrollbar shows above the keys and middle-drag pans sideways. The view is saved.
 {
   const { clip, roll, ctx } = setup();
   const cv = roll.surface.cv;
@@ -3093,14 +3213,17 @@ for (const width of [300, 480, 900, 1912]) {
   assert.equal(clip.notes.at(-1).pitch, 127, 'scrolled to the right end of the keys');
   clip.notes.pop();
   assert.equal(clip.notes.length, 2, 'the scrollbar inserts no notes');
-  assert.ok(!('hz' in roll.getView()) && !('hx' in roll.getView()), 'the pitch zoom is not saved');
+  const saved = JSON.parse(JSON.stringify(roll.getView()));
+  assert.ok(saved.hz > 1 && saved.hx > 0, 'pitch zoom and scroll are saved');
   for (let i = 0; i < 40; i++) fire(cv, 'wheel', { clientX: 600, clientY: 100, deltaX: 0, deltaY: 100, deltaMode: 0, shiftKey: true });
   const [a3, b3] = heads();
   assert.deepEqual([a3, b3], [a0, b0], 'zoomed fully out: back to all keys');
   assert.ok(!track(sbY), 'the horizontal scrollbar hides again');
+  roll.setView(saved); flush();
+  assert.deepEqual(roll.getView(), saved, 'pitch zoom and scroll survive a view round trip');
   for (let i = 0; i < 10; i++) fire(cv, 'wheel', { clientX: nx(60), clientY: 100, deltaX: 0, deltaY: -100, deltaMode: 0, shiftKey: true });
   roll.setView({ sy: 0, ppq: 48 });
-  assert.deepEqual(heads(), [a0, b0], 'a loaded view starts unzoomed');
+  assert.deepEqual(heads(), [a0, b0], 'older views without pitch zoom start unzoomed');
 }
 
 // When zoomed in, moving a note past the side edge scrolls the keys along.
@@ -3182,7 +3305,7 @@ for (const width of [300, 480, 900, 1912]) {
     roll.redraw(); flush();
     assert.deepEqual(cv.drawing.filter(([op]) => op === 'translate').map((op) => op[1]), centers);
     assert.deepEqual(clip.notes, before, 'resizing and scrolling do not alter the notes');
-    assert.deepEqual(Object.keys(roll.getView()).sort(), ['ppq', 'snapVelocity', 'sy', 'velW'], 'horizontal geometry is not persisted (only the velocity strip width)');
+    assert.deepEqual(Object.keys(roll.getView()).sort(), ['hx', 'hz', 'ppq', 'snapVelocity', 'sy', 'velW'], 'the view includes pitch zoom and scroll');
   }
 }
 

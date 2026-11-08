@@ -315,7 +315,7 @@ export function createAutomationLane(host, ctx) {
     syncSelection();
     if (e.button === 1) {
       drag = { kind: 'pan' };
-      startPan(s, e, (dx, dy) => { view.sy -= dy; s.redraw(); }, () => { drag = null; });
+      startPan(s, e, (dx, dy) => { view.sy -= dy; limitScroll(); ctx.viewChanged?.(); s.redraw(); }, () => { drag = null; });
       return;
     }
     const clip = ctx.clip();
@@ -358,7 +358,7 @@ export function createAutomationLane(host, ctx) {
     // near / past the top or bottom edge the lane scrolls along, so a point can travel the whole clip
     const auto = edgeScroll({
       area: () => ({ left: -Infinity, right: Infinity, top: 0, bottom: bottom() }),
-      scroll: (_dx, dy) => { view.sy += dy; limitScroll(); },
+      scroll: (_dx, dy) => { view.sy += dy; limitScroll(); ctx.viewChanged?.(); },
       onScroll: apply,
     });
     capture(cv, e, (ev) => {
@@ -419,12 +419,16 @@ export function createAutomationLane(host, ctx) {
       const t = timeAt(y);
       view.ppq = clamp(view.ppq * Math.pow(1.15, notches), 6, 600);
       view.sy = t * view.ppq - y;
-      if (drag?.refresh) { limitScroll(); drag.refresh(); } // a dragged point follows the view
+      limitScroll();
+      if (drag?.refresh) drag.refresh(); // a dragged point follows the view
+      ctx.viewChanged?.();
       s.redraw();
     },
     scroll(dx, dy) {
       view.sy += dy;
-      if (drag?.refresh) { limitScroll(); drag.refresh(); }
+      limitScroll();
+      if (drag?.refresh) drag.refresh();
+      ctx.viewChanged?.();
       s.redraw();
     },
   });

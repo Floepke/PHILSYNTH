@@ -36,7 +36,7 @@
 // when the source is deleted or detached, the earliest remaining clip becomes the source.
 // The project file stores every clip's notes; loading re-shares them.
 import { curvePolyline, sampleAt } from './curve.js';
-import { CLIP_FORMAT, isFormat } from './fileformat.js';
+import { CLIP_FORMAT, isFormat, jsonFileText } from './fileformat.js';
 
 export const SNAP_BASES = [1, 2, 4, 8, 16, 32, 64, 128]; // whole, half, quarter, eighth, 16th, ... note
 export const SNAP_NAMES = { 1: 'Whole', 2: 'Half', 4: 'Quarter', 8: 'Eighth', 16: '16th', 32: '32nd', 64: '64th', 128: '128th' };
@@ -484,7 +484,7 @@ export function clipFileText(clips, typeOf = () => null) {
     if (type) copy.targetType = type;
     return copy;
   });
-  return JSON.stringify({ format: CLIP_FORMAT, version: 1, clips: saved }, null, 2);
+  return jsonFileText({ format: CLIP_FORMAT, version: 1, clips: saved });
 }
 // -> validated clips (ids are placeholders: add them with duplicateClip), each with its targetType
 export function parseClipFile(text) {

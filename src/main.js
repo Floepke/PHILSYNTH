@@ -33,7 +33,7 @@ import { createProjectFile, pickBackend } from './projectfile.js';
 import { initStatusTips } from './statustips.js';
 import { saveTextFile, openTextFile } from './filedialog.js';
 import { pickFile } from './filepicker.js';
-import { PROJECT_FORMAT, MODULE_FORMAT, MODULE_EXT, isFormat } from './fileformat.js';
+import { PROJECT_FORMAT, MODULE_FORMAT, MODULE_EXT, isFormat, jsonFileText } from './fileformat.js';
 import { moduleDocs } from './moduledocs.js';
 import { createPatchMonitor } from './patchmonitor.js';
 import { songFacts } from './songfacts.js';
@@ -254,7 +254,7 @@ const projectFile = createProjectFile({
     const project = engine.saveProject();
     return { ...project, song: { ...project.song, selected: null } };
   },
-  serialize: () => JSON.stringify(withSamples({ ...engine.saveProject(), view: viewState() }), null, 2),
+  serialize: () => jsonFileText(withSamples({ ...engine.saveProject(), view: viewState() })),
   backend: pickBackend(window, $('file')),
   onChange: showDocument,
 });
@@ -292,6 +292,7 @@ function viewState() {
   return {
     path: path.slice(1).map((l) => l.id),
     cams: path.map((l) => l.cam ?? defaultCam()),
+    cameraSize: { width: cameraWidth, height: cameraHeight },
     seq: seq?.viewState(),
     layers: layerView(),
     panelScrolls,
@@ -329,6 +330,20 @@ function applyView(view) {
     if (view.midi.locked && rt.midiLock === null && followedEntry(rt)?.id === view.midi.id) rt.midiLock = view.midi.id;
   }
   seq?.applyView(view?.seq);
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  const size = view?.cameraSize;
+  if (Number.isFinite(size?.width) && size.width > 0 && Number.isFinite(size?.height) && size.height > 0) {
+    cameraWidth = size.width;
+    cameraHeight = size.height;
+    if (width > 0 && height > 0 && path.at(-1).cam) {
+      path.at(-1).cam = resizeCam(cam(), cameraWidth, cameraHeight, width, height);
+    }
+  }
+  if (width > 0 && height > 0) {
+    cameraWidth = width;
+    cameraHeight = height;
+  }
   render();
 }
 
@@ -1019,7 +1034,7 @@ async function saveModules() {
   const data = current().copyMany(mods.map((m) => m.id));
   if (!data) { $('status').textContent = 'Select a module to save (the Output module cannot be saved).'; return; }
   const suggestedName = `${fileSafe(mods.length === 1 ? mods[0].name || mods[0].def.type : 'modules')}${MODULE_EXT}`;
-  const text = JSON.stringify(withSamples({ format: MODULE_FORMAT, version: 1, ...data }), null, 2);
+  const text = jsonFileText(withSamples({ format: MODULE_FORMAT, version: 1, ...data }));
   let saved;
   try {
     saved = await saveTextFile('module', suggestedName, text); // starts in the last module folder

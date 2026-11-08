@@ -10,7 +10,7 @@ import { watch } from 'node:fs';
 import { readFile, writeFile, rename, mkdir, copyFile, stat } from 'node:fs/promises';
 import { dirname, extname, join, normalize, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isProject } from './src/fileformat.js';
+import { isProject, jsonFileText } from './src/fileformat.js';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PROJECTS = process.env.MODSYNTH_PROJECTS || join(ROOT, 'projects');
@@ -78,7 +78,7 @@ async function handleAutosave(req, res) {
       await mkdir(PROJECTS, { recursive: true });
       await copyFile(AUTOSAVE, join(PROJECTS, 'autosave.prev.json')).catch(() => {}); // keep one backup
       const tmp = `${AUTOSAVE}.${process.pid}.tmp`;
-      await writeFile(tmp, JSON.stringify(data, null, 2));
+      await writeFile(tmp, jsonFileText(data));
       await rename(tmp, AUTOSAVE);
     });
     try {

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, lstat, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
-import { checkName, checkPath, cleanExts, crumbsOf, listDir, makeDir, places, target, withExt } from '../electron/fsbrowse.mjs';
+import { checkName, checkPath, cleanExts, crumbsOf, deleteEntry, listDir, makeDir, places, target, transferEntry, withExt } from '../electron/fsbrowse.mjs';
 import { sortEntries, formatSize, findPrefix, baseLength, errorText } from '../src/filepicker.js';
 
 const root = await mkdtemp(join(tmpdir(), 'fsbrowse-'));
@@ -42,6 +42,50 @@ try {
   assert.ok((await listDir(root, [])).entries.some((e) => e.name === 'Fresh'));
   await assert.rejects(makeDir(root, 'Fresh'), /EEXIST/);
   await assert.rejects(makeDir(root, '../escape'), /Invalid name/);
+
+  // File operations never replace an existing item and preserve the original on failure.
+  const file = join(root, 'a.phproject');
+  const duplicate = await transferEntry(file, false, root);
+  assert.equal(duplicate, join(root, 'a copy.phproject'));
+  assert.equal(await readFile(duplicate, 'utf8'), '{}');
+  assert.equal(await transferEntry(file, false, root), join(root, 'a copy 2.phproject'));
+  await writeFile(join(root, 'Songs', 'a.phproject'), 'existing');
+  await assert.rejects(transferEntry(file, false, join(root, 'Songs'), true), /EEXIST/);
+  assert.equal(await readFile(file, 'utf8'), '{}');
+  assert.equal(await readFile(join(root, 'Songs', 'a.phproject'), 'utf8'), 'existing');
+  const moved = await transferEntry(duplicate, false, join(root, 'Songs'), true);
+  assert.equal(await readFile(moved, 'utf8'), '{}');
+  await assert.rejects(lstat(duplicate), /ENOENT/);
+  const renamed = await transferEntry(moved, false, join(root, 'Songs'), true, 'renamed.phproject');
+  assert.equal(await readFile(renamed, 'utf8'), '{}');
+  await assert.rejects(transferEntry(renamed, false, join(root, 'Songs'), true, '../bad.phproject'), /Invalid name/);
+  await assert.rejects(transferEntry(renamed, false, join(root, 'Songs'), true, 'bad.exe'), /Unsupported file type/);
+  await assert.rejects(deleteEntry(renamed, true), /entry type has changed/);
+  await deleteEntry(renamed, false);
+  await assert.rejects(lstat(renamed), /ENOENT/);
+
+  // Directory operations include hidden and non-listed files, but not a linked directory's target.
+  await mkdir(join(root, 'Songs', 'Sub'));
+  await writeFile(join(root, 'Songs', '.secret'), 'hidden');
+  await writeFile(join(root, 'Songs', 'Sub', 'notes.txt'), 'notes');
+  await assert.rejects(transferEntry(join(root, 'Songs'), true, join(root, 'Songs', 'Sub')), /into itself/);
+  const copy = await transferEntry(join(root, 'Songs'), true, root);
+  assert.equal(copy, join(root, 'Songs copy'));
+  assert.equal(await readFile(join(copy, '.secret'), 'utf8'), 'hidden');
+  assert.equal(await readFile(join(copy, 'Sub', 'notes.txt'), 'utf8'), 'notes');
+  await deleteEntry(copy, true);
+  assert.equal(await readFile(join(root, 'Songs', 'Sub', 'notes.txt'), 'utf8'), 'notes');
+  if (process.platform !== 'win32') {
+    const link = join(root, 'folder-link');
+    await symlink(join(root, 'Songs'), link, 'dir');
+    const linkCopy = await transferEntry(link, true, root);
+    assert.ok((await lstat(linkCopy)).isSymbolicLink());
+    await deleteEntry(link, true);
+    await deleteEntry(linkCopy, true);
+    assert.equal(await readFile(join(root, 'Songs', '.secret'), 'utf8'), 'hidden');
+  }
+  await assert.rejects(deleteEntry(sep, true), /filesystem root/);
+  await assert.rejects(deleteEntry(join(root, 'notes.txt'), 'file'), /Invalid entry type/);
 
   // places: only existing folders, no duplicates
   const p = await places({ home: root, desktop: join(root, 'Songs'), documents: root, downloads: join(root, 'missing'), music: null }, 'linux');

@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
     <linearGradient id="wood" x2="1" y2="1">
-      <stop stop-color="#e6b77a"/>
-      <stop offset=".45" stop-color="#a96937"/>
-      <stop offset="1" stop-color="#64391e"/>
+      <stop stop-color="#704242"/>
+      <stop offset=".45" stop-color="#4b2b2b"/>
+      <stop offset="1" stop-color="#291818"/>
     </linearGradient>
     <linearGradient id="panel" x2="0" y2="1">
       <stop stop-color="#303b40"/>
@@ -22,8 +22,8 @@
     </clipPath>
   </defs>
   <rect x="64" y="78" width="896" height="896" rx="170" fill="#090f13" opacity=".35"/>
-  <rect x="64" y="64" width="896" height="896" rx="170" fill="url(#wood)" stroke="#54331e" stroke-width="10"/>
-  <g clip-path="url(#frame)" fill="none" stroke="#4c2814" stroke-width="7" opacity=".2">
+  <rect x="64" y="64" width="896" height="896" rx="170" fill="url(#wood)" stroke="#432222" stroke-width="10"/>
+  <g clip-path="url(#frame)" fill="none" stroke="#321b1b" stroke-width="7" opacity=".2">
     <path d="M34 117C266 70 636 169 990 99M35 140C319 88 626 202 986 127M37 166C287 112 685 221 987 161"/>
     <path d="M37 875C306 830 627 923 990 859M37 906C338 847 694 972 990 886M35 938C307 879 687 1002 990 920"/>
     <path d="M98 160C61 365 123 641 85 856M122 165C84 391 146 627 112 866M898 160C861 373 924 654 888 856M928 166C890 396 953 632 918 859"/>

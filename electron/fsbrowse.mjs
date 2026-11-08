@@ -1,10 +1,14 @@
 // Folder browsing for the in-app file dialog of the desktop app (src/filepicker.js), without
-// Electron imports so it can be tested in node. The page may list folders, but only files with
-// one of the app's own extensions are listed, read or written (see electron/projectfiles.mjs).
-import { readdir, stat, mkdir } from 'node:fs/promises';
+// Electron imports so it can be tested in node. Individual operations only accept supported file
+// types; folder operations include all contents, including hidden and other file types.
+import { constants } from 'node:fs';
+import { copyFile, cp, link, lstat, readlink, readdir, realpath, rename, rm, rmdir, stat, mkdir, symlink, unlink } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, parse, resolve, sep } from 'node:path';
+import { PROJECT_OPEN_EXTS, MODULE_OPEN_EXTS, CLIP_EXT, AUDIO_OPEN_EXTS, WAVETABLE_OPEN_EXTS, IMAGE_OPEN_EXTS } from '../src/fileformat.js';
 
 const MAX_ENTRIES = 10000;
+const FILE_EXTS = new Set([...PROJECT_OPEN_EXTS, ...MODULE_OPEN_EXTS, CLIP_EXT,
+  ...AUDIO_OPEN_EXTS, ...WAVETABLE_OPEN_EXTS, ...IMAGE_OPEN_EXTS, '.scl', '.scala', '.txt']);
 
 // An absolute, normalized path from the page, or an error.
 export function checkPath(path) {
@@ -79,6 +83,108 @@ export async function makeDir(dir, name) {
   const path = join(checkPath(dir), checkName(name));
   await mkdir(path);
   return path;
+}
+
+async function entryOf(path, expectedDir) {
+  const p = checkPath(path);
+  if (dirname(p) === p) throw new Error('Cannot modify a filesystem root');
+  if (typeof expectedDir !== 'boolean') throw new Error('Invalid entry type');
+  const link = await lstat(p);
+  const info = link.isSymbolicLink() ? await stat(p) : link;
+  if (info.isDirectory() !== expectedDir || (!info.isDirectory() && !info.isFile())) throw new Error('The entry type has changed');
+  if (!expectedDir && !FILE_EXTS.has(extname(p).toLowerCase())) throw new Error('Unsupported file type');
+  return { path: p, link, dir: expectedDir };
+}
+
+async function copyEntry(entry, destination) {
+  if (entry.link.isSymbolicLink()) {
+    await symlink(await readlink(entry.path), destination, entry.dir ? 'dir' : 'file');
+  } else if (entry.dir) {
+    await mkdir(destination, { mode: entry.link.mode });
+    try {
+      for (const name of await readdir(entry.path)) {
+        await cp(join(entry.path, name), join(destination, name), {
+          recursive: true, force: false, errorOnExist: true, verbatimSymlinks: true, preserveTimestamps: true,
+        });
+      }
+    } catch (err) {
+      throw new Error(`Copy incomplete; the partially copied folder remains at "${destination}": ${err.message}`);
+    }
+  } else {
+    await copyFile(entry.path, destination, constants.COPYFILE_EXCL);
+  }
+}
+
+async function moveEntry(entry, destination) {
+  if (!entry.link.isSymbolicLink() && entry.dir) {
+    await mkdir(destination, { mode: entry.link.mode });
+    try {
+      await rename(entry.path, destination);
+      return;
+    } catch (err) {
+      try { await rmdir(destination); }
+      catch (cleanup) { throw new Error(`Could not remove the reserved destination "${destination}": ${cleanup.message}`); }
+      if (!['EXDEV', 'EEXIST', 'EPERM', 'ENOTEMPTY'].includes(err.code)) throw err;
+    }
+  } else if (!entry.link.isSymbolicLink()) {
+    try {
+      await link(entry.path, destination);
+      try { await unlink(entry.path); }
+      catch (err) { throw new Error(`Linked to "${destination}", but could not remove the original: ${err.message}`); }
+      return;
+    } catch (err) {
+      if (!['EXDEV', 'EPERM', 'ENOTSUP'].includes(err.code)) throw err;
+    }
+  }
+  await copyEntry(entry, destination);
+  try {
+    if (entry.link.isSymbolicLink() || !entry.dir) await unlink(entry.path);
+    else await rm(entry.path, { recursive: true });
+  } catch (err) {
+    throw new Error(`Copied to "${destination}", but could not remove the original: ${err.message}`);
+  }
+}
+
+// Copy or move without replacing an existing entry; a copy in the same folder gets a new name.
+export async function transferEntry(path, expectedDir, destinationDir, move = false, newName = null) {
+  if (typeof move !== 'boolean') throw new Error('Invalid transfer');
+  const entry = await entryOf(path, expectedDir);
+  const dir = checkPath(destinationDir);
+  if (!(await stat(dir)).isDirectory()) throw new Error('Destination is not a folder');
+  const name = newName === null ? basename(entry.path) : checkName(newName);
+  if (!entry.dir && !FILE_EXTS.has(extname(name).toLowerCase())) throw new Error('Unsupported file type');
+  if (entry.dir && !entry.link.isSymbolicLink()) {
+    const source = await realpath(entry.path);
+    const dest = await realpath(dir);
+    if (dest === source || dest.startsWith(source.endsWith(sep) ? source : source + sep)) {
+      throw new Error('Cannot move or copy a folder into itself');
+    }
+  }
+  let destination = join(dir, name);
+  if (destination === entry.path && move) {
+    if (newName !== null) return destination;
+    throw new Error('The item is already in this folder');
+  }
+  if (move) {
+    await moveEntry(entry, destination);
+  } else if (destination === entry.path) {
+    const ext = entry.dir ? '' : extname(name);
+    const base = ext ? name.slice(0, -ext.length) : name;
+    for (let n = 1; ; n++) {
+      destination = join(dir, `${base} copy${n === 1 ? '' : ` ${n}`}${ext}`);
+      try { await copyEntry(entry, destination); break; }
+      catch (err) { if (err.code !== 'EEXIST') throw err; }
+    }
+  } else {
+    await copyEntry(entry, destination);
+  }
+  return destination;
+}
+
+export async function deleteEntry(path, expectedDir) {
+  const entry = await entryOf(path, expectedDir);
+  if (entry.link.isSymbolicLink() || !entry.dir) await unlink(entry.path);
+  else await rm(entry.path, { recursive: true });
 }
 
 // Sidebar places: { name, path } of the usual folders and mounted volumes that exist.

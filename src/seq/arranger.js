@@ -33,8 +33,7 @@
 //   wheel / Shift + wheel      scroll sideways over the time axis / scroll the lanes
 //   middle-drag, Ctrl/Cmd + wheel  pan / zoom the time axis
 //   scrollbars (bottom, right) drag the thumb, or click the track to jump there
-// The camera pans freely until the content (clips, the song, the first 16 lanes / bars) would leave
-// the view: a margin of it always stays visible.
+// The camera pans freely except upward: the idea-storage label stays above the bottom scrollbar.
 //   double-click the signature row  insert a time signature change at the nearest bar line (or edit it)
 //   right-click a signature    remove that change (the first one can only be edited)
 // Restart point (green 'restart:' marker in the bar number row): song playback continues there at
@@ -59,7 +58,7 @@ import { showMenu, shortcut } from './menu.js';
 
 const SIG_H = 16; // time signature row on top of the ruler
 const RULER = 38; // signature row and bar numbers
-const FAR = 1e7; // free camera: px it may go from time zero / the first lane
+const FAR = 1e7; // maximum distance before floating-point precision becomes unusable
 const MIN_LANES = 16; // the lanes (and bars) that count as content even when empty
 const IDEA_BG = '#121016';
 const IDEA_EDGE = '#3a3346';
@@ -209,6 +208,7 @@ export function createArranger(host, ctx) {
     if (x < x0 || x > right() - 20) view.sx = c.start >= 0 ? Math.max(0, c.start * view.ppq - 20) : c.start * view.ppq - 20;
     const y = yOf(c.y);
     if (y < RULER || y + CLIP_H > bottom()) view.sy = c.y < 0 ? c.y - CLIP_H : Math.max(0, c.y - CLIP_H);
+    if (s.h > 0) limitScroll();
     s.redraw();
   }
 
@@ -218,9 +218,7 @@ export function createArranger(host, ctx) {
     place(clip);
   }
 
-  // Free camera: the view pans anywhere, also into empty space far from every clip. The
-  // scrollbars span the content (the clips, time zero to the song end, the first MIN_LANES lanes /
-  // bars) with a page of empty room around it, widened to wherever the view is now.
+  // Scrollbars span the content and the current view, bounded above by the idea label.
   // -> { x: [min, max] sx, y: [min, max] sy, vw, vh (time area size) }
   function scrollRange() {
     const song = ctx.song();
@@ -228,19 +226,19 @@ export function createArranger(host, ctx) {
     const vh = Math.max(1, bottom() - RULER);
     const first = Math.min(0, ...song.clips.map((c) => c.start)) * view.ppq;
     const last = Math.max(loopEnd(song), MIN_LANES * BAR, song.sigs.at(-1).at, song.restart ?? 0, ...song.clips.map((c) => c.start + c.length)) * view.ppq;
-    const top = Math.min(0, ...song.clips.map((c) => c.y));
     const low = Math.max(MIN_LANES * CLIP_H, ...song.clips.map((c) => c.y + CLIP_H));
     return {
       x: [Math.min(first - vw, view.sx), Math.max(last, view.sx)],
-      y: [Math.min(top - vh, view.sy), Math.max(low, view.sy)],
+      y: [minScrollY(), Math.max(low, view.sy)],
       vw, vh,
     };
   }
 
-  // no pan limit; only keeps the camera a usable number (far out, floats lose the pixel grid)
-  function limitScroll() {
+  // The label's bottom is six pixels above lane zero; keep it above the bottom scrollbar.
+  const minScrollY = (height = s.h) => Math.min(0, RULER - (height - SB + 6));
+  function limitScroll(height = s.h) {
     view.sx = Number.isFinite(view.sx) ? clamp(view.sx, -FAR, FAR) : 0;
-    view.sy = Number.isFinite(view.sy) ? clamp(view.sy, -FAR, FAR) : 0;
+    view.sy = Number.isFinite(view.sy) ? clamp(view.sy, minScrollY(height), FAR) : 0;
   }
 
   // Any drag in the time area: holding the pointer near / past an edge scrolls the TimeLine along
@@ -248,7 +246,7 @@ export function createArranger(host, ctx) {
   const areaScroll = (onScroll, { vertical = true, horizontal = true } = {}) => edgeScroll({
     area: () => ({ left: horizontal ? x0 : -Infinity, top: RULER, right: horizontal ? right() : Infinity, bottom: bottom() }),
     vertical,
-    scroll: (dx, dy) => { view.sx += dx; view.sy += dy; limitScroll(); },
+    scroll: (dx, dy) => { view.sx += dx; view.sy += dy; limitScroll(); ctx.viewChanged?.(); },
     onScroll,
   });
 
@@ -280,6 +278,8 @@ export function createArranger(host, ctx) {
     const offset = inside ? along(p) - b.pos : b.thumb / 2;
     const scrollTo = (q) => {
       view[b.vertical ? 'sy' : 'sx'] = scrollValue(b, along(q) - offset);
+      limitScroll();
+      ctx.viewChanged?.();
       s.redraw();
     };
     sbActive = which;
@@ -824,7 +824,7 @@ export function createArranger(host, ctx) {
     }
     if (e.button === 1) {
       dragging = true;
-      startPan(s, e, (dx, dy) => { view.sx -= dx; view.sy -= dy; s.redraw(); }, () => { dragging = false; });
+      startPan(s, e, (dx, dy) => { view.sx -= dx; view.sy -= dy; limitScroll(); ctx.viewChanged?.(); s.redraw(); }, () => { dragging = false; });
       return;
     }
     const { x, y } = s.local(e);
@@ -890,7 +890,7 @@ export function createArranger(host, ctx) {
       if (e.shiftKey || additive) selectRect(e, x, y, additive);
       else {
         dragging = true;
-        startPan(s, e, (dx, dy) => { view.sx -= dx; view.sy -= dy; s.redraw(); }, () => { dragging = false; });
+        startPan(s, e, (dx, dy) => { view.sx -= dx; view.sy -= dy; limitScroll(); ctx.viewChanged?.(); s.redraw(); }, () => { dragging = false; });
       }
       return;
     }
@@ -1213,6 +1213,8 @@ export function createArranger(host, ctx) {
       const t = timeAt(x);
       view.ppq = clamp(view.ppq * Math.pow(1.15, notches), 2, 200);
       view.sx = t * view.ppq - (x - x0);
+      limitScroll();
+      ctx.viewChanged?.();
       s.redraw();
     },
     // the wheel scrolls along the time axis; Shift + wheel scrolls the lanes
@@ -1220,6 +1222,8 @@ export function createArranger(host, ctx) {
       pointer = s.local(e);
       if (e.shiftKey) view.sy += dx + dy;
       else view.sx += dx + dy;
+      limitScroll();
+      ctx.viewChanged?.();
       s.redraw();
     },
   });
@@ -1236,6 +1240,11 @@ export function createArranger(host, ctx) {
       if (!v) return;
       for (const k of ['sx', 'sy', 'ppq']) if (Number.isFinite(v[k])) view[k] = v[k];
       view.ppq = clamp(view.ppq, 2, 200);
+      if (host.clientHeight > 0) limitScroll(host.clientHeight);
+      if (host.clientWidth > 0 && host.clientHeight > 0) {
+        viewportWidth = host.clientWidth;
+        viewportHeight = host.clientHeight;
+      }
       s.redraw();
     },
   };

@@ -10,8 +10,12 @@
 //
 // Mouse: click selects, double-click opens a folder / picks a file. Keys in the list: arrows,
 // Home / End, PageUp / PageDown, Enter, Backspace (up a folder), letters jump to a name.
-// Saving over an existing file asks first.
+// Saving over an existing file asks first. Right-click manages the listed entries; the in-app
+// clipboard is shared between picker sessions, and deletion is permanent after confirmation.
 import { confirmDialog } from './dialogs.js';
+import { showMenu } from './seq/menu.js';
+
+let clipboard = null;
 
 // folders first, then by name (case-insensitive, numbers in natural order)
 export function sortEntries(entries) {
@@ -73,6 +77,8 @@ export async function pickFile(files, opts, doc = document) {
   let typed = '';
   let typedAt = 0;
   let result = null;
+  let menu = null;
+  let busy = false;
   const ac = new AbortController();
   const on = (el, type, fn) => el.addEventListener(type, fn, { signal: ac.signal });
 
@@ -96,7 +102,7 @@ export async function pickFile(files, opts, doc = document) {
       b.textContent = p.name;
       b.title = p.path;
       b.setAttribute('aria-current', String(p.path === dir));
-      b.onclick = () => go(p.path);
+      b.onclick = () => { if (!busy) go(p.path); };
       return b;
     }));
   }
@@ -116,7 +122,7 @@ export async function pickFile(files, opts, doc = document) {
       b.className = 'fd-crumb';
       b.textContent = c.name;
       b.title = c.path;
-      b.onclick = () => go(c.path);
+      b.onclick = () => { if (!busy) go(c.path); };
       parts.push(b);
     });
     nav.replaceChildren(...parts);
@@ -172,6 +178,8 @@ export async function pickFile(files, opts, doc = document) {
   }
 
   async function go(path, selectName = null) {
+    menu?.();
+    menu = null;
     const my = ++token;
     try {
       const r = await files.list(path, exts);
@@ -198,7 +206,7 @@ export async function pickFile(files, opts, doc = document) {
   }
 
   function up() {
-    if (!parent) return;
+    if (!parent || busy) return;
     const from = dir.split(/[\\/]/).filter(Boolean).pop() ?? null;
     go(parent, from);
   }
@@ -210,6 +218,7 @@ export async function pickFile(files, opts, doc = document) {
 
   // Enter / double-click / OK on entry i (or the OK button without a selection)
   async function activate(i) {
+    if (busy) return;
     const e = entries[i];
     if (e?.dir) return go(e.path);
     if (e && !save) return finish(e.path, e.name);
@@ -219,6 +228,7 @@ export async function pickFile(files, opts, doc = document) {
   }
 
   async function accept() {
+    if (busy) return;
     if (!save) return activate(sel);
     const name = nameInput.value.trim();
     if (!name) {
@@ -247,7 +257,7 @@ export async function pickFile(files, opts, doc = document) {
   }
 
   function newFolder() {
-    if (editing || !dir) return;
+    if (editing || busy || !dir) return;
     const row = doc.createElement('div');
     row.className = 'fd-row fd-dir fd-new';
     const icon = doc.createElement('span');
@@ -291,15 +301,126 @@ export async function pickFile(files, opts, doc = document) {
     input.addEventListener('blur', () => { if (editing === input) setTimeout(() => { if (editing === input && doc.activeElement !== input) close(); }); });
   }
 
+  function renameEntry(entry, row) {
+    if (editing || busy) return;
+    const label = row.querySelector('.fd-file');
+    const input = doc.createElement('input');
+    input.className = 'fd-new-name';
+    input.value = entry.name;
+    input.spellcheck = false;
+    input.setAttribute('aria-label', 'New name');
+    label.replaceWith(input);
+    editing = input;
+    input.focus();
+    input.setSelectionRange(0, entry.dir ? entry.name.length : baseLength(entry.name));
+    const close = () => {
+      if (editing !== input) return;
+      editing = null;
+      input.replaceWith(label);
+    };
+    input.addEventListener('keydown', async (e) => {
+      e.stopPropagation();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        close();
+        list.focus();
+      } else if (e.key === 'Enter' && !busy) {
+        e.preventDefault();
+        const name = input.value.trim();
+        if (!name) { error('Type a name.'); return; }
+        if (name === entry.name) { close(); list.focus(); return; }
+        busy = true;
+        input.disabled = true;
+        try {
+          const path = await files.transfer(entry.path, entry.dir, dir, true, name);
+          if (clipboard?.path === entry.path) { clipboard.path = path; clipboard.name = name; }
+          close();
+          await go(dir, name);
+          list.focus();
+        } catch (err) {
+          error(`Cannot rename "${entry.name}": ${errorText(err)}`);
+          input.disabled = false;
+          input.focus();
+        } finally {
+          busy = false;
+        }
+      }
+    });
+    input.addEventListener('blur', () => {
+      setTimeout(() => { if (!busy && editing === input && doc.activeElement !== input) close(); });
+    });
+  }
+
+  async function paste(destination) {
+    if (!clipboard || busy) return;
+    const item = clipboard;
+    busy = true;
+    try {
+      const path = await files.transfer(item.path, item.dir, destination, item.cut);
+      if (item.cut && clipboard === item) clipboard = null;
+      if (dir === destination) await go(dir, path.split(/[\\/]/).pop());
+      else await go(dir);
+      list.focus();
+    } catch (err) {
+      error(`Cannot paste "${item.name}": ${errorText(err)}`);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function removeEntry(entry) {
+    if (busy) return;
+    busy = true;
+    try {
+      const kind = entry.dir ? 'folder' : 'file';
+      const description = entry.dir
+        ? `Permanently delete folder "${entry.name}" and all its contents, including hidden files?`
+        : `Permanently delete file "${entry.name}"?`;
+      if (!(await confirmDialog(description, { title: `Delete ${kind}?`, ok: 'Yes', cancel: 'No', focus: 'cancel' }))) return;
+      if (entry.dir && !(await confirmDialog(`Are you absolutely sure? The folder "${entry.name}" and everything inside it will be permanently deleted.`, {
+        title: 'Confirm folder deletion', ok: 'Yes', cancel: 'No', focus: 'cancel',
+      }))) return;
+      await files.deleteEntry(entry.path, entry.dir);
+      if (clipboard?.path === entry.path) clipboard = null;
+      await go(dir);
+      list.focus();
+    } catch (err) {
+      error(`Cannot delete "${entry.name}": ${errorText(err)}`);
+    } finally {
+      busy = false;
+    }
+  }
+
+  on(list, 'contextmenu', (e) => {
+    e.preventDefault();
+    if (busy || editing) return;
+    const row = e.target.closest('.fd-row[data-i]');
+    const entry = row ? entries[+row.dataset.i] : null;
+    if (entry) select(+row.dataset.i, { scroll: false });
+    const destination = entry?.dir ? entry.path : dir;
+    const items = entry ? [
+      { label: 'Cut', action: () => { clipboard = { ...entry, cut: true }; } },
+      { label: 'Copy', action: () => { clipboard = { ...entry, cut: false }; } },
+      { label: 'Paste', disabled: !clipboard, action: () => paste(destination) },
+      '-',
+      { label: 'Rename', action: () => renameEntry(entry, row) },
+      { label: 'Delete', action: () => removeEntry(entry) },
+    ] : [{ label: 'Paste', disabled: !clipboard, action: () => paste(destination) }];
+    menu = showMenu({ x: e.clientX, y: e.clientY, items, container: dlg, className: 'fd-context-menu', onClose: () => { menu = null; } });
+  });
+
   on(list, 'click', (e) => {
+    if (busy) return;
     const row = e.target.closest('.fd-row[data-i]');
     if (row) select(+row.dataset.i, { scroll: false });
   });
   on(list, 'dblclick', (e) => {
+    if (busy) return;
     const row = e.target.closest('.fd-row[data-i]');
     if (row) activate(+row.dataset.i);
   });
   on(list, 'keydown', (e) => {
+    if (busy) return;
     if (e.target !== list) return;
     const page = Math.max(1, Math.floor(list.clientHeight / (list.querySelector('.fd-row')?.offsetHeight || 24)) - 1);
     const moves = { ArrowDown: sel + 1, ArrowUp: sel < 0 ? 0 : sel - 1, Home: 0, End: entries.length - 1, PageDown: sel + page, PageUp: sel - page };
@@ -331,12 +452,13 @@ export async function pickFile(files, opts, doc = document) {
   on($('fd-up'), 'click', up);
   on($('fd-mkdir'), 'click', newFolder);
   on(okBtn, 'click', () => (save ? accept() : activate(sel)));
-  on($('fd-cancel'), 'click', () => dlg.close());
+  on($('fd-cancel'), 'click', () => { if (!busy) dlg.close(); });
   // Escape closes the dialog, except while a new folder is being named
-  on(dlg, 'cancel', (e) => { if (editing) e.preventDefault(); });
+  on(dlg, 'cancel', (e) => { if (editing || busy) e.preventDefault(); });
 
   const closed = new Promise((resolve) => {
     on(dlg, 'close', () => {
+      menu?.();
       ac.abort();
       editing = null;
       resolve(result);

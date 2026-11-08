@@ -1,6 +1,6 @@
 // Right-click menu for the sequencer views (DOM overlay, closes on any outside press, Escape,
 // scrolling or window blur). Arrow keys + Enter / Space work too.
-//   showMenu({ x, y (client px), items: [{ label, shortcut?, disabled?, checked?, action() } | '-'], className?, onClose? }) -> close()
+//   showMenu({ x, y (client px), items: [{ label, shortcut?, disabled?, checked?, action() } | '-'], className?, onClose?, container? }) -> close()
 let current = null;
 
 const MAC = /Mac|iPhone|iPad/.test(globalThis.navigator?.platform ?? '');
@@ -11,7 +11,7 @@ export function closeMenu() {
   current?.();
 }
 
-export function showMenu({ x, y, items, className = '', onClose = null }) {
+export function showMenu({ x, y, items, className = '', onClose = null, container = document.body }) {
   closeMenu();
   const el = document.createElement('div');
   el.className = className ? `ctx-menu ${className}` : 'ctx-menu';
@@ -52,11 +52,14 @@ export function showMenu({ x, y, items, className = '', onClose = null }) {
     el.append(b);
   }
   el.addEventListener('contextmenu', (e) => e.preventDefault());
-  document.body.append(el);
+  container.append(el);
   // just right/below the pointer (so a quick second right-click lands on the view again), kept on screen
   const r = el.getBoundingClientRect();
-  const left = x + 2 + r.width > window.innerWidth ? Math.max(0, x - 2 - r.width) : x + 2;
-  const top = y + 2 + r.height > window.innerHeight ? Math.max(0, y - 2 - r.height) : y + 2;
+  const bounds = container === document.body
+    ? { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight }
+    : container.getBoundingClientRect();
+  const left = Math.max(bounds.left, Math.min(bounds.right - r.width, x + 2 + r.width > bounds.right ? x - 2 - r.width : x + 2));
+  const top = Math.max(bounds.top, Math.min(bounds.bottom - r.height, y + 2 + r.height > bounds.bottom ? y - 2 - r.height : y + 2));
   el.style.left = `${left}px`;
   el.style.top = `${top}px`;
 

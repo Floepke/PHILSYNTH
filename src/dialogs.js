@@ -13,12 +13,14 @@ function run(dialog) {
   });
 }
 
-export async function confirmDialog(text, { title = 'Are you sure?', ok = 'OK', cancel = 'Cancel' } = {}) {
+export async function confirmDialog(text, { title = 'Are you sure?', ok = 'OK', cancel = 'Cancel', focus = 'ok' } = {}) {
   $('confirm-title').textContent = title;
   $('confirm-text').textContent = text;
   $('confirm-ok').textContent = ok;
   $('confirm-cancel').textContent = cancel;
-  return (await run($('confirm-dialog'))) === 'ok';
+  const result = run($('confirm-dialog'));
+  if (focus === 'cancel') $('confirm-cancel').focus();
+  return (await result) === 'ok';
 }
 
 // Classic Yes / No / Cancel before the project is replaced. Resolves 'yes', 'no' or 'cancel' (also Escape).

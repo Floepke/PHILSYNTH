@@ -161,7 +161,7 @@ export const GUIDE = [
           `${k('Alt')} + drag copies; ${k('Shift')} + drag makes <i>linked clones</i> (hatched, ⧉) that share their notes: editing one edits all. ${k(CMD, 'D')} clones the selection right after itself, ${k(CMD, 'Shift', 'D')} duplicates it.`,
           'Park clips left of the bright zero line: they are not played by the song (<kbd>/</kbd> still auditions them), handy for source clips whose clones make up the song.',
           '<b>Idea storage</b>: scroll up above lane 1. Clips there sit wherever you drop them (no grid, no lanes, overlaps allowed) and are never played by the song; <kbd>/</kbd> loops an idea solo, without the lane clips around it. Drag an idea onto a lane to play it; it snaps like any clip.',
-          'Pan the TimeLine with the wheel (sideways), Shift + wheel (lanes), dragging empty space, middle-drag or the scrollbars below and right of it; the camera pans freely, also into empty space, and the scrollbars bring you back to your clips.',
+          'Pan the TimeLine with the wheel (sideways), Shift + wheel (lanes), dragging empty space, middle-drag or the scrollbars below and right of it. Upward scrolling stops when the idea-storage message reaches the bottom of the view; the scrollbars bring you back to your clips.',
           'The <b>M</b> / <b>S</b> buttons left of a lane number mute / solo it; drag over a column of buttons to switch many lanes. Mute wins over solo; a silenced clip shows a big M in its editor.',
         ],
       },
@@ -264,7 +264,7 @@ export const GUIDE = [
         title: 'Navigate and play',
         items: [
           `The wheel or trackpad scrolls smoothly (scroll up past beat zero for some free room; with the pitch zoomed in, swiping sideways pans the keys); ${k(CMD)} + wheel zooms time, ${k('Middle mouse')} + drag pans. The scrollbar on the right (the TimeLine\'s look) spans the clip: drag it, or click its track to jump there.`,
-          `${k('Shift')} + wheel zooms pitch around the pointer: the stave and the keyboard widen together, so micropitch leans and bends are easier to place. Zoomed in, a horizontal scrollbar shows just above the keyboard, ${k('Middle mouse')} + drag also pans sideways, and moving notes, bend points or a selection rectangle past the left / right edge scrolls along. Notes stop growing at 24 px wide. Zoom fully out to see all keys again; the pitch zoom is not saved with the project.`,
+          `${k('Shift')} + wheel zooms pitch around the pointer: the stave and the keyboard widen together, so micropitch leans and bends are easier to place. Zoomed in, a horizontal scrollbar shows just above the keyboard, ${k('Middle mouse')} + drag also pans sideways, and moving notes, bend points or a selection rectangle past the left / right edge scrolls along. Notes stop growing at 24 px wide. Zoom fully out to see all keys again; the view is saved with the project and restored on startup.`,
           `${k('Space')} over the note grid plays the song from that (snapped) time.`,
         ],
       },
@@ -301,6 +301,7 @@ export const GUIDE = [
           `Click <b>PHILSYNTH</b> (in the upper divider, left side) for <b>New</b> (${k(CMD, 'N')}), <b>Open…</b> (${k(CMD, 'O')}), <b>Save</b> (${k(CMD, 'S')}), <b>Save As…</b> (${k(CMD, 'Shift', 'S')}), <b>Export Audio…</b> (${k(CMD, 'E')}), <b>MIDI Input…</b>, <b>Wood Tint…</b> and <b>Exit</b>.`,
           '<b>Wood Tint…</b> previews any RGB tint on the wooden frame, dividers, controls and dialogs without changing module colors. <b>OK</b> remembers it on this device; <b>Cancel</b> or Escape restores the saved tint. <b>Reset to gray</b> previews the charcoal default.',
           'Projects are <b>.phproject</b> files (older .mds / .json projects open too). The file name shows in the status bar and the window title, with <b>•</b> for unsaved changes; New and Open ask to save them first. Every change is also autosaved, so the app starts with your latest project.',
+          'Project, module and clip files are saved as compact JSON to save disk space. Older formatted files still open.',
           '<b>MIDI Input…</b> picks the MIDI controller; <i>Auto</i> uses every input except Linux\'s <i>Midi Through</i>, <b>Re-scan</b> finds newly plugged-in devices.',
           `${k('Esc')} (when nothing else is open) goes up one patch level. In the main patch it asks <b>Exit to OS?</b>: ${k('Enter')} saves and closes, ${k('Esc')} cancels.`,
         ],
@@ -316,6 +317,7 @@ export const GUIDE = [
         title: 'Layout',
         items: [
           'Piano roll, patcher and TimeLine are stacked top to bottom. Drag a divider up / down to resize the panes (to an edge hides a pane), left / right to resize this controller panel. The patcher keeps the same patch position centred as its viewport resizes; the TimeLine likewise keeps the same time and lane position centred, without changing zoom. Arrow keys, Home and End move a focused divider. Positions are saved with the project.',
+          'In the desktop Open and Save dialogs, right-click a file or folder to cut, copy, paste, rename or delete it. Right-click a folder to paste into it, or empty space to paste into the current folder. Deletion is permanent: files require one confirmation and folders require two, including for all their contents.',
           'The upper divider holds the clip name, <i>Send to</i>, the Grid and Free timing; their names (<i>Clip:</i>, <i>Send to:</i>, <i>Input Grid:</i>) drag the divider too. When it is too narrow, move the pointer along it to reveal its controls. The lower divider shows the patch path on the left and the TimeLine transport buttons and play position immediately left of the clock on the right.',
         ],
       },

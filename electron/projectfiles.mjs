@@ -6,7 +6,7 @@ import { app, ipcMain, BrowserWindow } from 'electron';
 import { readFile, writeFile, rename, rm, stat } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import { notifyFolderChanged } from './kdirnotify.mjs';
-import { checkPath, cleanExts, hasExt, listDir, makeDir, places, target } from './fsbrowse.mjs';
+import { checkPath, cleanExts, deleteEntry, hasExt, listDir, makeDir, places, target, transferEntry } from './fsbrowse.mjs';
 import { PROJECT_EXT, PROJECT_OPEN_EXTS, CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS, AUDIO_OPEN_EXTS, WAVETABLE_OPEN_EXTS, IMAGE_OPEN_EXTS } from '../src/fileformat.js';
 
 const bare = (ext) => ext.replace(/^\./, '');
@@ -148,6 +148,18 @@ export function registerProjectFiles(isLocal) {
     return target(dir, name, ext);
   });
   ipcMain.handle('fs:mkdir', (e, dir, name) => { check(e); return makeDir(dir, name); });
+  ipcMain.handle('fs:transfer', async (e, path, isDir, dir, move, name) => {
+    check(e);
+    const dest = await transferEntry(path, isDir, dir, move, name);
+    written(dest);
+    if (move) written(path);
+    return dest;
+  });
+  ipcMain.handle('fs:delete', async (e, path, isDir) => {
+    check(e);
+    await deleteEntry(path, isDir);
+    written(path);
+  });
 
   // ---- projects ----
   ipcMain.handle('project:open', async (e, path) => {
@@ -175,6 +187,8 @@ export function registerProjectFiles(isLocal) {
     check(e);
     textOf(text);
     if (typeof ref !== 'string' || !(await load()).includes(ref)) return null;
+    try { await stat(ref); }
+    catch (err) { if (err.code === 'ENOENT') return null; throw err; }
     await atomicWrite(ref, text);
     written(ref);
     return { name: basename(ref), ref };
