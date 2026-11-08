@@ -76,6 +76,7 @@ app.whenReady().then(async () => {
         import { createPreferencesManager } from '/src/preferences.js';
         import { createPreferencesDialog } from '/src/preferencesdialog.js';
         import { registerInterfacePreferences } from '/src/interfacepreferences.js';
+        import { registerTimelinePreferences } from '/src/timelinepreferences.js';
         window.themeErrors = [];
         window.preferencesManager = createPreferencesManager();
         initWoodTheme(window.preferencesManager);
@@ -83,13 +84,14 @@ app.whenReady().then(async () => {
         window.preferencesManager.register({ id: 'test.enabled', category: 'Testing', label: 'Enabled', type: 'boolean', defaultValue: true });
         window.preferencesManager.register({ id: 'test.level', category: 'Testing', label: 'Level', type: 'number', min: 0, max: 1, defaultValue: 0.5 });
         window.preferencesManager.register({ id: 'test.mode', category: 'Testing', label: 'Mode', type: 'select', defaultValue: 'auto', options: [{ value: 'auto', label: 'Automatic' }, { value: 'manual', label: 'Manual' }] });
+        window.timelineDisplay = registerTimelinePreferences(window.preferencesManager);
         await window.preferencesManager.load();
         window.openPreferences = createPreferencesDialog(window.preferencesManager);
       </script>`);
     const routes = new Map([
       ['/', ['text/html', html]],
       ['/style.css', ['text/css', css]],
-      ...['woodtheme', 'modcolor', 'preferences', 'preferencesdialog', 'interfacepreferences'].map(name => [`/src/${name}.js`, ['text/javascript',
+      ...['woodtheme', 'modcolor', 'preferences', 'preferencesdialog', 'interfacepreferences', 'timelinepreferences'].map(name => [`/src/${name}.js`, ['text/javascript',
         readFileSync(new URL('../src/' + name + '.js', import.meta.url), 'utf8')]]),
     ]);
     server = http.createServer((req, res) => {
@@ -112,7 +114,7 @@ app.whenReady().then(async () => {
     assert.equal(await tint(), defaultTint, 'existing default tint is preserved');
     await open();
     assert.equal(await run("document.activeElement.id"), 'preferences-categories', 'category list receives focus');
-    assert.deepEqual(await run("Array.from(document.getElementById('preferences-categories').options, o => o.text)"), ['Interface', 'Testing']);
+    assert.deepEqual(await run("Array.from(document.getElementById('preferences-categories').options, o => o.text)"), ['Interface', 'Testing', 'Timeline']);
     const groups = await run(`Array.from(document.querySelectorAll('#preferences-content fieldset'), group => ({
       label: group.querySelector('legend')?.textContent,
       border: getComputedStyle(group).borderTopWidth,
@@ -249,6 +251,25 @@ app.whenReady().then(async () => {
     assert.equal(scaled.upper, before.upper);
     assert.equal(scaled.lower, before.lower);
     win.webContents.setZoomFactor(1);
+    await open();
+    const timelineCategory = () => run(`(() => {
+      const list = document.getElementById('preferences-categories');
+      list.value = 'Timeline'; list.dispatchEvent(new Event('change'));
+    })()`);
+    await timelineCategory();
+    assert.deepEqual(await run("Array.from(document.querySelectorAll('#preferences-content legend'), el => el.textContent)"), ['Show Input Grid', 'Show Vertical Barlines']);
+    assert.deepEqual(await run("Array.from(document.querySelectorAll('#preferences-content input'), el => el.checked)"), [true, true]);
+    const hideTimeline = () => run(`document.querySelectorAll('#preferences-content input').forEach(input => {
+      input.checked = false; input.dispatchEvent(new Event('change'));
+    })`);
+    await hideTimeline();
+    assert.deepEqual(await run('window.timelineDisplay'), { showInputGrid: false, showVerticalBarlines: false });
+    await submit('cancel'); await flushClose();
+    assert.deepEqual(await run('window.timelineDisplay'), { showInputGrid: true, showVerticalBarlines: true });
+    await open(); await timelineCategory(); await hideTimeline();
+    await submit('ok'); await flushClose();
+    await win.loadURL(url);
+    assert.deepEqual(await run('window.timelineDisplay'), { showInputGrid: false, showVerticalBarlines: false }, 'timeline display preferences survive reload');
     assert.deepEqual(await run('window.themeErrors'), []);
     console.log('preferences controls passed: categories, keyboard navigation, drafts, live preview, Cancel, Reset, persistence, extremes, and storage errors');
     console.log('wood theme tests passed: neutral surfaces, dark textured grain, and preserved signal colors');

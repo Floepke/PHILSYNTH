@@ -25,6 +25,11 @@ Interface > Launch in full screen is enabled by default. Uncheck it to launch
 the Electron app as a maximized window instead. Changes apply on the next launch;
 F11 still toggles full screen while running. This setting does not affect browsers.
 
+Timeline > Show Input Grid toggles the alternating light/dark input-grid bands
+without changing snapping. Timeline > Show Vertical Barlines toggles barlines
+and time-signature lines in the clip lanes, but keeps ruler marks and labels.
+Both default to checked and support live preview, Cancel, and saved preferences.
+
 The desktop app stores a versioned JSON document in `preferences.json` in its
 Electron user-data directory (development: `modsynth-dev`; packaged: `PHILSYNTH`).
 Writes use a temporary file and atomic rename. Browsers, including GitHub Pages,

@@ -12,6 +12,7 @@ import { initWoodTheme, migrateWoodTint } from './woodtheme.js';
 import { createPreferencesManager } from './preferences.js';
 import { createPreferencesDialog } from './preferencesdialog.js';
 import { registerInterfacePreferences } from './interfacepreferences.js';
+import { registerTimelinePreferences } from './timelinepreferences.js';
 import { Transport } from './transport.js';
 import { unsavedDialog } from './dialogs.js';
 import { exitToOS } from './exit.js';
@@ -52,6 +53,7 @@ const $ = (id) => document.getElementById(id);
 const preferencesManager = createPreferencesManager();
 initWoodTheme(preferencesManager);
 registerInterfacePreferences(preferencesManager);
+const timelineDisplay = registerTimelinePreferences(preferencesManager, () => seq?.redrawTimeline());
 let preferencesLoadError = '';
 try {
   await preferencesManager.load();
@@ -1760,6 +1762,7 @@ const firstLive = (rt) => [...rt.modules.values()].find((e) => takesLiveMidi(e.d
 const liveMidiEntry = () => midiTarget() ?? firstLive(shown()) ?? firstLive(engine.root);
 seq = createSequencer({
   engine,
+  timelineDisplay,
   transport,
   getSong: () => layerSong(shown()),
   getPatch: () => shown(),

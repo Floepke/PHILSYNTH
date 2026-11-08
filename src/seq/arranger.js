@@ -335,29 +335,33 @@ export function createArranger(host, ctx) {
       g.fillRect(x0, RULER, w - x0, iy - RULER);
     }
     const gy = Math.max(RULER, iy);
-    g.fillStyle = 'rgba(255, 255, 255, 0.022)';
-    snapBands(step(), view.ppq, t0, t1, (a, b) => {
-      const xa = Math.round(xOf(a));
-      g.fillRect(xa, gy, Math.round(xOf(b)) - xa, h);
-    });
+    if (ctx.timelineDisplay?.showInputGrid !== false) {
+      g.fillStyle = 'rgba(255, 255, 255, 0.022)';
+      snapBands(step(), view.ppq, t0, t1, (a, b) => {
+        const xa = Math.round(xOf(a));
+        g.fillRect(xa, gy, Math.round(xOf(b)) - xa, h);
+      });
+    }
     const m = meter(song);
     const bars = barLines(null, t0, t1, m);
-    g.strokeStyle = '#2a2a2f';
-    g.lineWidth = 2;
-    g.beginPath();
-    let lastX = -Infinity;
-    for (const b of bars) {
-      const x = Math.round(xOf(b.t)) + 0.5;
-      if (x - lastX < 3) continue;
-      lastX = x;
-      g.moveTo(x, RULER); g.lineTo(x, h);
+    if (ctx.timelineDisplay?.showVerticalBarlines !== false) {
+      g.strokeStyle = '#2a2a2f';
+      g.lineWidth = 2;
+      g.beginPath();
+      let lastX = -Infinity;
+      for (const b of bars) {
+        const x = Math.round(xOf(b.t)) + 0.5;
+        if (x - lastX < 3) continue;
+        lastX = x;
+        g.moveTo(x, RULER); g.lineTo(x, h);
+      }
+      g.stroke();
+      // time signature changes: a brighter line from the ruler down
+      g.strokeStyle = '#4b3a78';
+      g.beginPath();
+      for (const seg of m) if (seg.at > 0 && seg.at >= t0 && seg.at <= t1) { const x = Math.round(xOf(seg.at)) + 0.5; g.moveTo(x, RULER); g.lineTo(x, h); }
+      g.stroke();
     }
-    g.stroke();
-    // time signature changes: a brighter line from the ruler down
-    g.strokeStyle = '#4b3a78';
-    g.beginPath();
-    for (const seg of m) if (seg.at > 0 && seg.at >= t0 && seg.at <= t1) { const x = Math.round(xOf(seg.at)) + 0.5; g.moveTo(x, RULER); g.lineTo(x, h); }
-    g.stroke();
     // before time zero: parking space, never played by the song
     const zx = xOf(0);
     if (zx > x0) {

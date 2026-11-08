@@ -26,7 +26,7 @@ const NO_COLOR = '#8a8a92';
 // defaultAutoTarget() -> module number (or null) for new automation clips; onChange() after every edit.
 // getSong() / getPatch(): the layer shown (a Patch has its own TimeLine for its own modules);
 // default: the main song and patch. Call setLayer() after the shown layer changed.
-export function createSequencer({ engine, transport, getSong = null, getPatch = null, getTarget, liveTarget = () => null, pitchOffset = () => 0, defaultTarget, selectedTarget = () => null, defaultAutoTarget = () => null, onChange, undoHistory }) {
+export function createSequencer({ engine, transport, timelineDisplay = {}, getSong = null, getPatch = null, getTarget, liveTarget = () => null, pitchOffset = () => 0, defaultTarget, selectedTarget = () => null, defaultAutoTarget = () => null, onChange, undoHistory }) {
   const $ = (id) => document.getElementById(id);
   const seq = $('seq');
   const ui = {
@@ -208,7 +208,7 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
   });
   onHeldChange(() => roll.redraw());
   const lane = createAutomationLane($('roll'), { ...ctx, clip: () => (isAuto(clip()) ? clip() : null) });
-  const arranger = createArranger($('arranger'), ctx);
+  const arranger = createArranger($('arranger'), { ...ctx, timelineDisplay });
 
   // ---- toolbar ----
   createHoverToolbar($('seq-bar'), $('seq-bar-content'));
@@ -545,6 +545,7 @@ export function createSequencer({ engine, transport, getSong = null, getPatch = 
   watchLayer();
 
   return {
+    redrawTimeline: () => arranger.redraw(),
     // after a project was loaded
     reload() {
       layerVersion++;

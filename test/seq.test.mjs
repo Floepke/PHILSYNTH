@@ -10,6 +10,8 @@ import { createSequencer } from '../src/seq/index.js';
 import { rightHold } from '../src/seq/surface.js';
 import { Transport } from '../src/transport.js';
 import { initMouseNavigation } from '../src/mousebuttons.js';
+import { createPreferencesManager } from '../src/preferences.js';
+import { registerTimelinePreferences, SHOW_INPUT_GRID_ID, SHOW_VERTICAL_BARLINES_ID } from '../src/timelinepreferences.js';
 
 {
   const target = new EventTarget();
@@ -237,6 +239,52 @@ const assertNoOverlap = (song) => {
       'label clipping never extends beyond the clip or viewport, including a narrow remaining sliver');
     }
   }
+}
+
+// Timeline display preferences hide lane decorations, never ruler marks or snapping.
+{
+  const { song, arranger, ctx, changes } = setup();
+  setSig(song, 8, 3, 4);
+  const originalSnap = { ...song.snap };
+  const cv = arranger.surface.cv;
+  let saved = null;
+  const manager = createPreferencesManager({ storage: {
+    load: async () => saved, save: async (text) => { saved = text; },
+  } });
+  ctx.timelineDisplay = registerTimelinePreferences(manager, () => arranger.redraw());
+  await manager.load();
+  const paint = () => {
+    cv.drawing.length = 0;
+    arranger.redraw(); flush();
+    return {
+      bands: cv.drawing.filter(([op, , , , , color]) => op === 'fillRect' && color === 'rgba(255, 255, 255, 0.022)').length,
+      bars: cv.drawing.filter(([op, color]) => op === 'stroke' && color === '#2a2a2f').length,
+      signatures: cv.drawing.filter(([op, color]) => op === 'stroke' && color === '#4b3a78').length,
+      ruler: cv.drawing.filter(([op, color]) => op === 'stroke' && color === '#3a3a40').length,
+    };
+  };
+  const defaults = paint();
+  assert.ok(defaults.bands > 0 && defaults.bars > 0 && defaults.signatures > 0 && defaults.ruler > 0);
+  for (const grid of [true, false]) for (const bars of [true, false]) {
+    manager.preview(SHOW_INPUT_GRID_ID, grid);
+    manager.preview(SHOW_VERTICAL_BARLINES_ID, bars);
+    const result = paint();
+    assert.equal(result.bands > 0, grid);
+    assert.equal(result.bars > 0, bars);
+    assert.equal(result.signatures > 0, bars);
+    assert.equal(result.ruler, defaults.ruler, 'ruler bar marks remain unchanged');
+    assert.ok(cv.drawing.some(([op, text]) => op === 'fillText' && text === '3/4'), 'signature label remains in ruler');
+  }
+  manager.restore();
+  assert.deepEqual(paint(), defaults, 'Cancel restores both decorations');
+  await manager.save({ [SHOW_INPUT_GRID_ID]: false, [SHOW_VERTICAL_BARLINES_ID]: false });
+  const reloaded = createPreferencesManager({ storage: { load: async () => saved, save: async () => {} } });
+  ctx.timelineDisplay = registerTimelinePreferences(reloaded, () => arranger.redraw());
+  await reloaded.load();
+  assert.equal(paint().bands, 0);
+  assert.equal(paint().bars, 0);
+  assert.deepEqual(song.snap, originalSnap, 'display preferences never change snapping');
+  assert.equal(changes(), 0, 'display preferences do not edit the song');
 }
 
 // Mini notes use the full clip height, without reserving a header for the label.
