@@ -50,7 +50,7 @@ import {
   canConsolidate, consolidateClips, splitClip, setRestart, laneMuted, laneSoloed, laneSilent, clipSilent, setLaneFlag, laneY, isIdea, ideaY,
 } from '../song.js';
 import {
-  createSurface, capture, startPan, onWheel, clamp, snapBands, rightHold, edgeScroll, MUTE_COLOR,
+  createSurface, capture, rulerDrag, startPan, onWheel, clamp, snapBands, rightHold, edgeScroll, MUTE_COLOR,
   SB, SB_TRACK, scrollThumb, scrollValue, paintThumb, roundRect,
 } from './surface.js';
 import { CLIP_H, clipsOverlap, findClipPosition, clipResizeBounds } from './clipplacement.js';
@@ -284,6 +284,30 @@ export function createArranger(host, ctx) {
     };
     sbActive = which;
     dragging = true;
+    if (!b.vertical) {
+      const before = { ...view };
+      scrollTo(p);
+      const ppq = view.ppq;
+      const stop = rulerDrag(cv, e, (dx, dy) => {
+        const sx = scrollValue(b, p.x + dx - offset);
+        view.ppq = clamp(ppq * Math.pow(1.15, -dy / 48), 2, 200);
+        view.sx = (sx + p.x - x0) * view.ppq / ppq - (p.x - x0);
+        limitScroll();
+        ctx.viewChanged?.();
+        s.redraw();
+      }, ev => {
+        cv.removeEventListener('keydown', cancel);
+        if (ev.type === 'pointercancel') { Object.assign(view, before); ctx.viewChanged?.(); }
+        sbActive = null;
+        dragging = false;
+        s.redraw();
+      });
+      const cancel = ev => {
+        if (ev.key === 'Escape') { ev.preventDefault(); stop({ type: 'pointercancel' }); }
+      };
+      cv.addEventListener('keydown', cancel);
+      return;
+    }
     scrollTo(p);
     capture(cv, e, (ev) => scrollTo(s.local(ev)), () => { sbActive = null; dragging = false; s.redraw(); });
   }
@@ -782,7 +806,10 @@ export function createArranger(host, ctx) {
     if (sb !== sbHover) { sbHover = sb; s.redraw(); }
     const h = hit(x, y);
     const id = h?.clip.id ?? null;
-    cv.style.cursor = bar ? 'default' : laneBtnAt(x, y) ? 'pointer' : !h ? (y < RULER && x >= x0 ? (restartAt(x, y) || sigAt(x, y)?.at > 0 ? 'ew-resize' : sigAt(x, y) ? 'pointer' : 'text') : 'default') : h.part === 'body' ? 'grab' : 'ew-resize';
+    cv.style.cursor = bar === 'h' ? 'zoom-in' : bar ? 'default'
+      : laneBtnAt(x, y) ? 'pointer'
+        : y < RULER && x >= x0 ? (y < SIG_H ? 'text' : 'grab')
+          : !h ? 'default' : h.part === 'body' ? 'grab' : 'ew-resize';
     if (id !== hoverId) { hoverId = id; s.redraw(); }
   }
 
@@ -947,10 +974,32 @@ export function createArranger(host, ctx) {
       capture(cv, e, (ev) => { p = s.local(ev); seek(); auto.update(p); }, () => { auto.stop(); dragging = false; });
       return;
     }
-    if (y < RULER) { // bar numbers: drag the restart marker, else a click sets the play position
+    if (y < RULER) { // bar numbers: click seeks, relative dragging pans and zooms time
       if (x < x0) return;
       if (restartAt(x, y)) { e.preventDefault(); restartDrag(e); return; }
       ctx.transport.seek(Math.max(0, snapRound(timeAt(x), st)));
+      const before = { ...view };
+      const anchor = timeAt(x);
+      let moved = false;
+      dragging = true;
+      const cancel = ev => {
+        if (ev.key === 'Escape') { ev.preventDefault(); stop({ type: 'pointercancel' }); }
+      };
+      const stop = rulerDrag(cv, e, (dx, dy) => {
+        if (!moved && Math.max(Math.abs(dx), Math.abs(dy)) < 3) return;
+        moved = true;
+        view.ppq = clamp(before.ppq * Math.pow(1.15, -dy / 48), 2, 200);
+        view.sx = anchor * view.ppq - (x - x0) - dx;
+        limitScroll();
+        s.redraw();
+      }, ev => {
+        cv.removeEventListener('keydown', cancel);
+        dragging = false;
+        if (ev.type === 'pointercancel') Object.assign(view, before);
+        else if (moved) ctx.viewChanged?.();
+        s.redraw();
+      });
+      cv.addEventListener('keydown', cancel);
       s.redraw();
       return;
     }

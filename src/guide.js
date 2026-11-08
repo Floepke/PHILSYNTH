@@ -160,7 +160,7 @@ export const GUIDE = [
           `${k('Alt')} + drag copies; ${k('Shift')} + drag makes <i>linked clones</i> (hatched, ⧉) that share their notes: editing one edits all. ${k(CMD, 'D')} clones the selection right after itself, ${k(CMD, 'Shift', 'D')} duplicates it.`,
           'Park clips left of the bright zero line: they are not played by the song (<kbd>/</kbd> still auditions them), handy for source clips whose clones make up the song.',
           '<b>Idea storage</b>: scroll up above lane 1. Clips there sit wherever you drop them (no grid, no lanes, overlaps allowed) and are never played by the song; <kbd>/</kbd> loops an idea solo, without the lane clips around it. Drag an idea onto a lane to play it; it snaps like any clip.',
-          'Pan the TimeLine with the wheel (sideways), Shift + wheel (lanes), Shift + drag on empty space, middle-drag or the scrollbars below and right of it. Upward scrolling stops when the idea-storage message reaches the bottom of the view; the scrollbars bring you back to your clips.',
+          'Pan the TimeLine with the wheel (sideways), Shift + wheel (lanes), Shift + drag on empty space, middle-drag or the scrollbars below and right of it. The bottom scrollbar also zooms time when dragged vertically (up zooms in, down zooms out), simultaneously with horizontal scrolling, using the same locked-cursor gesture as the ruler. Upward scrolling stops when the idea-storage message reaches the bottom of the view; the scrollbars bring you back to your clips.',
           'The <b>M</b> / <b>S</b> buttons left of a lane number mute / solo it; drag over a column of buttons to switch many lanes. Mute wins over solo; a silenced clip shows a big M in its editor.',
         ],
       },
@@ -178,6 +178,7 @@ export const GUIDE = [
       {
         title: 'Ruler, restart point and time signatures',
         items: [
+          'Click the timeline measure ruler to position the playhead. Drag it left/right to pan horizontally and up/down to zoom around the grabbed time; both axes act together. The cursor locks during the drag and returns to its press position on release. Escape cancels navigation. Restart markers still drag to change their position.',
           'Click the ruler to set the play position (on the signature row dragging scrubs).',
           `${k('Double-click')} the time signature row to insert a time signature change at the nearest bar line (or edit it); right-click a change to remove it.`,
           'Drag a purple signature flag left or right to move it by whole bars of the preceding meter. The initial signature stays at zero. Later changes snap to their nearest whole measure without reordering or overlapping; clips and notes do not move. The grid updates during the drag; Escape cancels, and release records one undo step.',
@@ -255,7 +256,7 @@ export const GUIDE = [
         items: [
           'The strip left of the notes shows each note\'s velocity (stick) and how it changes while the note sounds. Dragging a selected start dot sets every selected note to the same start velocity, regardless of start time. Each curve shifts by its own start-velocity change, clamping points at 0 or 100 %; point times and rounding stay unchanged.',
           `${k('Double-click')} inside a selected note adds a point for every selected note at the same offset from its start (clamped to shorter notes\' ends). Dragging an existing point edits points at the same timeline time (${k('Shift')} = fine), creating missing points in selected notes sounding then, never changing start velocities or other points. The wheel rounds same-time points. Select just one note to edit it alone.`,
-          'Right-click the strip for <b>Snap velocity values</b> (1/16 steps, shown as alternating light/dark bands while on) and <b>Delete point</b>. Drag the bar ruler beside the strip to make it wider (double-click resets).',
+          'Right-click the strip for <b>Snap velocity values</b> (1/16 steps, shown as alternating light/dark bands while on) and <b>Delete point</b>. Drag the bar ruler beside the strip sideways to resize the velocity editor and vertically to zoom time (up zooms in, down zooms out). Zoom stays anchored at the original grab position; both axes work simultaneously during diagonal drags. The cursor locks during ruler drags and returns to its press position on release. Double-click resets the width; the wheel still scrolls time.',
         ],
       },
       {

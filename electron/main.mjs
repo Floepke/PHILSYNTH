@@ -25,7 +25,7 @@ if (app.isPackaged) {
 const PORT = Number(process.env.MODSYNTH_PORT) || (app.isPackaged ? 8768 : 8767);
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // fileSystem: writing the file chosen in the Export Audio save dialog (File System Access API)
-const TRUSTED = new Set(['midi', 'midiSysex', 'media', 'clipboard-sanitized-write', 'fullscreen', 'fileSystem']);
+const TRUSTED = new Set(['midi', 'midiSysex', 'media', 'clipboard-sanitized-write', 'fullscreen', 'fileSystem', 'pointerLock']);
 
 // audio may start without a click first (the AudioContext resumes on load)
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');

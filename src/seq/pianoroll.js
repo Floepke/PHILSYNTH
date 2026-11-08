@@ -47,12 +47,12 @@
 //   Q                           quantize note starts to the grid (selection, else all notes)
 //   Space                       toggle song playback from the pointer's snapped time
 // The velocity strip on the left edits the velocity (curves) of the selected notes, see velocity.js.
-// The bar ruler between them is a divider: drag it sideways to widen the strip (the note grid
-// scales to the rest), double-click it to reset. The width is saved with the project view.
+// Drag the bar ruler sideways to resize the velocity strip, vertically to zoom time.
+// Both axes act together; double-click resets the width.
 // Free timing bypasses time snapping; the visual grid (base note ÷ divider) stays visible.
 import { basePitch, centsOf, bendPolyline, notePitchAt, BEND_MAX, withCents, centsLabel, isBlack, inPiano, clipSilent, isIdea, snapStep, pianoTimeStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, withVelEnd, velsForLength, clean, meter, barLines, beatLines, barLength, gridBeatEnabled } from '../song.js';
 import {
-  createSurface, capture, startPan, onWheel, clamp, snapBands, mutedMark, edgeScroll, RIGHT_HOLD_MS, RIGHT_HOLD_SLOP,
+  createSurface, capture, rulerDrag, startPan, onWheel, clamp, snapBands, mutedMark, edgeScroll, RIGHT_HOLD_MS, RIGHT_HOLD_SLOP,
   SB, SB_TRACK, scrollThumb, scrollValue, paintThumb,
 } from './surface.js';
 import { createVelocityStrip, VEL_W } from './velocity.js';
@@ -710,7 +710,7 @@ export function createPianoRoll(host, ctx) {
     hbHover = onHScrollbar(x, y);
     if (bar) { cv.style.cursor = 'default'; cv.title = 'Drag to scroll the clip, or click the track to jump there'; }
     if (hbHover) { cv.style.cursor = 'default'; cv.title = 'Drag to scroll the zoomed keys sideways, or click the track to jump there (Shift + wheel zooms)'; }
-    if (inRuler(x, y)) { cv.style.cursor = 'col-resize'; cv.title = 'Drag the bar ruler sideways to resize the velocity editor (the piano roll scales along) — double-click resets'; }
+    if (inRuler(x, y)) { cv.style.cursor = 'move'; cv.title = 'Drag sideways to resize the velocity editor, up to zoom time in, down to zoom out — double-click resets width'; }
     s.redraw();
   }
 
@@ -1096,13 +1096,21 @@ export function createPianoRoll(host, ctx) {
         return;
       }
       const w0 = velW();
+      const sy0 = view.sy;
+      const ppq0 = view.ppq;
+      const anchorTime = timeAt(y);
       drag = { kind: 'ruler' };
-      drag.stop = capture(cv, e, (ev) => {
-        view.velW = clamp(w0 + s.local(ev).x - x, VEL_MIN, Math.max(VEL_MIN, s.w * VEL_MAX_SHARE));
+      drag.stop = rulerDrag(cv, e, (dx, dy) => {
+        view.velW = clamp(w0 + dx, VEL_MIN, Math.max(VEL_MIN, s.w * VEL_MAX_SHARE));
+        view.ppq = clamp(ppq0 * Math.pow(1.15, -dy / 48), 6, 600);
+        view.sy = anchorTime * view.ppq - y;
+        limitScroll();
         s.redraw();
-      }, () => {
+      }, (ev) => {
+        if (ev.type === 'pointercancel') { view.velW = w0; view.sy = sy0; view.ppq = ppq0; }
         drag = null;
-        ctx.viewChanged?.();
+        s.redraw();
+        if (ev.type !== 'pointercancel' && (view.velW !== w0 || view.sy !== sy0 || view.ppq !== ppq0)) ctx.viewChanged?.();
       });
       return;
     }

@@ -54,6 +54,66 @@ export function capture(cv, e, onMove, onUp) {
   return up;
 }
 
+// Relative ruler drag: pointer lock restores the cursor to its press position on release.
+export function rulerDrag(cv, e, onMove, onUp) {
+  let ended = false;
+  let locked = false;
+  let dx = 0, dy = 0;
+  const move = ev => {
+    if (ended) return;
+    if (document.pointerLockElement === cv) {
+      if (ev.type !== 'mousemove') return;
+      dx += ev.movementX;
+      dy += ev.movementY;
+    } else {
+      if (ev.type !== 'pointermove' || ev.pointerId !== e.pointerId) return;
+      dx = ev.clientX - e.clientX;
+      dy = ev.clientY - e.clientY;
+    }
+    onMove(dx, dy);
+  };
+  const finish = ev => {
+    if (ended) return;
+    ended = true;
+    cv.removeEventListener('pointermove', move);
+    cv.removeEventListener('pointerup', finish);
+    cv.removeEventListener('pointercancel', finish);
+    document.removeEventListener('mousemove', move);
+    document.removeEventListener('mouseup', finish);
+    document.removeEventListener('pointerlockchange', lockChange);
+    document.removeEventListener('pointerlockerror', lockError);
+    window.removeEventListener('blur', cancel);
+    if (document.pointerLockElement === cv) document.exitPointerLock();
+    onUp(ev);
+  };
+  const cancel = () => finish({ type: 'pointercancel' });
+  const lockChange = () => {
+    if (document.pointerLockElement === cv) {
+      if (ended) document.exitPointerLock();
+      else locked = true;
+    } else if (locked) cancel();
+  };
+  const lockError = () => console.warn('Ruler pointer lock unavailable; using ordinary cursor dragging.');
+  cv.setPointerCapture(e.pointerId);
+  cv.addEventListener('pointermove', move);
+  cv.addEventListener('pointerup', finish);
+  cv.addEventListener('pointercancel', finish);
+  document.addEventListener('mousemove', move);
+  document.addEventListener('mouseup', finish);
+  document.addEventListener('pointerlockchange', lockChange);
+  document.addEventListener('pointerlockerror', lockError);
+  window.addEventListener('blur', cancel);
+  if (cv.requestPointerLock) {
+    try {
+      const pending = cv.requestPointerLock();
+      pending?.then(() => { if (ended && document.pointerLockElement === cv) document.exitPointerLock(); }, lockError);
+    } catch (err) {
+      console.warn('Could not lock ruler cursor:', err);
+    }
+  }
+  return finish;
+}
+
 // Auto-scroll while dragging near (or past) the edges of the scrollable area. update(p) with the
 // local pointer after every move; while p is within `edge` px of an edge (or beyond it), every
 // tick calls scroll(dx, dy) (px, faster the deeper the pointer is) and then onScroll() so the drag

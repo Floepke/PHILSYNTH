@@ -7,7 +7,7 @@ import { createPianoRoll, TOP_MARGIN, GRID_MIN_PX } from '../src/seq/pianoroll.j
 import { createArranger } from '../src/seq/arranger.js';
 import { CLIP_H, clipsOverlap } from '../src/seq/clipplacement.js';
 import { createSequencer } from '../src/seq/index.js';
-import { rightHold } from '../src/seq/surface.js';
+import { rightHold, rulerDrag } from '../src/seq/surface.js';
 import { Transport } from '../src/transport.js';
 import { initMouseNavigation } from '../src/mousebuttons.js';
 import { createPreferencesManager } from '../src/preferences.js';
@@ -74,7 +74,7 @@ class Canvas extends EventTarget {
   focus() { document.activeElement = this; }
 }
 
-globalThis.document = { createElement: () => new Canvas(), activeElement: null, addEventListener() {} };
+globalThis.document = { createElement: () => new Canvas(), activeElement: null, addEventListener() {}, removeEventListener() {} };
 globalThis.window = Object.assign(new EventTarget(), { devicePixelRatio: 1 });
 setMaxListeners(0, window); // Node never uncounts removed capture listeners
 const flush = () => {
@@ -170,6 +170,65 @@ const nx = (pitch) => 120 + pitch * 14 + 7;
 const ny = (start) => start * 48;
 const ax = (start) => 70 + start * 16;
 const ay = (y) => 2 * CLIP_H + y + CLIP_H / 2;
+
+{
+  const originalDocument = document;
+  const doc = Object.assign(new EventTarget(), { pointerLockElement: null });
+  globalThis.document = doc;
+  const cv = new Canvas();
+  let exits = 0;
+  doc.exitPointerLock = () => { doc.pointerLockElement = null; exits++; doc.dispatchEvent(new Event('pointerlockchange')); };
+  cv.requestPointerLock = () => {
+    doc.pointerLockElement = cv;
+    doc.dispatchEvent(new Event('pointerlockchange'));
+    return Promise.resolve();
+  };
+  const movements = [];
+  const releases = [];
+  rulerDrag(cv, { pointerId: 1, clientX: 100, clientY: 150 }, (x, y) => movements.push([x, y]), e => releases.push(e.type));
+  for (const [movementX, movementY] of [[20, -10], [-5, 4]]) {
+    doc.dispatchEvent(Object.assign(new Event('mousemove'), { movementX, movementY }));
+  }
+  assert.deepEqual(movements, [[20, -10], [15, -6]], 'locked dragging accumulates relative mouse movement');
+  doc.dispatchEvent(new Event('mouseup'));
+  assert.equal(exits, 1, 'release unlocks the cursor');
+  assert.deepEqual(releases, ['mouseup']);
+  doc.dispatchEvent(Object.assign(new Event('mousemove'), { movementX: 50, movementY: 50 }));
+  assert.equal(movements.length, 2, 'release removes drag listeners');
+  await Promise.resolve();
+  globalThis.document = originalDocument;
+}
+
+{
+  const { arranger, ctx } = setup();
+  const cv = arranger.surface.cv;
+  let changes = 0;
+  ctx.viewChanged = () => changes++;
+  const before = arranger.getView();
+  const x = ax(10), y = 1.5 * CLIP_H;
+  point(cv, 'pointerdown', x, y, { buttons: 1 });
+  point(cv, 'pointermove', x + 32, y - 48, { buttons: 1 });
+  assert.ok(Math.abs(arranger.getView().ppq - before.ppq * 1.15) < 1e-9);
+  assert.ok(Math.abs(arranger.getView().sx - (10 * arranger.getView().ppq - (x - 70) - 32)) < 1e-9);
+  point(cv, 'pointerup', x + 32, y - 48);
+  assert.equal(changes, 1, 'combined ruler zoom and pan are saved on release');
+  const saved = arranger.getView();
+  point(cv, 'pointerdown', x, y, { buttons: 1 });
+  point(cv, 'pointermove', x - 20, y + 48, { buttons: 1 });
+  key(cv, 'Escape');
+  assert.deepEqual(arranger.getView(), saved, 'Escape restores timeline ruler navigation');
+}
+
+// Both timeline header rows match clip-lane height, with larger centered labels.
+{
+  const { arranger } = setup();
+  const cv = arranger.surface.cv;
+  for (const [x, y, cursor] of [[ax(1), 17, 'text'], [ax(10), 17, 'text'],
+    [ax(1), 1.5 * CLIP_H, 'grab'], [200, 384, 'zoom-in']]) {
+    point(cv, 'pointermove', x, y);
+    assert.equal(cv.style.cursor, cursor);
+  }
+}
 
 // Both timeline header rows match clip-lane height, with larger centered labels.
 {
@@ -1683,6 +1742,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(ctx.transport.pos, 5.25);
   drag(cv, ax(4.1), RY, ax(8.05), RY);
   assert.equal(song.restart, undefined, 'dragging the bar numbers makes nothing');
+  arranger.setView({ sx: 0, ppq: 16 }); flush();
   assert.equal('loop' in song, false, 'there is no loop region');
   const c0 = changes();
   point(cv, 'dblclick', ax(4.1), RY);
@@ -1732,6 +1792,27 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   const n = arranger.getView();
   click(cv, 470, 390); // the corner between the scrollbars does nothing
   assert.deepEqual(arranger.getView(), n);
+}
+
+// The camera can pan far horizontally and downward, but stops above at the idea label.
+{
+  const { arranger } = setup();
+  const cv = arranger.surface.cv;
+  const y = 400 - 16;
+  click(cv, 300, y);
+  const before = arranger.getView();
+  const anchor = (300 - 70 + before.sx) / before.ppq;
+  point(cv, 'pointerdown', 300, y, { buttons: 1 });
+  point(cv, 'pointermove', 300, y - 48, { buttons: 1 });
+  assert.ok(Math.abs(arranger.getView().ppq - before.ppq * 1.15) < 1e-9, 'scrollbar upward drag zooms in');
+  assert.ok(Math.abs((300 - 70 + arranger.getView().sx) / arranger.getView().ppq - anchor) < 1e-9, 'scrollbar zoom anchors at the grab position');
+  point(cv, 'pointermove', 330, y - 48, { buttons: 1 });
+  assert.notEqual(arranger.getView().sx, before.sx, 'horizontal scrollbar movement remains active');
+  key(cv, 'Escape');
+  assert.deepEqual(arranger.getView(), before, 'Escape restores scrollbar zoom and scroll');
+  point(cv, 'pointerup', 330, y - 48);
+  drag(cv, 300, y, 300, y + 48);
+  assert.ok(Math.abs(arranger.getView().ppq - before.ppq / 1.15) < 1e-9, 'scrollbar downward drag zooms out');
 }
 
 // The camera can pan far horizontally and downward, but stops above at the idea label.
@@ -3811,6 +3892,41 @@ for (const width of [300, 480, 900, 1912]) {
   assert.equal(roll.getView().velW, 84, 'new project: default');
   roll.setView({ sy: 0, ppq: 48 });
   assert.equal(roll.getView().velW, 84, 'older projects: default');
+  clip.length = 16;
+  roll.setView({ ...roll.getView(), sy: 100 });
+  viewChanges = 0;
+  const anchored = (150 + 100) / 48;
+  point(cv, 'pointerdown', 100, 150, { buttons: 1 });
+  point(cv, 'pointermove', 101, 110, { buttons: 1 });
+  assert.ok(roll.getView().ppq > 48, 'upward ruler drag zooms time in immediately');
+  assert.ok(Math.abs((150 + roll.getView().sy) / roll.getView().ppq - anchored) < 1e-9, 'zoom preserves time at the grab position');
+  point(cv, 'pointermove', 160, 90, { buttons: 1 });
+  point(cv, 'pointerup', 160, 90);
+  assert.ok(Math.abs(roll.getView().ppq - 48 * Math.pow(1.15, 60 / 48)) < 1e-9);
+  assert.equal(roll.getView().velW, 144, 'diagonal ruler drag resizes while zooming');
+  assert.equal(viewChanges, 1);
+  const zoomBefore = roll.getView().ppq;
+  point(cv, 'pointerdown', 160, 150, { buttons: 1 });
+  point(cv, 'pointermove', 190, 151, { buttons: 1 });
+  point(cv, 'pointermove', 200, 200, { buttons: 1 });
+  point(cv, 'pointerup', 200, 200);
+  assert.equal(roll.getView().velW, 184);
+  assert.ok(roll.getView().ppq < zoomBefore, 'both axes remain active throughout the drag');
+  const saved = roll.getView();
+  point(cv, 'pointerdown', 200, 150, { buttons: 1 });
+  point(cv, 'pointermove', 220, 200, { buttons: 1 });
+  point(cv, 'pointercancel', 220, 200);
+  assert.deepEqual(roll.getView(), saved, 'cancel restores ruler zoom and resize');
+  point(cv, 'pointerdown', 200, 150, { buttons: 1 });
+  point(cv, 'pointermove', 240, 170, { buttons: 1 });
+  key(cv, 'Escape');
+  point(cv, 'pointerup', 240, 170);
+  assert.deepEqual(roll.getView(), saved, 'Escape restores ruler resize');
+  drag(cv, 200, 150, 200, -10000);
+  assert.equal(roll.getView().ppq, 600, 'ruler zoom uses the existing maximum');
+  drag(cv, 200, 150, 200, 10000);
+  assert.equal(roll.getView().ppq, 6, 'ruler zoom uses the existing minimum');
+  assert.deepEqual(clip.notes, before);
 }
 
 // Resizing derives fresh geometry; neither old saved zoom nor Alt-scroll can crop the pitches.

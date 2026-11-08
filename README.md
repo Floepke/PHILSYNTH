@@ -366,6 +366,14 @@ The audio shortcut remains Ctrl/Cmd+E. MIDI export writes a standard format-1
 
 ## Time-signature grid
 
+The piano-roll ruler supports simultaneous horizontal velocity-width resizing
+and vertical time zoom (up zooms in, down zooms out). The timeline measure ruler
+supports horizontal panning and the same vertical zoom gesture; a click still
+positions the playhead and restart markers retain their position drag.
+Ruler drags use pointer lock so the cursor returns to its press position on
+release. If the browser refuses pointer lock, ordinary dragging remains available
+with a console warning. Escape cancels the gesture.
+
 The timeline's time-signature row and measure ruler each match a normal clip
 lane's height, with enlarged signature flags and measure numbers.
 
