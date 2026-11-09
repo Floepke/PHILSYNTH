@@ -17,6 +17,7 @@ export const GUIDE = [
         items: [
           `${k('Double-click')} empty canvas (or right-click it → <b>Load module…</b>) to open the insert dialog; the module appears where you clicked.`,
           '<b>Load module…</b> in the insert dialog places a saved <b>.phmod</b> file at that spot.',
+          'In the desktop Load module file picker, switch on <b>Preview Instrument</b> to play the selected file with your MIDI keyboard through a temporary, dry Output. The current project stays unchanged. Selecting another file replaces the preview; switching it off, changing folders or closing the picker stops it. Preview starts switched off.',
           'The module number on each box is how clips (<i>Send to</i>), Patches (<i>Input Module</i>) and modulators (<i>Out Controller</i>) refer to it.',
         ],
       },
@@ -50,7 +51,7 @@ export const GUIDE = [
           `${k('Alt')} + drag a module to duplicate it (or the whole selection, with the cables between the copies).`,
           `${k(CMD)} + ${k('X')} / ${k('C')} / ${k('V')} cut, copy and paste; paste lands at the mouse pointer. The same commands are in the right-click menu (or the keyboard menu key).`,
           `${k('Backspace')} / ${k('Delete')} deletes the selection; the Output module always stays.`,
-          `${k(CMD, 'Z')} undoes, ${k(CMD, 'Shift', 'Z')} (or ${k('Ctrl', 'Y')}) redoes; this covers the patcher and the sequencer.`,
+          `${k(CMD, 'Z')} undoes, ${k(CMD, 'Shift', 'Z')} (or ${k('Ctrl', 'Y')}) redoes; this covers the patcher and the sequencer. Each completed sequencer edit is a separate undo step, including notes edited quickly in succession.`,
         ],
       },
       {
@@ -178,8 +179,8 @@ export const GUIDE = [
       {
         title: 'Ruler, restart point and time signatures',
         items: [
-          'Click the timeline measure ruler to position the playhead. Drag it left/right to pan horizontally and up/down to zoom around the grabbed time; both axes act together. In Electron the cursor locks during the drag and returns to its press position on release; web browsers use ordinary cursor dragging without pointer lock. Escape cancels navigation. Restart markers still drag to change their position.',
-          'Click the ruler to set the play position (on the signature row dragging scrubs).',
+          'Drag the timeline measure ruler left/right to pan horizontally and up/down to zoom around the grabbed time; both axes act together without moving the playhead. Clicking it leaves the playhead unchanged. In Electron the cursor locks during the drag and returns to its press position on release; web browsers use ordinary cursor dragging without pointer lock. Escape cancels navigation. Restart markers still drag to change their position.',
+          'Click the time signature row to set the play position; dragging there scrubs.',
           `${k('Double-click')} the time signature row to insert a time signature change at the nearest bar line (or edit it); right-click a change to remove it.`,
           'Drag a purple signature flag left or right to move it by whole bars of the preceding meter. The initial signature stays at zero. Later changes snap to their nearest whole measure without reordering or overlapping; clips and notes do not move. The grid updates during the drag; Escape cancels, and release records one undo step.',
           'Choose Insert/Edit time-Signature Change… from the timeline clip, empty-space or ruler context menu to open the same dialog at the nearest bar to the right-click position. Hold right-click on an existing signature or restart marker to open this menu without removing it.',

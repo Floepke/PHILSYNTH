@@ -220,17 +220,20 @@ const ay = (y) => 2 * CLIP_H + y + CLIP_H / 2;
   ctx.viewChanged = () => changes++;
   const before = arranger.getView();
   const x = ax(10), y = 1.5 * CLIP_H;
+  ctx.transport.pos = 2.5;
   point(cv, 'pointerdown', x, y, { buttons: 1 });
   point(cv, 'pointermove', x + 32, y - 48, { buttons: 1 });
   assert.ok(Math.abs(arranger.getView().ppq - before.ppq * 1.15) < 1e-9);
   assert.ok(Math.abs(arranger.getView().sx - (10 * arranger.getView().ppq - (x - 70) - 32)) < 1e-9);
   point(cv, 'pointerup', x + 32, y - 48);
   assert.equal(changes, 1, 'combined ruler zoom and pan are saved on release');
+  assert.equal(ctx.transport.pos, 2.5, 'ruler navigation leaves the playhead unchanged');
   const saved = arranger.getView();
   point(cv, 'pointerdown', x, y, { buttons: 1 });
   point(cv, 'pointermove', x - 20, y + 48, { buttons: 1 });
   key(cv, 'Escape');
   assert.deepEqual(arranger.getView(), saved, 'Escape restores timeline ruler navigation');
+  assert.equal(ctx.transport.pos, 2.5, 'cancelled ruler navigation leaves the playhead unchanged');
 }
 
 // Both timeline header rows match clip-lane height, with larger centered labels.
@@ -1685,7 +1688,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(song.clips.length, 0);
 }
 
-// Existing arranger move, edge resize, duplication and ruler seek remain intact.
+// Existing arranger move, edge resize, duplication and signature-row seek remain intact.
 {
   const { song, clip, arranger, ctx } = setup();
   const cv = arranger.surface.cv;
@@ -1706,7 +1709,7 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(song.clips.length, 2);
   assert.equal(ctx.clip().start, 8);
   assert.equal(ctx.clip().y, 102);
-  click(cv, ax(5.37), 1.5 * CLIP_H);
+  click(cv, ax(5.37), 0.5 * CLIP_H);
   assert.equal(ctx.transport.pos, 5.25);
 }
 
@@ -1746,14 +1749,19 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   ctx.transport.playing = false;
 }
 
-// The ruler: a click sets the play position; a double-click on the bar numbers inserts the restart
+// The ruler: a click leaves the play position; a double-click on the bar numbers inserts the restart
 // point (snapped), dragging the marker moves it, right-click removes it.
 {
   const { song, arranger, ctx, changes } = setup();
   const cv = arranger.surface.cv;
   const RY = 1.5 * CLIP_H; // bar number row
-  click(cv, ax(5.37), RY);
-  assert.equal(ctx.transport.pos, 5.25);
+  ctx.transport.pos = 2.5;
+  for (const playing of [false, true]) {
+    ctx.transport.playing = playing;
+    click(cv, ax(5.37), RY);
+    assert.equal(ctx.transport.pos, 2.5, 'clicking bar numbers never seeks, stopped or playing');
+  }
+  ctx.transport.playing = false;
   drag(cv, ax(4.1), RY, ax(8.05), RY);
   assert.equal(song.restart, undefined, 'dragging the bar numbers makes nothing');
   arranger.setView({ sx: 0, ppq: 16 }); flush();

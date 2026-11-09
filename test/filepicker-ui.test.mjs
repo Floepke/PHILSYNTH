@@ -22,6 +22,13 @@ await mkdir(join(files, 'Folder'));
 await writeFile(join(files, 'Folder', '.hidden'), 'hidden');
 await writeFile(join(files, 'one.phproject'), 'original');
 await writeFile(join(files, 'song.MIDI'), Buffer.from([0, 128, 255]));
+const instrument = (wave) => JSON.stringify({
+  format: 'philsynth-module', version: 1,
+  modules: [{ id: 1, type: 'OSC', x: 0, y: 0, values: { wave } }], cables: [],
+});
+await writeFile(join(files, 'lead.phmod'), instrument(0));
+await writeFile(join(files, 'bass.phmod'), instrument(1));
+await writeFile(join(files, 'broken.phmod'), '{');
 app.setPath('userData', data);
 app.setPath('documents', files);
 
@@ -33,6 +40,10 @@ try {
     .replace('<script type="module" src="src/main.js"></script>', `<script type="module">
       import { pickFile } from '/src/filepicker.js';
       import { openMidiFile } from '/src/filedialog.js';
+      import { openTextFile } from '/src/filedialog.js';
+      import { createModulePreview } from '/src/modulepreview.js';
+      import { dspTestHost } from '/test/dsphost.mjs';
+      import { initMidi } from '/src/midi.js';
       import { AUDIO_FORMATS, encodeAudio } from '/src/audioformat.js';
       window.encodeAudio = encodeAudio;
       window.saveAudioPicker = () => { window.audioSaveResult = pickFile(window.modsynthFiles,
@@ -42,6 +53,21 @@ try {
       window.openMidi = () => { window.midiResult = openMidiFile(); };
       window.saveMidiPicker = () => { window.midiSaveResult = pickFile(window.modsynthFiles,
         { mode: 'save', dialog: 'midi', exts: ['.mid'], saveExt: '.mid', suggestedName: 'export.mid' }); };
+      const audio = dspTestHost();
+      const preview = createModulePreview({ ctx: { currentTime: 0 }, dsp: audio.dsp, resume() {} },
+        path => window.modsynthFiles.openFile('module', path));
+      const input = Object.assign(new EventTarget(), { id: 'preview-keys', name: 'Preview keys', state: 'connected' });
+      Object.defineProperty(navigator, 'requestMIDIAccess', { value: async () => Object.assign(new EventTarget(), { inputs: new Map([[input.id, input]]) }) });
+      const midi = initMidi({ getTarget: () => preview.target, onStatus() {} });
+      await midi.enable();
+      window.previewAudio = audio;
+      window.previewNote = (on) => {
+        const event = new Event('midimessage');
+        event.data = [on ? 0x90 : 0x80, 60, on ? 100 : 0];
+        input.dispatchEvent(event);
+      };
+      window.openModulePicker = () => { window.moduleResult = openTextFile('module', window,
+        (files, opts) => pickFile(files, { ...opts, preview: preview.select })); };
     </script>`);
   server = http.createServer(async (req, res) => {
     try {
@@ -59,8 +85,14 @@ try {
   win = new BrowserWindow({ show: false, webPreferences: {
     preload: join(root, 'electron', 'preload.cjs'), sandbox: true, contextIsolation: true,
   } });
+  win.webContents.on('console-message', (event) => {
+    if (event.level === 'error') console.error(`Renderer: ${event.message}`);
+  });
   await win.loadURL(`http://127.0.0.1:${server.address().port}/`);
-  const run = (code) => win.webContents.executeJavaScript(code);
+  const run = async (code) => {
+    try { return await win.webContents.executeJavaScript(code); }
+    catch (err) { throw new Error(`${err.message}\nRenderer script: ${code}`, { cause: err }); }
+  };
   const wait = async (condition) => {
     for (let i = 0; i < 100; i++) {
       if (await condition()) return;
@@ -71,7 +103,7 @@ try {
   const visible = (name) => run(`Array.from(document.querySelectorAll('.fd-row .fd-file')).some(el => el.textContent === ${JSON.stringify(name)})`);
   const open = async (mode) => {
     await run(`window.openPicker(${JSON.stringify(mode)}); true`);
-    await wait(() => visible('one.phproject'));
+    await wait(async () => await run("document.querySelector('#file-dialog').open") && await visible('one.phproject'));
   };
   const context = async (name) => {
     await wait(() => run(`(() => {
@@ -102,6 +134,7 @@ try {
   const contextBackground = () => run(`document.querySelector('#fd-list').dispatchEvent(
     new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 200 }))`);
 
+  await wait(() => run("typeof window.openPicker === 'function' && typeof window.openModulePicker === 'function'"));
   await open('open');
   await run(`window.modsynthFiles.saveAs(${JSON.stringify(join(files, 'one.phproject'))}, 'original')`);
   await writeFile(join(files, 'Folder', 'one.phproject'), 'do not overwrite');
@@ -234,6 +267,69 @@ try {
     assert.ok(audio.rms > 0.30 && audio.rms < 0.40, `${audio.ext} retains the audio signal`);
     assert.ok(Math.abs(audio.rightRms / audio.rms - 0.5) < 0.03, `${audio.ext} preserves independent stereo channels`);
   }
+  const selectFile = (name, type = 'click') => run(`(() => {
+    const row = [...document.querySelectorAll('.fd-row')].find(el => el.querySelector('.fd-file')?.textContent === ${JSON.stringify(name)});
+    if (!row) throw new Error('Missing file');
+    row.dispatchEvent(new MouseEvent(${JSON.stringify(type)}, { bubbles: true }));
+  })()`);
+  const previewNodes = () => run('window.previewAudio.graph.nodes.size');
+  const isAudible = () => run('window.previewAudio.render(10).L.some(v => Math.abs(v) > 0.00001)');
+  await mkdir(join(files, 'Preview instruments'));
+  await run('window.openModulePicker(); true');
+  await wait(async () => await run("document.querySelector('#file-dialog').open") && await visible('lead.phmod'));
+  assert.equal(await run("document.querySelector('#fd-preview').hidden"), false, 'module picker offers instrument preview');
+  assert.equal(await run("document.querySelector('#fd-preview').getAttribute('aria-checked')"), 'false', 'preview defaults off');
+  await selectFile('lead.phmod');
+  assert.equal(await previewNodes(), 1, 'selecting with preview off does not create an instrument');
+  await run("document.querySelector('#fd-preview').click()");
+  await wait(async () => await previewNodes() === 4);
+  assert.equal(await run("document.querySelector('#fd-preview').getAttribute('aria-checked')"), 'true');
+  await run('window.previewNote(true)');
+  assert.equal(await isAudible(), true, 'a MIDI keyboard plays the selected file while the modal picker remains open');
+  assert.equal(await run("document.querySelector('#file-dialog').open"), true);
+  await selectFile('bass.phmod');
+  await wait(() => run("[...window.previewAudio.graph.nodes.values()].some(n => n.kind === 'osc' && n.k.p.wave === 1)"));
+  assert.equal(await previewNodes(), 4, 'switching files replaces rather than layers instruments');
+  assert.equal(await isAudible(), false, 'switching files stops notes held on the previous instrument');
+  await run('window.previewNote(false); window.previewNote(true)');
+  assert.equal(await isAudible(), true);
+  await run("document.querySelector('#fd-preview').click()");
+  assert.equal(await previewNodes(), 1, 'switching preview off disposes the instrument');
+  assert.equal(await isAudible(), false);
+  await run("document.querySelector('#fd-preview').click()");
+  await wait(async () => await previewNodes() === 4);
+  await selectFile('broken.phmod');
+  await wait(() => run("document.querySelector('#fd-error').textContent.includes('Cannot preview instrument')"));
+  assert.equal(await previewNodes(), 1, 'invalid files stop the old instrument and show an error');
+  await selectFile('lead.phmod');
+  await wait(async () => await previewNodes() === 4);
+  assert.equal(await run("document.querySelector('#fd-error').textContent"), '');
+  await selectFile('Preview instruments');
+  assert.equal(await previewNodes(), 1, 'selecting a folder stops instrument preview');
+  await selectFile('Preview instruments', 'dblclick');
+  await wait(() => run("!!document.querySelector('.fd-empty')"));
+  await run("document.querySelector('#fd-up').click()");
+  await wait(() => visible('lead.phmod'));
+  await run("document.querySelector('#fd-list').dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))");
+  await wait(async () => await previewNodes() === 4);
+  await run("document.querySelector('#fd-cancel').click()");
+  await wait(() => run("!document.querySelector('#file-dialog').open"));
+  assert.equal(await previewNodes(), 1, 'Cancel removes the preview');
+  assert.equal(await run('window.moduleResult'), null);
+  await run('window.openModulePicker(); true');
+  await wait(async () => await run("document.querySelector('#file-dialog').open") && await visible('lead.phmod'));
+  assert.equal(await run("document.querySelector('#fd-preview').getAttribute('aria-checked')"), 'false', 'a new picker resets preview to off');
+  await selectFile('lead.phmod');
+  await run("document.querySelector('#fd-preview').click()");
+  await wait(async () => await previewNodes() === 4);
+  await run("document.querySelector('#fd-ok').click()");
+  await wait(() => run("!document.querySelector('#file-dialog').open"));
+  assert.equal(await previewNodes(), 1, 'Open removes the temporary instrument too');
+  assert.equal((await run('window.moduleResult')).name, 'lead.phmod', 'Open still returns the selected file for insertion');
+  await run("window.openPicker('open'); true");
+  await wait(() => run("document.querySelector('#file-dialog').open"));
+  assert.equal(await run("document.querySelector('#fd-preview').hidden"), true, 'other file pickers do not show instrument preview');
+  await run("document.querySelector('#fd-cancel').click()");
   console.log('file picker UI tests passed');
 } finally {
   win?.destroy();

@@ -29,7 +29,8 @@
 //   Ctrl/Cmd + X / C / V       cut / copy / paste clips at the snapped pointer position
 //   Ctrl/Cmd + D / Shift + D   linked clone / duplicate the selection right after itself
 //   Ctrl/Cmd + A               select all (one clip always stays selected while there are clips)
-//   click the ruler            set the play position (the signature row too: click / drag scrubs)
+//   click / drag the signature row  set / scrub the play position
+//   drag the bar-number ruler  pan horizontally and zoom vertically without moving the playhead
 //   wheel / Shift + wheel      scroll sideways over the time axis / scroll the lanes
 //   middle-drag, Ctrl/Cmd + wheel  pan / zoom the time axis
 //   scrollbars (bottom, right) drag the thumb, or click the track to jump there
@@ -974,10 +975,9 @@ export function createArranger(host, ctx) {
       capture(cv, e, (ev) => { p = s.local(ev); seek(); auto.update(p); }, () => { auto.stop(); dragging = false; });
       return;
     }
-    if (y < RULER) { // bar numbers: click seeks, relative dragging pans and zooms time
+    if (y < RULER) { // bar numbers: relative dragging pans and zooms time
       if (x < x0) return;
       if (restartAt(x, y)) { e.preventDefault(); restartDrag(e); return; }
-      ctx.transport.seek(Math.max(0, snapRound(timeAt(x), st)));
       const before = { ...view };
       const anchor = timeAt(x);
       let moved = false;

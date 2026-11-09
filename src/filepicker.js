@@ -7,6 +7,7 @@
 //     -> { path, name } of the chosen file, or null when cancelled.
 //   dialog: which remembered start folder ('project-open', 'project-save', 'clip', 'module', 'audio', 'midi')
 //   types: label of the listed file types; exts: listed extensions; saveExt: added when saving
+//   preview(entry | null): optional instrument preview, stopped on deselection / close
 //
 // Mouse: click selects, double-click opens a folder / picks a file. Keys in the list: arrows,
 // Home / End, PageUp / PageDown, Enter, Backspace (up a folder), letters jump to a name.
@@ -83,11 +84,22 @@ export async function pickFile(files, opts, doc = document) {
   let result = null;
   let menu = null;
   let busy = false;
+  let finished = false;
+  let previewOn = false;
+  let previewToken = 0;
   const ac = new AbortController();
   const on = (el, type, fn) => el.addEventListener(type, fn, { signal: ac.signal });
 
   $('fd-title').textContent = title;
   $('fd-types').textContent = types;
+  const previewBtn = $('fd-preview');
+  previewBtn.hidden = save || !opts.preview;
+  previewBtn.setAttribute('aria-checked', 'false');
+  on(previewBtn, 'click', () => {
+    previewOn = !previewOn;
+    previewBtn.setAttribute('aria-checked', String(previewOn));
+    updatePreview();
+  });
   if (save && opts.formats?.length) {
     $('fd-types').textContent = `${types} `;
     const select = doc.createElement('select');
@@ -109,6 +121,24 @@ export async function pickFile(files, opts, doc = document) {
 
   function error(text) {
     $('fd-error').textContent = text;
+  }
+
+  async function updatePreview(entry = entries[sel]) {
+    if (!opts.preview) return;
+    const mine = ++previewToken;
+    error('');
+    try {
+      await opts.preview(!finished && previewOn && entry && !entry.dir ? entry : null);
+    } catch (err) {
+      if (!finished && mine === previewToken) error(`Cannot preview instrument: ${errorText(err)}`);
+    }
+  }
+
+  function stopPreview() {
+    if (finished) return;
+    finished = true;
+    token++;
+    updatePreview(null);
   }
 
   function renderPlaces() {
@@ -193,9 +223,12 @@ export async function pickFile(files, opts, doc = document) {
     const e = entries[sel];
     if (save && e && !e.dir) nameInput.value = e.name;
     updateOk();
+    updatePreview();
   }
 
   async function go(path, selectName = null) {
+    if (finished) return false;
+    updatePreview(null);
     menu?.();
     menu = null;
     const my = ++token;
@@ -231,6 +264,7 @@ export async function pickFile(files, opts, doc = document) {
 
   function finish(path, name) {
     result = { path, name };
+    stopPreview();
     dlg.close();
   }
 
@@ -470,12 +504,20 @@ export async function pickFile(files, opts, doc = document) {
   on($('fd-up'), 'click', up);
   on($('fd-mkdir'), 'click', newFolder);
   on(okBtn, 'click', () => (save ? accept() : activate(sel)));
-  on($('fd-cancel'), 'click', () => { if (!busy) dlg.close(); });
+  on($('fd-cancel'), 'click', () => {
+    if (busy) return;
+    stopPreview();
+    dlg.close();
+  });
   // Escape closes the dialog, except while a new folder is being named
-  on(dlg, 'cancel', (e) => { if (editing || busy) e.preventDefault(); });
+  on(dlg, 'cancel', (e) => {
+    if (editing || busy) e.preventDefault();
+    else stopPreview();
+  });
 
   const closed = new Promise((resolve) => {
     on(dlg, 'close', () => {
+      stopPreview();
       menu?.();
       ac.abort();
       editing = null;
@@ -485,6 +527,7 @@ export async function pickFile(files, opts, doc = document) {
   dlg.returnValue = '';
   dlg.showModal();
   if (!(await go(start.dir)) && start.places[0]) await go(start.places[0].path);
+  if (finished) return closed;
   if (save) {
     nameInput.focus();
     nameInput.setSelectionRange(0, baseLength(nameInput.value));

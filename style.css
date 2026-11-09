@@ -1266,6 +1266,8 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
 }
 #file-dialog .fd-error { color: #ffb3a6; min-height: 0; }
 #file-dialog .fd-error:empty { display: none; }
+#fd-preview[hidden] { display: none; }
+#fd-preview[aria-checked="true"] { background: var(--wood-ink); color: var(--wood-inset); }
 /* ---------- Set Color… dialog: preview box + three wooden R / G / B sliders ---------- */
 #color-dialog { width: 360px; }
 #color-dialog .color-ok { order: 1; }

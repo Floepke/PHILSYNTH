@@ -40,7 +40,8 @@ import { createProjectFile, pickBackend } from './projectfile.js';
 import { initStatusTips } from './statustips.js';
 import { saveTextFile, openTextFile } from './filedialog.js';
 import { pickFile } from './filepicker.js';
-import { PROJECT_FORMAT, MODULE_FORMAT, MODULE_EXT, isFormat, jsonFileText } from './fileformat.js';
+import { createModulePreview, parseSynthFile } from './modulepreview.js';
+import { PROJECT_FORMAT, MODULE_FORMAT, MODULE_EXT, jsonFileText } from './fileformat.js';
 import { moduleDocs } from './moduledocs.js';
 import { createPatchMonitor } from './patchmonitor.js';
 import { songFacts } from './songfacts.js';
@@ -50,6 +51,7 @@ const engine = new Engine();
 let transport = null; // song playback (created after the engine)
 let seq = null; // piano roll + TimeLine UI
 let midi = null; // MIDI input, initialized after the project is restored
+let modulePreview = null;
 let undoHistory = null;
 let scope = null; // live audio drawn on the cables (created after the engine)
 let patchMonitor = null;
@@ -1068,23 +1070,24 @@ async function saveModules() {
   if (!saved) return; // dialog cancelled
   $('status').textContent = `Saved ${data.modules.length} module(s) to ${saved.name}.`;
 }
-function parseSynthFile(text) {
-  const data = JSON.parse(text);
-  if (!isFormat(data?.format, MODULE_FORMAT) || !Array.isArray(data.modules)) throw new Error('not a PHILSYNTH module file');
-  const known = data.modules.filter((m) => getModule(m.type) && !getModule(m.type).isOutput);
-  if (!known.length) throw new Error('no module types this version knows');
-  return data;
-}
 // the open dialog starts in the folder a module was last saved to / loaded from;
 // pos: world position of the modules (the insert dialog's spot, or the right-clicked spot)
 async function loadModuleFile(pos) {
   let file;
+  let preview = null;
   try {
-    file = await openTextFile('module');
+    file = await openTextFile('module', window, (files, opts) => {
+      preview = createModulePreview(engine, (path) => files.openFile('module', path));
+      modulePreview = preview;
+      return pickFile(files, { ...opts, preview: preview.select });
+    });
   } catch (err) {
     $('status').textContent = `Load module failed: ${err.message}`;
     console.error('Load module failed', err);
     return;
+  } finally {
+    await preview?.stop();
+    if (modulePreview === preview) modulePreview = null;
   }
   if (file) insertSynthFile(file, pos);
 }
@@ -1785,7 +1788,7 @@ transport = new Transport({
 });
 // live notes (computer keyboard, on-screen piano keys) go to the red MIDI module
 const firstLive = (rt) => [...rt.modules.values()].find((e) => takesLiveMidi(e.def)) ?? null;
-const liveMidiEntry = () => midiTarget() ?? firstLive(shown()) ?? firstLive(engine.root);
+const liveMidiEntry = () => modulePreview?.target ?? midiTarget() ?? firstLive(shown()) ?? firstLive(engine.root);
 seq = createSequencer({
   engine,
   timelineDisplay,
@@ -1807,7 +1810,11 @@ seq = createSequencer({
     return null;
   },
   undoHistory: {
-    record: () => undoHistory?.record(),
+    record: () => {
+      // Sequencer callbacks finish an edit; do not debounce separate notes or gestures together.
+      undoHistory?.record();
+      undoHistory?.flush();
+    },
     travel: (direction) => undoHistory ? undoHistory.travel(direction) : false,
   },
   onChange: () => {
@@ -1886,8 +1893,8 @@ const flushAll = () => {
 window.addEventListener('pagehide', flushAll);
 connectLiveReload(flushAll);
 midi = initMidi({
-  getTarget: midiTarget,
-  pitchOffset,
+  getTarget: () => modulePreview?.target ?? midiTarget(),
+  pitchOffset: () => modulePreview ? 0 : pitchOffset(),
   selected: preferencesManager.get(MIDI_INPUT_ID),
   onStatus: (msg) => ($('status').textContent = msg),
   onActivity: () => engine.resume(),
