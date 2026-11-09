@@ -4077,7 +4077,7 @@ for (const notes of [
     append(child) { this.children.push(child); }
     add() {}
     setAttribute(name, value) { this.attributes.set(name, value); }
-    replaceChildren() {}
+    replaceChildren(...children) { this.children = children; }
     contains(el) { return el === this; }
     blur() { document.activeElement = null; }
     closest(selector) { return this.kind !== 'div' && selector.includes(this.kind) ? this : null; }
@@ -4317,6 +4317,27 @@ for (const notes of [
   assert.match(elements.get('status').textContent, /Nothing to undo/);
   engine.song = song;
   flush();
+
+  // Automation lists use controller numbers, not positions, and keep old reserved targets missing.
+  {
+    const mapped = { id: 'map1', label: 'Brightness', min: 20, max: 20000, number: 11 };
+    engine.root.modules.set(81, {
+      id: 81, def: { type: 'PATCH', params: [{ id: 'inputModule', label: 'Input Module' }, { id: 'instances', label: 'Instances' }, mapped] },
+      inst: {}, values: { map1: 1000 },
+    });
+    const auto = addAutoClip(song, { target: 81, controller: 11, length: 1 });
+    song.selected = auto.id;
+    seq.reload(); flush();
+    const options = () => elements.get('seq-ctl').children.map((o) => [o.label, o.value]);
+    assert.deepEqual(options(), [['0 · Input Module', 0], ['1 · Instances', 1], ['11 · Brightness', 11]]);
+    auto.controller = 2;
+    seq.reload(); flush();
+    assert.deepEqual(options().at(-1), ['2 · (missing)', 2], 'old mapped targets are not silently reassigned');
+    engine.root.modules.delete(81);
+    song.clips = [];
+    song.selected = null;
+    seq.reload(); flush();
+  }
 
   // Send to and the automation controller are shared by linked clones
   {

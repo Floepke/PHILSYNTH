@@ -316,6 +316,12 @@ MULTIMIDI into it). Shift + drag from it to a module to modulate that module.
 
 ## Custom MIDI and modulation modules (Patch)
 
+Mapped PATCH controllers start at controller **11**, leaving room below for native
+PATCH controllers. Input Module and Instances keep their existing numbers.
+This also applies to older projects: saved modulation and automation controller
+numbers are not migrated, so projects targeting mapped controllers may sound
+different until those targets are adjusted.
+
 A Patch can pass notes and modulation out through its Output, so stock modules can be
 combined into your own MIDI processor or modulator:
 

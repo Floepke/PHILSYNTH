@@ -1,6 +1,6 @@
 import { getModule } from './modules/index.js';
 import { FEEDBACK_MIN_IN_LOOP } from './modules/feedback.js';
-import { fromNorm, paramsOf } from './params.js';
+import { fromNorm, paramsOf, controllerAt } from './params.js';
 import { normalizeSong } from './song.js';
 import { cleanColor } from './modcolor.js';
 
@@ -394,7 +394,10 @@ export class PatchRuntime {
       const t = this.modules.get(c.to);
       if (!t || (t.def.isOutput && this.passesOut)) continue; // passed on up: driven out there
       const params = paramsOf(t);
-      for (const k of ctrls) if (params[k]) driven.set(`${t.id} ${params[k].id}`, [t.id, params[k].id]);
+      for (const k of ctrls) {
+        const p = controllerAt(params, k);
+        if (p) driven.set(`${t.id} ${p.id}`, [t.id, p.id]);
+      }
     }
     e.modTargets = driven;
   }
@@ -412,7 +415,7 @@ export class PatchRuntime {
       if (passed[0] !== t) {
         // into the Output inside a Patch: drive the modules outside instead (they are driven there)
         for (const o of passed) {
-          const p = paramsOf(o)[controller];
+          const p = controllerAt(paramsOf(o), controller);
           if (p) list.push(...this.routesOf(o, p));
         }
         continue;
@@ -421,7 +424,7 @@ export class PatchRuntime {
       // MULTICTL picks controllers per target (def.routeParams); others drive Out Controller
       const ps = m.def.routeParams
         ? m.def.routeParams(m, t).map((pid) => params.find((q) => q.id === pid))
-        : [params[controller]];
+        : [controllerAt(params, controller)];
       for (const p of ps) {
         if (!p) continue;
         driven.set(`${t.id} ${p.id}`, [t.id, p.id]);
@@ -491,7 +494,7 @@ export class PatchRuntime {
   // ends (the controller keeps its last value).
   automate(key, targetId, controller, norm) {
     const t = targetId === null || norm === null ? null : this.modules.get(targetId);
-    const p = t ? paramsOf(t)[controller | 0] : null;
+    const p = t ? controllerAt(paramsOf(t), controller | 0) : null;
     if (!p) return false;
     this.drive(t, p.id, fromNorm(p, norm));
     return true;

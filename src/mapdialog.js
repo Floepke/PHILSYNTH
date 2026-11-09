@@ -3,9 +3,9 @@
 //   left:  every module inside with its controllers; click one to map / unmap it
 //   right: the mapped controllers in order (their controller numbers), rename, reorder, remove
 // Changes apply immediately; Done (or Esc) closes.
-import { paramsOf } from './params.js';
+import { paramsOf, controllerNumber } from './params.js';
 import { colorOf } from './modcolor.js';
-import { nextMapKey } from './modules/patch.js';
+import { nextMapKey, FIRST_MAPPED_CONTROLLER } from './modules/patch.js';
 import { moduleName } from './modname.js';
 
 const el = (tag, cls, text) => {
@@ -34,7 +34,7 @@ export function patchControllersView(entry, { open, edit }) {
   actions.append(btn, editBtn);
   const n = entry.state?.maps?.length ?? 0;
   info.textContent = n
-    ? `${n} controller${n === 1 ? '' : 's'} from inside mapped (numbered after Instances). The panel, LFOs and automation clips drive them from outside.`
+    ? `${n} controller${n === 1 ? '' : 's'} from inside mapped (numbered from ${FIRST_MAPPED_CONTROLLER}). The panel, LFOs and automation clips drive them from outside.`
     : 'Map controllers of modules inside this patch to this module, to control them from outside.';
   box.append(actions, info);
   return { el: box };
@@ -84,7 +84,11 @@ export function openMapDialog(entry, { setState }) {
   search.value = '';
   const maps = () => entry.state?.maps ?? [];
   const store = (list) => setState({ ...entry.state, maps: list });
-  const numberOf = (key) => paramsOf(entry).findIndex((p) => p.id === key);
+  const numberOf = (key) => {
+    const params = paramsOf(entry);
+    const index = params.findIndex((p) => p.id === key);
+    return index < 0 ? -1 : controllerNumber(params[index], index);
+  };
 
   function toggle(m, p) {
     const list = maps();

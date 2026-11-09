@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { dspTestHost } from './dsphost.mjs';
 import { patchControllersView } from '../src/mapdialog.js';
 import { createPatchMonitor } from '../src/patchmonitor.js';
-import { paramsOf } from '../src/params.js';
+import { paramsOf, controllerAt, controllerNumber } from '../src/params.js';
 
 {
   const previousDocument = globalThis.document;
@@ -27,6 +27,8 @@ import { paramsOf } from '../src/params.js';
     actions.children[1].onclick();
     assert.deepEqual([opened, edited], [1, 1], 'Edit Patch invokes patch navigation');
     assert.match(info.textContent, /Map controllers/);
+    const mappedView = patchControllersView({ state: { maps: [{}] } }, { open() {}, edit() {} });
+    assert.match(mappedView.el.children[1].textContent, /numbered from 11/);
   } finally {
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;
@@ -1468,7 +1470,13 @@ const set = (e, x) => { hold(e, x); render(1); };
 
   r.setState(pm.id, { maps: [{ key: 'map1', module: flt.id, param: 'cutoff', label: '' }] });
   const mp = paramsOf(pm)[2];
-  assert.equal(mp.id, 'map1', 'mapped controller numbered after Input Module and Instances');
+  assert.equal(mp.id, 'map1');
+  assert.deepEqual(paramsOf(pm).map(controllerNumber), [0, 1, 11], 'mapped controllers start at 11 without dummy controllers');
+  assert.equal(controllerAt(paramsOf(pm), 11).id, 'map1');
+  for (let n = 2; n <= 10; n++) {
+    assert.equal(controllerAt(paramsOf(pm), n), undefined, `controller ${n} is reserved`);
+    assert.equal(r.automate(1, pm.id, n, 0), false, 'reserved slots do not drive mappings');
+  }
   assert.equal(mp.label, 'Cutoff', 'named after the inner controller');
   assert.deepEqual([mp.min, mp.max, mp.scale, mp.default], [20, 20000, 'log', 1000], 'same range as inside');
   assert.equal(mp.format(1000), cutoff.format(1000));
@@ -1489,6 +1497,8 @@ const set = (e, x) => { hold(e, x); render(1); };
   const pm2 = r2.modules.get(pm.id);
   assert.deepEqual(pm2.state.maps, pm.state.maps);
   assert.equal(paramsOf(pm2)[2].label, 'Brightness');
+  assert.deepEqual(paramsOf(pm2).map(controllerNumber), [0, 1, 11], 'old project data gets the new numbers without migration');
+  assert.equal(r2.automate(1, pm2.id, 2, 0), false, 'old mapped-controller numbers are not migrated');
   assert.equal(pm2.values.map1, 800, 'loaded value mirrored');
   r2.destroy();
 
@@ -1498,7 +1508,13 @@ const set = (e, x) => { hold(e, x); render(1); };
   const lfo = await r.addModule('LFO');
   assert.ok(r.connect(lfo.id, pm.id));
   r.setParam(lfo.id, 'outController', 2);
-  assert.match(lfo.inst.params().find((p) => p.id === 'outController').format(2), /Brightness/);
+  set(lfo, 0);
+  assert.equal(kf().p.cutoff, 800, 'an old modulation target in the reserved range no longer drives the mapping');
+  r.setParam(lfo.id, 'outController', 11);
+  const outController = lfo.inst.params().find((p) => p.id === 'outController');
+  assert.equal(outController.max, 11);
+  assert.match(outController.format(11), /Brightness/);
+  assert.doesNotMatch(outController.format(2), /Brightness/);
   set(lfo, 0.5);
   const half = fromNorm(cutoff, 0.5);
   assert.equal(kf().p.cutoff, half, 'applied on the inner kernel by the engine graph');
@@ -1526,7 +1542,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   r.removeModule(lfo.id);
 
   // automation clips on the mapped controller (by number): every instance, the value stays
-  assert.equal(r.automate(5, pm.id, 2, 0), true);
+  assert.equal(r.automate(5, pm.id, 11, 0), true);
   assert.equal(kf().p.cutoff, 20);
   assert.equal(copy().p.cutoff, 20);
   assert.equal(flt.values.cutoff, 20);
@@ -1535,12 +1551,12 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.equal(kf().p.cutoff, 20, 'the last value stays after the clip');
   assert.equal(copy().p.cutoff, 20);
   // removing a mapping keeps the inner controller's value
-  r.automate(6, pm.id, 2, 1);
+  r.automate(6, pm.id, 11, 1);
   assert.equal(kf().p.cutoff, 20000);
   r.setState(pm.id, { maps: [] });
   assert.equal(kf().p.cutoff, 20000);
   assert.equal('map1' in pm.values, false);
-  assert.equal(r.automate(6, pm.id, 2, 0.5), false, 'no mapped controller any more');
+  assert.equal(r.automate(6, pm.id, 11, 0.5), false, 'no mapped controller any more');
 
   // mapped controllers of a nested Patch can be mapped again one level up
   const nested = await ip.addModule('PATCH');
@@ -1548,10 +1564,11 @@ const set = (e, x) => { hold(e, x); render(1); };
   ip.setState(nested.id, { maps: [{ key: 'map1', module: deep.id, param: 'amp' }] });
   r.setState(pm.id, { maps: [{ key: 'map2', module: flt.id, param: 'resonance' }, { key: 'map3', module: nested.id, param: 'map1' }] });
   assert.deepEqual(paramsOf(pm).slice(2).map((p) => p.label), ['Resonance', 'Amplification']);
+  assert.deepEqual(paramsOf(pm).map(controllerNumber), [0, 1, 11, 12]);
   r.setParam(pm.id, 'map3', 3);
   assert.equal(deep.values.amp, 3, 'reaches the module two levels down');
   assert.equal(pm.values.map3, 3);
-  r.automate(7, pm.id, 3, 0);
+  r.automate(7, pm.id, 12, 0);
   assert.equal(deep.values.amp, 0, 'automation reaches it too');
   assert.equal(kernel(deep.inst.node).t[0], 0);
   assert.equal(pm.values.map3, 0, 'and shows on the outer mapped controller');
@@ -1582,6 +1599,32 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.equal(nextMapKey([{ key: 'map1' }, { key: 'map7' }]), 'map8');
   assert.equal(nextMapKey([]), 'map1');
   engine.onDrive = undefined;
+}
+
+// Modulation passed out of another Patch also resolves the reserved controller numbering.
+{
+  const r = await PatchRuntime.create(engine, dsp.destination);
+  const target = await r.addModule('PATCH');
+  const amp = await target.inst.patch.addModule('AMP');
+  r.setState(target.id, { maps: [{ key: 'map1', module: amp.id, param: 'amp' }] });
+  const source = await r.addModule('PATCH');
+  const lfo = await source.inst.patch.addModule('LFO', { values: { outController: 11 } });
+  source.inst.patch.connect(lfo.id, 0);
+  r.connect(source.id, target.id);
+  assert.ok(r.isDriven(target.id, 'map1'), 'passed-out modulation marks controller 11 as driven');
+  assert.match(lfo.inst.params().find((p) => p.id === 'outController').format(11), /Amplification/);
+  set(lfo, 0);
+  assert.equal(amp.values.amp, 0, 'passed-out modulation reaches the mapped inner controller');
+  source.inst.patch.setParam(lfo.id, 'outController', 2);
+  const saved = r.toJSON();
+  const loaded = await PatchRuntime.create(engine, dsp.destination);
+  await loaded.load(saved);
+  const oldLfo = loaded.modules.get(source.id).inst.patch.modules.get(lfo.id);
+  assert.equal(oldLfo.values.outController, 2, 'loading keeps old modulation numbers unchanged');
+  assert.equal(loaded.isDriven(target.id, 'map1'), false, 'old saved numbers no longer address a mapped controller');
+  assert.deepEqual(paramsOf(loaded.modules.get(target.id)).map(controllerNumber), [0, 1, 11]);
+  loaded.destroy();
+  r.destroy();
 }
 
 // ---- envelopes: Sustain at 0 links Decay and Release ----

@@ -1,6 +1,14 @@
 // Run: node test/params.test.mjs   (controller value math: wheel nudging)
 import assert from 'node:assert/strict';
-import { nudge, wheelNotches, toNorm, wheelAccumulator, wheelDelta, snapNearest, snapStep } from '../src/params.js';
+import { nudge, wheelNotches, toNorm, wheelAccumulator, wheelDelta, snapNearest, snapStep, controllerAt, controllerNumber } from '../src/params.js';
+
+const numbered = [{ id: 'native' }, { id: 'mapped', number: 11 }, { id: 'second', number: 12 }];
+assert.deepEqual(numbered.map(controllerNumber), [0, 11, 12]);
+assert.equal(controllerAt(numbered, 0), numbered[0]);
+assert.equal(controllerAt(numbered, 11), numbered[1]);
+assert.equal(controllerAt(numbered, 12), numbered[2]);
+for (let n = 1; n <= 10; n++) assert.equal(controllerAt(numbered, n), undefined);
+assert.equal(controllerAt([], 0), undefined);
 
 const lin = { min: 0, max: 1, step: 0.01 };
 const amp = { min: 0, max: 4, step: 0.01 };

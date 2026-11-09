@@ -9,8 +9,8 @@
 // LFO, ...) and seeded modules (REVERB) get a per-instance salt, so no two instances are alike.
 //
 // Mapped controllers (state.maps, edited in the Controllers dialog): any controller of any module
-// inside can be mapped to an extra controller of this module (numbered after Input Module and
-// Instances). It shows and sets that inner controller's value (saved inside, every instance
+// inside can be mapped to an extra controller of this module (numbered from 11, reserving room
+// for native controllers). It shows and sets that inner controller's value (saved inside, every instance
 // follows), and LFOs / automation clips on it drive the inner controller for real (on the audio
 // thread, every instance). A nested Patch's own mapped controllers can be mapped again one level up.
 //
@@ -23,6 +23,7 @@ import { paramsOf } from '../params.js';
 const RELEASE_KEEP_MS = 10000;
 const MAX_INSTANCES = 16;
 const MAP_KEY = /^map\d+$/;
+export const FIRST_MAPPED_CONTROLLER = 11;
 
 // state: { maps: [{ key: 'map1', module: inner module id, param: inner controller id, label }] }
 export function normalizeMaps(state) {
@@ -274,7 +275,7 @@ export default {
       params: () => [
         { ...def.params[0], max: Math.max(1, ...patch.modules.keys()) },
         { ...def.params[1], format: (v) => (v <= 1 ? '1' : midiTarget() ? `${v} · round robin` : `${v} · off (Input Module is not a MIDI module)`) },
-        ...maps.map(mappedParam).filter(Boolean),
+        ...maps.map(mappedParam).filter(Boolean).map((p, i) => ({ ...p, number: FIRST_MAPPED_CONTROLLER + i })),
       ],
       ctl: outGain, // receives modulation of Input Module / Instances (applied by onModulated)
       attach(e, rt) {

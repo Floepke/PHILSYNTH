@@ -10,7 +10,7 @@ import { confirmDialog, sigDialog } from '../dialogs.js';
 import { createPianoRoll } from './pianoroll.js';
 import { createArranger } from './arranger.js';
 import { createAutomationLane } from './automation.js';
-import { paramsOf, fromNorm } from '../params.js';
+import { paramsOf, fromNorm, controllerAt, controllerNumber } from '../params.js';
 import { colorOf } from '../modcolor.js';
 
 // controller value as the panel shows it
@@ -54,7 +54,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, getSo
       const e = entryOf(c.target);
       if (!e) return `→ #${c.target} (missing)`;
       if (!isAuto(c)) return `→ #${c.target} ${nameOf(e)}`;
-      const p = paramsOf(e)[c.controller];
+      const p = controllerAt(paramsOf(e), c.controller);
       return `→ #${c.target} ${nameOf(e)} · ${c.controller} ${p?.label ?? '(missing)'}`;
     },
     defaultTarget: () => selectedTarget() ?? (isAuto(clip()) ? null : clip()?.target) ?? defaultTarget(),
@@ -62,7 +62,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, getSo
     // the controller an automation clip drives: { p, format(norm) } or null
     autoParam(c) {
       const e = entryOf(c?.target ?? null);
-      const p = e ? paramsOf(e)[c.controller] : null;
+      const p = e ? controllerAt(paramsOf(e), c.controller) : null;
       if (!p) return null;
       return { p, format: (x) => formatValue(e, p, fromNorm(p, x)) };
     },
@@ -234,8 +234,8 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, getSo
     if (auto) {
       const e = entryOf(c.target);
       const params = e ? paramsOf(e) : [];
-      const ctls = params.map((p, i) => new Option(`${i} · ${p.label}`, i));
-      if (c.controller >= params.length) ctls.push(new Option(`${c.controller} · (missing)`, c.controller));
+      const ctls = params.map((p, i) => new Option(`${controllerNumber(p, i)} · ${p.label}`, controllerNumber(p, i)));
+      if (!controllerAt(params, c.controller)) ctls.push(new Option(`${c.controller} · (missing)`, c.controller));
       ui.ctl.replaceChildren(...ctls);
       ui.ctl.value = c.controller;
       ui.ctl.disabled = c.target === null;

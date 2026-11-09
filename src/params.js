@@ -18,6 +18,10 @@ export function fromNorm(p, x) {
 // Controller list of a module instance (some modules, like Patch, have dynamic ranges).
 export const paramsOf = (entry) => entry.inst.params?.() ?? entry.def.params;
 
+// Explicit numbers allow reserved slots without adding dummy controllers to the list.
+export const controllerNumber = (p, index) => p.number ?? index;
+export const controllerAt = (params, number) => params.find((p, i) => controllerNumber(p, i) === number);
+
 // Mouse-wheel / nudge step: `notches` wheel clicks (fractional for trackpads, + = up).
 // One notch moves 1 % of the slider (0.1 % with `fine`); stepped controllers always move at
 // least one step so option lists and integers advance one entry per click. A controller with

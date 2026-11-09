@@ -3,7 +3,7 @@ import { modules, getModule } from './modules/index.js';
 import { initMidi, initKeyboard } from './midi.js';
 import { registerMidiPreferences, migrateMidiInput, MIDI_INPUT_ID } from './midipreferences.js';
 import { createPersistence, connectLiveReload } from './persist.js';
-import { paramsOf } from './params.js';
+import { paramsOf, controllerAt, controllerNumber } from './params.js';
 import { initCpuMeter } from './cpumeter.js';
 import { createController } from './controller.js';
 import { linePath, arrowPath, arrowPoints, centerOf, visibleSegment } from './cable.js';
@@ -1302,7 +1302,7 @@ function select(s) {
       const t = patch.modules.get(s.cable.to);
       const names = lfo.def.routeParams(lfo, t).map((pid) => {
         const i = paramsOf(t).findIndex((q) => q.id === pid);
-        return i < 0 ? null : `<kbd>${i}</kbd> ${paramsOf(t)[i].label}`;
+        return i < 0 ? null : `<kbd>${controllerNumber(paramsOf(t)[i], i)}</kbd> ${paramsOf(t)[i].label}`;
       }).filter(Boolean);
       panel.append(hint(names.length
         ? `Control cable: <b>Value</b> drives ${names.join(', ')}.`
@@ -1314,9 +1314,9 @@ function select(s) {
       const n = lfo.values.outController | 0;
       const passed = patch.controlTargets(t, lfo);
       if (passed[0] !== t) {
-        panel.append(hint(`Control cable into the Output: passes out of this Patch. Controller <kbd>${n}</kbd> of the modules the Patch module is cabled to is modulated${passed.length ? ` (${[...new Set(passed.map((o) => paramsOf(o)[n]?.label ?? '—'))].join(' / ')})` : ' (the Patch module is not cabled to any yet)'}.`));
+        panel.append(hint(`Control cable into the Output: passes out of this Patch. Controller <kbd>${n}</kbd> of the modules the Patch module is cabled to is modulated${passed.length ? ` (${[...new Set(passed.map((o) => controllerAt(paramsOf(o), n)?.label ?? '—'))].join(' / ')})` : ' (the Patch module is not cabled to any yet)'}.`));
       } else {
-        const p = paramsOf(t)[n];
+        const p = controllerAt(paramsOf(t), n);
         panel.append(hint(`Control cable: modulates controller <kbd>${n}</kbd> ${p ? p.label : '(does not exist on this module)'}.`));
       }
     }
@@ -1329,7 +1329,7 @@ function select(s) {
     }
     if (signals?.mod) {
       const t = patch.modules.get(s.cable.to);
-      const names = [...lfo.inst.patch.passOutControllers()].map((k) => `<kbd>${k}</kbd> ${paramsOf(t)[k]?.label ?? '(does not exist on this module)'}`);
+      const names = [...lfo.inst.patch.passOutControllers()].map((k) => `<kbd>${k}</kbd> ${controllerAt(paramsOf(t), k)?.label ?? '(does not exist on this module)'}`);
       panel.append(hint(t.def.isOutput && patch.passesOut
         ? 'Control cable into the Output: the modulation of this Patch passes on out of the Patch around it.'
         : `Control cable: the modulators cabled into this Patch's Output drive ${names.join(', ')}.`));
@@ -1393,7 +1393,7 @@ function select(s) {
     if (p.panel === false) return; // shown by the module's own view (MULTICTL route ranges)
     const format = (v) => (p.format ? p.format(v, entry.values) : p.options ? p.options[v] : String(+v.toFixed(3)));
     const ctl = createController(p, {
-      index,
+      index: controllerNumber(p, index),
       value: entry.values[p.id],
       values: () => entry.values,
       format,

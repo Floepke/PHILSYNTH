@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { modules, getModule } from '../src/modules/index.js';
-import { DOCS, paramDoc } from '../src/moduledocs.js';
+import { DOCS, paramDoc, moduleDocs } from '../src/moduledocs.js';
 
 // every module type (the Output included) has a summary and a description for every controller
 const all = [getModule('OUT'), ...modules];
@@ -18,5 +18,22 @@ assert.deepEqual(Object.keys(DOCS).sort(), all.map((d) => d.type).sort(), 'no do
 // Patch: mapped controllers (map1, map2 …) get the generic mapped text
 assert.match(paramDoc('PATCH', { id: 'map3', label: 'Cutoff' }), /Mapped controller/);
 assert.equal(paramDoc('NOPE', { id: 'x' }), null);
+
+{
+  const previousDocument = globalThis.document;
+  globalThis.document = {
+    createElement: () => ({ children: [], append(...children) { this.children.push(...children); } }),
+  };
+  try {
+    const docs = moduleDocs(getModule('PATCH'), [
+      ...getModule('PATCH').params, { id: 'map1', label: 'Cutoff', number: 11 },
+    ]);
+    const list = docs.children.find((e) => e.className === 'md-params');
+    assert.deepEqual(list.children.filter((_, i) => i % 2 === 0).map((e) => e.children[0].textContent), [0, 1, 11]);
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+}
 
 console.log('moduledocs tests passed');

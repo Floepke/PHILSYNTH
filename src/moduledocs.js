@@ -2,6 +2,7 @@
 // select()): per module type a short summary, one description per controller (what it does to
 // the module's output) and usage notes. Static HTML only (no user text).
 // test/moduledocs.test.mjs checks that every controller of every stock module is described.
+import { controllerNumber } from './params.js';
 
 // ---- shared texts ----
 const OUT_CONTROLLER = 'Picks the controller (by number) of the modules this module is cabled to that it drives. The value shows the number and the controller name of the connected module(s).';
@@ -574,7 +575,7 @@ export const DOCS = {
     notes: [
       'Click <b>Edit Patch...</b> beside <b>Controllers…</b> to open the Patch (or <kbd>Double-click</kbd> it, or select it and press <kbd>Enter</kbd>); the mouse <b>back</b> button or the patch path goes up again.',
       'While inside an uncabled Patch, its Output is heard directly through the main Output. Once the Patch is cabled, it follows its normal connections.',
-      '<b>Controllers…</b> maps controllers of modules inside to extra controllers of this module.',
+      '<b>Controllers…</b> maps controllers of modules inside to extra controllers numbered from 11. Lower numbers are reserved for native Patch controllers. Older projects use this numbering too; existing modulation and automation controller numbers are not migrated and may need retargeting.',
       'Inside, cable a MULTIMIDI, STRUM or TRILL into the Output to send notes out, or an LFO, ADSR, ENVELOPE, VELOCITY2CTL, PITCH2CTL or SOUND2CTL to send modulation out; the inner modulator\'s Out Controller then picks a controller of the modules this Patch is cabled to.',
     ],
   },
@@ -609,7 +610,7 @@ export function moduleDocs(def, params) {
       if (p.panel === false) return; // documented with its module's notes (MULTICTL route ranges)
       const dt = el('dt');
       const num = el('span', 'ctl-num');
-      num.textContent = i;
+      num.textContent = controllerNumber(p, i);
       const name = el('span', 'md-name');
       name.textContent = p.label;
       dt.append(num, name);

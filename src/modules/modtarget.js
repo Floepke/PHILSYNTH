@@ -1,6 +1,8 @@
 // Shared by modulator modules (LFO, ADSR, ENVELOPE, VELOCITY2CTL, PITCH2CTL, SOUND2CTL): their control cables drive controller number
 // `outController` of every module they connect to, inside Out Min..Out Max (% of its range).
 // The engine graph maps the value, then smooths each route in normalized controller space.
+import { controllerAt, controllerNumber, paramsOf } from '../params.js';
+
 export const pct = (v) => `${Math.round(v)} %`;
 
 export const outParams = () => [
@@ -14,10 +16,10 @@ export const outParams = () => [
 // The Out Controller slider's range and names follow the connected module(s).
 export function modulatorParams(inst, def) {
   const targets = inst.getTargets();
-  const lists = targets.map((t) => t.inst.params?.() ?? t.def.params);
-  const max = Math.max(0, ...lists.map((l) => l.length - 1));
+  const lists = targets.map(paramsOf);
+  const max = Math.max(0, ...lists.flatMap((l) => l.map(controllerNumber)));
   const format = (v) => {
-    const names = [...new Set(lists.map((l) => l[v | 0]?.label ?? '—'))];
+    const names = [...new Set(lists.map((l) => controllerAt(l, v | 0)?.label ?? '—'))];
     return names.length ? `${v | 0} · ${names.join(' / ')}` : `${v | 0} · (not connected)`;
   };
   return def.params.map((p) => (p.id === 'outController' ? { ...p, max: targets.length ? Math.max(1, max) : p.max, format } : p));

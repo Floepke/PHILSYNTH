@@ -12,7 +12,7 @@
 // have none yet, so "all Decays" takes one pick.
 // DSP: multictl.dsp.js (the engine graph applies the value, like for the LFO).
 import { outParams } from './modtarget.js';
-import { fromNorm, paramsOf, toNorm } from '../params.js';
+import { fromNorm, paramsOf, toNorm, controllerNumber } from '../params.js';
 import { colorOf } from '../modcolor.js';
 import { moduleName as labelOf } from '../modname.js';
 import { createController } from '../controller.js';
@@ -180,7 +180,7 @@ function routesView(entry, api) {
         const s = el('select', 'mc-select');
         s.append(new Option(current ? '— remove —' : '+ route to controller…', ''));
         params.forEach((p, i) => {
-          const o = new Option(`${i} · ${p.label}`, p.id);
+          const o = new Option(`${controllerNumber(p, i)} · ${p.label}`, p.id);
           o.disabled = p.id !== current && mine.some((r) => r.param === p.id);
           s.append(o);
         });
