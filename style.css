@@ -6,6 +6,7 @@
   --surface-4: #2a2a2e;
   --border: #26262a;
   --border-strong: #3a3a40;
+  --pane-focus: color-mix(in srgb, var(--wood-tint) 85%, #fff);
   --text: #e8e8ea;
   --text-dim: #9a9aa0;
   --text-faint: #5c5c63;
@@ -720,6 +721,16 @@ body.panel-collapsed #panel { visibility: hidden; }
 .module.midi-target.midi-locked > .midi-badge:hover { filter: brightness(1.1); }
 
 /* ---------- workspace: piano roll, patcher, TimeLine ---------- */
+#seq, #patcher, #arranger { position: relative; }
+/* Overlay the pane's contents without changing canvas sizes or intercepting gestures. */
+:is(#seq, #patcher, #arranger):focus-within::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  border: 2px solid var(--pane-focus);
+  pointer-events: none;
+}
 #workspace {
   --clip-color: #8a8a92;
   display: grid;

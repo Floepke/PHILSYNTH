@@ -45,6 +45,7 @@ import { moduleDocs } from './moduledocs.js';
 import { createPatchMonitor } from './patchmonitor.js';
 import { songFacts } from './songfacts.js';
 import { initMouseNavigation, MOUSE_FORWARD } from './mousebuttons.js';
+import { initPaneFocus } from './panefocus.js';
 
 const engine = new Engine();
 let transport = null; // song playback (created after the engine)
@@ -238,6 +239,13 @@ canvas.addEventListener('wheel', (e) => {
 // Any click in the patcher (or its controller panel) gives the patcher keyboard focus, so
 // Backspace deletes modules/cables instead of reaching the piano roll / TimeLine that had focus.
 canvas.tabIndex = -1;
+initPaneFocus([
+  { element: $('patcher'), focus: () => canvas.focus({ preventScroll: true }) },
+  ...['seq', 'arranger'].map((id) => ({
+    element: $(id),
+    focus: () => [...$(id).querySelectorAll('canvas')].find((cv) => cv.getClientRects().length)?.focus({ preventScroll: true }),
+  })),
+]);
 const focusPatcher = (e) => {
   if (e.target.closest('input, select, textarea, button, dialog, [contenteditable]')) return;
   if (document.activeElement !== canvas) canvas.focus({ preventScroll: true });

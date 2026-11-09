@@ -7,6 +7,7 @@ import { DEFAULT_WOOD_TINT } from '../src/woodtheme.js';
 import { hexToRgb, rgbToHex } from '../src/modcolor.js';
 
 const defaultTint = rgbToHex(...hexToRgb(DEFAULT_WOOD_TINT).map((v) => Math.min(216, Math.max(24, v))));
+const focusRgb = tint => hexToRgb(tint).map(v => Math.round(v * 0.85 + 255 * 0.15));
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true } });
@@ -24,6 +25,49 @@ app.whenReady().then(async () => {
       <dialog open><p>Text</p><menu><button>OK</button></menu></dialog>
       <div class="ctx-menu"><button class="ctx-item">Item</button></div>
       <div class="module" style="--mod-color: #ff0000"></div>`)}`);
+    const focusResults = await win.webContents.executeJavaScript(`(() => {
+      const workspace = document.createElement('div');
+      workspace.id = 'workspace';
+      workspace.style.cssText = 'position:fixed;inset:0;z-index:100';
+      workspace.innerHTML = '<section id="seq"><div id="roll" class="seq-view"><canvas tabindex="0"></canvas></div></section>' +
+        '<div></div><section id="patcher"><aside id="panel"><input></aside><div></div><main id="canvas" tabindex="-1"></main></section>' +
+        '<div></div><div id="arranger" class="seq-view"><canvas tabindex="0"></canvas></div>';
+      document.body.append(workspace);
+      const panes = ['seq', 'patcher', 'arranger'].map(id => workspace.querySelector('#' + id));
+      const sizes = () => panes.map(el => [el.clientWidth, el.clientHeight]);
+      const before = sizes();
+      const cases = [];
+      const sample = document.createElement('canvas').getContext('2d');
+      const rgb = color => {
+        sample.fillStyle = color;
+        sample.fillRect(0, 0, 1, 1);
+        return [...sample.getImageData(0, 0, 1, 1).data].slice(0, 3);
+      };
+      for (const selector of ['#roll canvas', '#canvas', '#panel input', '#arranger canvas']) {
+        workspace.querySelector(selector).focus();
+        const focused = panes.filter(el => getComputedStyle(el, '::after').content === '""');
+        const el = focused[0];
+        const style = el && getComputedStyle(el, '::after');
+        const rect = el && el.getBoundingClientRect();
+        cases.push({ selector, focused: focused.map(el => el.id), sizes: sizes(),
+          width: style?.borderTopWidth, color: style && rgb(style.borderTopColor), pointerEvents: style?.pointerEvents,
+          hitThrough: el?.contains(document.elementFromPoint(rect.left + 1, rect.top + 1)) });
+      }
+      document.activeElement.blur();
+      const blurred = panes.filter(el => getComputedStyle(el, '::after').content === '""').map(el => el.id);
+      workspace.remove();
+      return { before, cases, blurred, tint: getComputedStyle(document.documentElement).getPropertyValue('--wood-tint').trim() };
+    })()`);
+    for (const [i, expected] of ['seq', 'patcher', 'patcher', 'arranger'].entries()) {
+      const result = focusResults.cases[i];
+      assert.deepEqual(result.focused, [expected], `${result.selector}: only its pane has the focus border`);
+      assert.equal(result.width, '2px');
+      assert.deepEqual(result.color, focusRgb(focusResults.tint), 'focus border is a subtle lightening of the wood tint');
+      assert.equal(result.pointerEvents, 'none', 'focus border never captures pointer gestures');
+      assert.ok(result.hitThrough, 'pane content remains reachable through the border');
+      assert.deepEqual(result.sizes, focusResults.before, 'focus does not resize the panes');
+    }
+    assert.deepEqual(focusResults.blurred, [], 'no focus border when focus leaves the panes');
     const results = await win.webContents.executeJavaScript(`(async () => {
       const dialogs = [];
       const module = document.querySelector('.module');
@@ -119,6 +163,8 @@ app.whenReady().then(async () => {
         import { registerMidiPreferences } from '/src/midipreferences.js';
         import { sigDialog } from '/src/dialogs.js';
         import { showMenu, closeMenu } from '/src/seq/menu.js';
+        import { initPaneFocus } from '/src/panefocus.js';
+        window.initPaneFocus = initPaneFocus;
         window.openTestMenu = () => showMenu({ x: 620, y: 300, items: [
           { label: 'Export…', children: Array.from({ length: 60 }, (_, i) => ({
             label: i === 0 ? 'Export Audio…' : 'Export destination ' + i,
@@ -152,7 +198,7 @@ app.whenReady().then(async () => {
       ['/', ['text/html', html]],
       ['/style.css', ['text/css', css]],
       ['/src/seq/menu.js', ['text/javascript', readFileSync(new URL('../src/seq/menu.js', import.meta.url), 'utf8')]],
-      ...['woodtheme', 'modcolor', 'preferences', 'preferencesdialog', 'interfacepreferences', 'timelinepreferences', 'midipreferences', 'midi', 'modmidi', 'dialogs', 'song', 'curve', 'fileformat'].map(name => [`/src/${name}.js`, ['text/javascript',
+      ...['panefocus', 'woodtheme', 'modcolor', 'preferences', 'preferencesdialog', 'interfacepreferences', 'timelinepreferences', 'midipreferences', 'midi', 'modmidi', 'dialogs', 'song', 'curve', 'fileformat'].map(name => [`/src/${name}.js`, ['text/javascript',
         readFileSync(new URL('../src/' + name + '.js', import.meta.url), 'utf8')]]),
     ]);
     server = http.createServer((req, res) => {
@@ -164,7 +210,86 @@ app.whenReady().then(async () => {
     const url = `http://127.0.0.1:${server.address().port}/`;
     await win.loadURL(url);
     const run = code => win.webContents.executeJavaScript(code);
+    await run(`(() => {
+      const fixture = document.createElement('div');
+      fixture.id = 'focus-fixture';
+      fixture.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;background:#111';
+      fixture.innerHTML = ['roll', 'patch', 'timeline'].map(id =>
+        '<section id="focus-' + id + '" style="flex:1"><canvas tabindex="0" style="width:150px;height:100px"></canvas>' +
+        '<input type="checkbox"><button>Action</button></section>').join('');
+      document.body.append(fixture);
+      window.focusCounts = {};
+      const panes = [...fixture.children];
+      for (const pane of panes) {
+        window.focusCounts[pane.id] = {};
+        for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'dblclick']) {
+          pane.addEventListener(type, () => {
+            const counts = window.focusCounts[pane.id];
+            counts[type] = (counts[type] || 0) + 1;
+          });
+        }
+      }
+      window.initPaneFocus(panes.map(element => ({
+        element, focus: () => element.querySelector('canvas').focus({ preventScroll: true }),
+      })));
+      document.activeElement.blur();
+    })()`);
+    const mouse = async (selector, { button = 'left', clickCount = 1, drag = false } = {}) => {
+      const { x, y } = await run(`(() => {
+        const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+        return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+      })()`);
+      win.webContents.sendInputEvent({ type: 'mouseMove', x, y });
+      win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button, clickCount });
+      if (drag) win.webContents.sendInputEvent({ type: 'mouseMove', x: x + 20, y: y + 20 });
+      win.webContents.sendInputEvent({ type: 'mouseUp', x: x + (drag ? 20 : 0), y: y + (drag ? 20 : 0), button, clickCount });
+      await run('new Promise(resolve => requestAnimationFrame(resolve))');
+    };
+    const counts = id => run(`window.focusCounts['focus-${id}']`);
+    for (const id of ['roll', 'patch', 'timeline']) {
+      await mouse(`#focus-${id} canvas`);
+      assert.equal(await run("document.activeElement.parentElement.id"), `focus-${id}`, 'first click focuses the pane');
+      assert.deepEqual(await counts(id), {}, 'activating click reaches no editing handlers');
+      await mouse(`#focus-${id} canvas`);
+      assert.deepEqual(await counts(id), { pointerdown: 1, mousedown: 1, pointerup: 1, mouseup: 1, click: 1 }, 'second click edits normally');
+    }
+    await run("document.activeElement.blur(); window.focusCounts['focus-roll'] = {}");
+    await mouse('#focus-roll canvas', { drag: true });
+    assert.deepEqual(await counts('roll'), {}, 'activating drag is consumed through mouseup and click');
+    await run("document.activeElement.blur(); window.focusCounts['focus-roll'] = {}");
+    await mouse('#focus-roll canvas', { clickCount: 1 });
+    await mouse('#focus-roll canvas', { clickCount: 2 });
+    assert.equal((await counts('roll')).click, 1, 'only the second click of an activating double-click edits');
+    assert.equal((await counts('roll')).dblclick, undefined, 'activating click cannot open a double-click action');
+    await mouse('#focus-roll canvas', { clickCount: 1 });
+    await mouse('#focus-roll canvas', { clickCount: 2 });
+    assert.equal((await counts('roll')).dblclick, 1, 'double-clicks in a focused pane work normally');
+    await mouse('#focus-patch input');
+    assert.equal(await run("document.querySelector('#focus-patch input').checked"), false, 'activating click does not toggle a native control');
+    await mouse('#focus-patch input');
+    assert.equal(await run("document.querySelector('#focus-patch input').checked"), true, 'next click operates the control');
+    await run("document.activeElement.blur(); window.focusCounts['focus-timeline'] = {}");
+    await mouse('#focus-timeline canvas', { button: 'right' });
+    assert.equal((await counts('timeline')).pointerdown, 1, 'right-click keeps its existing behavior');
+    await run("document.activeElement.blur(); window.focusCounts['focus-patch'] = {}");
+    await mouse('#focus-patch canvas', { button: 'middle' });
+    assert.equal((await counts('patch')).pointerdown, 1, 'middle-button panning is not gated');
+    await run("document.querySelector('#focus-roll canvas').focus(); window.focusCounts['focus-roll'] = {}");
+    await mouse('#focus-roll canvas');
+    assert.equal((await counts('roll')).click, 1, 'programmatically or keyboard-focused panes edit immediately');
+    await run("document.getElementById('focus-fixture').remove()");
+    console.log('pane focus tests passed: activation clicks, drags, double-clicks, native controls and existing focus');
     const tint = () => run("document.documentElement.style.getPropertyValue('--wood-tint')");
+    const borderRgb = () => run(`(() => {
+      const probe = document.createElement('div');
+      probe.style.borderColor = 'var(--pane-focus)';
+      document.body.append(probe);
+      const sample = document.createElement('canvas').getContext('2d');
+      sample.fillStyle = getComputedStyle(probe).borderTopColor;
+      sample.fillRect(0, 0, 1, 1);
+      probe.remove();
+      return [...sample.getImageData(0, 0, 1, 1).data].slice(0, 3);
+    })()`);
     const change = rgb => run(`(() => {
       ['r', 'g', 'b'].forEach((c, i) => { document.getElementById('pref-interface-woodTint-' + c).value = ${JSON.stringify(rgb)}[i]; });
       document.getElementById('pref-interface-woodTint-r').dispatchEvent(new Event('input'));
@@ -173,6 +298,7 @@ app.whenReady().then(async () => {
     const open = () => run('window.openPreferences()');
     const flushClose = () => run('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
     assert.equal(await tint(), defaultTint, 'existing default tint is preserved');
+    assert.deepEqual(await borderRgb(), focusRgb(defaultTint), 'focus color follows the loaded wood tint');
     await open();
     assert.equal(await run("document.activeElement.id"), 'preferences-categories', 'category list receives focus');
     assert.deepEqual(await run("Array.from(document.getElementById('preferences-categories').options, o => o.text)"), ['Interface', 'Testing', 'Timeline', 'MIDI']);
@@ -185,6 +311,7 @@ app.whenReady().then(async () => {
     assert.ok(groups.every(g => g.border === '1px' && g.padding === '16px'), 'each setting has a visible padded groupbox');
     await change([64, 128, 192]);
     assert.equal(await tint(), '#4080c0', 'RGB input previews immediately');
+    assert.deepEqual(await borderRgb(), focusRgb('#4080c0'), 'focus color follows the live color preview');
     assert.equal(await run("localStorage.getItem('philsynth:preferences')"), null, 'preview does not save');
     const tintedGrain = await run(`(async () => {
       const image = new Image();
@@ -207,6 +334,7 @@ app.whenReady().then(async () => {
     await submit('cancel');
     await flushClose();
     assert.equal(await tint(), defaultTint, 'Cancel restores the previous tint');
+    assert.deepEqual(await borderRgb(), focusRgb(defaultTint), 'Cancel restores the matching focus color');
     await open();
     await change([64, 128, 192]);
     await submit('ok');
@@ -216,6 +344,7 @@ app.whenReady().then(async () => {
     await open();
     await run("document.querySelector('.preference-reset').click()");
     assert.equal(await tint(), defaultTint, 'Reset previews the existing default');
+    assert.deepEqual(await borderRgb(), focusRgb(defaultTint), 'Reset restores the default focus color');
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
     await flushClose();
@@ -224,8 +353,10 @@ app.whenReady().then(async () => {
     await open();
     await change([0, 0, 0]);
     assert.equal(await tint(), '#181818', 'black preserves a grain floor');
+    assert.deepEqual(await borderRgb(), focusRgb('#181818'), 'dark tints retain a visible focus border');
     await change([255, 255, 255]);
     assert.equal(await tint(), '#d8d8d8', 'white preserves shading headroom');
+    assert.deepEqual(await borderRgb(), focusRgb('#d8d8d8'), 'light tints retain a matching focus border');
     await run("Storage.prototype.setItem = () => { throw new Error('Storage blocked'); }; void 0");
     await submit('ok');
     assert.equal(await run("document.getElementById('preferences-dialog').open"), true, 'save failures keep the dialog open');
