@@ -14,9 +14,18 @@ export const outParams = () => [
 ];
 
 // The Out Controller slider's range and names follow the connected module(s).
+// Target lists need only controller numbers and labels, not another target lookup.
+let listingTargets = false;
 export function modulatorParams(inst, def) {
+  if (listingTargets) return def.params;
   const targets = inst.getTargets();
-  const lists = targets.map(paramsOf);
+  let lists;
+  listingTargets = true;
+  try {
+    lists = targets.map(paramsOf);
+  } finally {
+    listingTargets = false;
+  }
   const max = Math.max(0, ...lists.flatMap((l) => l.map(controllerNumber)));
   const format = (v) => {
     const names = [...new Set(lists.map((l) => controllerAt(l, v | 0)?.label ?? '—'))];

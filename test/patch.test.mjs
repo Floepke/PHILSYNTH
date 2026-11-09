@@ -39,11 +39,87 @@ const ctx = { currentTime: 0 };
 const { dsp, graph, render, kernel } = dspTestHost();
 
 const { PatchRuntime } = await import('../src/patch.js');
-const { getModule } = await import('../src/modules/index.js');
+const { getModule, modules: moduleTypes } = await import('../src/modules/index.js');
 const engine = {
   ctx, dsp,
   createPatch(sink) { return PatchRuntime.create(this, sink); },
 };
+
+// Controller descriptions must not recursively follow control cables around a cycle.
+{
+  const { dsp: audio, graph: g, render: tick } = dspTestHost();
+  const e = { ctx, dsp: audio };
+  const r = await PatchRuntime.create(e, audio.destination);
+  for (const def of moduleTypes) await r.addModule(def.type);
+  const entries = [...r.modules.values()];
+  const sound = entries.find((m) => m.def.type === 'SOUND2CTL');
+  const modulators = entries.filter((m) => m.def.modulator && m !== sound);
+  for (const m of modulators) {
+    assert.equal(r.connect(m.id, sound.id), true, `${m.def.type} -> SOUND2CTL`);
+    assert.equal(r.connect(sound.id, m.id), true, `SOUND2CTL -> ${m.def.type}`);
+  }
+  const describe = (rt) => {
+    for (const m of rt.modules.values()) {
+      for (const p of paramsOf(m)) {
+        assert.ok(Number.isFinite(p.max), `${m.def.type}.${p.id}: finite range`);
+        if (p.format) assert.equal(typeof p.format(m.values[p.id], m.values), 'string');
+      }
+    }
+  };
+  describe(r);
+  const lfo = entries.find((m) => m.def.type === 'LFO');
+  const soundParams = paramsOf(sound);
+  const controller = paramsOf(lfo).find((p) => p.id === 'outController');
+  assert.equal(controller.max, Math.max(...soundParams.map(controllerNumber)));
+  assert.equal(controller.format(0), '0 · Audio Rate (Hz)');
+  assert.equal(g.nodes.get(lfo.ctl.h).routes[0].node.h, sound.ctl.h, 'cycle still routes real modulation');
+  tick(32);
+  assert.ok(Number.isFinite(sound.values.rate), 'cyclic modulation renders and reports values');
+  const saved = r.toJSON();
+  const copy = await PatchRuntime.create(e, audio.destination);
+  await copy.load(saved);
+  assert.deepEqual(copy.cables, r.cables, 'cyclic control cables survive reload');
+  describe(copy);
+  tick(8);
+  r.disconnect(r.cables.find((c) => c.from === sound.id && c.to === lfo.id));
+  assert.equal(r.connect(sound.id, lfo.id), true, 'cycle can be disconnected and reconnected');
+  r.removeModule(sound.id);
+  describe(r);
+  copy.destroy();
+  r.destroy();
+}
+
+// Target metadata still includes dynamic controllers on MULTICTL and nested Patches.
+{
+  const { dsp: audio } = dspTestHost();
+  const r = await PatchRuntime.create({ ctx, dsp: audio }, audio.destination);
+  const lfo = await r.addModule('LFO');
+  const multi = await r.addModule('MULTICTL');
+  const sound = await r.addModule('SOUND2CTL');
+  r.connect(multi.id, sound.id);
+  r.setState(multi.id, { routes: [{ to: sound.id, param: 'rate', key: 1 }] });
+  r.connect(lfo.id, multi.id);
+  r.connect(sound.id, lfo.id);
+  let out = paramsOf(lfo).find((p) => p.id === 'outController');
+  assert.equal(out.max, 4, 'MULTICTL route range controllers remain available in a cycle');
+  assert.equal(out.format(4), `4 · #${sound.id} Audio Rate (Hz) Max`);
+  const folder = await r.addModule('PATCH');
+  const inner = await folder.inst.patch.addModule('SOUND2CTL');
+  r.setState(folder.id, { maps: [
+    { key: 'map1', module: inner.id, param: 'rate' },
+    { key: 'map2', module: inner.id, param: 'outController' },
+  ] });
+  folder.inst.patch.connect(inner.id, 0);
+  r.connect(folder.id, lfo.id);
+  r.connect(lfo.id, folder.id);
+  out = paramsOf(lfo).find((p) => p.id === 'outController');
+  assert.equal(out.max, 12, 'Patch mapped controller numbers survive target inspection');
+  assert.equal(out.format(11), '11 · — / Audio Rate (Hz)');
+  assert.equal(out.format(12), '12 · — / Out Controller');
+  assert.equal(paramsOf(folder).find((p) => p.id === 'map2').max,
+    Math.max(...paramsOf(lfo).map(controllerNumber)), 'mapped Out Controller retains its dynamic range');
+  r.destroy();
+}
 
 // All Out Controller modules expose/save output smoothing without renumbering old controllers.
 {

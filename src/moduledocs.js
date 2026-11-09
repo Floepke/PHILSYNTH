@@ -547,6 +547,7 @@ export const DOCS = {
     },
     notes: [
       'Cable an audio source into it, then <kbd>Shift</kbd> + drag it to the module to control.',
+      'A control cable from another modulator changes a SOUND2CTL controller (for example Audio Rate); it does not supply audio. Control cables may form modulation cycles.',
       'Stereo is averaged and clamped to −1…+1. It is a direct voltage conversion, not an envelope follower: each value is the audio sample at that moment, not its loudness. The value controls the next 128-sample block.',
     ],
   },
