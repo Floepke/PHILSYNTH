@@ -228,7 +228,7 @@ function fitAll() {
 $('zoom').onclick = fitAll;
 $('zoom').addEventListener('pointerdown', (e) => e.stopPropagation());
 
-// Mac two-finger scrolling pans; pinch / Ctrl/Cmd + wheel zooms around the pointer.
+// Wheel and pinch zoom around the pointer.
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
   const r = canvas.getBoundingClientRect();

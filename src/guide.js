@@ -41,7 +41,7 @@ export const GUIDE = [
         items: [
           'Drag a module (or any module of a selection) to move it or the whole selection. Near / past the edge of the patcher the view pans along (also while duplicating, Shift-wiring or drawing a selection rectangle).',
           '<b>Snap to Grid</b> (right-click menu, a checkbox): moved and duplicated modules snap with their left edge and top to an invisible 20 px grid (half a module high), the same step sideways. Remembered on this computer.',
-          `${k('Shift')} + drag on empty canvas or ${k('Middle mouse')} + drag (also over modules) pans the canvas. On a Mac, two-finger trackpad scrolling (or the mouse wheel) pans in both directions; pinch or ${k(CMD)} + wheel zooms. On other computers the wheel zooms. Click the zoom % (bottom right) to fit all modules. Drag the dividers to resize or hide the piano roll and TimeLine.`,
+          `${k('Shift')} + drag on empty canvas or ${k('Middle mouse')} + drag (also over modules) pans the canvas. The mouse wheel or two-finger trackpad scrolling zooms around the pointer on every platform; pinch or ${k(CMD)} + wheel also zooms. Click the zoom % (bottom right) to fit all modules. Drag the dividers to resize or hide the piano roll and TimeLine.`,
         ],
       },
       {
@@ -105,7 +105,7 @@ export const GUIDE = [
       [`${k(CMD, 'Z')} / ${k(CMD, 'Shift', 'Z')}`, 'undo / redo'],
       [`${k('Shift')} + drag empty canvas / ${k('Middle mouse')} drag, wheel`, 'pan, zoom'],
       ['drag empty canvas / Forward button + drag', 'selection rectangle'],
-      ['Mac: two-finger scroll / wheel; pinch or Ctrl/Cmd + wheel', 'pan; zoom'],
+      ['Wheel / two-finger scroll / pinch', 'zoom around the pointer'],
       [`${k('Right-click')}`, 'menu: cut, copy, paste, delete, open, save / load module, rename, Snap to Grid'],
     ],
   },

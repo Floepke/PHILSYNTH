@@ -20,7 +20,7 @@ for (const topic of ['selection rectangle', 'end line', 'Velocity', '250 ms', 'Q
 const patcherKeys = GUIDE.find((t) => t.id === 'patcher').keys;
 assert.ok(patcherKeys.some(([keys, action]) => keys.includes('Shift</kbd> + drag empty canvas') && action === 'pan, zoom'), 'patcher: Shift-drag pans');
 assert.ok(patcherKeys.some(([keys, action]) => keys.startsWith('drag empty canvas') && action === 'selection rectangle'), 'patcher: plain drag selects');
-assert.ok(text('patcher').includes('two-finger trackpad scrolling'), 'patcher: Mac trackpad panning is documented');
+assert.ok(text('patcher').includes('zooms around the pointer on every platform'), 'patcher: wheel zoom is documented');
 
 // rendered folded; a part opened stays open when the panel is rebuilt
 {

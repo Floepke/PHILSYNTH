@@ -37,24 +37,21 @@ for (const f of [1.15, 1 / 1.15, 4, 0.01]) {
 assert.equal(zoomAt(cam, 0, 0, 100).z, ZOOM_MAX);
 assert.equal(zoomAt(cam, 0, 0, 0.0001).z, ZOOM_MIN);
 
-// Mac trackpad swipes, including large/inertial deltas, always pan rather than guessing hardware.
+// Wheel zoom needs no modifier; all delta modes keep the pointer's world position fixed.
 const wheel = { deltaX: 0, deltaY: 12, deltaMode: 0, ctrlKey: false, metaKey: false, shiftKey: false };
-for (const [dx, dy] of [[0, 12], [18, 0], [-3.5, 7.25], [120, -200]]) {
-  assert.deepEqual(wheelCam(cam, { ...wheel, deltaX: dx, deltaY: dy }, 300, 200, 'MacIntel'),
-    { x: cam.x - dx, y: cam.y - dy, z: cam.z });
-}
-assert.deepEqual(wheelCam(cam, { ...wheel, shiftKey: true }, 300, 200, 'MacIntel'), { ...cam, x: cam.x - 12 });
-assert.deepEqual(wheelCam(cam, { ...wheel, deltaX: 2, deltaY: 3, deltaMode: 1 }, 300, 200, 'MacIntel'), { x: cam.x - 32, y: cam.y - 48, z: cam.z });
-assert.deepEqual(wheelCam(cam, { ...wheel, deltaMode: 2 }, 300, 200, 'MacIntel'), { ...cam, y: cam.y - 4800 });
-assert.deepEqual(wheelCam(cam, { ...wheel, deltaX: NaN, deltaY: Infinity }, 300, 200, 'MacIntel'), cam);
-for (const event of [{ ...wheel, ctrlKey: true }, { ...wheel, metaKey: true }]) {
-  const zoom = wheelCam(cam, event, 300, 200, 'MacIntel');
-  assert.notEqual(zoom.z, cam.z, 'pinch and modifier-wheel zoom');
+for (const event of [wheel, { ...wheel, shiftKey: true }, { ...wheel, ctrlKey: true },
+  { ...wheel, metaKey: true }, { ...wheel, deltaMode: 1 }, { ...wheel, deltaMode: 2 },
+  { ...wheel, deltaX: 120, deltaY: -200 }]) {
+  const zoom = wheelCam(cam, event, 300, 200);
+  assert.ok(event.deltaY > 0 ? zoom.z < cam.z : zoom.z > cam.z, 'wheel direction zooms out / in');
   near(toWorld(zoom, 300, 200).x, w.x);
   near(toWorld(zoom, 300, 200).y, w.y);
 }
-for (const platform of ['Linux x86_64', 'Win32']) {
-  assert.notEqual(wheelCam(cam, wheel, 300, 200, platform).z, cam.z, 'non-Mac mouse-wheel zoom is unchanged');
+for (const deltaY of [0, NaN, Infinity]) {
+  const unchanged = wheelCam(cam, { ...wheel, deltaX: 18, deltaY }, 300, 200);
+  near(unchanged.x, cam.x);
+  near(unchanged.y, cam.y);
+  near(unchanged.z, cam.z);
 }
 
 // validation of persisted cameras
