@@ -421,8 +421,9 @@ export const DOCS = {
   },
 
   LFO: {
-    summary: 'Low-frequency oscillator: a repeating control wave that modulates one controller of every module it is cabled to (vibrato, tremolo, filter sweeps, …). With audio cabled into it, it is a tremolo: it passes that sound on with its volume following the wave.',
+    summary: 'Low-frequency oscillator: MODE selects a repeating controller wave, audio amplitude modulation, or stereo panning.',
     params: {
+      mode: 'Controller 10. Controller Modulation (default) drives Out Controller of connected modules and ignores incoming audio. Amp (audio modulation) multiplies incoming sound by the wave. Panning (audio modulation) balances incoming stereo sound: Out Min / Out Max set the pan range (0 % left, 50 % center, 100 % right). The center preserves both channels; toward either side the opposite channel is reduced linearly.',
       enabled: 'On (default) runs the LFO. Off pauses it at its current phase and holds the wave level, including audio tremolo; output trimming remains live. On resumes from the remembered phase. Incoming MIDI notes still set Phase plus the note phase while paused; changing the Phase controller alone does not reset an already-running LFO.',
       freq: 'Speed of the wave: 0.01–50 Hz, or (with a synced Frequency Unit) a cycle length in note values, which the slider snaps to. Ignored with Frequency Unit MIDI Pitch.',
       unit: 'Hz runs freely; 1/4, 1/8 or 1/16 syncs the cycle to note lengths at the BPM of this patch level\'s Output. <i>MIDI Pitch</i> runs the wave at the frequency of the incoming note (A4 = 440 Hz), following pitch bends; Frequency is ignored. Notes come from a clip sent to the LFO or a MULTIMIDI (or other MIDI module) cabled into it. With no note held it keeps the last pitch; before the first note it stands still.',
@@ -431,7 +432,13 @@ export const DOCS = {
       amp: 'Depth of the wave around its centre: 100 % = full swing between Out Min and Out Max, 0 % = steady in the middle.',
       phase: 'Where in its cycle the wave starts (0–100 % = 0–360°). The LFO jumps there when the project loads, after a panic (<kbd>\'</kbd> twice: stop, then panic) and on every incoming note; a note\'s own phase (from a MULTIMIDI\'s Phase / Random Phase) is added to it. Turning it while running does not make the wave jump.',
     },
-    notes: [MOD_CABLE, 'Tremolo: cable a sound module into the LFO. Its cables to modules that take audio (effects, the Output, …) then carry that sound, its volume following the wave: Amplitude sets the depth, Out Min / Out Max the volume range (0–100 %). Cables to modules without an audio input stay control cables, and so does a cable that would close an audio loop. The wave is computed for every sample, so with Frequency Unit <i>MIDI Pitch</i> and notes cabled in, the sound pulses at the note frequency (audio-rate amplitude modulation). Square and Saw edges take about 1 ms, so slow ones do not click.', 'Control cables: modulation is applied once per 128-sample block (~375 times a second), so with MIDI Pitch only low notes (below about 90 Hz, F♯2) give a clean wave; higher notes alias into a slower, stepped movement.'],
+    notes: [
+      MOD_CABLE,
+      'For tremolo, select <b>Amp (audio modulation)</b> in MODE, then cable sound into the LFO and its output to an effect or the Output. Amplitude sets the depth, Out Min / Out Max the volume range (0–100 %). For autopan select <b>Panning (audio modulation)</b>; Amplitude sets the depth around the center of the chosen pan range. Out Controller and Out Smooth apply only in Controller Modulation mode.',
+      'Audio modes send audio even when no source is connected yet (silence until sound arrives), never controller modulation. Switching MODE keeps existing cables; destinations without an audio input and cables that would close an audio loop become inactive. A saved LFO without MODE defaults to Controller Modulation; select Amp explicitly for older tremolo setups.',
+      'Audio modulation is computed for every sample, so with Frequency Unit <i>MIDI Pitch</i> and notes cabled in, the sound pulses at the note frequency. Square and Saw edges take about 1 ms, so slow ones do not click.',
+      'Control cables: modulation is applied once per 128-sample block (~375 times a second), so with MIDI Pitch only low notes (below about 90 Hz, F♯2) give a clean wave; higher notes alias into a slower, stepped movement.',
+    ],
   },
 
   ADSR: {

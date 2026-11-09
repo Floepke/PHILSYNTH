@@ -9,7 +9,7 @@
 // Phase (0..1): where in its cycle the wave starts. Applied when the kernel is created (project
 // load / new module), on panic, and on every noteOn: there the note's MODMIDI phase (e.g. from a
 // MULTIMIDI's Phase / Random Phase) is added to it. Turning it while running does not jump.
-// Audio input (tremolo): with sound cabled into it the graph renders it in audio order and its
+// Audio modes: the graph renders it in audio order and its
 // output is that sound times the wave, mapped like a controller: Amplitude around the middle, then
 // onto Out Min..Out Max (in %, 0..100 = silent..unchanged). The wave is computed per sample here,
 // so with Frequency Unit MIDI Pitch it runs at the note frequency (audio-rate amplitude modulation).
@@ -45,7 +45,7 @@ export const tremoloGain = (x, amp, outMin, outMax) => (outMin + (outMax - outMi
 
 export default class LfoKernel extends Kernel {
   static modulator = true;
-  static audioThrough = true; // sound cabled in: audio order, output = input × wave (see graph.js)
+  static audioThrough = true; // Mode selects controller or audio processing (see graph.js)
   static meter = true;
 
   constructor() {
@@ -55,6 +55,7 @@ export default class LfoKernel extends Kernel {
     this.bpm = 120;
     this.rate = 1; // Hz
     this.enabled = true;
+    this.mode = 0;
     this.held = new Map(); // MIDI Pitch: id -> pitch of the held notes, oldest first
     this.pitch = null; // MIDI Pitch: the pitch followed (null until the first note)
     this.wave = 0;
@@ -73,6 +74,7 @@ export default class LfoKernel extends Kernel {
 
   param(id, v) {
     if (id === 'enabled') this.enabled = v >= 0.5;
+    else if (id === 'mode') this.mode = Math.max(0, Math.min(2, Math.round(v)));
     else if (id === 'freq' || id === 'unit') {
       this[id] = id === 'unit' ? v | 0 : v;
       this.updateRate();
@@ -171,7 +173,7 @@ export default class LfoKernel extends Kernel {
     this.value = this.at();
     this.meter = tremoloGain(this.value, this.amp, this.outMin, this.outMax) * 100;
     const i = inputs[0];
-    if (!i || !i.length) {
+    if (!this.mode || !i || !i.length) {
       this.advance(n);
       return false;
     }
@@ -185,8 +187,14 @@ export default class LfoKernel extends Kernel {
     const w = Math.min(this.wave === 3 ? 0.25 : 0.5, EDGE_S * this.rate);
     for (let j = 0; j < n; j++) {
       const g = lo + span * this.smoothAt(w);
-      L[j] = iL[j] * g;
-      R[j] = iR[j] * g;
+      if (this.mode === 2) {
+        const pan = Math.max(0, Math.min(1, g));
+        L[j] = iL[j] * Math.min(1, 2 * (1 - pan));
+        R[j] = iR[j] * Math.min(1, 2 * pan);
+      } else {
+        L[j] = iL[j] * g;
+        R[j] = iR[j] * g;
+      }
       this.advance(1);
     }
     return true;

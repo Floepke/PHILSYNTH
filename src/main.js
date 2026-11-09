@@ -314,6 +314,7 @@ engine.onChange = () => {
   undoHistory?.record();
   if (sel?.entry?.def.isOutput) panelRefresh?.();
 };
+engine.onRoutingChange = () => drawCables();
 
 function viewState() {
   return {
@@ -806,7 +807,7 @@ function drawCables() {
     // a Patch cable looks like what its inside sends out: control or MIDI unless it sends sound too
     const out = a.inst.outSignals?.();
     const soundy = signals.audio && (!out || out.audio || !(out.mod || out.midi));
-    const isMod = (!!a.def.modulator && !signals.audio) || (signals.mod && !soundy);
+    const isMod = signals.mod && !soundy;
     const ra = boxOf(a);
     const rb = boxOf(b);
     const { from, to } = visibleSegment(ra, rb); // arrow and audio wave go on the visible part
@@ -1312,8 +1313,13 @@ function select(s) {
       panel.append(hint(names.length
         ? `Control cable: <b>Value</b> drives ${names.join(', ')}.`
         : 'Control cable: no controller of this module is routed yet. Select the MULTICTL and pick one under <b>Routes</b>.'));
-    } else if (lfo?.def.audioThrough && patch.signals(lfo, patch.modules.get(s.cable.to)).audio) {
-      panel.append(hint('Audio cable (tremolo): carries the sound cabled into this LFO, its volume following the wave (Amplitude, Out Min..Out Max = 0..100 % volume).'));
+    } else if (lfo?.def.audioThrough && lfo.values.mode > 0) {
+      const audio = patch.signals(lfo, patch.modules.get(s.cable.to)).audio;
+      panel.append(hint(audio
+        ? lfo.values.mode === 2
+          ? 'Audio cable (panning): carries the input sound balanced by the LFO wave. Out Min..Out Max = left..right; the center preserves both channels.'
+          : 'Audio cable (amp modulation): carries the input sound with its volume following the LFO wave (Amplitude, Out Min..Out Max = 0..100 % volume).'
+        : 'Inactive audio cable: the destination has no audio input, or this cable would close an audio loop. Change MODE to Controller Modulation to drive a controller instead.'));
     } else if (lfo?.def.modulator) {
       const t = patch.modules.get(s.cable.to);
       const n = lfo.values.outController | 0;

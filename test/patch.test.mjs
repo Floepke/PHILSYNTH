@@ -1174,6 +1174,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.equal(k.rate, 110);
 
   // with sound cabled in too: a tremolo at the note frequency (audio-rate amplitude modulation)
+  r.setParam(lfo.id, 'mode', 1);
   const src = await r.addModule('OSC');
   kernel(src.inst.node).process = (_i, o) => { o[0][0].fill(1); o[0][1].fill(1); return true; };
   assert.ok(r.connect(src.id, lfo.id));
@@ -1912,10 +1913,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   r.destroy();
 }
 
-const paramsOfKey = (e, i) => e.inst.params?.()?.[i]?.id ?? e.def.params[i].id;
-
-// LFO tremolo: with sound cabled in, its cables to modules that take audio carry that sound (volume
-// following the wave); others stay control cables; one that would close an audio loop stays control.
+// LFO Mode explicitly selects controller or audio output, independent of input cable order.
 {
   const r = await PatchRuntime.create(engine, dsp.destination);
   const src = await r.addModule('OSC');
@@ -1931,10 +1929,14 @@ const paramsOfKey = (e, i) => e.inst.params?.()?.[i]?.id ?? e.def.params[i].id;
   assert.deepEqual(r.signals(lfo, amp), { audio: false, midi: false, mod: true }, 'no sound in: control cable');
   assert.equal(lfo.modTargets.size, 2);
   assert.ok(r.connect(src.id, lfo.id), 'sound into the LFO');
+  assert.equal(r.signals(lfo, amp).mod, true, 'incoming sound does not change controller mode');
+  r.setParam(lfo.id, 'mode', 1);
   assert.deepEqual(r.signals(lfo, amp), { audio: true, midi: false, mod: false }, 'now an audio cable');
   assert.ok(lfo.inst.node.out.has(amp.inst.input));
-  assert.equal(r.signals(lfo, adsr).audio, false, 'ADSR takes no audio: still control');
-  assert.deepEqual([...lfo.modTargets.keys()], [`${adsr.id} ${paramsOfKey(adsr, 1)}`], 'AMP is no longer modulated');
+  assert.deepEqual(r.signals(lfo, adsr), { audio: false, midi: false, mod: false }, 'ADSR takes no audio: inactive');
+  assert.equal(lfo.modTargets.size, 0, 'audio mode does not modulate any controller');
+  const velocity = await r.addModule('VELOCITY2CTL');
+  assert.equal(r.connect(lfo.id, velocity.id), false, 'audio mode rejects targets without audio inputs');
   assert.equal(r.connect(amp.id, src.id), false, 'OSC has no input anyway');
   const fx = await r.addModule('DELAY');
   assert.ok(r.connect(amp.id, fx.id));
@@ -1949,7 +1951,7 @@ const paramsOfKey = (e, i) => e.inst.params?.()?.[i]?.id ?? e.def.params[i].id;
   assert.ok(g.srcs.includes(graph.nodes.get(lfo.inst.node.h)), 'the Output gets the tremolo sound');
   assert.ok(Math.abs(graph.nodes.get(lfo.inst.node.h).outs[0][0][64] - 0.5) < 1e-6, 'at 50 % volume');
   assert.ok(!g.silent && g.outs[0][0][64] > 0, 'and plays it');
-  // saved cable order does not matter: the LFO's cables become audio once sound comes in
+  // Saved cable order does not matter; mode is restored before the cables.
   const json = r.toJSON();
   json.cables.reverse();
   const copy = await PatchRuntime.create(engine, dsp.destination);
@@ -1958,14 +1960,117 @@ const paramsOfKey = (e, i) => e.inst.params?.()?.[i]?.id ?? e.def.params[i].id;
   assert.equal(copy.signals(cl, ca).audio, true);
   assert.ok(cl.inst.node.out.has(ca.inst.input));
   assert.ok(!('audio' in json.cables[0]), 'nothing extra saved');
-  // sound out: back to control cables, controllers driven again
+  // Removing the input leaves audio cables intact, silent, and without controller modulation.
   r.disconnect(r.cables.find((c) => c.from === src.id && c.to === lfo.id));
+  assert.equal(r.signals(lfo, amp).audio, true);
+  assert.ok(lfo.inst.node.out.has(amp.inst.input));
+  assert.equal(lfo.modTargets.size, 0);
+  render(1);
+  assert.ok(graph.nodes.get(out.inst.input.h).silent, 'missing audio input is silent');
+  r.setParam(lfo.id, 'mode', 0);
   assert.equal(r.signals(lfo, amp).mod, true);
   assert.ok(!lfo.inst.node.out.has(amp.inst.input));
   assert.equal(lfo.modTargets.size, 3, 'AMP, ADSR and the Output modulated again');
   render(1);
   assert.equal(graph.nodes.get(lfo.inst.node.h).audio, false, 'the graph runs it as a plain modulator again');
   copy.destroy();
+  r.destroy();
+}
+
+// Audio mode is established before any input exists, including cascaded LFO effects.
+{
+  const { dsp: audio, graph: g, kernel: getKernel, render: tick } = dspTestHost();
+  let routingChanges = 0;
+  const r = await PatchRuntime.create({
+    ctx, dsp: audio, onRoutingChange: () => routingChanges++,
+  }, audio.destination);
+  const pan = await r.addModule('LFO', { values: { mode: 2, amp: 0 } });
+  const amp = await r.addModule('LFO', { values: { mode: 1, amp: 0 } });
+  assert.ok(r.connect(pan.id, amp.id));
+  assert.ok(r.connect(amp.id, 0));
+  assert.equal(r.signals(pan, amp).audio, true, 'audio cable without an incoming source');
+  assert.equal(r.signals(amp, r.modules.get(0)).mod, false);
+  tick();
+  assert.ok(g.nodes.get(amp.ctl.h).silent, 'no input means silence, not a control wave');
+  const src = await r.addModule('OSC');
+  getKernel(src.ctl).process = (_i, o) => { o[0][0].fill(1); o[0][1].fill(0.5); return true; };
+  assert.ok(r.connect(src.id, pan.id));
+  tick();
+  let [L, R] = g.nodes.get(amp.ctl.h).outs[0];
+  assert.equal(L[64], 0.5);
+  assert.equal(R[64], 0.25, 'centered panning preserves stereo before amplitude modulation');
+  r.setParam(pan.id, 'outMin', 100);
+  r.setParam(pan.id, 'outMax', 100);
+  tick();
+  [L, R] = g.nodes.get(amp.ctl.h).outs[0];
+  assert.equal(L[64], 0);
+  assert.equal(R[64], 0.25, 'right pan reaches downstream audio effect');
+  // Mode can be modulated using controller number 10, and cable display is notified.
+  const ctl = await r.addModule('VELOCITY2CTL', { values: { outController: 10, noteOffAction: 1 } });
+  assert.ok(r.connect(ctl.id, pan.id));
+  ctl.inst.noteOn(1, 60, 1);
+  tick(2);
+  assert.equal(pan.values.mode, 2);
+  ctl.inst.noteOff(1);
+  tick(2);
+  assert.equal(pan.values.mode, 0);
+  assert.equal(r.signals(pan, amp).mod, true, 'modulating MODE reroutes the cable');
+  assert.ok(routingChanges > 0, 'driven mode changes notify cable display');
+  assert.equal(g.nodes.get(pan.ctl.h).audio, false, 'controller mode ignores connected audio');
+  ctl.inst.noteOn(2, 60, 1);
+  tick(2);
+  assert.equal(r.signals(pan, amp).audio, true);
+  assert.equal(g.nodes.get(pan.ctl.h).audio, true);
+  assert.equal(pan.modTargets.size, 0, 'audio mode has no remaining controller routes');
+  const copy = await PatchRuntime.create({ ctx, dsp: audio }, audio.destination);
+  await copy.load(r.toJSON());
+  assert.equal(copy.modules.get(pan.id).values.mode, 2);
+  assert.equal(copy.modules.get(amp.id).values.mode, 1);
+  assert.equal(copy.signals(copy.modules.get(pan.id), copy.modules.get(amp.id)).audio, true);
+  copy.destroy();
+  r.destroy();
+}
+
+// Mode switches cannot turn an existing control cycle into an audio loop.
+{
+  const { dsp: audio } = dspTestHost();
+  const r = await PatchRuntime.create({ ctx, dsp: audio }, audio.destination);
+  const a = await r.addModule('LFO');
+  const b = await r.addModule('LFO');
+  assert.ok(r.connect(a.id, b.id));
+  assert.ok(r.connect(b.id, a.id));
+  r.setParam(a.id, 'mode', 1);
+  r.setParam(b.id, 'mode', 2);
+  assert.equal(r.audioLinks.size, 1, 'one cycle-closing cable stays inactive');
+  const inactive = r.cables.find(c => !r.audioLinks.has(c));
+  assert.deepEqual(r.signals(r.modules.get(inactive.from), r.modules.get(inactive.to)),
+    { audio: false, midi: false, mod: false }, 'never falls back to controller modulation');
+  r.setParam(a.id, 'mode', 0);
+  r.setParam(b.id, 'mode', 0);
+  assert.equal(r.audioLinks.size, 0);
+  assert.equal(r.signals(a, b).mod, true);
+  assert.equal(r.signals(b, a).mod, true);
+  r.destroy();
+}
+
+// Nested Patch inputs and outputs follow the inner LFO's explicit Mode.
+{
+  const { dsp: audio } = dspTestHost();
+  const r = await PatchRuntime.create({ ctx, dsp: audio }, audio.destination);
+  const folder = await r.addModule('PATCH');
+  const inner = folder.inst.patch;
+  const lfo = await inner.addModule('LFO');
+  assert.ok(inner.connect(lfo.id, 0));
+  assert.equal(folder.inst.outSignals().mod, true);
+  assert.ok(!folder.inst.input.out.has(lfo.inst.input), 'controller mode ignores Patch audio input');
+  inner.setParam(lfo.id, 'mode', 1);
+  assert.ok(folder.inst.input.out.has(lfo.inst.input), 'Amp mode receives Patch audio input');
+  assert.deepEqual(folder.inst.outSignals(), { audio: true, midi: false, mod: false });
+  inner.setParam(lfo.id, 'mode', 2);
+  assert.ok(folder.inst.input.out.has(lfo.inst.input), 'Panning mode keeps the input');
+  inner.setParam(lfo.id, 'mode', 0);
+  assert.ok(!folder.inst.input.out.has(lfo.inst.input));
+  assert.equal(folder.inst.outSignals().mod, true);
   r.destroy();
 }
 

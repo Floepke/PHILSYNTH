@@ -120,7 +120,7 @@ export default {
       inGain.disconnect();
       for (const rt of runtimes()) {
         const t = rt.modules.get(target);
-        if (t?.inst.input && !t.def.audioThrough) inGain.connect(t.inst.input); // LFO tremolo: by cable only
+        if (t?.inst.input && (!t.def.audioThrough || t.values.mode > 0)) inGain.connect(t.inst.input);
       }
     };
     patch.listeners.add(route);

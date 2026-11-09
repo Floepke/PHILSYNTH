@@ -8,9 +8,7 @@
 //   Out Controller: controller number (0..) of the connected module(s) to modulate.
 //   Out Min / Out Max: modulation range in % of that controller's slider range (applied after Amplitude).
 //   LFO On/Off: pauses/resumes the wave at its remembered phase; MIDI notes still reset it while Off.
-// Audio input (tremolo): with sound cabled in, its cables to modules that take audio carry that sound
-// with its volume following the wave (Out Min..Out Max = 0..100 % volume); cables to modules
-// without an audio input stay control cables (see PatchRuntime.syncThrough, lfo.dsp.js).
+// Mode selects controller modulation, audio amplitude modulation, or stereo panning.
 import { modulatorParams, outParams, pct } from './modtarget.js';
 import { syncedPeriod, MIDI_UNIT, SYNCED_FREQS } from './lfo.dsp.js';
 
@@ -42,10 +40,10 @@ export default {
   label: 'LFO (modulator)',
   acceptsMidi: true, // notes restart its phase; with Frequency Unit MIDI Pitch they also set the rate
   liveMidi: false, // not played by the MIDI device (selecting it does not take the keyboard)
-  hasInput: true, // sound in: tremolo
+  hasInput: true,
   hasOutput: true,
-  modulator: true, // its cables are control cables: they modulate a controller instead of carrying audio
-  audioThrough: true, // ...except, with sound cabled in, those to modules that take audio (tremolo)
+  modulator: true,
+  audioThrough: true, // Mode selects whether its output carries audio or controller modulation
   params: [
     { id: 'wave', label: 'Waveform', min: 0, max: 6, default: 0, step: 1, options: ['Sine', 'Triangle', 'Saw', 'Square', 'Random (smooth step)', 'Random (steps)', 'Random (linear)'] },
     { id: 'unit', label: 'Frequency Unit', min: 0, max: UNITS.length - 1, default: 0, step: 1, options: UNITS },
@@ -54,6 +52,8 @@ export default {
     { id: 'amp', label: 'Amplitude', min: 0, max: 100, default: 100, step: 1, format: pct },
     ...outParams(),
     { id: 'enabled', label: 'LFO On/Off', min: 0, max: 1, default: 1, step: 1, options: ['Off', 'On'] },
+    { id: 'mode', label: 'MODE', min: 0, max: 2, default: 0, step: 1,
+      options: ['Controller Modulation', 'Amp (audio modulation)', 'Panning (audio modulation)'] },
   ],
   view(entry, api) {
     const el = document.createElement('div');

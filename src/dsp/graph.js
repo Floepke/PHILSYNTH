@@ -215,6 +215,7 @@ export class Graph {
       else if (m.type === 'noteMod') for (const [id, pitch] of m.notes) if (id === node.noteId) node.notePitch = +pitch || 0;
     }
     if (m.type !== 'param') return;
+    if (node.through && m.id === 'mode') this.dirty = true;
     node.values[m.id] = m.value;
     if (isDepth(node, m.id)) node.depth[m.id] = m.value;
     // a controller set by hand while modulated: re-apply the modulation on the next block
@@ -255,8 +256,11 @@ export class Graph {
     this.dirty = false;
     const x = this.x;
     if (this.prog) for (const n of this.nodes.values()) if (n.rec) n.silent = !!x.ms_node_silent(n.rec);
-    // audio-through modulators (LFO tremolo) render in audio order only while sound comes in
-    for (const n of this.nodes.values()) if (n.through) n.audio = n.audioInput = n.srcs.length > 0;
+    // Audio modes render in audio order; controller mode ignores incoming sound.
+    for (const n of this.nodes.values()) if (n.through) {
+      n.audio = n.audioInput = n.k.mode > 0 && n.srcs.length > 0;
+      if (!n.audio) n.silent = true;
+    }
     const order = [];
     const seen = new Set();
     const visit = (n) => {
@@ -467,6 +471,7 @@ export class Graph {
   }
 
   modulate(m, x) {
+    if (m.through && m.k.mode > 0) return;
     const { outMin, outMax, amp, outSmooth } = m.depth;
     const y = 0.5 + (x - 0.5) * (amp / 100);
     const pos = (outMin + (outMax - outMin) * y) / 100;
@@ -491,6 +496,7 @@ export class Graph {
       if (v === r.last) continue;
       r.last = v;
       r.node.k.param(r.id, v);
+      if (r.node.through && r.id === 'mode') this.dirty = true;
       r.node.values[r.id] = v;
       if (isDepth(r.node, r.id)) r.node.depth[r.id] = v; // LFO -> LFO depth
       this.pending.add(r);
@@ -566,7 +572,7 @@ export class Graph {
     for (let i = 0; i < nH; i++) {
       const n = this.nodes.get(H[i]);
       let a = null, b = null, c = 0;
-      if (n?.modulator && !(n.through && n.audio)) {
+      if (n?.modulator && !(n.through && n.k.mode > 0)) {
         const x = n.k.value;
         if (x !== null && x !== undefined) c = n.kind === 'lfo' ? 2 * x - 1 : x;
         if (!Number.isFinite(c)) c = 0;

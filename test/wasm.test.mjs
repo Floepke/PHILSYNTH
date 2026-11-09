@@ -47,7 +47,7 @@ assert.deepEqual(WebAssembly.Module.imports(new WebAssembly.Module(bytes)), [], 
   const src = dsp.create('osc');
   const lfo = dsp.create('lfo');
   const amp = dsp.create('amp');
-  for (const [id, v] of [['amp', 0], ['outMin', 50], ['outMax', 50]]) lfo.param(id, v);
+  for (const [id, v] of [['mode', 1], ['amp', 0], ['outMin', 50], ['outMax', 50]]) lfo.param(id, v);
   amp.connect(dsp.destination);
   src.send({ type: 'noteOn', id: 1, pitch: 60, velocity: 1 });
   render();
@@ -61,6 +61,14 @@ assert.deepEqual(WebAssembly.Module.imports(new WebAssembly.Module(bytes)), [], 
   assert.ok(Math.abs(s[64]) > 1e-3 && Math.abs(t[64] - 0.5 * s[64]) < 1e-6, 'native sound at 50 % volume');
   const a = graph.nodes.get(amp.h).outs[0][0];
   assert.ok(Math.abs(a[64] - t[64]) < 1e-6, 'into the native AMP');
+  lfo.param('mode', 2);
+  lfo.param('outMin', 100);
+  lfo.param('outMax', 100);
+  render();
+  const [panL, panR] = graph.nodes.get(lfo.h).outs[0];
+  assert.ok(panL.every(v => v === 0), 'panning mutes the opposite channel in mixed rendering');
+  assert.ok(Math.abs(panR[64] - graph.nodes.get(src.h).outs[0][1][64]) < 1e-6, 'panning preserves the selected native input channel');
+  assert.equal(graph.prog, 0, 'panning also uses mixed rendering');
   src.disconnect(lfo);
   lfo.disconnect(amp);
   render();

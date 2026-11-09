@@ -9,6 +9,7 @@ const Proc = await loadKernel('lfo.dsp.js', SR);
 // On/Off pauses both control-rate and audio-rate LFOs without losing phase or random state.
 for (const audio of [false, true]) for (const wave of [0, 1, 2, 3, 4, 5, 6]) {
   const k = new Proc();
+  k.param('mode', audio ? 1 : 0);
   const m = (data) => k.port.onmessage({ data });
   const output = [[new Float32Array(128), new Float32Array(128)]];
   const input = audio ? [[new Float32Array(128).fill(1), new Float32Array(128).fill(0.5)]] : [];
@@ -47,7 +48,11 @@ for (const audio of [false, true]) for (const wave of [0, 1, 2, 3, 4, 5, 6]) {
   const root = await PatchRuntime.create(engine, dsp.destination);
   const lfo = await root.addModule('LFO');
   assert.equal(lfo.values.enabled, 1);
-  assert.equal(lfo.def.params.at(-1).id, 'enabled', 'append without renumbering existing controllers');
+  assert.equal(lfo.def.params[9].id, 'enabled', 'On/Off keeps controller 9');
+  assert.equal(lfo.def.params[10].id, 'mode', 'MODE is controller 10');
+  assert.deepEqual(lfo.def.params[10].options,
+    ['Controller Modulation', 'Amp (audio modulation)', 'Panning (audio modulation)']);
+  assert.equal(lfo.values.mode, 0, 'default is Controller Modulation');
   const vel = await root.addModule('VELOCITY2CTL', { values: {
     outController: lfo.def.params.findIndex(p => p.id === 'enabled'), noteOffAction: 1,
   } });
@@ -233,6 +238,7 @@ assert.ok(new Set(ends.map((v) => v.toFixed(3))).size > 30, 'keeps moving to new
   assert.equal(tremoloGain(0, 50, 0, 100), 0.25, 'Amplitude: depth around the middle');
   assert.equal(tremoloGain(1, 100, 20, 60), 0.6, 'Out Max = loudest');
   const k = new Proc();
+  k.param('mode', 1);
   const m = (data) => k.port.onmessage({ data });
   m({ type: 'param', id: 'wave', value: 2 }); // saw: value = phase
   m({ type: 'param', id: 'freq', value: SR / 128 / 4 }); // a quarter cycle per block
@@ -257,6 +263,7 @@ assert.ok(new Set(ends.map((v) => v.toFixed(3))).size > 30, 'keeps moving to new
 // Tremolo with Frequency Unit MIDI Pitch: audio-rate amplitude modulation at the note frequency
 {
   const k = new Proc();
+  k.param('mode', 1);
   const m = (data) => k.port.onmessage({ data });
   m({ type: 'param', id: 'unit', value: 4 });
   m({ type: 'noteOn', id: 1, pitch: 69 }); // 440 Hz, sine
@@ -277,6 +284,7 @@ assert.ok(new Set(ends.map((v) => v.toFixed(3))).size > 30, 'keeps moving to new
 {
   for (const wave of [3, 2]) {
     const k = new Proc();
+    k.param('mode', 1);
     const m = (data) => k.port.onmessage({ data });
     m({ type: 'param', id: 'wave', value: wave });
     m({ type: 'param', id: 'freq', value: 2 });
@@ -291,6 +299,39 @@ assert.ok(new Set(ends.map((v) => v.toFixed(3))).size > 30, 'keeps moving to new
     assert.ok(maxStep < 1.1 / (0.001 * SR), `${wave === 3 ? 'Square' : 'Saw'}: edges take ~1 ms (max step ${maxStep})`);
     assert.ok(Math.min(...g) < 0.01 && Math.max(...g) > 0.99, 'still the full swing');
   }
+}
+
+// Controller mode ignores audio; panning preserves stereo at center and mutes the opposite side.
+{
+  const k = new Proc();
+  const input = [[new Float32Array(128).fill(1), new Float32Array(128).fill(0.5)]];
+  const output = [[new Float32Array(128), new Float32Array(128)]];
+  assert.equal(k.process(input, output), false, 'default mode never emits input audio');
+  k.param('mode', 2);
+  k.param('amp', 0);
+  assert.equal(k.process(input, output), true);
+  assert.ok(output[0][0].every(v => v === 1), 'center keeps left unchanged');
+  assert.ok(output[0][1].every(v => v === 0.5), 'center keeps right unchanged');
+  for (const [pan, left, right] of [[0, 1, 0], [25, 1, 0.25], [75, 0.5, 0.5], [100, 0, 0.5]]) {
+    k.param('outMin', pan);
+    k.param('outMax', pan);
+    k.process(input, output);
+    assert.ok(output[0][0].every(v => v === left), `${pan} % pan: left`);
+    assert.ok(output[0][1].every(v => v === right), `${pan} % pan: right`);
+  }
+  k.param('amp', 100);
+  k.param('outMin', 0);
+  k.param('outMax', 100);
+  k.param('wave', 1);
+  k.param('freq', SR / 128 / 2);
+  k.restart(0);
+  k.process([[input[0][0]]], output);
+  for (let j = 0; j < 128; j++) {
+    const pan = j / 128;
+    assert.ok(Math.abs(output[0][0][j] - Math.min(1, 2 * (1 - pan))) < 1e-6);
+    assert.ok(Math.abs(output[0][1][j] - Math.min(1, 2 * pan)) < 1e-6, 'mono pans per sample to both channels');
+  }
+  assert.equal(k.process([], output), false, 'audio mode with no input is silent');
 }
 
 console.log('lfo tests passed');
