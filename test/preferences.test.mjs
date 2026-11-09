@@ -8,6 +8,30 @@ import { registerPreferences, launchFullscreen, showLaunchWindow } from '../elec
 import { atomicWrite } from '../electron/atomicwrite.mjs';
 import { registerInterfacePreferences, PANEL_DIVIDER_WIDTH_ID, LAUNCH_FULLSCREEN_ID } from '../src/interfacepreferences.js';
 import { registerMidiPreferences, migrateMidiInput, MIDI_INPUT_ID } from '../src/midipreferences.js';
+import { registerPianorollPreferences, SNAP_VELOCITY_ID } from '../src/pianorollpreferences.js';
+
+{
+  let stored = null;
+  let redraws = 0;
+  const manager = createPreferencesManager({ storage: { load: async () => stored, save: async (text) => { stored = text; } } });
+  const settings = registerPianorollPreferences(manager, () => redraws++);
+  await manager.load();
+  assert.equal(settings.snapVelocity, true);
+  assert.equal(manager.entries()[0].category, 'Pianoroll');
+  assert.equal(manager.entries()[0].label, 'Snap velocity values to 16 step grid.');
+  const before = redraws;
+  manager.preview(SNAP_VELOCITY_ID, false);
+  assert.equal(settings.snapVelocity, false);
+  assert.equal(redraws, before + 1);
+  manager.restore();
+  assert.equal(settings.snapVelocity, true, 'Cancel restores velocity snapping');
+  await manager.save({ [SNAP_VELOCITY_ID]: false });
+  const reloaded = createPreferencesManager({ storage: { load: async () => stored } });
+  const restored = registerPianorollPreferences(reloaded);
+  await reloaded.load();
+  assert.equal(restored.snapVelocity, false, 'velocity snapping persists across sessions');
+  await assert.rejects(manager.save({ [SNAP_VELOCITY_ID]: 0 }), /Invalid value/);
+}
 
 {
   let stored = null;

@@ -26,7 +26,7 @@ const NO_COLOR = '#8a8a92';
 // defaultAutoTarget() -> module number (or null) for new automation clips; onChange() after every edit.
 // getSong() / getPatch(): the layer shown (a Patch has its own TimeLine for its own modules);
 // default: the main song and patch. Call setLayer() after the shown layer changed.
-export function createSequencer({ engine, transport, timelineDisplay = {}, getSong = null, getPatch = null, getTarget, liveTarget = () => null, pitchOffset = () => 0, defaultTarget, selectedTarget = () => null, defaultAutoTarget = () => null, onChange, undoHistory }) {
+export function createSequencer({ engine, transport, timelineDisplay = {}, pianorollPreferences = {}, getSong = null, getPatch = null, getTarget, liveTarget = () => null, pitchOffset = () => 0, defaultTarget, selectedTarget = () => null, defaultAutoTarget = () => null, onChange, undoHistory }) {
   const $ = (id) => document.getElementById(id);
   const seq = $('seq');
   const ui = {
@@ -205,7 +205,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, getSo
   // live: a clip-length drag in the piano roll keeps the TimeLine in step
   // heldKeys: keys held on the MIDI device / computer keyboard light up blue on its keyboard
   const roll = createPianoRoll($('roll'), {
-    ...ctx, clip: () => (isAuto(clip()) ? null : clip()), live: () => arranger.redraw(), heldKeys: heldPitches,
+    ...ctx, pianorollPreferences, clip: () => (isAuto(clip()) ? null : clip()), live: () => arranger.redraw(), heldKeys: heldPitches,
   });
   onHeldChange(() => roll.redraw());
   const lane = createAutomationLane($('roll'), { ...ctx, clip: () => (isAuto(clip()) ? clip() : null) });
@@ -540,6 +540,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, getSo
   watchLayer();
 
   return {
+    redrawPianoroll: () => roll.redraw(),
     redrawTimeline: () => arranger.redraw(),
     // after a project was loaded
     reload() {

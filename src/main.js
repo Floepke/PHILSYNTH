@@ -14,6 +14,7 @@ import { createPreferencesManager } from './preferences.js';
 import { createPreferencesDialog } from './preferencesdialog.js';
 import { registerInterfacePreferences } from './interfacepreferences.js';
 import { registerTimelinePreferences } from './timelinepreferences.js';
+import { registerPianorollPreferences } from './pianorollpreferences.js';
 import { Transport } from './transport.js';
 import { unsavedDialog } from './dialogs.js';
 import { exitToOS } from './exit.js';
@@ -60,6 +61,7 @@ const preferencesManager = createPreferencesManager();
 initWoodTheme(preferencesManager);
 registerInterfacePreferences(preferencesManager);
 const timelineDisplay = registerTimelinePreferences(preferencesManager, () => seq?.redrawTimeline());
+const pianorollPreferences = registerPianorollPreferences(preferencesManager, () => seq?.redrawPianoroll());
 registerMidiPreferences(preferencesManager, () => midi);
 let preferencesLoadError = '';
 try {
@@ -1791,6 +1793,7 @@ const firstLive = (rt) => [...rt.modules.values()].find((e) => takesLiveMidi(e.d
 const liveMidiEntry = () => modulePreview?.target ?? midiTarget() ?? firstLive(shown()) ?? firstLive(engine.root);
 seq = createSequencer({
   engine,
+  pianorollPreferences,
   timelineDisplay,
   transport,
   getSong: () => layerSong(shown()),

@@ -116,6 +116,7 @@ app.whenReady().then(async () => {
         import { createPreferencesDialog } from '/src/preferencesdialog.js';
         import { registerInterfacePreferences } from '/src/interfacepreferences.js';
         import { registerTimelinePreferences } from '/src/timelinepreferences.js';
+        import { registerPianorollPreferences } from '/src/pianorollpreferences.js';
         import { registerMidiPreferences } from '/src/midipreferences.js';
         import { sigDialog } from '/src/dialogs.js';
         import { showMenu, closeMenu } from '/src/seq/menu.js';
@@ -137,6 +138,7 @@ app.whenReady().then(async () => {
         window.preferencesManager.register({ id: 'test.level', category: 'Testing', label: 'Level', type: 'number', min: 0, max: 1, defaultValue: 0.5 });
         window.preferencesManager.register({ id: 'test.mode', category: 'Testing', label: 'Mode', type: 'select', defaultValue: 'auto', options: [{ value: 'auto', label: 'Automatic' }, { value: 'manual', label: 'Manual' }] });
         window.timelineDisplay = registerTimelinePreferences(window.preferencesManager);
+        window.pianorollSettings = registerPianorollPreferences(window.preferencesManager);
         window.midiSelection = 'auto';
         window.midiDevices = [{ name: 'Keyboard' }];
         registerMidiPreferences(window.preferencesManager, () => ({
@@ -152,7 +154,7 @@ app.whenReady().then(async () => {
       ['/', ['text/html', html]],
       ['/style.css', ['text/css', css]],
       ['/src/seq/menu.js', ['text/javascript', readFileSync(new URL('../src/seq/menu.js', import.meta.url), 'utf8')]],
-      ...['woodtheme', 'modcolor', 'preferences', 'preferencesdialog', 'interfacepreferences', 'timelinepreferences', 'midipreferences', 'midi', 'modmidi', 'dialogs', 'song', 'curve', 'fileformat'].map(name => [`/src/${name}.js`, ['text/javascript',
+      ...['woodtheme', 'modcolor', 'preferences', 'preferencesdialog', 'interfacepreferences', 'timelinepreferences', 'pianorollpreferences', 'midipreferences', 'midi', 'modmidi', 'dialogs', 'song', 'curve', 'fileformat'].map(name => [`/src/${name}.js`, ['text/javascript',
         readFileSync(new URL('../src/' + name + '.js', import.meta.url), 'utf8')]]),
     ]);
     server = http.createServer((req, res) => {
@@ -175,7 +177,7 @@ app.whenReady().then(async () => {
     assert.equal(await tint(), defaultTint, 'existing default tint is preserved');
     await open();
     assert.equal(await run("document.activeElement.id"), 'preferences-categories', 'category list receives focus');
-    assert.deepEqual(await run("Array.from(document.getElementById('preferences-categories').options, o => o.text)"), ['Interface', 'Testing', 'Timeline', 'MIDI']);
+    assert.deepEqual(await run("Array.from(document.getElementById('preferences-categories').options, o => o.text)"), ['Interface', 'Testing', 'Timeline', 'Pianoroll', 'MIDI']);
     const groups = await run(`Array.from(document.querySelectorAll('#preferences-content fieldset'), group => ({
       label: group.querySelector('legend')?.textContent,
       border: getComputedStyle(group).borderTopWidth,
@@ -239,6 +241,7 @@ app.whenReady().then(async () => {
     await run("document.getElementById('preferences-categories').focus()");
     win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Down' });
     win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Down' });
+    await flushClose();
     assert.equal(await run("document.getElementById('preferences-categories').value"), 'Testing', 'keyboard selects categories');
     await run(`(() => {
       const input = document.getElementById('pref-test-enabled');
@@ -331,6 +334,25 @@ app.whenReady().then(async () => {
     await submit('ok'); await flushClose();
     await win.loadURL(url);
     assert.deepEqual(await run('window.timelineDisplay'), { showInputGrid: false, showVerticalBarlines: false }, 'timeline display preferences survive reload');
+    const pianorollCategory = () => run(`(() => {
+      const list = document.getElementById('preferences-categories');
+      list.value = 'Pianoroll'; list.dispatchEvent(new Event('change'));
+    })()`);
+    const unsnapVelocity = () => run(`(() => {
+      const input = document.getElementById('pref-pianoroll-snapVelocity');
+      input.checked = false; input.dispatchEvent(new Event('change'));
+    })()`);
+    await open(); await pianorollCategory();
+    assert.deepEqual(await run("Array.from(document.querySelectorAll('#preferences-content legend'), el => el.textContent)"), ['Snap velocity values to 16 step grid.']);
+    assert.equal(await run("document.getElementById('pref-pianoroll-snapVelocity').type"), 'checkbox');
+    await unsnapVelocity();
+    assert.equal(await run('window.pianorollSettings.snapVelocity'), false);
+    await submit('cancel'); await flushClose();
+    assert.equal(await run('window.pianorollSettings.snapVelocity'), true);
+    await open(); await pianorollCategory(); await unsnapVelocity();
+    await submit('ok'); await flushClose();
+    await win.loadURL(url);
+    assert.equal(await run('window.pianorollSettings.snapVelocity'), false, 'piano-roll preferences survive reload');
     assert.deepEqual(await run('window.themeErrors'), []);
     await open();
     const midiCategory = () => run(`(() => {

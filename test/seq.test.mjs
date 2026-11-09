@@ -136,6 +136,7 @@ function setup({ snapVelocity = false } = {}) {
   let previews = 0;
   const menus = [];
   const ctx = {
+    pianorollPreferences: { snapVelocity },
     menu: (opts) => menus.push(opts),
     song: () => song,
     clip: () => song.clips.find((c) => c.id === song.selected) ?? null,
@@ -150,10 +151,10 @@ function setup({ snapVelocity = false } = {}) {
   const rollHost = { ...host(), clientWidth: ROLL_WIDTH };
   const roll = createPianoRoll(rollHost, ctx);
   const initialView = roll.getView();
-  const initialSnap = initialView.snapVelocity;
+  const initialSnap = ctx.pianorollPreferences.snapVelocity;
   const arrangerHost = host();
   const arranger = createArranger(arrangerHost, ctx);
-  roll.setView({ sy: 0, ppq: 48, snapVelocity });
+  roll.setView({ sy: 0, ppq: 48 });
   flush();
   return { song, clip, roll, rollHost, arranger, arrangerHost, ctx, menus, initialSnap, initialView, changes: () => changes, previews: () => previews };
 }
@@ -957,12 +958,12 @@ for (const reverse of [false, true]) {
 
 // Exact velocity endpoints and snapping are remembered, without re-snapping on insertion.
 for (const [snapVelocity, value] of [[false, 0], [false, 1], [false, 0.53], [true, 0.53]]) {
-  const { clip, roll } = setup({ snapVelocity });
+  const { clip, roll, ctx } = setup({ snapVelocity });
   const cv = roll.surface.cv;
   clip.notes.push(note(60, 1, 2, 0.8));
   drag(cv, 7 + 0.8 * 70, ny(1), 7 + value * 70, ny(1));
   const expected = snapVelocity ? Math.round(value * 16) / 16 : clip.notes[0].vel;
-  roll.setView({ ...roll.getView(), snapVelocity: !snapVelocity });
+  ctx.pianorollPreferences.snapVelocity = !snapVelocity;
   click(cv, nx(64), ny(4));
   assert.equal(clip.notes.at(-1).vel, expected);
   assert.deepEqual(clip.notes.at(-1).vels, [{ t: 0.25, v: expected, r: 0 }]);
@@ -3072,24 +3073,21 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   assert.equal(clip.notes[0].vel, Math.round(Math.max(0, Math.min(1, value)) * 16) / 16);
 }
 {
-  const { clip, roll, menus, changes, initialSnap, song } = setup({ snapVelocity: true });
+  const { clip, roll, menus, changes, initialSnap, song, ctx } = setup({ snapVelocity: true });
   const cv = roll.surface.cv;
   const vx = (v) => 7 + v * 70;
   assert.equal(initialSnap, true, 'new piano rolls enable snapping by default');
   clip.notes.push(note(60, 1, 3, 0.53));
   const before = structuredClone(clip.notes);
   holdRightClick(cv, 35, ny(5));
-  assert.deepEqual(labels(menus), ['Snap velocity values'], 'blank lane offers the toggle');
-  assert.equal(menus.at(-1).items[0].checked, true);
-  pick(menus, 'Snap velocity values');
-  assert.equal(roll.getView().snapVelocity, false);
+  assert.equal(menus.length, 0, 'blank velocity lane no longer offers the snapping menu');
+  ctx.pianorollPreferences.snapVelocity = false;
   assert.deepEqual(clip.notes, before, 'toggling does not quantize existing values');
-  assert.equal(changes(), 1, 'toggle schedules persistence');
+  assert.equal(changes(), 0, 'preferences do not create project edits');
   drag(cv, vx(0.53), ny(1), vx(0.9), ny(1));
   assert.ok(Math.abs(clip.notes[0].vel - 0.9) < 1e-9, 'disabled toggle restores free editing');
   holdRightClick(cv, 35, ny(5));
-  assert.equal(menus.at(-1).items[0].checked, false);
-  pick(menus, 'Snap velocity values');
+  ctx.pianorollPreferences.snapVelocity = true;
   assert.ok(Math.abs(clip.notes[0].vel - 0.9) < 1e-9, 'enabling leaves old values untouched too');
   drag(cv, vx(0.9), ny(1), vx(0.6), ny(1), {}, 'pointercancel');
   assert.ok(Math.abs(clip.notes[0].vel - 0.9) < 1e-9, 'cancellation restores the original unsnapped value');
@@ -3099,18 +3097,14 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   drag(cv, vx(0.875), ny(1), vx(0.6), ny(1), {}, 'pointercancel');
   assert.equal(clip.notes[0].vel, 0.875);
   const saved = roll.getView();
-  roll.setView({ ...saved, snapVelocity: false });
-  roll.setView(saved);
-  assert.equal(roll.getView().snapVelocity, true, 'roll view round-trip');
-  roll.setView({ ...saved, snapVelocity: false });
-  const off = roll.getView();
+  ctx.pianorollPreferences.snapVelocity = false;
   roll.setView(null);
-  assert.equal(roll.getView().snapVelocity, true, 'new / older projects use the default');
-  roll.setView(off);
-  assert.equal(roll.getView().snapVelocity, false, 'saved false survives restoring');
+  roll.setView({ ...saved, snapVelocity: true });
+  assert.equal(ctx.pianorollPreferences.snapVelocity, false, 'project view cannot override the preference');
+  assert.equal('snapVelocity' in roll.getView(), false, 'snapping is no longer saved in project view state');
   song.selected = null;
   holdRightClick(cv, 35, ny(5));
-  assert.equal(menus.at(-1).items[0].checked, false, 'setting is available without a selected clip');
+  assert.equal(menus.length, 0, 'no velocity menu without a selected clip');
   cv.drawing.length = 0;
   roll.redraw(); flush();
   for (const x of [7.5, 42.5, 77.5]) {
@@ -3119,7 +3113,7 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   // snap levels are shown as alternating light/dark bands only while snapping is on
   const bands = () => cv.drawing.filter(([op, x, y, w, , fill]) => op === 'fillRect' && fill === 'rgba(0, 0, 0, 0.10)' && y === 0 && x < 84 && w < 10);
   assert.equal(bands().length, 0, 'snapping off: no velocity bands');
-  pick(menus, 'Snap velocity values');
+  ctx.pianorollPreferences.snapVelocity = true;
   cv.drawing.length = 0;
   roll.redraw(); flush();
   const on = bands();
@@ -3155,6 +3149,106 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   assert.ok(clip.notes[0].vels, 'opening menu does not delete');
   pick(menus, 'Delete point');
   assert.ok(clip.notes.every((n) => !n.vels), 'deletion still works for shared curves');
+}
+
+// Velocity right-drag selects starts as notes and curve points individually, without editing data.
+{
+  const { clip, roll, changes, menus } = setup();
+  const cv = roll.surface.cv;
+  const vx = (v) => 7 + v * 70;
+  const a = note(60, 1, 4, 0.8);
+  const b = note(64, 2, 3, 0.7);
+  const c = note(67, 3, 2, 0.3);
+  a.vels = [{ t: 1, v: 0.2, r: 0 }, { t: 3, v: 0.3, r: 0 }];
+  b.vels = [{ t: 1, v: 0.25, r: 0 }];
+  clip.notes.push(a, b, c);
+  const before = structuredClone(clip.notes);
+  const rightDrag = (x, y, toX, toY, end = 'pointerup') => drag(cv, x, y, toX, toY, { button: 2, buttons: 2 }, end);
+  rightDrag(vx(0.65), ny(0.8), vx(0.85), ny(2.2));
+  assert.deepEqual(clip.notes, before, 'rectangle selection never edits velocity data');
+  assert.equal(changes(), 0, 'selection creates no undo step');
+  assert.equal(menus.length, 0, 'right-drag never opens a context menu');
+  drag(cv, vx(a.vel), ny(1), vx(0.9), ny(1));
+  assert.ok(Math.abs(a.vel - 0.9) < 1e-9);
+  assert.ok(Math.abs(b.vel - 0.9) < 1e-9, 'enclosed starts select both notes for group editing');
+  assert.equal(c.vel, 0.3, 'a start outside the rectangle remains unselected');
+  // Select points at different absolute times, but no starts.
+  rightDrag(vx(0.1), ny(1.8), vx(0.5), ny(3.2));
+  const originals = structuredClone(clip.notes);
+  const p = a.vels[0];
+  const q = b.vels[0];
+  drag(cv, vx(p.v), ny(a.start + p.t), vx(p.v + 0.1), ny(a.start + p.t + 0.5));
+  assert.ok(Math.abs(p.v - (originals[0].vels[0].v + 0.1)) < 1e-9);
+  assert.ok(Math.abs(q.v - (originals[1].vels[0].v + 0.1)) < 1e-9, 'individually selected points move together across notes and times');
+  assert.equal(p.t, 1.5);
+  assert.equal(q.t, 1.5);
+  assert.deepEqual(a.vels[1], originals[0].vels[1], 'points outside the rectangle are not moved');
+  assert.deepEqual(clip.notes.map((n) => n.vel), originals.map((n) => n.vel), 'point-only selection leaves starts unchanged');
+  const count = changes();
+  // Cancel a new rectangle, then verify the previous point selection still moves together.
+  point(cv, 'pointerdown', vx(0.6), ny(0.5), { button: 2, buttons: 2 });
+  point(cv, 'pointermove', vx(1), ny(3.5), { button: 2, buttons: 2 });
+  key(cv, 'Escape');
+  drag(cv, vx(p.v), ny(a.start + p.t), vx(p.v + 0.1), ny(a.start + p.t));
+  assert.ok(Math.abs(q.v - (originals[1].vels[0].v + 0.2)) < 1e-9, 'Escape restores the previous point selection');
+  assert.equal(changes(), count + 1, 'only the completed point edit is recorded');
+  key(cv, 'Escape');
+  assert.equal(menus.length, 0);
+}
+
+{
+  const { clip, roll, changes } = setup();
+  const cv = roll.surface.cv;
+  const vx = (v) => 7 + v * 70;
+  const n = note(60, 0, 6, 0.8);
+  n.vels = [{ t: 1, v: 0.2, r: 0 }, { t: 2, v: 0.3, r: 0 }, { t: 5, v: 0.7, r: 0 }];
+  clip.notes.push(n);
+  drag(cv, vx(0.1), ny(0.5), vx(0.4), ny(2.5), { button: 2, buttons: 2 });
+  drag(cv, vx(0.2), ny(1), vx(0.3), ny(3));
+  assert.deepEqual(n.vels.map((p) => p.t), [3, 4, 5], 'adjacent selected points translate together rather than blocking each other');
+  assert.ok(Math.abs(n.vels[0].v - 0.3) < 1e-9);
+  assert.ok(Math.abs(n.vels[1].v - 0.4) < 1e-9);
+  assert.equal(changes(), 1);
+  const before = structuredClone(n);
+  drag(cv, vx(0.3), ny(3), vx(0.5), ny(4), {}, 'pointercancel');
+  assert.deepEqual(n, before, 'cancelling a multi-point move restores every selected point');
+  drag(cv, vx(0.3), ny(3), vx(0.4), ny(3.5));
+  assert.deepEqual(n.vels.map((p) => p.t), [3.5, 4.5, 5], 'cancelling preserves the multi-point selection for the next drag');
+}
+
+{
+  const { clip, roll, changes } = setup();
+  const cv = roll.surface.cv;
+  clip.notes.push(note(60, 1, 1, 0.4), note(64, 8, 1, 0.4));
+  point(cv, 'pointerdown', 20, ny(0.5), { button: 2, buttons: 2 });
+  point(cv, 'pointermove', 45, ny(2), { button: 2, buttons: 2 });
+  const before = roll.getView().sy;
+  point(cv, 'wheel', 45, ny(2), { deltaY: 300, deltaX: 0 });
+  assert.ok(roll.getView().sy > before, 'wheel scrolling extends a velocity selection rectangle');
+  point(cv, 'pointerup', 45, ny(2), { button: 2 });
+  key(cv, 'Delete');
+  assert.equal(clip.notes.length, 0, 'the scrolled rectangle selects starts across the clip');
+  assert.equal(changes(), 1, 'only deleting the selected notes changes the clip');
+}
+
+{
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  try {
+    const { clip, roll, changes } = setup();
+    const cv = roll.surface.cv;
+    clip.length = 64;
+    clip.notes.push(note(60, 1, 1, 0.4), note(64, 20, 1, 0.4));
+    point(cv, 'pointerdown', 20, ny(0.5), { button: 2, buttons: 2 });
+    point(cv, 'pointermove', 45, 1000, { button: 2, buttons: 2 });
+    mock.timers.tick(3000); flush();
+    assert.ok(roll.getView().sy > 500, 'velocity rectangle autoscrolls beyond the bottom edge');
+    point(cv, 'pointerup', 45, 1000, { button: 2 });
+    key(cv, 'Delete');
+    assert.equal(clip.notes.length, 0, 'edge scrolling extends selection to offscreen note starts');
+    assert.equal(changes(), 1);
+  } finally {
+    mock.timers.reset();
+  }
 }
 
 // Double right-click on empty TimeLine space inserts an automation clip.
@@ -3974,7 +4068,7 @@ for (const width of [300, 480, 900, 1912]) {
     roll.redraw(); flush();
     assert.deepEqual(cv.drawing.filter(([op]) => op === 'translate').map((op) => op[1]), centers);
     assert.deepEqual(clip.notes, before, 'resizing and scrolling do not alter the notes');
-    assert.deepEqual(Object.keys(roll.getView()).sort(), ['hx', 'hz', 'ppq', 'snapVelocity', 'sy', 'velW'], 'the view includes pitch zoom and scroll');
+    assert.deepEqual(Object.keys(roll.getView()).sort(), ['hx', 'hz', 'ppq', 'sy', 'velW'], 'the view includes pitch zoom and scroll, not preferences');
   }
 }
 
@@ -4121,15 +4215,15 @@ for (const notes of [
   flush();
   const free = elements.get('seq-free-time');
   assert.equal(free.checked, false, 'Free timing defaults off');
-  assert.equal(seq.viewState().roll.snapVelocity, true);
+  assert.equal('snapVelocity' in seq.viewState().roll, false);
   seq.applyView({ roll: { snapVelocity: false } });
   const snapView = JSON.parse(JSON.stringify(seq.viewState()));
   seq.applyView(null);
-  assert.equal(seq.viewState().roll.snapVelocity, true, 'new project resets the toggle');
+  assert.equal('snapVelocity' in seq.viewState().roll, false, 'new project does not store preferences');
   seq.applyView(snapView);
-  assert.equal(seq.viewState().roll.snapVelocity, false, 'project view restores unchecked state');
+  assert.equal('snapVelocity' in seq.viewState().roll, false, 'legacy project snapping is ignored');
   seq.applyView({ roll: { sx: 0, sy: 0 } });
-  assert.equal(seq.viewState().roll.snapVelocity, true, 'old projects default to snapping');
+  assert.equal('snapVelocity' in seq.viewState().roll, false, 'old projects do not override preferences');
   const press = (key, props = {}, target = elements.get('arranger')) => {
     const e = new Event('keydown', { cancelable: true });
     Object.assign(e, { key, repeat: false, ctrlKey: false, altKey: false, metaKey: false, ...props });

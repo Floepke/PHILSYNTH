@@ -100,7 +100,7 @@ export const GRID_MIN_PX = 30;
 //        menu?(opts) (context menu, default showMenu), heldKeys?() -> Set of pitches held on the live
 //        inputs (shown blue on the keyboard; call redraw() when it changes) }
 export function createPianoRoll(host, ctx) {
-  const view = { sy: -TOP_MARGIN, ppq: 48, snapVelocity: true, velW: VEL_W, hz: 1, hx: 0 }; // hz / hx: pitch zoom, px scrolled sideways
+  const view = { sy: -TOP_MARGIN, ppq: 48, velW: VEL_W, hz: 1, hx: 0 }; // hz / hx: pitch zoom, px scrolled sideways
   let hover = null; // { pitch, t } where a click would insert a note
   let endHover = false; // the pointer is on the clip's end line
   let hoverPitch = null;
@@ -179,12 +179,8 @@ export function createPianoRoll(host, ctx) {
     rememberVelocity: (value) => { lastVelocity = value; },
     redraw: s.redraw,
     menu,
-    snapVelocity: () => view.snapVelocity,
-    toggleSnapVelocity() {
-      view.snapVelocity = !view.snapVelocity;
-      ctx.changed();
-      s.redraw();
-    },
+    snapVelocity: () => ctx.pianorollPreferences?.snapVelocity !== false,
+    selectRect: (e, x, y, onClick) => selectRect(e, x, y, onClick, null, true),
   });
 
   const minBeat = (m) => Math.min(...m.map((x) => x.beat));
@@ -537,7 +533,7 @@ export function createPianoRoll(host, ctx) {
       g.fillText('No clip selected. Double-click in the TimeLine below to create one.', gridX() + (w - gridX()) / 2, 40);
     }
     if (drag?.kind === 'micro' && drag.moved && clip?.notes.includes(drag.note)) paintSlider(g);
-    if (drag?.kind === 'select' && drag.shown) {
+    if (drag?.kind === 'select' && drag.shown && !drag.velocity) {
       const x = Math.min(drag.x0, drag.x1);
       const y = Math.min(drag.y0, drag.y1);
       const w = Math.abs(drag.x1 - drag.x0);
@@ -644,6 +640,17 @@ export function createPianoRoll(host, ctx) {
     g.beginPath(); g.moveTo(w + 0.5, 0); g.lineTo(w + 0.5, bottom); g.stroke();
     paintThumb(g, scrollbar(), true, w, sbActive ? 2 : sbHover ? 1 : 0);
     vel.paint(g, h);
+    if (drag?.kind === 'select' && drag.shown && drag.velocity) {
+      const x = Math.min(drag.x0, drag.x1);
+      const y = Math.max(0, Math.min(drag.y0, drag.y1));
+      const w = Math.abs(drag.x1 - drag.x0);
+      const height = Math.min(gridBottom(), Math.max(drag.y0, drag.y1)) - y;
+      g.fillStyle = 'rgba(101, 180, 255, 0.14)';
+      g.fillRect(x, y, w, height);
+      g.strokeStyle = SELECT;
+      g.lineWidth = 1;
+      g.strokeRect(x + 0.5, y + 0.5, w, height);
+    }
   }
 
   // ---- hit testing: circles first (they sit on top), then bodies ----
@@ -783,10 +790,11 @@ export function createPianoRoll(host, ctx) {
   // The start corner is kept as a time, so the rectangle stays anchored in the clip while the view
   // scrolls: by the mouse wheel (which also starts the rectangle) or by dragging near / past the
   // top or bottom of the note grid (auto-scroll). Selection can so span the whole clip.
-  function selectRect(e, x, y, onClick, onHold = null) {
+  function selectRect(e, x, y, onClick, onHold = null, velocity = false) {
     const clip = ctx.clip();
     const before = selected;
-    const state = drag = { kind: 'select', t0: timeAt(y), c0: x + view.hx, x0: x, y0: y, x1: x, y1: y, shown: false, stop: null, refresh: null };
+    const beforePoints = vel.selection();
+    const state = drag = { kind: 'select', velocity, t0: timeAt(y), c0: x + (velocity ? 0 : view.hx), x0: x, y0: y, x1: x, y1: y, shown: false, stop: null, refresh: null };
     let timer = null;
     let held = false;
     hover = null;
@@ -796,26 +804,30 @@ export function createPianoRoll(host, ctx) {
       clearTimeout(timer);
       onHold();
     };
-    const auto = gridScroll(() => apply(), { horizontal: true });
+    const auto = gridScroll(() => apply(), { horizontal: !velocity });
     // the rectangle from the anchored start corner to the pointer, at the current view
     const apply = () => {
       if (held || !pointer || drag !== state) return;
       state.shown = true;
       clearTimeout(timer);
       state.y0 = yOf(state.t0);
-      state.x0 = state.c0 - view.hx; // anchored in pitch, so the rectangle grows while the view pans
-      state.x1 = clamp(pointer.x, gridX(), rollRight());
+      state.x0 = state.c0 - (velocity ? 0 : view.hx); // anchored in pitch, so the rectangle grows while the view pans
+      state.x1 = velocity ? clamp(pointer.x, 0, velW()) : clamp(pointer.x, gridX(), rollRight());
       state.y1 = clamp(pointer.y, 0, gridBottom());
       const left = Math.min(state.x0, state.x1);
       const right = Math.max(state.x0, state.x1);
       const top = Math.min(state.y0, state.y1);
       const bottom = Math.max(state.y0, state.y1);
-      selected = new Set(clip.notes.filter((n) => {
-        const nx = headX(n) - noteW() / 2;
-        const ny = yOf(n.start);
-        const height = Math.max(n.length * view.ppq, 2 * headSize().height);
-        return nx + noteW() + overlap() >= left && nx - overlap() <= right && ny + height >= top && ny <= bottom;
-      }));
+      if (velocity) vel.selectArea(left, right, top, bottom);
+      else {
+        vel.clearSelection();
+        selected = new Set(clip.notes.filter((n) => {
+          const nx = headX(n) - noteW() / 2;
+          const ny = yOf(n.start);
+          const height = Math.max(n.length * view.ppq, 2 * headSize().height);
+          return nx + noteW() + overlap() >= left && nx - overlap() <= right && ny + height >= top && ny <= bottom;
+        }));
+      }
       s.redraw();
     };
     const update = (ev) => {
@@ -843,7 +855,10 @@ export function createPianoRoll(host, ctx) {
       clearTimeout(timer);
       cv.removeEventListener('blur', stop);
       window.removeEventListener('blur', stop);
-      if (cancelled && !held && ctx.clip() === clip) selected = before;
+      if (cancelled && !held && ctx.clip() === clip) {
+        selected = before;
+        vel.restoreSelection(beforePoints);
+      }
       drag = null;
       if (!cancelled && !held && !state.shown) onClick(ev);
       if (pointer) updateHover(pointer.x, pointer.y);
@@ -1419,7 +1434,7 @@ export function createPianoRoll(host, ctx) {
     if (!deleting && !arrow && !quant && !(command && ['a', 'x', 'c', 'v', 'd'].includes(key)) && key !== 'escape') return;
     if (key === 'escape' && !drag) {
       syncSelection();
-      if (selected.size === 0) return;
+      if (selected.size === 0 && !vel.hasSelection()) return;
     }
     e.preventDefault();
     e.stopPropagation();
@@ -1430,7 +1445,7 @@ export function createPianoRoll(host, ctx) {
     syncSelection();
     const clip = ctx.clip();
     if (!clip) return;
-    if (key === 'escape') { selected.clear(); s.redraw(); }
+    if (key === 'escape') { selected.clear(); vel.clearSelection(); s.redraw(); }
     else if (quant) quantize();
     else if (arrow) {
       // Shift: by an octave / a bar
@@ -1520,7 +1535,6 @@ export function createPianoRoll(host, ctx) {
     reveal() { view.sy = -TOP_MARGIN; s.redraw(); },
     getView: () => ({ ...view }),
     setView(v) {
-      view.snapVelocity = typeof v?.snapVelocity === 'boolean' ? v.snapVelocity : true;
       view.velW = Number.isFinite(v?.velW) ? Math.max(VEL_MIN, v.velW) : VEL_W;
       view.hz = Number.isFinite(v?.hz) ? clamp(v.hz, 1, HZ_MAX) : 1;
       view.hx = Number.isFinite(v?.hx) ? Math.max(0, v.hx) : 0;
