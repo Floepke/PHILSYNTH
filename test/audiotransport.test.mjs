@@ -77,6 +77,33 @@ for (const native of [false, true]) {
   }
 }
 
+// MULTIMIDI's saved velocity mappings run in its audio-side control copy, for both backends.
+for (const native of [false, true]) {
+  const options = native ? wasmKernels(instantiateDsp(readFileSync(new URL('../src/dsp/modsynth.wasm', import.meta.url))), RATE) : {};
+  const h = await harness(options);
+  const mm = await h.root.addModule('MULTIMIDI');
+  const osc = await h.root.addModule('OSC');
+  h.root.connect(mm.id, osc.id);
+  h.root.connect(osc.id, 0);
+  const state = structuredClone(mm.state);
+  state.velocityMap[60] = 0.5;
+  state.velocityCurve = { points: [{ x: 0, y: 0, r: 0 }, { x: 1, y: 0.5, r: 0 }] };
+  h.root.setState(mm.id, state);
+  h.root.setParam(mm.id, 'velocity', 0.8);
+  addClip(h.song, { length: 4, target: mm.id }).notes.push(note(60, 0, 2));
+  await h.update();
+  h.start();
+  h.run(0.01);
+  const on = h.events.find((e) => e.h === osc.inst.node.h && e.type === 'noteOn');
+  assert.ok(Math.abs(on.velocity - 0.16) < 1e-8, 'audio-thread note onset uses response, key trim and Velocity');
+  state.velocityMap[60] = 0.25;
+  h.root.setState(mm.id, state);
+  await h.update();
+  h.run(0.01);
+  assert.ok(h.events.some((e) => e.type === 'noteMod' && e.notes?.some(([id, , vel]) => id === on.id && Math.abs(vel - 0.08) < 1e-8)),
+    'held audio-thread notes follow state edits without GUI-side note processing');
+}
+
 // Timed MIDI processors use the same audio clock as their downstream DSP.
 for (const type of ['MULTIMIDI', 'STRUM', 'TRILL', 'TUNING', 'DELAY']) {
   const h = await harness();

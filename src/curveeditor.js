@@ -211,7 +211,13 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
     canvas.style.height = `${W}px`;
     draw();
   };
-  new ResizeObserver(resize).observe(canvas);
+  let resizePending = false;
+  new ResizeObserver(() => {
+    if (resizePending) return;
+    resizePending = true;
+    // Square sizing can change the panel's scrollbar and width; resize outside observer delivery.
+    requestAnimationFrame(() => { resizePending = false; resize(); });
+  }).observe(canvas);
 
   canvas.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;

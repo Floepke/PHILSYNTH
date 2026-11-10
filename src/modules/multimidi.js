@@ -14,8 +14,10 @@
 // (so chained MULTIMIDIs add up here too). OSC and LFO start their wave at the phase they receive,
 // ENVELOPE starts its curve there.
 // Velocity: overall level, scales every outgoing velocity (100 % = unchanged, 0 % = silent).
-// Velocity Sense: On = the incoming velocity is passed on (scaled by Velocity); Off = fixed: every
-// note gets exactly the Velocity value, however hard it was played (Velocity Drift still applies).
+// Velocity Sense: On = the incoming velocity follows the response curve; Off = fixed: the
+// response is 1, however hard it was played (key trim, Velocity and Velocity Drift still apply).
+// Velocity mapping: a response curve maps incoming velocity, then the incoming pitch's key-map
+// trim and the Velocity controller scale it. Fixed mode bypasses the response curve, not the trim.
 // Overtone: plays the note's n-th overtone, (n + 1) × the fundamental frequency (0 = fundamental).
 // Random Delay: sample one 0..maximum delay per note, keeping that offset for its
 // onset, modulation, and release so short notes retain their length.
@@ -25,8 +27,71 @@
 // twice in a row. A note's noteMod / noteOff follow the cable its noteOn took.
 import { createMidiScheduler } from '../midischedule.js';
 import { MidiQueue } from '../midiqueue.js';
+import { KEYS, mapAt, normalizeMap } from './pitch2ctl.dsp.js';
+import { createKeyMapView } from './pitch2ctlview.js';
+import { curvePolyline, defaultCurve, normalizeCurve, sampleAt } from '../curve.js';
+import { createCurveEditor } from '../curveeditor.js';
 
 const RELEASE_KEEP_S = 6; // released notes keep drifting through the synth's release tail
+const fullVelocityMap = () => new Array(KEYS).fill(1);
+const velocityState = (state) => ({
+  velocityMap: normalizeMap(Array.from({ length: KEYS }, (_, key) =>
+    Number.isFinite(state?.velocityMap?.[key]) ? state.velocityMap[key] : 1)),
+  velocityCurve: normalizeCurve(state?.velocityCurve),
+});
+
+function velocityView(entry, api) {
+  const el = document.createElement('div');
+  const heading = (text) => {
+    const h = document.createElement('h3');
+    h.textContent = text;
+    el.append(h);
+  };
+  heading('Velocity per key');
+  const keys = createKeyMapView({
+    ...api, getMap: () => entry.state.velocityMap,
+    save: (map) => api.setState({ ...entry.state, velocityMap: map }),
+    buttons: [{ text: 'Reset', title: 'Restore every key to 100 % velocity', action: fullVelocityMap }],
+    hint: 'Drag to trim velocity per incoming key · Shift+drag: straight line',
+    ariaLabel: 'Velocity trim: one independent value per MIDI key',
+  });
+  el.append(keys.el);
+  heading('Velocity response');
+  let source = entry.state.velocityCurve;
+  const curve = createCurveEditor({
+    curve: source, color: api.color, mapping: true,
+    labels: { x0: '0', x1: 'Input velocity →', y1: 'Output velocity ↑' },
+    formatX: (x) => `in ${Math.round(x * 100)} %`,
+    formatY: (y) => `out ${Math.round(y * 100)} %`,
+    beginEdit: api.beginEdit, endEdit: api.endEdit,
+    onChange: (value) => {
+      api.setState({ ...entry.state, velocityCurve: value });
+      source = entry.state.velocityCurve;
+    },
+  });
+  const reset = document.createElement('button');
+  reset.type = 'button';
+  reset.textContent = 'Reset response';
+  reset.title = 'Restore the linear velocity response (input = output)';
+  reset.onclick = () => {
+    api.beginEdit?.();
+    api.setState({ ...entry.state, velocityCurve: defaultCurve() });
+    refresh();
+    api.endEdit?.();
+  };
+  const hint = document.createElement('p');
+  hint.className = 'hint';
+  hint.textContent = 'Response curve, then per-key trim, then Velocity and Velocity Drift. Velocity Sense Off bypasses the response curve.';
+  el.append(curve.el, reset, hint);
+  function refresh() {
+    keys.refresh();
+    if (source !== entry.state.velocityCurve) {
+      source = entry.state.velocityCurve;
+      curve.set(source);
+    }
+  }
+  return { el, refresh };
+}
 
 // Smooth random value: every 1/rate seconds a new random destination, reached along a cosine
 // curve (no corners, never jumps). Starts at a random value so every note has its own offset;
@@ -86,6 +151,9 @@ export default {
   midiOut: true, // its cables carry MODMIDI notes, not audio
   hasInput: false,
   hasOutput: true,
+  defaultState: () => ({ velocityMap: fullVelocityMap(), velocityCurve: defaultCurve() }),
+  normalizeState: velocityState,
+  view: velocityView,
   params: [
     { id: 'routeMode', label: 'Route Mode', min: 0, max: ROUTE_MODES.length - 1, default: 0, step: 1, options: ROUTE_MODES },
     { id: 'transpose', label: 'Transpose', min: -48, max: 48, default: 0, step: 1, format: st },
@@ -117,10 +185,13 @@ export default {
       return targets;
     });
     let lastTime = null;
+    let state = velocityState(null);
+    let velocityPoly = curvePolyline(state.velocityCurve.points);
 
     const outOf = (n) => [
       n.pitch + v.transpose + v.finetune + overtoneSemitones(v.overtone) + v.drift * n.pd.value,
-      Math.max(0, (v.velSense >= 0.5 ? n.vel : 1) * Math.min(1, Math.max(0, v.velocity)) * (1 - v.velDrift * n.vd.value)),
+      Math.max(0, (v.velSense >= 0.5 ? sampleAt(velocityPoly, n.vel) : 1)
+        * mapAt(state.velocityMap, n.pitch) * Math.min(1, Math.max(0, v.velocity)) * (1 - v.velDrift * n.vd.value)),
     ];
     const update = (inId, n) => {
       const out = outOf(n);
@@ -150,6 +221,11 @@ export default {
       ctl,
       get hasPendingMidi() { return midi.hasPending; },
       getMidiTargets: () => [], // set by the patch: instances this module is MIDI-cabled to
+      setState(value) {
+        state = velocityState(value);
+        velocityPoly = curvePolyline(state.velocityCurve.points);
+        dirty = true;
+      },
       setParam(id, val) {
         if (v[id] !== val) dirty = true;
         v[id] = val; // pitch/velocity changes reach the notes on the next clock tick

@@ -121,10 +121,14 @@ console.log('waveshaper tests passed');
   }
   globalThis.document = { createElement: (tag) => new Element(tag) };
   globalThis.devicePixelRatio = 1;
+  const frames = [];
+  globalThis.requestAnimationFrame = (fn) => frames.push(fn);
   globalThis.ResizeObserver = class { constructor(fn) { this.fn = fn; } observe() { this.fn(); } };
   const curve = { points: [{ x: 0, y: 0, r: 0 }, { x: 0.5, y: 1, r: 1 }, { x: 1, y: 0.5, r: 0 }] };
   let edits = 0;
   const panel = waveshaper.editor({ state: curve, values: { range: 0 } }, { setState() { edits++; } });
+  assert.equal(texts.length, 0, 'canvas resizing waits for an animation frame, outside observer delivery');
+  frames.shift()();
   const [canvas, info] = panel.el.children;
   const move = (x, y) => {
     const e = new Event('pointermove');
@@ -159,6 +163,7 @@ console.log('waveshaper tests passed');
 
   // The shared ENVELOPE editor retains its original point readout without a probe.
   const envelope = createCurveEditor({ curve: defaultCurve(), identity: false });
+  frames.shift()();
   const e = new Event('pointermove');
   Object.assign(e, { clientX: 86, clientY: 200 });
   envelope.el.children[0].dispatchEvent(e);
