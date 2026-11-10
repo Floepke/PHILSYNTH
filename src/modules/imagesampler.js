@@ -71,7 +71,7 @@ export default {
   create(_ctx, _def, host) {
     const node = host.dsp.create('imagesampler'); // DSP: imagesampler.dsp.js
     const send = (m) => node.send(m);
-    const feed = sampleFeeder((s) => send(s?.kind === 'image'
+    const feed = host.dsp.controlOnly ? null : sampleFeeder((s) => send(s?.kind === 'image'
       ? { type: 'image', width: s.width, height: s.height, rgb: s.rgb }
       : { type: 'image', width: 0, height: 0, rgb: null }));
     const midi = noteMessages(send, host.dsp);
@@ -79,9 +79,9 @@ export default {
       node,
       input: null,
       setParam: (id, value) => send({ type: 'param', id, value }),
-      setState: (st) => feed.set(st?.imageId ?? stockImageId()),
+      setState: (st) => feed?.set(st?.imageId ?? stockImageId()),
       ...midi,
-      destroy: () => { midi.destroyNotes(); feed.destroy(); node.destroy(); },
+      destroy: () => { midi.destroyNotes(); feed?.destroy(); node.destroy(); },
     };
   },
 };

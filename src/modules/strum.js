@@ -60,7 +60,10 @@ export default {
         }
         batch.notes.push(midi.noteOn(id, pitch, velocity, phase, null, onset));
         // All notes with the same sequencer onset are collected before ordering the chord.
-        if (!queued) { queued = true; queueMicrotask(flush); }
+        if (!queued) {
+          queued = true;
+          if (!host.dsp.clockBatch) queueMicrotask(flush);
+        }
       },
       noteMod: midi.noteMod,
       noteOff: midi.noteOff,

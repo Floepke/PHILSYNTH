@@ -9,7 +9,25 @@ export function createSurface(host, paint, { onResize } = {}) {
   const g = cv.getContext('2d');
   const s = {
     cv, g, w: 0, h: 0, dpr: 1, frame: 0,
-    draw() { g.setTransform(s.dpr, 0, 0, s.dpr, 0, 0); paint(g, s.w, s.h); },
+    draw() {
+      const dpr = window.devicePixelRatio || 1;
+      const w = host.clientWidth, h = host.clientHeight;
+      if (w !== s.w || h !== s.h || dpr !== s.dpr) {
+        s.dpr = dpr;
+        s.w = w;
+        s.h = h;
+        onResize?.(w, h);
+        const width = Math.max(1, Math.round(w * dpr));
+        const height = Math.max(1, Math.round(h * dpr));
+        if (cv.width !== width) cv.width = width;
+        if (cv.height !== height) cv.height = height;
+        cv.style.width = `${w}px`;
+        cv.style.height = `${h}px`;
+      }
+      if (!w || !h) return;
+      g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      paint(g, w, h);
+    },
     redraw() { s.frame ||= requestAnimationFrame(() => { s.frame = 0; s.draw(); }); },
     local(e) {
       const r = cv.getBoundingClientRect();
@@ -17,15 +35,8 @@ export function createSurface(host, paint, { onResize } = {}) {
     },
   };
   new ResizeObserver(() => {
-    s.dpr = window.devicePixelRatio || 1;
-    s.w = host.clientWidth;
-    s.h = host.clientHeight;
-    onResize?.(s.w, s.h);
-    cv.width = Math.max(1, Math.round(s.w * s.dpr));
-    cv.height = Math.max(1, Math.round(s.h * s.dpr));
-    cv.style.width = `${s.w}px`;
-    cv.style.height = `${s.h}px`;
-    s.draw();
+    // Playback may already have painted this size earlier in the frame.
+    if (host.clientWidth !== s.w || host.clientHeight !== s.h || (window.devicePixelRatio || 1) !== s.dpr) s.redraw();
   }).observe(host);
   cv.addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); }); // no autoscroll
   cv.addEventListener('auxclick', (e) => { if (e.button === 1) e.preventDefault(); }); // no Linux paste

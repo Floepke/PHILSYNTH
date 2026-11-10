@@ -8,6 +8,8 @@
 import { Graph } from './dsp/graph.js';
 import { instantiateDsp, wasmKernels } from './dsp/wasm.js';
 import { LoadMeter } from './dsp/loadmeter.js';
+import { Playback } from './dsp/playback.js';
+import { useAudioNoteIds } from './modmidi.js';
 
 const REPORT_BLOCKS = 2; // ~5 ms at 48 kHz
 const SCOPE_HZ = 60;
@@ -27,17 +29,39 @@ class EngineProcessor extends AudioWorkletProcessor {
       }
     }
     this.graph ??= new Graph();
+    useAudioNoteIds();
+    this.playback = new Playback(this.graph, () => currentTime);
+    this.playback.onError = (error) => this.fail(error);
+    this.controlQueue = Promise.resolve();
     this.port.postMessage({ info });
     this.blocks = 0;
     this.scopeBlocks = 0;
     this.load = new LoadMeter((128 / sampleRate) * 1000);
     this.port.onmessage = (e) => {
-      try {
-        this.graph.handle(e.data);
-      } catch (err) {
-        this.port.postMessage({ error: String(err?.stack ?? err) });
-      }
+      this.controlQueue = this.controlQueue.then(async () => {
+        for (const op of e.data) {
+          if (op[0] === 'playback') {
+            const [, type, data] = op;
+            if (type === 'model') await this.playback.model(data);
+            else if (type === 'song') this.playback.setSong(data);
+            else this.playback.command(data);
+          } else this.graph.op(op);
+        }
+      }).catch((err) => {
+        this.fail(err);
+      });
     };
+  }
+
+  fail(error) {
+    this.playback.failed = true;
+    try { this.playback.command({ type: 'panic' }); }
+    catch (cleanup) {
+      this.graph.panic();
+      this.playback.transport.playing = false;
+      this.port.postMessage({ error: `Playback cleanup: ${cleanup?.stack ?? cleanup}` });
+    }
+    this.port.postMessage({ error: `DSP/playback: ${error?.stack ?? error}` });
   }
 
   process(inputs, outputs) {
@@ -45,6 +69,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.graph.ext = inputs; // microphones (src/mics.js), read by the INPUT kernels
     try {
       const t0 = Date.now();
+      this.playback.process();
       this.graph.render(out[0], out[1] ?? out[0]);
       const cpu = this.load.add(t0, Date.now());
       if (cpu) this.port.postMessage({ cpu });
@@ -52,7 +77,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     } catch (err) {
       // keep the worklet alive (a dead process() would silence everything for good)
       for (const ch of out) ch.fill(0);
-      if (!this.failed) this.port.postMessage({ error: String(err?.stack ?? err) });
+      if (!this.failed) this.fail(err);
       this.failed = true;
     }
     if (++this.blocks >= REPORT_BLOCKS) {
@@ -61,7 +86,11 @@ class EngineProcessor extends AudioWorkletProcessor {
       const withScope = this.scopeBlocks >= SCOPE_BLOCKS;
       if (withScope) this.scopeBlocks = 0;
       const r = this.graph.report(currentTime, withScope);
-      if (r) this.port.postMessage(r, r.scope ? [r.scope.v.buffer] : []);
+      try { this.playback.receive(r?.mods); }
+      catch (error) { this.fail(error); }
+      const report = r ?? { time: currentTime, mods: [] };
+      report.playback = this.playback.report();
+      this.port.postMessage(report, report.scope ? [report.scope.v.buffer] : []);
     }
     return true;
   }

@@ -72,7 +72,7 @@ export default {
         const targets = [...inst.getMidiTargets()];
         const trace = key.trace;
         // Repeated notes share the incoming arrival, not a growing animation queue.
-        key.trace = trace && { end: trace.end };
+        key.trace = trace && { ...trace };
         withMidiTrace(trace, () => {
           for (const target of targets) target.noteOn(id, key.pitch, velocity, first ? key.phase : 0, t);
         });

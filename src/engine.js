@@ -4,6 +4,7 @@ import { emptySong, normalizeSong } from './song.js';
 import { importSamples } from './samples.js';
 import { MicHub, MIC_SLOTS } from './mics.js';
 import { PROJECT_FORMAT, isProject } from './fileformat.js';
+import { playbackModel, playbackSong, preparePlayback } from './playbackmodel.js';
 
 // The C++ DSP kernels (src/dsp/modsynth.wasm, built from cpp/ by `npm run build:wasm`), compiled in
 // the worklet. `?dsp=js` in the URL or localStorage['modsynth.dsp'] = 'js' forces the JS kernels.
@@ -46,7 +47,8 @@ export class Engine {
     this.node.connect(this.ctx.destination);
     this.mics = new MicHub(this.ctx, this.node);
     this.dsp = new DspHost(this.node.port);
-    this.dsp.onError = (err) => console.error('DSP engine:', err);
+    this.dsp.remoteNotes = true; // autonomous CTL2NOTE runs on the audio thread, even when stopped
+    this.dsp.onError = (err) => this.reportError(err);
     this.dsp.onInfo = (info) => {
       this.dspInfo = info;
       if (info.error) console.warn('C++ DSP unavailable, using the JavaScript kernels:', info.error);
@@ -56,9 +58,41 @@ export class Engine {
     this.root = await PatchRuntime.create(this, this.dsp.destination);
   }
 
+  reportError(error) {
+    console.error('DSP engine:', error);
+    this.transport?.stop();
+    this.onError?.(error);
+  }
+
+  syncPlayback() {
+    if (!this.root || this.loadingProject) return Promise.resolve();
+    this.playbackDirty = true;
+    if (this.playbackSync) return this.playbackSync;
+    this.playbackSync = Promise.resolve().then(async () => {
+      while (this.playbackDirty) {
+        this.playbackDirty = false;
+        await preparePlayback(this.root);
+        this.dsp.post(['playback', 'model', playbackModel(this.root)]);
+      }
+    }).catch((error) => {
+      this.reportError(`Playback synchronization failed: ${error.message}`);
+      throw error;
+    }).finally(() => { this.playbackSync = null; });
+    // Model edits are fire-and-forget; explicit play callers also receive the rejection.
+    this.playbackSync.catch(() => {});
+    return this.playbackSync;
+  }
+
+  syncSong() {
+    this.dsp.post(['playback', 'song', playbackSong(this.song)]);
+    return this.syncPlayback();
+  }
+
   // MIDI/audio panic: every module releases its notes and drops pending (delayed) MIDI, then all
   // DSP state (voices, echo lines, reverb tails, filter memory) is cleared on the audio thread.
   panic() {
+    this.transport?.stop();
+    this.dsp?.post(['playback', 'command', { type: 'panic' }]);
     this.midiCables?.clear();
     for (const e of this.root?.modules.values() ?? []) {
       try { e.inst.allOff?.(); } catch (err) { console.error('panic:', err); }
@@ -79,8 +113,12 @@ export class Engine {
 
   async loadProject(data) {
     if (!isProject(data) || !Array.isArray(data.patch?.modules)) throw new Error('Not a PHILSYNTH project file');
-    importSamples(data.samples); // audio of SAMPLER / WAVETABLE modules (see src/samples.js)
-    await this.root.load(data.patch);
-    this.song = normalizeSong(data.song);
+    this.loadingProject = true;
+    try {
+      importSamples(data.samples); // audio of SAMPLER / WAVETABLE modules (see src/samples.js)
+      await this.root.load(data.patch);
+      this.song = normalizeSong(data.song);
+    } finally { this.loadingProject = false; }
+    await this.syncSong();
   }
 }

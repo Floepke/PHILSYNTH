@@ -4,6 +4,10 @@ import { fromNorm, paramsOf, controllerAt } from './params.js';
 import { normalizeSong } from './song.js';
 import { cleanColor } from './modcolor.js';
 
+// Saved state is JSON data; AudioWorkletGlobalScope has no structuredClone.
+const cloneState = (value) => typeof structuredClone === 'function'
+  ? structuredClone(value) : JSON.parse(JSON.stringify(value));
+
 // One patch = one "folder": modules, cables and a sink (where its Output module plays to).
 // Module ids are unique per patch; id 0 is always the Output module.
 // Controllers (params) are numbered 0.. in definition order; modulator modules (LFO) use
@@ -77,7 +81,7 @@ export class PatchRuntime {
     const plainSig = s?.sigs.length === 1 && s.sigs[0].num === 4 && s.sigs[0].den === 4;
     if (!s || !(s.clips.length || s.mutes.length || s.solos.length || Number.isFinite(s.restart) || !plainSig)) return null;
     const { selected, ...rest } = s;
-    return structuredClone(rest);
+    return cloneState(rest);
   }
 
   static async create(engine, sink, salt = 0) {
@@ -96,6 +100,7 @@ export class PatchRuntime {
     this.refreshRoutes();
     this.watchers.forEach((fn) => fn());
     this.engine.onChange?.();
+    this.engine.syncPlayback?.();
   }
 
   // Lowest free module number. 0 is reserved for the Output module.
@@ -112,18 +117,36 @@ export class PatchRuntime {
     else if (this.modules.has(id) || this.reserved.has(id)) throw new Error(`Module number ${id} is already taken`);
     this.reserved.add(id); // claim before awaiting so concurrent inserts can't get the same number
     let inst;
+    const nodes = [];
+    const dsp = this.engine.dsp.forModule?.(this.sink.h, this.salt, id) ?? this.host.dsp;
+    const host = { ...this.host, dsp: {
+      clockBatch: dsp.clockBatch,
+      remoteNotes: dsp.remoteNotes,
+      controlOnly: dsp.controlOnly,
+      maxInstances: dsp.maxInstances,
+      deferSync: dsp.deferSync,
+      onClock: (fn) => dsp.onClock(fn),
+      create(kind, opts) {
+        const node = dsp.create(kind, opts);
+        nodes.push({ h: node.h, kind });
+        return node;
+      },
+    } };
     try {
-      inst = await def.create(this.engine.ctx, def, this.host);
+      inst = await def.create(this.engine.ctx, def, host);
     } finally {
       this.reserved.delete(id);
     }
-    const entry = { id, def, inst, x, y, values: {}, color: cleanColor(color) }; // color: null = stock (see modcolor.js)
+    const entry = { id, def, inst, nodes, x, y, values: {}, color: cleanColor(color) }; // color: null = stock (see modcolor.js)
     const label = cleanName(name);
     if (label) entry.name = label; // custom name shown on the module box (the panel keeps the type)
     inst.attach?.(entry, this); // e.g. a Patch mirrors its mapped inner controllers into entry.values
     // the DSP node whose kernel gets the controllers; reports their driven values back
     entry.ctl = inst.ctl ?? inst.node ?? inst.input ?? null;
-    if (entry.ctl) entry.ctl.onMod = (pid, v) => this.modulated(entry, pid, v);
+    if (entry.ctl) {
+      entry.ctl.onMod = (pid, v) => this.modulated(entry, pid, v);
+      entry.ctl.onPlayback = (pid, v) => this.drive(entry, pid, v, true);
+    }
     for (const p of def.params) {
       const value = values?.[p.id] ?? p.default;
       entry.values[p.id] = p.normalize ? p.normalize(value) : value;
@@ -131,7 +154,7 @@ export class PatchRuntime {
     }
     // module state that is not a controller (e.g. the WAVESHAPER curve); saved with the project
     if (def.defaultState) {
-      entry.state = state ? def.normalizeState?.(state) ?? structuredClone(state) : def.defaultState();
+      entry.state = state ? def.normalizeState?.(state) ?? cloneState(state) : def.defaultState();
       inst.setState?.(entry.state);
       inst.restoreValues?.(values); // controllers that follow the state (MULTICTL route ranges)
     }
@@ -286,7 +309,7 @@ export class PatchRuntime {
   setState(id, state) {
     const e = this.modules.get(id);
     if (!e?.def.defaultState) return;
-    e.state = e.def.normalizeState?.(state) ?? structuredClone(state);
+    e.state = e.def.normalizeState?.(state) ?? cloneState(state);
     e.inst.setState?.(e.state);
     this.changed();
   }
@@ -628,7 +651,7 @@ export class PatchRuntime {
         id: e.id, type: e.def.type, x: e.x, y: e.y, values: { ...e.values },
         color: e.color ?? null,
         ...(e.name ? { name: e.name } : {}),
-        ...(e.state ? { state: structuredClone(e.state) } : {}),
+        ...(e.state ? { state: cloneState(e.state) } : {}),
         ...(e.inst.patch ? { patch: e.inst.patch.toJSON() } : {}),
       })),
       cables: this.cables.map((c) => ({ ...c })),
@@ -647,7 +670,7 @@ export class PatchRuntime {
         out.x = m.x; out.y = m.y;
         if (cleanName(m.name)) out.name = cleanName(m.name); else delete out.name;
         out.color = cleanColor(m.color);
-        if (out.def.defaultState) out.state = m.state ? out.def.normalizeState?.(m.state) ?? structuredClone(m.state) : out.def.defaultState();
+        if (out.def.defaultState) out.state = m.state ? out.def.normalizeState?.(m.state) ?? cloneState(m.state) : out.def.defaultState();
         for (const [k, v] of Object.entries(m.values ?? {})) this.setParam(0, k, v);
         continue;
       }

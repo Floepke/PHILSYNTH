@@ -87,15 +87,15 @@ export default {
   create(_ctx, _def, host) {
     const node = host.dsp.create('sampler'); // DSP: sampler.dsp.js
     const send = (m) => node.send(m);
-    const feed = sampleFeeder((s) => send({ type: 'sample', rate: s?.rate ?? 0, channels: s?.channels ?? null }));
+    const feed = host.dsp.controlOnly ? null : sampleFeeder((s) => send({ type: 'sample', rate: s?.rate ?? 0, channels: s?.channels ?? null }));
     const midi = noteMessages(send, host.dsp);
     return {
       node,
       input: null,
       setParam: (id, value) => send({ type: 'param', id, value }),
-      setState: (st) => feed.set(st?.sampleId ?? null),
+      setState: (st) => feed?.set(st?.sampleId ?? null),
       ...midi,
-      destroy: () => { midi.destroyNotes(); feed.destroy(); node.destroy(); },
+      destroy: () => { midi.destroyNotes(); feed?.destroy(); node.destroy(); },
     };
   },
 };

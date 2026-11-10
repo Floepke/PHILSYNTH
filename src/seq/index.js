@@ -26,7 +26,7 @@ const NO_COLOR = '#8a8a92';
 // defaultAutoTarget() -> module number (or null) for new automation clips; onChange() after every edit.
 // getSong() / getPatch(): the layer shown (a Patch has its own TimeLine for its own modules);
 // default: the main song and patch. Call setLayer() after the shown layer changed.
-export function createSequencer({ engine, transport, timelineDisplay = {}, pianorollPreferences = {}, getSong = null, getPatch = null, getTarget, liveTarget = () => null, pitchOffset = () => 0, defaultTarget, selectedTarget = () => null, defaultAutoTarget = () => null, onChange, undoHistory }) {
+export function createSequencer({ engine, transport, timelineDisplay = {}, pianorollPreferences = {}, getSong = null, getPatch = null, getTarget, liveTarget = () => null, pitchOffset = () => 0, defaultTarget, selectedTarget = () => null, defaultAutoTarget = () => null, onChange, onSongChange = () => {}, undoHistory }) {
   const $ = (id) => document.getElementById(id);
   const seq = $('seq');
   const ui = {
@@ -73,6 +73,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
       lane.reveal();
       if (scroll) arranger.reveal(id);
       sync();
+      onSongChange();
       onChange();
     },
     focusEditor() {
@@ -87,6 +88,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     changed() {
       undoHistory?.record();
       if (!undoHistory) record();
+      onSongChange();
       onChange();
       sync();
     },
@@ -110,6 +112,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
       else setSig(sg, at, r.num, r.den, r.gridBeats);
       undoHistory?.record();
       if (!undoHistory) record();
+      onSongChange();
       onChange();
       sync();
     },
@@ -348,6 +351,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     const restored = normalizeSong(JSON.parse(history.stack[j]));
     restored.selected = getClip(restored, keep) ? keep : null;
     engine.song = history.owner = restored;
+    onSongChange();
     onChange();
     sync();
     return true;
@@ -479,7 +483,6 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     layout[boundary] = clamp(value, 0, 1);
     if (boundary === 'top') layout.bottom = Math.max(layout.bottom, layout.top);
     else layout.top = Math.min(layout.top, layout.bottom);
-    applyLayout();
   }
   function saveLayout(start) {
     const min = 1e-6;
@@ -508,12 +511,22 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
       const start = { ...layout };
       const x0 = e.clientX;
       const y0 = e.clientY;
+      let pending = false;
+      const flushLayout = () => {
+        if (!pending) return;
+        pending = false;
+        applyLayout();
+      };
       capture(handle, e, (ev) => {
         const dx = ev.clientX - x0;
         layout.panelWidth = dx ? clamp(panelStart + dx, 0, available) : start.panelWidth;
         if (space > 0) moveBoundary(dragBoundary, start[dragBoundary] + (ev.clientY - y0) / space);
-        else applyLayout();
-      }, () => saveLayout(start));
+        // Keep every boundary collision, but lay out the DOM only once per frame.
+        if (!pending) {
+          pending = true;
+          requestAnimationFrame(flushLayout);
+        }
+      }, () => { flushLayout(); saveLayout(start); });
     });
     if (handle === controller) continue;
     handle.addEventListener('keydown', (e) => {
@@ -523,6 +536,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
       const step = e.shiftKey ? 0.1 : 0.02;
       const value = e.key === 'Home' ? 0 : e.key === 'End' ? 1 : layout[boundary] + (e.key === 'ArrowUp' ? -step : step);
       moveBoundary(boundary, value);
+      applyLayout();
       saveLayout(start);
     });
   }
@@ -549,6 +563,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
       transport.seek(0);
       watchLayer();
       sync();
+      onSongChange();
     },
     // the shown layer changed (entered / left a Patch): show its TimeLine
     setLayer() {

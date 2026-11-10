@@ -7,7 +7,7 @@ import { createPianoRoll, TOP_MARGIN, GRID_MIN_PX } from '../src/seq/pianoroll.j
 import { createArranger } from '../src/seq/arranger.js';
 import { CLIP_H, clipsOverlap } from '../src/seq/clipplacement.js';
 import { createSequencer } from '../src/seq/index.js';
-import { rightHold, rulerDrag } from '../src/seq/surface.js';
+import { createSurface, rightHold, rulerDrag } from '../src/seq/surface.js';
 import { Transport } from '../src/transport.js';
 import { initMouseNavigation } from '../src/mousebuttons.js';
 import { createPreferencesManager } from '../src/preferences.js';
@@ -171,6 +171,59 @@ const nx = (pitch) => 120 + pitch * 14 + 7;
 const ny = (start) => start * 48;
 const ax = (start) => 70 + start * 16;
 const ay = (y) => 2 * CLIP_H + y + CLIP_H / 2;
+
+// Resize notifications and playback redraws share one paint, using the latest viewport.
+{
+  const container = host();
+  const sizes = [];
+  const paints = [];
+  const surface = createSurface(container, (_g, w, h) => paints.push([w, h]), {
+    onResize: (w, h) => sizes.push([w, h]),
+  });
+  flush();
+  paints.length = sizes.length = 0;
+  surface.redraw();
+  container.clientWidth = 500;
+  container.resize();
+  container.clientWidth = 600;
+  container.resize();
+  assert.equal(paints.length, 0, 'ResizeObserver must not synchronously paint');
+  flush();
+  assert.deepEqual(paints, [[600, 400]], 'one paint for the latest size, not each notification');
+  assert.deepEqual(sizes, [[600, 400]], 'viewport bookkeeping is coalesced with the paint');
+  assert.equal(surface.cv.width, 600);
+  assert.equal(surface.cv.style.width, '600px');
+
+  paints.length = 0;
+  container.resize();
+  flush();
+  assert.equal(paints.length, 0, 'an unchanged observer notification does not repaint');
+  // A queued playback paint can run before ResizeObserver delivers the new dimensions.
+  surface.redraw();
+  container.clientHeight = 300;
+  flush();
+  assert.deepEqual(paints, [[600, 300]], 'playback paint picks up a pending resize');
+  container.resize();
+  flush();
+  assert.equal(paints.length, 1, 'subsequent observer notification does not paint twice');
+
+  paints.length = 0;
+  window.devicePixelRatio = 2;
+  container.resize();
+  flush();
+  assert.equal(surface.cv.width, 1200, 'device scale changes still resize the bitmap');
+  assert.equal(surface.cv.height, 600);
+  assert.deepEqual(paints, [[600, 300]]);
+  window.devicePixelRatio = 1;
+  container.clientHeight = 0;
+  container.resize();
+  flush();
+  assert.equal(paints.length, 1, 'collapsed views do not paint');
+  container.clientHeight = 300;
+  container.resize();
+  flush();
+  assert.equal(paints.length, 2, 'restoring the view paints it again');
+}
 
 {
   const originalDocument = document;
@@ -4055,6 +4108,7 @@ for (const width of [300, 480, 900, 1912]) {
     cv.drawing.length = 0;
     rollHost.clientWidth = width;
     rollHost.resize();
+    flush();
     const centers = cv.drawing.filter(([op]) => op === 'translate').map((op) => op[1]);
     const kw = (width - ROLL_SB - 120) / 128;
     assert.deepEqual(centers, [120 + kw / 2, 120 + 127.5 * kw]);
@@ -4153,6 +4207,7 @@ for (const notes of [
     const cv = roll.surface.cv;
     cv.drawing.length = 0;
     assert.doesNotThrow(() => rollHost.resize());
+    flush();
     for (const op of cv.drawing) {
       assert.ok(op.filter((v) => typeof v === 'number').every(Number.isFinite), `finite drawing at width ${width}`);
       if (op[0] === 'ellipse') assert.ok(op[3] >= 0 && op[4] >= 0);
@@ -4205,11 +4260,13 @@ for (const notes of [
   });
   let viewChanges = 0;
   let panics = 0;
+  let songChanges = 0;
   const engine = { song, resume() {}, panic() { panics++; }, root: { modules: new Map(), listeners: new Set() } };
   let picked = null; // the module selected in the patcher (main.js selectedTarget)
   const seq = createSequencer({
     engine,
     transport, getTarget: () => null, defaultTarget: () => null, selectedTarget: () => picked, onChange() { viewChanges++; },
+    onSongChange() { songChanges++; },
   });
   seq.reload();
   flush();
@@ -4601,6 +4658,55 @@ for (const notes of [
   lower.getBoundingClientRect = () => ({ top: 124 + seq.viewState().bottom * 500, height: 24 });
   const positions = () => [seq.viewState().top, seq.viewState().bottom];
   const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} ~= ${expected}`);
+  // High-rate pointer input updates the model immediately but lays out only once per frame.
+  {
+    flush();
+    const setProperty = workspace.style.setProperty;
+    let writes = 0;
+    workspace.style.setProperty = (name, value) => { writes++; setProperty(name, value); };
+    const send = (type, y) => upper.dispatchEvent(Object.assign(new Event(type), {
+      button: 0, buttons: type === 'pointermove' ? 1 : 0, pointerId: 1, clientX: 300, clientY: y,
+    }));
+    try {
+      const before = viewChanges;
+      const songsBefore = songChanges;
+      point(upper, 'pointerdown', 300, 310);
+      send('pointermove', 560);
+      for (let i = 0; i < 100; i++) send('pointermove', 360 + i / 100);
+      assert.equal(writes, 0, 'pointer moves do not synchronously relayout');
+      near(seq.viewState().bottom, 0.9, 'the pushed boundary is retained when the pointer reverses');
+      flush();
+      assert.equal(writes, 3, 'one layout application for the whole pointer burst');
+      assert.equal(workspace.style['--roll-fr'], `${seq.viewState().top}fr`);
+      send('pointerup', 360);
+      flush();
+      assert.equal(writes, 3, 'release does not repeat an already painted layout');
+      assert.equal(viewChanges, before + 1, 'coalesced dragging still saves once');
+      assert.equal(songChanges, songsBefore, 'divider dragging does not serialize the playback song/model');
+
+      for (const end of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+        seq.applyView({ top: 0.4, bottom: 0.75 });
+        flush();
+        writes = 0;
+        const changes = viewChanges;
+        point(upper, 'pointerdown', 300, 310);
+        send('pointermove', 360);
+        send(end, 360);
+        assert.equal(writes, 3, `${end} flushes the pending final layout before saving`);
+        assert.equal(workspace.style['--roll-fr'], '0.5fr');
+        assert.equal(viewChanges, changes + 1);
+        flush();
+        assert.equal(writes, 3, `${end} leaves no stale layout work`);
+        send('pointermove', 410);
+        flush();
+        assert.equal(writes, 3, `${end} removes the move listener`);
+      }
+    } finally {
+      workspace.style.setProperty = setProperty;
+      seq.applyView({ top: 0.4, bottom: 0.75, panelWidth: 280 });
+      flush();
+    }
+  }
   const changesBeforeStackDrag = viewChanges;
   drag(upper, 300, 310, 900, 310);
   assert.deepEqual(positions(), [0.4, 0.75], 'sideways motion cannot move either horizontal boundary');

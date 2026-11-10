@@ -8,6 +8,7 @@ export class MidiCableAnimation {
     this.cables = new Map();
     this.pulses = [];
     this.roots = new Map();
+    this.remote = new Map();
     this.frameId = null;
     this.frame = this.frame.bind(this);
   }
@@ -33,7 +34,17 @@ export class MidiCableAnimation {
     return withMidiTrace(trace, send);
   }
 
+  receive(cable, id, step) {
+    if (document.hidden || !this.cables.has(cable)) return;
+    if (!this.remote.has(id)) this.remote.set(id, { start: performance.now(), end: 0 });
+    const root = this.remote.get(id);
+    const trace = { end: root.start + step * MIDI_TRAVEL_MS };
+    withMidiTrace(trace, () => this.transmit(cable, id, () => {}));
+    root.end = Math.max(root.end, trace.end);
+  }
+
   paint(now) {
+    for (const [id, trace] of this.remote) if (trace.end < now - 6000) this.remote.delete(id);
     this.pulses = this.pulses.filter((pulse) => {
       const view = this.cables.get(pulse.cable);
       if (!view || now >= pulse.end) {
@@ -66,5 +77,6 @@ export class MidiCableAnimation {
     for (const pulse of this.pulses) pulse.dot?.remove();
     this.pulses = [];
     this.roots.clear();
+    this.remote.clear();
   }
 }

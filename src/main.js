@@ -15,7 +15,7 @@ import { createPreferencesDialog } from './preferencesdialog.js';
 import { registerInterfacePreferences } from './interfacepreferences.js';
 import { registerTimelinePreferences } from './timelinepreferences.js';
 import { registerPianorollPreferences } from './pianorollpreferences.js';
-import { Transport } from './transport.js';
+import { AudioTransport } from './audiotransport.js';
 import { unsavedDialog } from './dialogs.js';
 import { exitToOS } from './exit.js';
 import { createSequencer } from './seq/index.js';
@@ -1786,14 +1786,33 @@ const targetIn = (rt) => (id) => {
 // the level playing; live input: the level shown).
 const pitchOffset = () => shown()?.pitchOffset ?? 0;
 const scopeRt = (ids) => runtimesAt(engine.root, ids ?? [])[0] ?? null;
-transport = new Transport({
+transport = new AudioTransport({
   getScope: () => path.slice(1).map((l) => l.id),
   getSong: (ids) => { const rt = scopeRt(ids); return rt ? layerSong(rt) : emptySong(); },
   getBpm: (ids) => scopeRt(ids)?.bpm ?? engine.root.bpm,
   getTarget: targetIn(engine.root),
   getLayers: (ids) => songLayers(engine.root, engine.song, ids ?? [], { nested: false }),
   pitchOffset: (ids) => scopeRt(ids)?.pitchOffset ?? 0,
+}, {
+  dsp: engine.dsp,
+  sync: () => engine.syncSong(),
+  onError: (error) => { console.error('Playback:', error); $('status').textContent = `Playback failed: ${error.message}`; },
 });
+engine.transport = transport;
+engine.onError = (error) => { $('status').textContent = `Playback failed: ${error.message ?? error}`; };
+engine.dsp.onPlayback = (state) => {
+  transport.receive(state);
+  for (let i = 0; i < state.mods.length; i += 3) {
+    const [handle, id, value] = state.mods.slice(i, i + 3);
+    engine.dsp.nodes.get(handle)?.onPlayback?.(id, value);
+  }
+  const rt = shown();
+  for (const [sink, salt, from, to, trace, step] of state.midi) {
+    if (rt?.sink.h !== sink || rt.salt !== salt) continue;
+    const cable = rt.cables.find((c) => c.from === from && c.to === to);
+    if (cable) engine.midiCables.receive(cable, trace, step);
+  }
+};
 // live notes (computer keyboard, on-screen piano keys) go to the red MIDI module
 const firstLive = (rt) => [...rt.modules.values()].find((e) => takesLiveMidi(e.def)) ?? null;
 const liveMidiEntry = () => modulePreview?.target ?? midiTarget() ?? firstLive(shown()) ?? firstLive(engine.root);
@@ -1826,6 +1845,7 @@ seq = createSequencer({
     },
     travel: (direction) => undoHistory ? undoHistory.travel(direction) : false,
   },
+  onSongChange: () => engine.syncSong(),
   onChange: () => {
     persist.schedule();
     if (sel?.entry?.def.isOutput) panelRefresh?.();

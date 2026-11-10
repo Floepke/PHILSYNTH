@@ -39,7 +39,7 @@ export default {
     const send = (m) => node.send(m);
     const midi = noteMessages(send, host.dsp);
     let frame = 0;
-    const feed = sampleFeeder((s) => send({ type: 'table', data: s?.channels[0] ?? null, frame }));
+    const feed = host.dsp.controlOnly ? null : sampleFeeder((s) => send({ type: 'table', data: s?.channels[0] ?? null, frame }));
     return {
       node,
       input: null,
@@ -48,10 +48,10 @@ export default {
         const f = st?.frame ?? 0;
         const force = f !== frame; // same sample, other frame size
         frame = f;
-        feed.set(st?.sampleId ?? null, force);
+        feed?.set(st?.sampleId ?? null, force);
       },
       ...midi,
-      destroy: () => { midi.destroyNotes(); feed.destroy(); node.destroy(); },
+      destroy: () => { midi.destroyNotes(); feed?.destroy(); node.destroy(); },
     };
   },
 };

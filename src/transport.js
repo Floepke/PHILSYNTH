@@ -48,7 +48,7 @@ function createTicker(fn) {
 
 export class Transport {
   // getTarget(moduleNumber) -> instance with noteOn/noteOff, or null
-  constructor({ getSong, getBpm, getTarget, setAuto = null, getLayers = null, getScope = () => null, onState, now = () => performance.now(), ticker = createTicker, pitchOffset = () => 0 }) {
+  constructor({ getSong, getBpm, getTarget, setAuto = null, getLayers = null, getScope = () => null, onState, now = () => performance.now(), ticker = createTicker, pitchOffset = () => 0, events = { starting: notesStarting, sounding: notesSounding } }) {
     Object.assign(this, { getTarget, setAuto, getScope, onState, now, pitchOffset });
     this.scope = null; // the level playing (see getScope)
     this.song = () => getSong(this.scopeNow());
@@ -62,6 +62,7 @@ export class Transport {
     this.active = []; // { id, inst, end, note, start, vel (last sent) } sounding notes
     this.chase = true; // trigger notes the playhead lands inside (see chaseAt)
     this.chasePending = false;
+    this.events = events;
     this.ticker = ticker(() => this.tick());
   }
 
@@ -261,7 +262,7 @@ export class Transport {
   chaseAt(q) {
     this.automate(q); // controllers first: a note must not start on a stale controller value
     for (const layer of this.layers()) {
-      for (const ev of notesSounding(layer.song, q)) {
+      for (const ev of this.events.sounding(layer.song, q)) {
         if (!this.audible(ev.clip, layer.song)) continue;
         this.trigger(ev, q, layer);
       }
@@ -295,7 +296,7 @@ export class Transport {
     });
     const due = [];
     for (const layer of layers) {
-      for (const ev of notesStarting(layer.song, from, to)) {
+      for (const ev of this.events.starting(layer.song, from, to)) {
         if (this.audible(ev.clip, layer.song)) due.push({ ev, layer });
       }
     }

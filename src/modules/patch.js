@@ -130,7 +130,9 @@ export default {
       const t = patch.modules.get(target);
       return !!t && t.def.acceptsMidi && (!t.def.hasInput || t.def.audioThrough || t.def.type === 'OPERATOR');
     };
-    const wanted = () => (midiTarget() ? instances : 1);
+    const wanted = () => (midiTarget()
+      ? Math.min(instances, host.dsp.maxInstances?.(outGain.h, host.salt) ?? MAX_INSTANCES)
+      : 1);
 
     // ---- hidden copies (instances 2..N), rebuilt on structure changes, values mirrored ----
     const clones = []; // { rt, sig }
@@ -162,12 +164,22 @@ export default {
       }
       syncing = null;
       if (rebuilt && !destroyed) route();
+      if (rebuilt && !destroyed) owner?.engine.syncPlayback?.();
       // modulation of mapped controllers is routed to every instance: new copies need new routes
       if (rebuilt && !destroyed && maps.length) owner?.changed();
     }
     const sync = () => {
       pending = true;
-      syncing ??= Promise.resolve().then(syncNow);
+      if (host.dsp.deferSync?.()) return Promise.resolve();
+      if (!syncing) {
+        syncing = Promise.resolve().then(syncNow).catch((error) => {
+          syncing = null;
+          if (owner?.engine.onError) owner.engine.onError(error);
+          else console.error('Patch instance synchronization failed:', error);
+          throw error;
+        });
+        syncing.catch(() => {}); // watchers do not await; explicit sync callers receive the rejection
+      }
       return syncing;
     };
     patch.watchers.add(sync);

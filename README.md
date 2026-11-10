@@ -21,6 +21,11 @@ controller panel and patcher, in CSS px (10–128; default 48). The 10 px minimu
 fits its 6 px grip with padding. App scaling still applies; the widget-bearing
 horizontal dividers keep their existing size.
 
+Divider dragging updates the layout at most once per animation frame. Sequencer
+canvas resizing shares the playback redraw instead of painting again inside
+resize notifications. This reduces UI-thread work during playback in large projects;
+view-only changes do not resend the song to the audio engine.
+
 Interface > Launch in full screen is enabled by default. Uncheck it to launch
 the Electron app as a maximized window instead. Changes apply on the next launch;
 F11 still toggles full screen while running. This setting does not affect browsers.
@@ -58,6 +63,33 @@ Optional `description` and `validate(value)` provide help and extra validation.
 `apply(value)` must accept both preview and restored values. The manager exposes
 `get(id)`, `load()`, `save(changes)`, `preview(id, value)` and `restore()`.
 Unregistered JSON values are retained for future settings.
+
+## Playback timing
+
+Timeline playback runs in the AudioWorklet alongside the existing DSP graph.
+Notes, note releases, automation, and timed MIDI processors (including STRUM,
+TRILL, delays, and nested Patch instances) advance on the audio clock, not on
+GUI timers. Divider dragging or a blocked GUI can delay the displayed playhead,
+but does not hold up scheduled notes. Timing resolution is one audio block
+(128 samples, about 2.7 ms at 48 kHz), for both JavaScript and C++/Wasm DSP.
+Control copies reuse existing DSP nodes and sample data; unrelated module edits
+preserve held playback notes. Live keyboard/MIDI input still enters through the
+UI, and offline export keeps its existing virtual-clock transport.
+
+Adding Patch instances still requires GUI-side DSP allocation. Instance-count
+automation uses the instances already provisioned until the GUI creates and
+binds additional ones. Project/model edits synchronize with the audio engine;
+unlike divider movement, those edits can incur audio-thread preparation work.
+
+`npm test` includes headless audio-clock transport and MIDI-routing regressions.
+For a real AudioWorklet test on Linux, run:
+
+```sh
+xvfb-run -a node_modules/.bin/electron test/audiotransport-ui.test.mjs --no-sandbox
+```
+
+It verifies actual note onset and release during a 200 ms GUI-thread stall in a
+32,001-note project, using both DSP backends.
 
 ## Module CPU benchmarks
 

@@ -132,6 +132,7 @@ export class DspHost {
     if (r.error) { this.onError?.(r.error); return; }
     if (r.info) { this.onInfo?.(r.info); return; }
     if (r.cpu) { this.onCpu?.(r.cpu); return; }
+    if (r.playback) this.onPlayback?.(r.playback);
     if (r.scope) this.onScope?.(r.scope);
     const m = r.mods;
     if (m) for (let i = 0; i < m.length; i += 3) this.nodes.get(m[i])?.onMod?.(m[i + 1], m[i + 2]);

@@ -38,6 +38,7 @@ export default {
       note = null;
     };
     const update = (time = ctx?.currentTime) => {
+      if (host.dsp.remoteNotes) return;
       if (!values.noteState || silenced) { release(); return; }
       const targets = new Set(inst.getMidiTargets());
       const pitch = values.pitch + values.finetune;

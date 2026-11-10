@@ -284,6 +284,13 @@ console.log('cable clipping tests passed');
     document.hidden = false;
     assert.throws(() => withMidiTrace({}, () => { throw new Error('test delivery error'); }), /test delivery error/);
     assert.equal(captureMidiTrace(), null, 'delivery errors restore the previous trace');
+    animation.receive(cables[0], 1, 0);
+    animation.receive(cables[1], 1, 1);
+    animation.receive(cables[1], 1, 1);
+    assert.deepEqual(animation.pulses.map((p) => p.start), [300, 400, 400],
+      'audio reports retain path order without accumulating a TRILL animation backlog');
+    animation.clear();
+    assert.equal(animation.remote.size, 0);
 
     // Actual routing: Round Robin only lights the chosen cable; mod/off do not launch dots.
     now = 0;

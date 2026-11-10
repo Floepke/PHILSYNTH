@@ -20,7 +20,10 @@
 // DELAY schedules each message with the current LEFT DELAY, preserving pitch, velocity and
 // phase. allOff / cable removal cancel pending events and release only its own outgoing notes.
 let lastId = 0;
-export const newNoteId = () => ++lastId;
+let noteIdStep = 1;
+export const newNoteId = () => (lastId += noteIdStep);
+// Audio-thread generated notes cannot collide with live MIDI ids from the UI.
+export const useAudioNoteIds = () => { lastId = Math.min(0, lastId); noteIdStep = -1; };
 
 // Visual provenance follows delayed notes without changing their MIDI data or timing.
 let midiTrace = null;
