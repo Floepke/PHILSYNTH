@@ -139,10 +139,21 @@ assert.deepEqual(normalizeSong(JSON.parse(JSON.stringify(n))), n); // save/load 
   const duplicate = duplicateClip(song, auto);
   assert.equal(clone.color, midi.color);
   assert.equal(duplicate.color, auto.color);
-  clone.color = '#abcdef';
-  assert.equal(midi.color, '#a1b2c3', 'linked content does not link clip colors');
   const loaded = normalizeSong(JSON.parse(JSON.stringify(song)));
   assert.deepEqual(loaded.clips.map(c => c.color), song.clips.map(c => c.color));
+  const legacy = structuredClone(song);
+  legacy.clips.find(c => c.id === clone.id).color = '#abcdef';
+  legacy.clips.reverse();
+  const migrated = normalizeSong(legacy);
+  assert.equal(migrated.clips.find(c => c.id === clone.id).color, midi.color,
+    'linked colors follow the source on load even if the clone appears first');
+  const autoClone = cloneClip(song, auto);
+  autoClone.color = '#abcdef';
+  assert.equal(normalizeSong(song).clips.find(c => c.id === autoClone.id).color, auto.color,
+    'automation clones follow the source color too');
+  detachClip(song, clone);
+  clone.color = '#abcdef';
+  assert.equal(midi.color, '#a1b2c3', 'detached clips have independent colors');
   assert.deepEqual(parseClipFile(clipFileText([midi, auto])).map(c => c.color), [midi.color, auto.color]);
   assert.deepEqual(normalizeSong({ clips: [{}, { color: 'red' }, { color: ' #AABBCC ' }] }).clips.map(c => c.color),
     [null, null, '#aabbcc'], 'older and invalid colors inherit; valid codes normalize');

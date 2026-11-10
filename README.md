@@ -445,7 +445,8 @@ Right-click a MIDI or automation clip and choose **Set Clip Color** to override
 its module color. With multiple clips selected, the color applies to all of them
 in one undoable edit. **Use module color** clears the override. Each clip stores
 `color: null` (inherit) or a `#rrggbb` color; overrides survive project saves,
-clip exports, duplication, and cloning, and linked clips can have different colors.
+clip exports, duplication, and cloning. Linked clips share their source's color:
+editing any clone or the source updates the entire linked group in one undoable edit.
 
 The piano-roll ruler supports simultaneous horizontal velocity-width resizing
 and vertical time zoom (up zooms in, down zooms out). The timeline measure ruler

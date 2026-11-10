@@ -184,9 +184,9 @@ app.whenReady().then(async () => {
         cv.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: r.left + 86,
           clientY: r.top + 68 + lane * 34 + 17, pointerId: 1, button: 0, ...props }));
       };
-      window.openClipColorMenu = () => {
-        window.clipPointer('pointerdown', 0, { button: 2, buttons: 2 });
-        window.clipPointer('pointerup', 0, { button: 2 });
+      window.openClipColorMenu = (lane = 0) => {
+        window.clipPointer('pointerdown', lane, { button: 2, buttons: 2 });
+        window.clipPointer('pointerup', lane, { button: 2 });
         [...document.querySelectorAll('.ctx-item')].find(b => b.textContent.includes('Set Clip Color')).click();
       };
     })()`);
@@ -198,7 +198,7 @@ app.whenReady().then(async () => {
       window.clipPointer('pointerup', 1, { ctrlKey: true });
       window.openClipColorMenu();
     })()`);
-    assert.equal(await run("document.getElementById('color-title').textContent"), 'Color of 2 clips');
+    assert.equal(await run("document.getElementById('color-title').textContent"), 'Color of 3 clips');
     await run(`(() => {
       for (const [channel, value] of [['r', 171], ['g', 205], ['b', 239]]) {
         const slider = document.getElementById('color-' + channel);
@@ -207,7 +207,7 @@ app.whenReady().then(async () => {
       document.getElementById('color-dialog').close('ok');
     })()`);
     await wait();
-    assert.deepEqual(await run('window.clipColors()'), ['#abcdef', '#abcdef', null], 'mixed selection colors change together; unselected linked clone stays inherited');
+    assert.deepEqual(await run('window.clipColors()'), ['#abcdef', '#abcdef', '#abcdef'], 'mixed selection also updates unselected linked clones');
     assert.equal(await run('window.velocityTest.undoHistory.travel(-1)'), true);
     assert.deepEqual(await run('window.clipColors()'), [null, null, null], 'one undo restores the entire group');
     assert.equal(await run('window.velocityTest.undoHistory.travel(-1)'), false, 'no second edit');
@@ -215,15 +215,42 @@ app.whenReady().then(async () => {
     await wait();
     await run("(() => { window.openClipColorMenu(); document.getElementById('color-dialog').close('cancel'); })()");
     await wait();
-    assert.deepEqual(await run('window.clipColors()'), ['#abcdef', '#abcdef', null], 'cancel preserves colors');
+    assert.deepEqual(await run('window.clipColors()'), ['#abcdef', '#abcdef', '#abcdef'], 'cancel preserves colors');
     await run(`(() => {
+      window.clipPointer('pointerdown', 0);
+      window.clipPointer('pointerup', 0);
       window.openClipColorMenu();
       document.getElementById('color-reset').click();
       document.getElementById('color-dialog').close('ok');
     })()`);
     await wait();
-    assert.equal((await run('window.clipColors()'))[0], null, 'reset stores null');
+    assert.deepEqual(await run('window.clipColors()'), [null, '#abcdef', null], 'source reset clears its whole linked group only');
     assert.equal(await run("document.getElementById('workspace').style.getPropertyValue('--clip-color')"), '#123456', 'reset uses connected module custom color');
+    await run(`(() => {
+      window.openClipColorMenu(2);
+      const slider = document.getElementById('color-r');
+      slider.value = 255; slider.dispatchEvent(new Event('input'));
+      document.getElementById('color-dialog').close('ok');
+    })()`);
+    await wait();
+    assert.deepEqual(await run('window.clipColors()'), ['#ff3456', '#abcdef', '#ff3456'],
+      'editing a clone updates the source without changing unrelated clips');
+    assert.equal(await run('window.velocityTest.undoHistory.travel(-1)'), true);
+    assert.deepEqual(await run('window.clipColors()'), [null, '#abcdef', null], 'clone edit is one undoable group edit');
+    await run(`(async () => {
+      const { cloneClip } = await import('/src/song.js');
+      const { engine, seq } = window.velocityTest;
+      const source = engine.song.clips.find(c => c.id === window.colorIds[1]);
+      const clone = cloneClip(engine.song, source); clone.y = 102;
+      window.colorIds.push(clone.id);
+      seq.reload();
+      window.openClipColorMenu(3);
+      document.getElementById('color-reset').click();
+      document.getElementById('color-dialog').close('ok');
+    })()`);
+    await wait();
+    assert.deepEqual(await run('window.clipColors()'), [null, null, null, null],
+      'resetting an automation clone clears its source color too');
     assert.deepEqual(errors, [], 'clip colors have no app or worklet errors');
     console.log('Clip color menu, multi-selection, undo, cancel and inheritance UI tests passed');
   } finally {

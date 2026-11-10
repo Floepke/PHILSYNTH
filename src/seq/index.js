@@ -52,10 +52,11 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     color: (c) => c.color ?? colorOf(entryOf(c.target)) ?? NO_COLOR,
     async setClipColor(clips, primary) {
       const owner = song();
-      const color = await openClipColorDialog(primary, colorOf(entryOf(primary.target)) ?? NO_COLOR, clips.length);
+      const affected = new Set(clips.flatMap((c) => linkedClips(owner, c)));
+      const color = await openClipColorDialog(primary, colorOf(entryOf(primary.target)) ?? NO_COLOR, affected.size);
       if (color === undefined || song() !== owner) return;
-      const live = clips.filter((c) => owner.clips.includes(c));
-      if (!live.some((c) => c.color !== color)) return;
+      const live = new Set(clips.filter((c) => owner.clips.includes(c)).flatMap((c) => linkedClips(owner, c)));
+      if (![...live].some((c) => c.color !== color)) return;
       for (const c of live) c.color = color;
       ctx.changed();
     },

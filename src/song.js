@@ -7,7 +7,7 @@
 //   sigs = time signature changes [{ at (quarters), num, den }], sorted, the first one at 0.
 //          Each change starts a new bar, so a change inside a bar cuts that bar short.
 //   clip = { id, name, start, length, y (lane * LANE_H, px), target (module number | null), color, notes }
-//   color: null inherits the target module's color; '#rrggbb' overrides it independently per clip.
+//   color: null inherits the target module's color; '#rrggbb' overrides it for the linked group.
 //   start may be negative: clips before time zero are parked there (never played by the song,
 //   the part of a clip that reaches past zero does play). Clips sit on lanes LANE_H px high.
 //   Idea storage: a clip with y < 0 (y <= -LANE_H) lies above the first lane, placed freely (any
@@ -33,7 +33,7 @@
 //   point the value holds.
 // Linked clones: clips with the same clip.link share ONE notes array (points for automation clips)
 // in memory, so editing one edits them all. The toolbar keeps their name, Send to and controller
-// equal too; position and length stay per clip. clip.link is the id of the group's source clip (the original the others were cloned from);
+// equal too, as does the color menu; position and length stay per clip. clip.link is the id of the group's source clip (the original the others were cloned from);
 // when the source is deleted or detached, the earliest remaining clip becomes the source.
 // The project file stores every clip's notes; loading re-shares them.
 import { curvePolyline, sampleAt } from './curve.js';
@@ -261,6 +261,9 @@ export function normalizeSong(s) {
     if (isAuto(clip)) clip.points = first.points;
   }
   for (const link of new Set(song.clips.map((c) => c.link).filter(Boolean))) repairLink(song, link);
+  for (const clip of song.clips) {
+    if (clip.link) clip.color = getClip(song, clip.link).color;
+  }
   // older projects placed clips freely: put every clip on a lane, moving it down when it would overlap
   const placed = [];
   for (const clip of song.clips) {
