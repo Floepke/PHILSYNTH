@@ -26,12 +26,7 @@ jobs:
       - run: npm ci --omit=dev --ignore-scripts
       - run: npm test
       - name: Collect the static web app
-        run: |
-          mkdir _site
-          cp -R index.html style.css src _site/
-          mkdir -p _site/node_modules
-          cp -R node_modules/wasm-media-encoders _site/node_modules/
-          touch _site/.nojekyll
+        run: node build-pages.mjs "$GITHUB_SHA"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

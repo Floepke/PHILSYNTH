@@ -9,6 +9,14 @@ OK saves the tint locally for this browser or app (not in the project); Cancel
 or Escape restores the previous tint, and Reset to default previews the default.
 Extreme black/white channel values are softened to preserve visible grain.
 
+## GitHub Pages
+
+The Pages workflow runs tests, then `node build-pages.mjs "$GITHUB_SHA"` to
+collect the web app. HTML references a commit-versioned asset directory containing
+CSS, JavaScript, AudioWorklets, Wasm, and runtime codecs, preventing cached files
+from different deployments being mixed. Local browser and Electron URLs are unchanged.
+If an older deployment is stuck during startup, hard-refresh the page (Ctrl+Shift+R).
+
 ## Preferences
 
 PHILSYNTH > Preferences opens the categorized preferences dialog. The listbox on
