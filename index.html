@@ -75,6 +75,20 @@
     </form>
   </dialog>
 
+  <dialog id="export-level-dialog" aria-labelledby="export-level-title" aria-describedby="export-level-description">
+    <form method="dialog">
+      <h3 id="export-level-title">Audio export level</h3>
+      <p id="export-level-description">Choose how to set the exported audio level. Neither option changes your project or live playback.</p>
+      <p><b>Original Dynamics:</b> Keep the mix's original output level. Peaks above 0 dBFS will be clipped in the exported file.</p>
+      <p><b>Peak Normalization:</b> Raise or lower the entire mix so its highest sample peak is -1 dBFS. The same gain is applied to both channels, preserving quiet/loud relationships and stereo balance without compression. This does not make all projects equally loud or repair distortion already in the mix; compressed formats may introduce new peaks.</p>
+      <menu>
+        <button value="cancel">Cancel</button>
+        <button value="original">Original Dynamics</button>
+        <button value="normalize" class="primary" autofocus>Peak Normalization</button>
+      </menu>
+    </form>
+  </dialog>
+
   <dialog id="export-dialog" aria-labelledby="export-title">
     <h3 id="export-title">Export Audio</h3>
     <p id="export-message" role="status" aria-live="polite"></p>

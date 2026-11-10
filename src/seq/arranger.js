@@ -39,8 +39,8 @@
 //   right-click a signature    remove that change (the first one can only be edited)
 // Restart point (green 'restart:' marker in the bar number row): song playback continues there at
 // the end of the song and stopping it parks the playhead there.
-//   double-click the bar numbers   insert the restart point there (snapped; moves an existing one)
-//   drag the marker            move it (snapped); dropped at time zero it is removed
+//   double-click the bar numbers   insert the restart point at the nearest barline (moves an existing one)
+//   drag the marker            move it by barlines; dropped at time zero it is removed
 //   right-click the marker     remove it; elsewhere on the ruler: menu insert at the playhead / remove
 //                              (the clip and empty-space menus have these items too)
 // Trimming the start of a linked clone trims all its clones (they share the notes).
@@ -817,7 +817,7 @@ export function createArranger(host, ctx) {
   // whether local x, y is on the restart marker (bar number row)
   const restartAt = (x, y) => !!restartBox && y >= SIG_H && y < RULER && x >= restartBox.x0 && x <= restartBox.x1;
   function insertRestart() {
-    setRestart(ctx.song(), ctx.transport.pos);
+    setRestart(ctx.song(), barRound(ctx.song(), Math.max(0, ctx.transport.pos)));
     ctx.changed();
     s.redraw();
   }
@@ -876,16 +876,15 @@ export function createArranger(host, ctx) {
     cv.addEventListener('keydown', cancel);
   }
 
-  // drag the restart marker along the ruler (snapped); released at time zero it is removed
+  // drag the restart marker along barlines; released at time zero it is removed
   function restartDrag(e) {
     const song = ctx.song();
     const before = song.restart;
     const grab = timeAt(s.local(e).x) - before; // keep the grab offset (the label is beside the |)
-    const st = step();
     let p = s.local(e);
     let moved = false;
     const apply = () => {
-      setRestart(song, Math.max(0, snapRound(timeAt(clamp(p.x, x0, right())) - grab, st)));
+      setRestart(song, barRound(song, Math.max(0, timeAt(clamp(p.x, x0, right())) - grab)));
       s.redraw();
     };
     const auto = areaScroll(apply, { vertical: false });
@@ -1319,9 +1318,9 @@ export function createArranger(host, ctx) {
       ctx.editSig(box ? box.at : barRound(song, Math.max(0, timeAt(x))));
       return;
     }
-    if (y < RULER) { // bar numbers: the restart point here (snapped; time zero removes it)
+    if (y < RULER) { // bar numbers: the restart point at the nearest barline; time zero removes it
       if (restartAt(x, y)) return;
-      setRestart(song, Math.max(0, snapRound(timeAt(x), step())));
+      setRestart(song, barRound(song, Math.max(0, timeAt(x))));
       ctx.changed();
       s.redraw();
       return;

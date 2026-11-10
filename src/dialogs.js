@@ -31,6 +31,11 @@ export async function unsavedDialog(name, { action = 'closing it' } = {}) {
   return r === 'yes' || r === 'no' ? r : 'cancel';
 }
 
+export async function exportLevelDialog() {
+  const result = await run($('export-level-dialog'));
+  return result === 'original' || result === 'normalize' ? result : null;
+}
+
 // Ask for a time signature. Resolves with { num, den, gridBeats }, 'delete', or null (cancelled).
 export async function sigDialog({ num, den, gridBeats, where = '', title = 'Time signature', canDelete = false }) {
   const n = $('sig-num');

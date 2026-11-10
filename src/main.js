@@ -16,7 +16,7 @@ import { registerInterfacePreferences } from './interfacepreferences.js';
 import { registerTimelinePreferences } from './timelinepreferences.js';
 import { registerPianorollPreferences } from './pianorollpreferences.js';
 import { AudioTransport } from './audiotransport.js';
-import { unsavedDialog } from './dialogs.js';
+import { unsavedDialog, exportLevelDialog } from './dialogs.js';
 import { exitToOS } from './exit.js';
 import { createSequencer } from './seq/index.js';
 import { defaultCam, validCam, toWorld, toScreen, wheelCam, fitBox, clampCam, resizeCam } from './camera.js';
@@ -1672,6 +1672,11 @@ async function exportAudio() {
     }
   }
   exporting = true;
+  let level;
+  try { level = await exportLevelDialog(); }
+  finally { exporting = false; }
+  if (level === null) return;
+  exporting = true;
   const controller = new AbortController();
   exportController = controller;
   const { signal } = controller;
@@ -1692,6 +1697,7 @@ async function exportAudio() {
       sampleRate,
       wasm,
       format: format.ext,
+      normalize: level === 'normalize',
       signal,
       onProgress: (f) => { showExportProgress(`Rendering audio… ${Math.round(f * 90)}%`, f * 90); },
       onEncoding: () => showExportProgress(`Encoding ${format.ext.slice(1).toUpperCase()}…`, 90),
@@ -1736,7 +1742,8 @@ async function exportAudio() {
     $('export-title').textContent = downloaded ? 'Audio ready' : 'Export complete';
     const quality = format.ext === '.wav' ? `${sampleRate} Hz, 24-bit stereo`
       : format.ext === '.mp3' ? 'MP3, 320 kbps stereo' : 'Ogg Vorbis, quality 10 stereo';
-    showExportProgress(`${downloaded ? 'Download started for' : 'Exported'} ${name} (${length}, ${quality}).${downloaded ? ' Check your browser downloads for completion.' : ''}${clipped}`, 100);
+    const levelInfo = level === 'normalize' ? ' Peak normalized to -1 dBFS (sample peak; silence unchanged).' : '';
+    showExportProgress(`${downloaded ? 'Download started for' : 'Exported'} ${name} (${length}, ${quality}).${downloaded ? ' Check your browser downloads for completion.' : ''}${levelInfo}${clipped}`, 100);
   } catch (err) {
     if (signal.aborted) {
       showExportProgress('Export cancelled.', 0);

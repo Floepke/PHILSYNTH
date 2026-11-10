@@ -850,11 +850,11 @@ for (const reverse of [false, true]) {
   assert.ok(labels(menus).includes('Remove restart point'), 'the clip menu has the items too');
   ctx.transport.pos = 2.5;
   pick(menus, 'Insert restart point at playhead');
-  assert.equal(song.restart, 2.5, 'moves to the playhead');
+  assert.equal(song.restart, 4, 'moves to the nearest barline to the playhead');
   rightClick(ax(30), ay(200));
   assert.ok(labels(menus).includes('Insert restart point at playhead'), 'and the empty-space menu');
   const n = menus.length;
-  rightClick(ax(2.5), 1.5 * CLIP_H);
+  rightClick(ax(4), 1.5 * CLIP_H);
   assert.equal(menus.length, n, 'the marker opens no menu');
   assert.equal(song.restart, undefined, 'right-click on the marker removes it');
   assert.equal(normalizeSong({ restart: 3 }).restart, 3);
@@ -1867,27 +1867,46 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(song.restart, 4, 'a double-click inserts the restart point (snapped)');
   assert.equal(changes(), c0 + 1, 'one undo step');
   point(cv, 'dblclick', ax(6.05), RY);
-  assert.equal(song.restart, 6, 'another double-click moves it there');
+  assert.equal(song.restart, 8, 'another double-click rounds to the nearest barline');
   const sigEdits = [];
   ctx.editSig = (at) => sigEdits.push(at);
   point(cv, 'dblclick', ax(3), 8);
-  assert.equal(song.restart, 6, 'the signature row double-click edits signatures instead');
+  assert.equal(song.restart, 8, 'the signature row double-click edits signatures instead');
   assert.equal(sigEdits.length, 1);
   const c1 = changes();
   const pos = ctx.transport.pos;
-  drag(cv, ax(6), RY, ax(10.05), RY);
-  assert.equal(song.restart, 10, 'drag the marker to move it (snapped)');
+  drag(cv, ax(8), RY, ax(10.05), RY);
+  assert.equal(song.restart, 12, 'drag the marker to the nearest barline');
   assert.equal(ctx.transport.pos, pos, 'moving the marker leaves the play position');
   assert.equal(changes(), c1 + 1, 'one undo step');
-  drag(cv, ax(10), RY, ax(3), RY, {}, 'pointercancel');
-  assert.equal(song.restart, 10, 'cancel puts it back');
-  drag(cv, ax(10), RY, ax(-3), RY);
+  drag(cv, ax(12), RY, ax(3), RY, {}, 'pointercancel');
+  assert.equal(song.restart, 12, 'cancel puts it back');
+  drag(cv, ax(12), RY, ax(-3), RY);
   assert.equal(song.restart, undefined, 'dropped at time zero it is removed');
   point(cv, 'dblclick', ax(8), RY);
   point(cv, 'pointerdown', ax(8), RY, { button: 2, buttons: 2 });
   point(cv, 'pointerup', ax(8), RY, { button: 2 });
   assert.equal(song.restart, undefined, 'right-click on the marker removes it');
   assert.equal(normalizeSong({ loop: { start: 0, end: 4 } }).loop, undefined, 'old loop regions are dropped');
+}
+
+// Restart markers follow meter changes, not even a coarse or triplet Input Grid.
+for (const snap of [{ base: 1, div: 1 }, { base: 16, div: 3 }]) {
+  const { song, arranger, ctx, menus } = setup();
+  const cv = arranger.surface.cv;
+  const y = 1.5 * CLIP_H;
+  song.snap = snap;
+  setSig(song, 4, 3, 4);
+  setSig(song, 10, 5, 8);
+  point(cv, 'dblclick', ax(6.6), y);
+  assert.equal(song.restart, 7, 'placement follows 3/4 measures');
+  drag(cv, ax(7), y, ax(11.9), y);
+  assert.equal(song.restart, 12.5, 'dragging follows 5/8 measures');
+  ctx.transport.pos = 7.3;
+  point(cv, 'pointerdown', ax(1), ay(200), { button: 2, buttons: 2 });
+  point(cv, 'pointerup', ax(1), ay(200), { button: 2 });
+  pick(menus, 'Insert restart point at playhead');
+  assert.equal(song.restart, 7, 'menu placement also ignores the Input Grid');
 }
 
 // The scrollbars below (time) and right (lanes) of the TimeLine pan it by track click or thumb drag.

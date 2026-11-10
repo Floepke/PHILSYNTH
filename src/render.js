@@ -140,6 +140,25 @@ export async function renderSong(project, { sampleRate = 48000, wasm = null, onP
   }
 }
 
+export const NORMALIZED_PEAK = 10 ** (-1 / 20); // -1 dBFS sample peak
+
+// One gain for the whole stereo render preserves its dynamics and channel balance.
+export function normalizePeak(left, right) {
+  let peak = 0;
+  for (const channel of [left, right]) {
+    for (const value of channel) {
+      if (!Number.isFinite(value)) throw new Error('Cannot normalize invalid audio samples (NaN / Infinity).');
+      peak = Math.max(peak, Math.abs(value));
+    }
+  }
+  if (peak === 0) return 0;
+  const gain = NORMALIZED_PEAK / peak;
+  for (const channel of new Set([left, right])) {
+    for (let i = 0; i < channel.length; i++) channel[i] *= gain;
+  }
+  return NORMALIZED_PEAK;
+}
+
 // 24-bit PCM stereo WAV file (samples clipped to -1..1).
 export function encodeWav(left, right, sampleRate) {
   const n = left.length;

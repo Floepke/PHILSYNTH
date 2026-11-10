@@ -144,7 +144,7 @@ export const GUIDE = [
         title: 'The Grid',
         items: [
           '<b>Grid</b> in the upper divider sets the snap step: a note value (Whole … 128th) divided by the number beside <b>÷</b> (1–64; e.g. Quarter ÷ 3 = eighth-note triplets). Hover the number to see the step in quarter notes.',
-          '<b>TimeLine:</b> inserting, moving, trimming and resizing clips, pasting and the restart point snap to the grid step (the edges of neighbouring clips take priority).',
+          '<b>TimeLine:</b> inserting, moving, trimming and resizing clips and pasting snap to the grid step (the edges of neighbouring clips take priority). The restart marker instead snaps to barlines (whole measures), independently of the Input Grid.',
           '<b>Piano roll:</b> new notes start on the grid line at or before the pointer; dragging lengths and moving notes, pasting, the clip-end line, the velocity-curve point times, the arrow-key nudges and <b>Quantize</b> (Q) all use the grid step. The light / dark bands show it.',
           '<b>Automation editor:</b> the times of new and moved points snap to the grid step.',
           '<b>Free timing</b> (the checkbox beside the Grid) frees piano-roll notes and velocity-curve times from the grid; the bands stay as a guide and Quantize still snaps. The TimeLine and the automation editor keep snapping.',
@@ -185,7 +185,7 @@ export const GUIDE = [
           'Drag a purple signature flag left or right to move it by whole bars of the preceding meter. The initial signature stays at zero. Later changes snap to their nearest whole measure without reordering or overlapping; clips and notes do not move. The grid updates during the drag; Escape cancels, and release records one undo step.',
           'Choose Insert/Edit time-Signature Change… from the timeline clip, empty-space or ruler context menu to open the same dialog at the nearest bar to the right-click position. Hold right-click on an existing signature or restart marker to open this menu without removing it.',
           'The time-signature dialog includes a two-octave stave preview with time running downward. The entire measure scales to fit the available editor height. Click a numbered beat row to show or hide its piano-roll line; beat 1 controls the barline. Editing either time-signature field resets all beats to enabled. These choices repeat each measure and do not change snapping, playback or ruler marks.',
-          '<b>Restart point</b>: double-click the bar numbers on the ruler (snapped), or right-click the ruler (or a clip / empty space) → <i>Insert restart point at playhead</i>. A green <b>restart:</b> | marks it in the bar number row; drag it to move it. Song playback continues there when it reaches the end of the song, and stopping it (Space, <kbd>\'</kbd> or the stop button) returns the playhead there; the <kbd>/</kbd> clip loop ignores it. Right-click the marker (or drag it to time zero) to remove it.',
+          '<b>Restart point</b>: double-click the bar numbers on the ruler, or right-click the ruler (or a clip / empty space) → <i>Insert restart point at playhead</i>. Placement and dragging snap to the nearest barline (whole measures), following time-signature changes and ignoring the Input Grid. A green <b>restart:</b> | marks it in the bar number row; drag it to move it. Song playback continues there when it reaches the end of the song, and stopping it (Space, <kbd>\'</kbd> or the stop button) returns the playhead there; the <kbd>/</kbd> clip loop ignores it. Right-click the marker (or drag it to time zero) to remove it.',
         ],
       },
       {
@@ -323,6 +323,7 @@ export const GUIDE = [
         title: 'Export audio',
         items: [
           'Renders the song offline from its start to the end of the last clip plus up to 10 s of tail. Choose WAV (24-bit stereo at the device sample rate), MP3 (maximum 320 kbps), or Ogg Vorbis (maximum quality 10) in the save picker, or type the corresponding extension. Browsers without a native save picker download WAV. Encoding is local and cancellable. The status bar warns when the mix clips. Export formats do not change sampler storage.',
+          'After choosing the file, select <b>Original Dynamics</b> to keep the original output level (peaks above 0 dBFS clip), or <b>Peak Normalization</b> to scale the entire stereo mix to a -1 dBFS sample peak before encoding. Normalization preserves relative dynamics and stereo balance without compression; silence stays silent. It does not match perceived loudness between projects, repair existing distortion or guarantee the peak after MP3/Ogg encoding. Cancel or Escape stops the export without writing a file.',
           'The non-blocking export dialog shows rendering progress, then encoding and writing; normal playback and editing can continue. <b>Cancel</b> stops the export; <b>Export complete</b> confirms it is saved. Browser downloads show <b>Audio ready</b>; check your browser downloads for completion.',
         ],
       },
