@@ -48,6 +48,7 @@ import { createPatchMonitor } from './patchmonitor.js';
 import { songFacts } from './songfacts.js';
 import { initMouseNavigation, MOUSE_FORWARD } from './mousebuttons.js';
 import { initPanelScroll } from './panelscroll.js';
+import { createAnalysePanel, analysisHandle } from './analysepanel.js';
 
 const engine = new Engine();
 let transport = null; // song playback (created after the engine)
@@ -57,6 +58,7 @@ let modulePreview = null;
 let undoHistory = null;
 let scope = null; // live audio drawn on the cables (created after the engine)
 let patchMonitor = null;
+let analysePanel = null;
 const $ = (id) => document.getElementById(id);
 const preferencesManager = createPreferencesManager();
 initWoodTheme(preferencesManager);
@@ -324,6 +326,7 @@ function viewState() {
     cams: path.map((l) => l.cam ?? defaultCam()),
     cameraSize: { width: cameraWidth, height: cameraHeight },
     seq: seq?.viewState(),
+    analyse: analysePanel?.viewState(),
     layers: layerView(),
     panelScrolls,
   };
@@ -360,6 +363,7 @@ function applyView(view) {
     if (view.midi.locked && rt.midiLock === null && followedEntry(rt)?.id === view.midi.id) rt.midiLock = view.midi.id;
   }
   seq?.applyView(view?.seq);
+  analysePanel?.applyView(view?.analyse);
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
   const size = view?.cameraSize;
@@ -845,6 +849,7 @@ function drawCables() {
     if (h !== undefined) live.push({ g, h, from, to: head ? head.tip : to });
   }
   scope?.setCables(live);
+  analysePanel?.refresh();
   engine.midiCables?.setCables(midiCables);
 }
 
@@ -1782,6 +1787,19 @@ initCpuMeter(engine);
 await engine.init();
 patchMonitor = createPatchMonitor(engine.root);
 scope = new CableScope(engine.dsp);
+analysePanel = createAnalysePanel({
+  host: $('patcher'), panel: $('analyse-panel'), divider: $('analyse-split'), controller: $('panel-shell'),
+  dsp: engine.dsp,
+  target: () => {
+    const entries = selectedEntries();
+    const entry = entries.find(entry => analysisHandle(entry) !== null) ?? entries[0] ?? shown()?.modules.get(0);
+    return {
+      h: analysisHandle(entry),
+      label: entry ? `#${entry.id} ${moduleName(entry)}${entries.length > 1 ? ' (first audio selection)' : ''}` : 'Output',
+    };
+  },
+  onChange: () => persist.schedule(),
+});
 engine.midiCables = new MidiCableAnimation();
 // clips play the module with their number in their own patch level (shown: the open one)
 const targetIn = (rt) => (id) => {
@@ -1902,6 +1920,7 @@ if (!restored) {
   await undoHistory.suspend(() => persist.pause(() => engine.loadProject(emptyProject())));
   path = [{ patch: engine.root, name: 'Main' }];
   seq.applyView(null);
+  analysePanel.applyView(null);
   render();
   projectFile.reset();
 }

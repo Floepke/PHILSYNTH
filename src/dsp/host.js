@@ -126,6 +126,8 @@ export class DspHost {
   // Cable display: the graph reports the output of these nodes (see Graph.scope) to onScope.
   scope(handles) { this.post(['scope', handles]); }
 
+  analyse(handle) { this.post(['analyse', handle]); }
+
   // report from the graph: { time, mods: [handle, controller id, value, ...], scope?, meters?: [handle, value, ...] }
   receive(r) {
     if (!r) return;
@@ -134,6 +136,7 @@ export class DspHost {
     if (r.cpu) { this.onCpu?.(r.cpu); return; }
     if (r.playback) this.onPlayback?.(r.playback);
     if (r.scope) this.onScope?.(r.scope);
+    if (r.analysis) this.onAnalysis?.(r.analysis);
     const m = r.mods;
     if (m) for (let i = 0; i < m.length; i += 3) this.nodes.get(m[i])?.onMod?.(m[i + 1], m[i + 2]);
     const v = r.meters;

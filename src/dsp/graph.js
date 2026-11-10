@@ -45,6 +45,7 @@ import { KERNELS } from './kernels.js';
 import { fromNorm, toNorm } from '../params.js';
 import { filterPhaseDelay } from './loopphase.js';
 import { noteHz } from '../modules/delaytime.js';
+import { AudioAnalysis } from './analysis.js';
 
 const BLOCK = 128;
 const NO_INPUT = [[]];
@@ -81,6 +82,7 @@ export class Graph {
     this.scopeClip = new Uint8Array(0); // per watched node: a sample beyond ±1 since the last report
     this.meters = new Set(); // nodes whose kernel has a `meter` value (static meter = true)
     this.ext = null; // inputs of the engine worklet (microphones, see src/mics.js) for this quantum
+    this.analysis = null;
     this.master = this.add(0, 'bus');
   }
 
@@ -98,6 +100,7 @@ export class Graph {
       case 'routes': this.setRoutes(a, b); break;
       case 'clock': this.clock = !!a; break;
       case 'scope': this.setScope(a); break;
+      case 'analyse': this.setAnalysis(a); break;
       case 'panic': this.panic(); break;
     }
   }
@@ -251,6 +254,12 @@ export class Graph {
     this.scopeClip = new Uint8Array(list.length);
   }
 
+  setAnalysis(h) {
+    if ((this.analysis?.h ?? null) === h) return;
+    this.analysis = h === null ? null : new AudioAnalysis(h);
+    this.dirty = true;
+  }
+
   // dependency order of everything that reaches the master bus (depth-first, sources first)
   rebuild() {
     this.dirty = false;
@@ -269,6 +278,10 @@ export class Graph {
       for (const s of n.srcs) visit(s);
       if (n.audio) order.push(n);
     };
+    // Monitoring an uncabled module must not route it to the speakers. Visit it first so
+    // the native runner still ends with the master bus, whose silence flag it returns.
+    const monitored = this.nodes.get(this.analysis?.h);
+    if (monitored?.audio) visit(monitored);
     visit(this.master);
     // Audio-driven controllers need their sources even if no audio cable reaches the Output.
     for (const n of this.nodes.values()) if (n.audioInput && n.routes.length) visit(n);
@@ -544,6 +557,11 @@ export class Graph {
     for (const m of this.mods) if (m.audioInput && m.routes.length) this.modulate(m, m.k.value);
     if (this.heap?.grown()) this.remap();
     if (this.scopeH.length) this.scope();
+    if (this.analysis) {
+      const n = this.nodes.get(this.analysis.h);
+      const silent = !n || !n.audio || (this.prog && n.rec ? this.x.ms_node_silent(n.rec) : n.silent);
+      this.analysis.push(silent ? null : n.outs[0][0], silent ? null : n.outs[0][1]);
+    }
     const m = this.master;
     if (m.silent) {
       L.fill(0);

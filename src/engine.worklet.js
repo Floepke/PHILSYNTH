@@ -14,6 +14,7 @@ import { useAudioNoteIds } from './modmidi.js';
 const REPORT_BLOCKS = 2; // ~5 ms at 48 kHz
 const SCOPE_HZ = 60;
 const SCOPE_BLOCKS = Math.max(REPORT_BLOCKS, Math.round(sampleRate / 128 / SCOPE_HZ / REPORT_BLOCKS) * REPORT_BLOCKS);
+const ANALYSIS_BLOCKS = Math.max(REPORT_BLOCKS, Math.round(sampleRate / 128 / 30 / REPORT_BLOCKS) * REPORT_BLOCKS);
 
 class EngineProcessor extends AudioWorkletProcessor {
   constructor(options) {
@@ -36,6 +37,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     this.port.postMessage({ info });
     this.blocks = 0;
     this.scopeBlocks = 0;
+    this.analysisBlocks = 0;
     this.load = new LoadMeter((128 / sampleRate) * 1000);
     this.port.onmessage = (e) => {
       this.controlQueue = this.controlQueue.then(async () => {
@@ -83,6 +85,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     }
     if (++this.blocks >= REPORT_BLOCKS) {
       this.scopeBlocks += this.blocks;
+      this.analysisBlocks += this.blocks;
       this.blocks = 0;
       const withScope = this.scopeBlocks >= SCOPE_BLOCKS;
       if (withScope) this.scopeBlocks = 0;
@@ -91,7 +94,16 @@ class EngineProcessor extends AudioWorkletProcessor {
       catch (error) { this.fail(error); }
       const report = r ?? { time: currentTime, mods: [] };
       report.playback = this.playback.report();
-      this.port.postMessage(report, report.scope ? [report.scope.v.buffer] : []);
+      const transfers = report.scope ? [report.scope.v.buffer] : [];
+      if (this.analysisBlocks >= ANALYSIS_BLOCKS) {
+        this.analysisBlocks = 0;
+        const analysis = this.graph.analysis?.report();
+        if (analysis) {
+          report.analysis = analysis;
+          transfers.push(analysis.samples.buffer);
+        }
+      }
+      this.port.postMessage(report, transfers);
     }
     return true;
   }
