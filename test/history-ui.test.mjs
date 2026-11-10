@@ -93,6 +93,31 @@ app.whenReady().then(async () => {
     await new Promise((resolve) => setTimeout(resolve, 400));
     assert.equal(await pitch(), 62, 'Cmd+Z undoes the new branch independently');
     console.log('piano-roll history UI tests passed');
+    win.show();
+    await run(`(() => {
+      window.modsynthFiles = {};
+      window.rulerLocks = 0;
+      const cv = document.querySelector('#arranger canvas');
+      const request = cv.requestPointerLock.bind(cv);
+      cv.requestPointerLock = () => { window.rulerLocks++; return request(); };
+    })()`);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    const rulerPoint = await run(`(() => {
+      const cv = document.querySelector('#arranger canvas'), b = cv.getBoundingClientRect();
+      const g = cv.getContext('2d');
+      g.font = '600 11px system-ui, -apple-system, "Segoe UI", sans-serif';
+      const x0 = Math.round(14 + g.measureText('TimeLine:').width);
+      const v = window.historyTest.seq.viewState().arranger;
+      return { x: Math.round(b.left + x0 + 6.1 * v.ppq - v.sx), y: Math.round(b.top + 51) };
+    })()`);
+    for (const clickCount of [1, 2]) {
+      win.webContents.sendInputEvent({ type: 'mouseDown', ...rulerPoint, button: 'left', clickCount });
+      win.webContents.sendInputEvent({ type: 'mouseUp', ...rulerPoint, button: 'left', clickCount });
+      await new Promise(resolve => setTimeout(resolve, 40));
+    }
+    assert.equal(await run('window.historyTest.engine.song.restart'), 8, 'real desktop double-click places restart at the nearest barline');
+    assert.equal(await run('window.rulerLocks'), 0, 'clicks never enter pointer lock');
+    console.log('desktop ruler double-click tests passed');
   } finally {
     win?.destroy();
     if (server) await new Promise((resolve) => server.close(resolve));

@@ -1319,7 +1319,6 @@ export function createArranger(host, ctx) {
       return;
     }
     if (y < RULER) { // bar numbers: the restart point at the nearest barline; time zero removes it
-      if (restartAt(x, y)) return;
       setRestart(song, barRound(song, Math.max(0, timeAt(x))));
       ctx.changed();
       s.redraw();

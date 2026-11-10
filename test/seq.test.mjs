@@ -250,12 +250,17 @@ const ay = (y) => 2 * CLIP_H + y + CLIP_H / 2;
   const originalFiles = window.modsynthFiles;
   window.modsynthFiles = {};
   rulerDrag(cv, { pointerId: 1, clientX: 100, clientY: 150 }, (x, y) => movements.push([x, y]), e => releases.push(e.type));
+  assert.equal(doc.pointerLockElement, null, 'desktop clicks do not lock the cursor, preserving double-clicks');
+  cv.dispatchEvent(Object.assign(new Event('pointermove'), { pointerId: 1, clientX: 100, clientY: 150 }));
+  assert.equal(doc.pointerLockElement, null, 'stationary pointer events do not begin a drag');
+  cv.dispatchEvent(Object.assign(new Event('pointermove'), { pointerId: 1, clientX: 103, clientY: 150 }));
+  movements.length = 0;
   doc.dispatchEvent(Object.assign(new Event('mousemove'), { movementX: -518, movementY: -249 }));
   assert.deepEqual(movements, [], 'Firefox pointer-lock recentering does not jump the view');
   for (const [movementX, movementY] of [[20, -10], [-5, 4]]) {
     doc.dispatchEvent(Object.assign(new Event('mousemove'), { movementX, movementY }));
   }
-  assert.deepEqual(movements, [[20, -10], [15, -6]], 'locked dragging accumulates relative mouse movement');
+  assert.deepEqual(movements, [[23, -10], [18, -6]], 'locked dragging accumulates relative mouse movement');
   doc.dispatchEvent(new Event('mouseup'));
   assert.equal(exits, 1, 'release unlocks the cursor');
   assert.deepEqual(releases, ['mouseup']);
@@ -1868,6 +1873,10 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(changes(), c0 + 1, 'one undo step');
   point(cv, 'dblclick', ax(6.05), RY);
   assert.equal(song.restart, 8, 'another double-click rounds to the nearest barline');
+  point(cv, 'dblclick', ax(5.9), RY);
+  assert.equal(song.restart, 4, 'double-clicking within the existing restart label places the marker at the clicked barline');
+  point(cv, 'dblclick', ax(8.1), RY);
+  assert.equal(song.restart, 8);
   const sigEdits = [];
   ctx.editSig = (at) => sigEdits.push(at);
   point(cv, 'dblclick', ax(3), 8);

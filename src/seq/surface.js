@@ -74,6 +74,7 @@ export function rulerDrag(cv, e, onMove, onUp) {
   let locked = false;
   let firstLockedMove = true;
   let dx = 0, dy = 0;
+  let lockRequested = false;
   const move = ev => {
     if (ended) return;
     if (document.pointerLockElement === cv) {
@@ -86,6 +87,7 @@ export function rulerDrag(cv, e, onMove, onUp) {
       if (ev.type !== 'pointermove' || ev.pointerId !== e.pointerId) return;
       dx = ev.clientX - e.clientX;
       dy = ev.clientY - e.clientY;
+      if (!lockRequested && Math.max(Math.abs(dx), Math.abs(dy)) >= 3) requestLock();
     }
     onMove(dx, dy);
   };
@@ -120,7 +122,9 @@ export function rulerDrag(cv, e, onMove, onUp) {
   document.addEventListener('pointerlockchange', lockChange);
   document.addEventListener('pointerlockerror', lockError);
   window.addEventListener('blur', cancel);
-  if (cv.requestPointerLock) {
+  function requestLock() {
+    lockRequested = true;
+    if (!cv.requestPointerLock) return;
     try {
       const pending = cv.requestPointerLock();
       pending?.then(() => { if (ended && document.pointerLockElement === cv) document.exitPointerLock(); }, lockError);
