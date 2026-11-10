@@ -135,6 +135,75 @@ for (const interpolation of [0, 1, 2]) {
   wa.destroy();
 }
 
+// Empty histories skip delay reads, but never discard old samples still reachable by modulation.
+for (const K of [ModulatorKernel, native.kernels.modulator]) {
+  for (const type of [1, 2]) {
+    const k = new K();
+    k.param('type', type);
+    k.param('interpolation', 2);
+    const out = [stereo()];
+    const impulse = stereo();
+    impulse[1][N - 1] = 1; // a right-only carrier must keep the history alive
+    const zeroDelay = stereo(type === 1 ? -1 : 0);
+    k.process([impulse, zeroDelay], out);
+    for (let b = 0; b < 3; b++) k.process([[], zeroDelay], out);
+    let recovered = false;
+    for (let b = 0; b < 20; b++) {
+      if (k.process([[], stereo(1)], out) && out[0][1].some(v => Math.abs(v) > 0.1)) recovered = true;
+    }
+    assert.ok(recovered, 'increasing delay recovers a buffered carrier even after silent output');
+    let reads = 0;
+    if (k instanceof ModulatorKernel) k.read = () => { reads++; throw new Error('Empty history read'); };
+    for (let b = 0; b < 50; b++) assert.equal(k.process([[], stereo(b % 2 ? 1 : -1)], out), false);
+    assert.equal(reads, 0, 'empty phase history bypasses sample interpolation');
+    k.destroy?.();
+  }
+}
+
+// Compare all phase interpolation modes to a direct, modulo-indexed delay reference across
+// empty-history skips, channel asymmetry, mode changes, and resuming sound after long silence.
+for (const K of [ModulatorKernel, native.kernels.modulator]) {
+  const k = new K();
+  const size = Math.ceil(sampleRate * 0.04) + 4;
+  const history = [new Float32Array(size), new Float32Array(size)];
+  const out = [stereo()];
+  let pos = 0;
+  for (let block = 0; block < 180; block++) {
+    const type = block % 2 ? 1 : 2;
+    const interpolation = Math.floor(block / 7) % 3;
+    k.param('type', type);
+    k.param('interpolation', interpolation);
+    const carrier = block % 60 < 10 ? stereo() : [];
+    const mod = stereo();
+    for (let ch = 0; ch < 2; ch++) for (let i = 0; i < N; i++) {
+      if (carrier.length) carrier[ch][i] = Math.sin((block * N + i) * (ch ? 0.19 : 0.07));
+      mod[ch][i] = 1.2 * Math.cos((block * N + i) * (ch ? 0.03 : 0.13));
+    }
+    const expected = stereo();
+    let live = false;
+    for (let i = 0; i < N; i++) {
+      for (let ch = 0; ch < 2; ch++) {
+        history[ch][pos] = carrier[ch]?.[i] ?? 0;
+        const m = mod[ch][i];
+        const delay = (type === 1 ? (Math.max(-1, Math.min(1, m)) + 1) * 0.5 : Math.min(1, Math.abs(m))) * sampleRate * 0.04;
+        const sample = age => history[ch][(pos - age + size) % size];
+        const age = Math.floor(delay), f = delay - age;
+        const a = sample(age), b = sample(age + 1);
+        const before = age ? sample(age - 1) : 2 * a - b, after = sample(age + 2);
+        const y = interpolation === 0 ? sample(Math.round(delay)) : interpolation === 1 ? a + (b - a) * f
+          : ((0.5 * (-before + 3 * a - 3 * b + after) * f
+            + before - 2.5 * a + 2 * b - 0.5 * after) * f + 0.5 * (b - before)) * f + a;
+        expected[ch][i] = y;
+        if (y !== 0) live = true;
+      }
+      pos = (pos + 1) % size;
+    }
+    assert.equal(k.process([carrier, mod], out), live, 'reference silent flag');
+    if (live) for (let ch = 0; ch < 2; ch++) for (let i = 0; i < N; i++) near(out[0][ch][i], expected[ch][i], 'reference phase output');
+  }
+  k.destroy?.();
+}
+
 // All render paths select the carrier BEFORE summing, retaining silent source positions.
 for (const options of [{}, { ...native, native: false }, { ...native, kernels: { ...native.kernels, modulator: ModulatorKernel } }, native]) {
   const h = dspTestHost(options);

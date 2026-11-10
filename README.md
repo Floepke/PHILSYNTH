@@ -166,6 +166,12 @@ heap when no events are queued. MIDI scheduler and DELAY release-history deadlin
 are extended lazily, avoiding heap churn on every drift update while retaining
 the same six-second history, event ordering, and release-tail modulation.
 
+Phase MODULATORs bypass sample processing once their carrier history is fully
+overwritten by zeros, even with an active modulation input. Buffered tails remain
+available across delay changes until then, and resuming audio retains the ring
+position. Delay interpolation uses conditional wraparound instead of per-tap
+modulo operations in both JavaScript and Wasm.
+
 ## Linux AppImage
 
 On an x86-64 or ARM64 Linux machine with Node.js 22 or newer:

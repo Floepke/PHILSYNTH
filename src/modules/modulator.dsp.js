@@ -16,6 +16,7 @@ export default class ModulatorKernel extends Kernel {
     this.size = Math.ceil(this.maxDelay) + 4;
     this.buffers = [new Float32Array(this.size), new Float32Array(this.size)];
     this.pos = 0;
+    this.zeroRun = this.size;
   }
 
   param(id, value) {
@@ -25,40 +26,58 @@ export default class ModulatorKernel extends Kernel {
       const index = Math.max(0, value | 0);
       if (index !== this.carrier) {
         this.carrier = index;
-        this.buffers.forEach((b) => b.fill(0));
+        this.panic();
       }
     }
   }
 
   sample(ch, age) {
-    return this.buffers[ch][(this.pos - age + this.size) % this.size];
+    const index = this.pos - age;
+    return this.buffers[ch][index < 0 ? index + this.size : index];
   }
 
   read(ch, delay) {
     if (this.interpolation === 0) return this.sample(ch, Math.round(delay));
     const age = Math.floor(delay);
     const f = delay - age;
-    const a = this.sample(ch, age);
-    const b = this.sample(ch, age + 1);
+    const buffer = this.buffers[ch];
+    let index = this.pos - age;
+    if (index < 0) index += this.size;
+    const a = buffer[index];
+    const b = buffer[index === 0 ? this.size - 1 : index - 1];
     if (this.interpolation === 1) return a + (b - a) * f;
     // At zero delay the future sample is unavailable; extrapolate the end slope.
-    const before = age > 0 ? this.sample(ch, age - 1) : 2 * a - b;
-    const after = this.sample(ch, age + 2);
+    const before = age > 0 ? buffer[index + 1 === this.size ? 0 : index + 1] : 2 * a - b;
+    const after = buffer[index < 2 ? index + this.size - 2 : index - 2];
     return ((0.5 * (-before + 3 * a - 3 * b + after) * f
       + before - 2.5 * a + 2 * b - 0.5 * after) * f + 0.5 * (b - before)) * f + a;
   }
 
-  panic() { for (const b of this.buffers) b.fill(0); }
+  panic() {
+    for (const b of this.buffers) b.fill(0);
+    this.zeroRun = this.size;
+  }
 
   process(inputs, outputs) {
     const carrier = inputs[0];
     const mod = inputs[1];
     const out = outputs[0];
+    const length = out[0].length;
+    const phase = this.type === 1 || this.type === 2;
+    // A fully overwritten history is empty even if a live modulator keeps changing the delay.
+    if (!carrier?.length && this.zeroRun >= this.size && (phase || !mod?.length)) {
+      this.pos = (this.pos + length) % this.size;
+      return false;
+    }
+    const cL = carrier?.[0], cR = carrier?.[1] ?? cL;
+    const mL = mod?.[0], mR = mod?.[1] ?? mL;
     let live = false;
-    for (let i = 0; i < out[0].length; i++) {
+    for (let i = 0; i < length; i++) {
+      let zero = true;
       for (let ch = 0; ch < 2; ch++) {
-        const c = carrier?.[ch]?.[i] ?? carrier?.[0]?.[i] ?? 0;
-        const m = mod?.[ch]?.[i] ?? mod?.[0]?.[i] ?? 0;
+        const c = (ch ? cR : cL)?.[i] ?? 0;
+        const m = (ch ? mR : mL)?.[i] ?? 0;
+        if (c !== 0) zero = false;
         this.buffers[ch][this.pos] = c;
         let y;
         switch (this.type) {
@@ -77,6 +96,7 @@ export default class ModulatorKernel extends Kernel {
         if (out[ch]) out[ch][i] = y;
         if (y !== 0) live = true;
       }
+      this.zeroRun = zero ? Math.min(this.size, this.zeroRun + 1) : 0;
       if (++this.pos === this.size) this.pos = 0;
     }
     return live;
