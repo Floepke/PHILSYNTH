@@ -127,6 +127,27 @@ assert.deepEqual(normalizeSong(JSON.parse(JSON.stringify(n))), n); // save/load 
 }
 
 // ---- clip editing ----
+{
+  const song = emptySong();
+  const midi = addClip(song);
+  const auto = addAutoClip(song);
+  assert.equal(midi.color, null);
+  assert.equal(auto.color, null);
+  midi.color = '#a1b2c3';
+  auto.color = '#123456';
+  const clone = cloneClip(song, midi);
+  const duplicate = duplicateClip(song, auto);
+  assert.equal(clone.color, midi.color);
+  assert.equal(duplicate.color, auto.color);
+  clone.color = '#abcdef';
+  assert.equal(midi.color, '#a1b2c3', 'linked content does not link clip colors');
+  const loaded = normalizeSong(JSON.parse(JSON.stringify(song)));
+  assert.deepEqual(loaded.clips.map(c => c.color), song.clips.map(c => c.color));
+  assert.deepEqual(parseClipFile(clipFileText([midi, auto])).map(c => c.color), [midi.color, auto.color]);
+  assert.deepEqual(normalizeSong({ clips: [{}, { color: 'red' }, { color: ' #AABBCC ' }] }).clips.map(c => c.color),
+    [null, null, '#aabbcc'], 'older and invalid colors inherit; valid codes normalize');
+}
+
 const s = emptySong();
 const a = addClip(s, { start: 4, length: 4, target: 2 });
 a.notes.push({ pitch: 60, start: 1, length: 1, vel: 0.8 });

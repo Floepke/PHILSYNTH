@@ -12,6 +12,7 @@ import { createArranger } from './arranger.js';
 import { createAutomationLane } from './automation.js';
 import { paramsOf, fromNorm, controllerAt, controllerNumber } from '../params.js';
 import { colorOf } from '../modcolor.js';
+import { openClipColorDialog } from '../colordialog.js';
 
 // controller value as the panel shows it
 const formatValue = (e, p, v) => (p.format ? p.format(v, e.values) : p.options ? p.options[v] : String(+v.toFixed(3)));
@@ -48,7 +49,16 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     layerVersion: () => layerVersion,
     clip,
     transport,
-    color: (c) => colorOf(entryOf(c.target)) ?? NO_COLOR,
+    color: (c) => c.color ?? colorOf(entryOf(c.target)) ?? NO_COLOR,
+    async setClipColor(clips, primary) {
+      const owner = song();
+      const color = await openClipColorDialog(primary, colorOf(entryOf(primary.target)) ?? NO_COLOR, clips.length);
+      if (color === undefined || song() !== owner) return;
+      const live = clips.filter((c) => owner.clips.includes(c));
+      if (!live.some((c) => c.color !== color)) return;
+      for (const c of live) c.color = color;
+      ctx.changed();
+    },
     targetLabel(c) {
       if (c.target === null) return '→ none';
       const e = entryOf(c.target);

@@ -1270,6 +1270,7 @@ export function createArranger(host, ctx) {
         { label: 'Copy', shortcut: shortcut('C'), action: copy },
         { label: 'Paste', shortcut: shortcut('V'), disabled: !clipboard, action: () => paste(p) },
         { label: 'Delete', shortcut: '⌫', action: remove },
+        { label: 'Set Clip Color', disabled: !ctx.setClipColor, action: () => ctx.setClipColor(clips, h.clip) },
         '-',
         { label: 'Duplicate', action: () => repeat(false) },
         { label: 'Clone (linked)', shortcut: shortcut('D'), action: () => repeat(true) },

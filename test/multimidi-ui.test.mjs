@@ -165,6 +165,67 @@ app.whenReady().then(async () => {
     assert.equal(await run('window.velocityTest.undoHistory.travel(-1)'), false, 'selection creates no undo edit');
     assert.deepEqual(errors, [], 'tuning selection has no app or worklet errors');
     console.log('TUNING keyboard selection UI tests passed');
+    await run(`(async () => {
+      const { addClip, addAutoClip, cloneClip } = await import('/src/song.js');
+      const { engine, seq, undoHistory } = window.velocityTest;
+      engine.song.clips = [];
+      const a = addClip(engine.song, { start: 0, length: 4, target: window.velocityId });
+      const b = addAutoClip(engine.song, { start: 0, length: 4, y: 34, target: window.velocityId });
+      const c = cloneClip(engine.song, a); c.y = 68;
+      window.colorIds = [a.id, b.id, c.id];
+      engine.song.selected = a.id;
+      engine.root.recolor(window.velocityId, '#123456');
+      seq.reload();
+      seq.applyView({ top: .4, bottom: .6, arranger: { sx: 0, sy: 0, ppq: 16 } });
+      undoHistory.reset();
+      window.clipColors = () => window.colorIds.map(id => engine.song.clips.find(c => c.id === id).color);
+      window.clipPointer = (type, lane, props = {}) => {
+        const cv = document.querySelector('#arranger canvas'), r = cv.getBoundingClientRect();
+        cv.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: r.left + 86,
+          clientY: r.top + 68 + lane * 34 + 17, pointerId: 1, button: 0, ...props }));
+      };
+      window.openClipColorMenu = () => {
+        window.clipPointer('pointerdown', 0, { button: 2, buttons: 2 });
+        window.clipPointer('pointerup', 0, { button: 2 });
+        [...document.querySelectorAll('.ctx-item')].find(b => b.textContent.includes('Set Clip Color')).click();
+      };
+    })()`);
+    await wait();
+    await run(`(() => {
+      window.clipPointer('pointerdown', 0);
+      window.clipPointer('pointerup', 0);
+      window.clipPointer('pointerdown', 1, { ctrlKey: true });
+      window.clipPointer('pointerup', 1, { ctrlKey: true });
+      window.openClipColorMenu();
+    })()`);
+    assert.equal(await run("document.getElementById('color-title').textContent"), 'Color of 2 clips');
+    await run(`(() => {
+      for (const [channel, value] of [['r', 171], ['g', 205], ['b', 239]]) {
+        const slider = document.getElementById('color-' + channel);
+        slider.value = value; slider.dispatchEvent(new Event('input'));
+      }
+      document.getElementById('color-dialog').close('ok');
+    })()`);
+    await wait();
+    assert.deepEqual(await run('window.clipColors()'), ['#abcdef', '#abcdef', null], 'mixed selection colors change together; unselected linked clone stays inherited');
+    assert.equal(await run('window.velocityTest.undoHistory.travel(-1)'), true);
+    assert.deepEqual(await run('window.clipColors()'), [null, null, null], 'one undo restores the entire group');
+    assert.equal(await run('window.velocityTest.undoHistory.travel(-1)'), false, 'no second edit');
+    assert.equal(await run('window.velocityTest.undoHistory.travel(1)'), true);
+    await wait();
+    await run("(() => { window.openClipColorMenu(); document.getElementById('color-dialog').close('cancel'); })()");
+    await wait();
+    assert.deepEqual(await run('window.clipColors()'), ['#abcdef', '#abcdef', null], 'cancel preserves colors');
+    await run(`(() => {
+      window.openClipColorMenu();
+      document.getElementById('color-reset').click();
+      document.getElementById('color-dialog').close('ok');
+    })()`);
+    await wait();
+    assert.equal((await run('window.clipColors()'))[0], null, 'reset stores null');
+    assert.equal(await run("document.getElementById('workspace').style.getPropertyValue('--clip-color')"), '#123456', 'reset uses connected module custom color');
+    assert.deepEqual(errors, [], 'clip colors have no app or worklet errors');
+    console.log('Clip color menu, multi-selection, undo, cancel and inheritance UI tests passed');
   } finally {
     win?.destroy();
     if (server) await new Promise(resolve => server.close(resolve));

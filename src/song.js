@@ -6,7 +6,8 @@
 //   solos = soloed lanes, sorted: while any lane is soloed only soloed lanes play (mute still wins)
 //   sigs = time signature changes [{ at (quarters), num, den }], sorted, the first one at 0.
 //          Each change starts a new bar, so a change inside a bar cuts that bar short.
-//   clip = { id, name, start, length, y (lane * LANE_H, px), target (module number | null), notes }
+//   clip = { id, name, start, length, y (lane * LANE_H, px), target (module number | null), color, notes }
+//   color: null inherits the target module's color; '#rrggbb' overrides it independently per clip.
 //   start may be negative: clips before time zero are parked there (never played by the song,
 //   the part of a clip that reaches past zero does play). Clips sit on lanes LANE_H px high.
 //   Idea storage: a clip with y < 0 (y <= -LANE_H) lies above the first lane, placed freely (any
@@ -37,6 +38,7 @@
 // The project file stores every clip's notes; loading re-shares them.
 import { curvePolyline, sampleAt } from './curve.js';
 import { CLIP_FORMAT, isFormat, jsonFileText } from './fileformat.js';
+import { cleanColor } from './modcolor.js';
 
 export const SNAP_BASES = [1, 2, 4, 8, 16, 32, 64, 128]; // whole, half, quarter, eighth, 16th, ... note
 export const SNAP_NAMES = { 1: 'Whole', 2: 'Half', 4: 'Quarter', 8: 'Eighth', 16: '16th', 32: '32nd', 64: '64th', 128: '128th' };
@@ -223,6 +225,7 @@ export function normalizeSong(s) {
       length: Math.max(1e-3, num(c.length, BAR)),
       y: num(c.y, 0) < 0 ? ideaY(num(c.y, 0)) : laneY(num(c.y, 0)),
       target: Number.isInteger(c.target) ? c.target : null,
+      color: cleanColor(c.color),
       notes: c.kind === 'auto' ? [] : (Array.isArray(c.notes) ? c.notes : [])
         .filter((n) => Number.isFinite(n?.pitch) && Number.isFinite(n.start) && n.length > 0)
         .map((n) => ({
@@ -321,7 +324,7 @@ export function newSong() {
 
 export function addClip(song, { start = 0, y = 0, length = BAR, target = null } = {}) {
   const id = song.nextId++;
-  const clip = { id, name: 'Clip', start, length, y, target, notes: [] };
+  const clip = { id, name: 'Clip', start, length, y, target, color: null, notes: [] };
   song.clips.push(clip);
   return clip;
 }
