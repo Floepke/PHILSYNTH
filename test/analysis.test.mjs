@@ -2,14 +2,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { AudioAnalysis, ANALYSIS_SIZE } from '../src/dsp/analysis.js';
 import { Spectrum, dbFS } from '../src/spectrum.js';
-import { analysisHandle } from '../src/analysepanel.js';
+import { analysisHandle } from '../src/spectrumanalyserpanel.js';
 import { dspTestHost } from './dsphost.mjs';
 import { instantiateDsp, wasmKernels } from '../src/dsp/wasm.js';
 
 const near = (a, b, epsilon = 1e-6) => assert.ok(Math.abs(a - b) < epsilon, `${a} != ${b}`);
 globalThis.sampleRate = 48000;
 
-// Raw stereo peaks/RMS include every sample, even spikes a decimated scope would miss.
+// The full-rate stereo window retains samples a decimated cable scope would miss.
 {
   const analysis = new AudioAnalysis(3);
   const left = new Float32Array(128), right = new Float32Array(128);
@@ -19,15 +19,13 @@ globalThis.sampleRate = 48000;
   analysis.push(null, null);
   const report = analysis.report();
   assert.equal(report.h, 3);
-  assert.deepEqual(report.peak, [1.25, 2]);
-  near(report.rms[0], 1.25 / 16);
-  near(report.rms[1], 2 / 16);
+  assert.deepEqual(Object.keys(report).sort(), ['h', 'sampleRate', 'samples'], 'no loudness-meter data is collected');
   assert.equal(report.samples.length, 2 * ANALYSIS_SIZE);
   assert.equal(report.samples[ANALYSIS_SIZE - 256 + 1], 1.25);
   assert.equal(report.samples[2 * ANALYSIS_SIZE - 256 + 2], -2);
   assert.equal(analysis.report(), null, 'no duplicate data without another rendered block');
-  analysis.push(null, null);
-  assert.deepEqual(analysis.report().peak, [0, 0], 'level aggregation resets each report');
+  for (let i = 0; i < ANALYSIS_SIZE / 128; i++) analysis.push(null, null);
+  assert.ok(analysis.report().samples.every(value => value === 0), 'silence clears the spectrum window');
 }
 
 // The circular FFT window always contains the latest full-rate audio in chronological order.
@@ -74,18 +72,17 @@ for (const backend of ['js', 'wasm', 'wasm-jsgraph']) {
   dsp.analyse(osc.h);
   for (let i = 0; i < 40; i++) graph.render(master, right);
   const result = graph.analysis.report();
-  assert.ok(result.peak[0] > 0.1, `${backend}: uncabled sound is measured`);
-  assert.ok(result.rms[0] > 0.05);
+  assert.ok(result.samples.some(value => Math.abs(value) > 0.1), `${backend}: uncabled sound is measured`);
   assert.ok(master.every(v => v === 0), `${backend}: monitoring does not leak to speakers`);
   osc.send({ type: 'allOff' });
   render(1);
   graph.analysis.report();
-  render(2);
-  assert.deepEqual(graph.analysis.report().peak, [0, 0], `${backend}: silent nodes do not report stale audio buffers`);
+  render(ANALYSIS_SIZE / 128);
+  assert.ok(graph.analysis.report().samples.every(value => value === 0), `${backend}: silent nodes do not report stale audio buffers`);
   osc.send({ type: 'noteOn', id: 2, pitch: 69, velocity: 1 });
   osc.connect(dsp.destination);
   render(10);
-  assert.ok(graph.analysis.report().peak[0] > 0.1);
+  assert.ok(graph.analysis.report().samples.some(value => Math.abs(value) > 0.1));
   assert.ok(graph.master.silent === false);
   dsp.analyse(null);
   assert.equal(graph.analysis, null, `${backend}: closing frees the analysis buffers`);
@@ -94,8 +91,8 @@ for (const backend of ['js', 'wasm', 'wasm-jsgraph']) {
   assert.ok(!graph.order.some(n => n.h === osc.h), 'closed panel does not keep disconnected nodes rendering');
   dsp.analyse(osc.h);
   osc.destroy();
-  render(1);
-  assert.deepEqual(graph.analysis.report().peak, [0, 0], 'deleted nodes yield silence, not stale samples');
+  render(ANALYSIS_SIZE / 128);
+  assert.ok(graph.analysis.report().samples.every(value => value === 0), 'deleted nodes yield silence, not stale samples');
 }
 
 // Selection uses the node after the Output's master gain, not the input signal or a controller.

@@ -18,6 +18,12 @@ app.whenReady().then(async () => {
         window.fftCount = 0;
         const measure = Spectrum.prototype.measure;
         Spectrum.prototype.measure = function (...args) { window.fftCount++; return measure.apply(this, args); };
+        window.spectrumCurves = 0;
+        const curve = CanvasRenderingContext2D.prototype.quadraticCurveTo;
+        CanvasRenderingContext2D.prototype.quadraticCurveTo = function (...args) {
+          if (this.canvas.parentElement?.id === 'analyse-panel') window.spectrumCurves++;
+          return curve.apply(this, args);
+        };
         Object.defineProperty(navigator, 'requestMIDIAccess', { value: async () => Object.assign(new EventTarget(), { inputs: new Map() }) });
         await import('/src/main.js');
       </script>`);
@@ -44,10 +50,8 @@ app.whenReady().then(async () => {
       const end = Date.now() + 10000;
       while (!(await run(condition))) {
         if (Date.now() > end) throw new Error(`Timed out: ${label}\n${JSON.stringify(await run(`({
-          ops: window.analysisOps, reports: window.analysisReports, last: window.lastAnalysis && { h: window.lastAnalysis.h, peak: window.lastAnalysis.peak },
-          state: document.querySelector('.analyse-state')?.textContent,
+          ops: window.analysisOps, reports: window.analysisReports, last: window.lastAnalysis && { h: window.lastAnalysis.h },
           width: document.getElementById('analyse-panel')?.clientWidth,
-          target: document.querySelector('.analyse-target')?.textContent,
           status: document.getElementById('status')?.textContent
         })`))}\n${errors.join('\n')}`);
         await delay(20);
@@ -81,13 +85,30 @@ app.whenReady().then(async () => {
         osc.inst.noteOn(9001, 69, 1);
         window.analyseKey = key => document.getElementById('analyse-split').dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
       })()`);
-      await waitFor('window.lastAnalysis?.peak[0] > 1');
-      await waitFor("document.querySelector('.analyse-clip').classList.contains('clipping')");
+      await waitFor('window.lastAnalysis?.samples.some(value => Math.abs(value) > 1)');
       assert.equal(await run('window.analysisTest.engine.dspInfo.dsp'), backend);
-      assert.ok(await run("document.querySelector('.analyse-target').textContent.includes('#0')"), 'no module selection monitors Output');
+      assert.equal(await run('window.lastAnalysis.h'), await run('window.analysisTest.engine.root.modules.get(0).inst.input.h'), 'no selection monitors Output');
       assert.ok(await run('window.fftCount > 0'));
-      assert.ok(await run("parseFloat(document.querySelector('.analyse-peak').textContent) > 0"), 'above-zero samples remain measurable');
-      assert.ok(await run("document.querySelector('.analyse-channel .analyse-fill').getBoundingClientRect().width > 0"));
+      assert.equal(await run("document.getElementById('analyse-panel').textContent.trim()"), '', 'no headings, meter or info text');
+      assert.equal(await run("document.getElementById('analyse-panel').children.length"), 1, 'panel only contains the spectrum canvas');
+      assert.equal(await run("getComputedStyle(document.getElementById('analyse-split')).cursor"), 'ew-resize');
+      assert.equal(await run("document.getElementById('analyse-split').getBoundingClientRect().width * 2"),
+        await run("document.getElementById('panel-split').getBoundingClientRect().width"), 'Analyse divider is half the controller divider width');
+      const checkSpectrumSize = async () => {
+        assert.ok(await run(`(() => {
+          const p = document.getElementById('analyse-panel'), c = p.querySelector('canvas');
+          const a = p.getBoundingClientRect(), b = c.getBoundingClientRect();
+          return a.width > 0 && a.height > 0 && a.left === b.left && a.top === b.top
+            && a.width === b.width && a.height === b.height
+            && c.width === Math.round(b.width * devicePixelRatio) && c.height === Math.round(b.height * devicePixelRatio)
+            && getComputedStyle(p).overflow === 'clip' && p.scrollHeight === p.clientHeight && p.scrollWidth === p.clientWidth;
+        })()`), 'spectrum fills the panel edge to edge at its actual resolution, without scrolling');
+      };
+      await checkSpectrumSize();
+      assert.ok(await run(`(() => {
+        const g = document.querySelector('#analyse-panel canvas').getContext('2d');
+        return window.spectrumCurves > 0 && g.lineJoin === 'round' && g.lineCap === 'round';
+      })()`), 'spectrum uses rounded curves instead of a stepped polyline');
       assert.ok(await run(`(() => {
         const c = document.querySelector('#analyse-panel canvas'), g = c.getContext('2d');
         const pixels = g.getImageData(0, 0, c.width, c.height).data;
@@ -97,23 +118,15 @@ app.whenReady().then(async () => {
 
       await run("window.analysisTest.select({ kind: 'module', entry: window.analysisEntries.osc })");
       await waitFor('window.lastAnalysis.h === window.analysisEntries.osc.inst.node.h');
-      assert.ok(await run('window.lastAnalysis.peak[0] < 1'), 'selection measures the oscillator before the amplifier');
-      await delay(80);
-      assert.equal(await run("document.querySelector('.analyse-clip').classList.contains('clipping')"), false, 'selection resets stale clipping');
+      assert.ok(await run('window.lastAnalysis.samples.every(value => Math.abs(value) < 1)'), 'selection measures the oscillator before the amplifier');
       await run("window.analysisTest.select({ kind: 'module', entry: window.analysisEntries.lfo })");
       await waitFor('window.analysisOps.at(-1) === null');
-      assert.match(await run("document.querySelector('.analyse-state').textContent"), /No audio/);
       await run('window.analysisTest.engine.root.setParam(window.analysisEntries.lfo.id, "mode", 1)');
       await waitFor('window.analysisOps.at(-1) === window.analysisEntries.lfo.inst.node.h', 'switching to audio mode refreshes eligibility');
       await run('window.analysisTest.engine.root.setParam(window.analysisEntries.lfo.id, "mode", 0)');
       await waitFor('window.analysisOps.at(-1) === null');
       await run('window.analysisTest.select(null)');
-      await waitFor("document.querySelector('.analyse-clip').classList.contains('clipping')");
-      await run('window.analysisTest.engine.root.setParam(window.analysisEntries.amp.id, "amp", 0.5)');
-      await delay(100);
-      await run("document.querySelector('.analyse-reset').click()");
-      await delay(80);
-      assert.equal(await run("document.querySelector('.analyse-clip').classList.contains('clipping')"), false);
+      await waitFor('window.lastAnalysis.h === window.analysisTest.engine.root.modules.get(0).inst.input.h');
 
       // The Analyse divider is independent: diagonal pointer motion must only change its width.
       const before = await run('window.analysisTest.seq.viewState()');
@@ -171,6 +184,11 @@ app.whenReady().then(async () => {
       await waitFor('window.analysisOps.at(-1) === null', 'hidden patcher disables analysis');
       await run('window.analysisTest.seq.applyView(window.analyseLayout)');
       await waitFor('window.analysisOps.at(-1) !== null');
+      await run('window.analysisTest.seq.applyView({ ...window.analyseLayout, bottom: window.analyseLayout.top + 0.06 })');
+      await delay(100);
+      await checkSpectrumSize();
+      assert.ok(await run('document.getElementById("analyse-panel").clientHeight < 100'), 'spectrum scales to a short patcher pane');
+      await run('window.analysisTest.seq.applyView(window.analyseLayout)');
       win.setSize(400, 1100);
       await delay(100);
       assert.ok(await run(`(() => {
@@ -180,7 +198,7 @@ app.whenReady().then(async () => {
       win.setSize(1400, 1100);
       await delay(100);
       await run('window.analysisTest.engine.ctx.close()');
-      console.log(`${backend}: Analyse panel selection, clipping, spectrum, independent divider and CPU gating passed`);
+      console.log(`${backend}: full-panel spectrum, thin horizontal divider, selection and CPU gating passed`);
     }
     assert.deepEqual(errors, [], 'no application or worklet errors');
   } finally {

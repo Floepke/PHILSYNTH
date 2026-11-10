@@ -48,7 +48,7 @@ import { createPatchMonitor } from './patchmonitor.js';
 import { songFacts } from './songfacts.js';
 import { initMouseNavigation, MOUSE_FORWARD } from './mousebuttons.js';
 import { initPanelScroll } from './panelscroll.js';
-import { createAnalysePanel, analysisHandle } from './analysepanel.js';
+import { createSpectrumAnalyserPanel, analysisHandle } from './spectrumanalyserpanel.js';
 
 const engine = new Engine();
 let transport = null; // song playback (created after the engine)
@@ -1787,16 +1787,13 @@ initCpuMeter(engine);
 await engine.init();
 patchMonitor = createPatchMonitor(engine.root);
 scope = new CableScope(engine.dsp);
-analysePanel = createAnalysePanel({
+analysePanel = createSpectrumAnalyserPanel({
   host: $('patcher'), panel: $('analyse-panel'), divider: $('analyse-split'), controller: $('panel-shell'),
   dsp: engine.dsp,
   target: () => {
     const entries = selectedEntries();
     const entry = entries.find(entry => analysisHandle(entry) !== null) ?? entries[0] ?? shown()?.modules.get(0);
-    return {
-      h: analysisHandle(entry),
-      label: entry ? `#${entry.id} ${moduleName(entry)}${entries.length > 1 ? ' (first audio selection)' : ''}` : 'Output',
-    };
+    return analysisHandle(entry);
   },
   onChange: () => persist.schedule(),
 });
