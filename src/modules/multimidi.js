@@ -93,8 +93,8 @@ function velocityView(entry, api) {
   return { el, refresh };
 }
 
-// Smooth random value: every 1/rate seconds a new random destination, reached along a cosine
-// curve (no corners, never jumps). Starts at a random value so every note has its own offset;
+// Random value: every 1/rate seconds a new random destination, reached along a linear
+// ramp. Starts at a random value so every note has its own offset;
 // rate 0 holds the value.
 export class Drifter {
   constructor(bipolar, rand = Math.random) {
@@ -112,7 +112,7 @@ export class Drifter {
       this.to = this.rand();
       this.t %= 1;
     }
-    this.value = this.from + (this.to - this.from) * (0.5 - 0.5 * Math.cos(Math.PI * this.t));
+    this.value = this.from + (this.to - this.from) * this.t;
     return this.value;
   }
 }
@@ -187,17 +187,26 @@ export default {
     let lastTime = null;
     let state = velocityState(null);
     let velocityPoly = curvePolyline(state.velocityCurve.points);
+    let mappingVersion = 0;
+    let overtone = 0;
 
-    const outOf = (n) => [
-      n.pitch + v.transpose + v.finetune + overtoneSemitones(v.overtone) + v.drift * n.pd.value,
-      Math.max(0, (v.velSense >= 0.5 ? sampleAt(velocityPoly, n.vel) : 1)
-        * mapAt(state.velocityMap, n.pitch) * Math.min(1, Math.max(0, v.velocity)) * (1 - v.velDrift * n.vd.value)),
-    ];
+    const mapNote = (n) => {
+      if (n.mappingVersion === mappingVersion) return;
+      n.response = sampleAt(velocityPoly, n.vel);
+      n.trim = mapAt(state.velocityMap, n.pitch);
+      n.mappingVersion = mappingVersion;
+    };
+    const pitchOf = (n) => n.pitch + v.transpose + v.finetune + overtone + v.drift * n.pd.value;
+    const velocityOf = (n) => Math.max(0, (v.velSense >= 0.5 ? n.response : 1)
+      * n.trim * Math.min(1, Math.max(0, v.velocity)) * (1 - v.velDrift * n.vd.value));
     const update = (inId, n) => {
-      const out = outOf(n);
-      if (Math.abs(out[0] - n.out[0]) < 1e-4 && Math.abs(out[1] - n.out[1]) < 1e-4) return;
-      n.out = out;
-      midi.noteMod(inId, out[0], out[1]);
+      mapNote(n);
+      const pitch = pitchOf(n);
+      const velocity = velocityOf(n);
+      if (Math.abs(pitch - n.outPitch) < 1e-4 && Math.abs(velocity - n.outVelocity) < 1e-4) return;
+      n.outPitch = pitch;
+      n.outVelocity = velocity;
+      midi.noteMod(inId, pitch, velocity);
     };
     const tick = (time) => {
       const dt = lastTime === null ? 0 : Math.min(0.1, time - lastTime);
@@ -206,11 +215,13 @@ export default {
         const { inId, note } = expiries.pop();
         if (notes.get(inId) === note) notes.delete(inId);
       }
-      if (!dirty && !v.drift && !v.velDrift) return;
+      const pitchDrift = v.drift && v.driftFreq > 0;
+      const velocityDrift = v.velDrift && v.velDriftFreq > 0;
+      if (!dirty && !pitchDrift && !velocityDrift) return;
       dirty = false;
       for (const [inId, n] of notes) {
-        if (v.drift) n.pd.step(dt, v.driftFreq);
-        if (v.velDrift) n.vd.step(dt, v.velDriftFreq);
+        if (pitchDrift) n.pd.step(dt, v.driftFreq);
+        if (velocityDrift) n.vd.step(dt, v.velDriftFreq);
         update(inId, n);
       }
     };
@@ -224,16 +235,19 @@ export default {
       setState(value) {
         state = velocityState(value);
         velocityPoly = curvePolyline(state.velocityCurve.points);
+        mappingVersion++;
         dirty = true;
       },
       setParam(id, val) {
         if (v[id] !== val) dirty = true;
         v[id] = val; // pitch/velocity changes reach the notes on the next clock tick
+        if (id === 'overtone') overtone = overtoneSemitones(val);
         ctl.param(id, val);
       },
       onModulated(id, val) {
         if (v[id] !== val) dirty = true;
         v[id] = val;
+        if (id === 'overtone') overtone = overtoneSemitones(val);
       },
       noteOn(inId, pitch, vel, phase = 0, time) {
         inst.noteOff(inId); // same id again: release the old copy first
@@ -243,13 +257,16 @@ export default {
         n.delay = delay ? rand() * delay / 1000 : 0;
         const amount = Math.min(1, Math.max(0, v.randomPhase));
         n.phase = wrapPhase((Number.isFinite(phase) ? phase : 0) + (Number(v.phase) || 0) + (amount ? rand() * amount : 0));
-        n.out = outOf(n);
+        mapNote(n);
+        n.outPitch = pitchOf(n);
+        n.outVelocity = velocityOf(n);
         notes.set(inId, n);
-        midi.noteOn(inId, n.out[0], n.out[1], n.phase, n.delay, time);
+        midi.noteOn(inId, n.outPitch, n.outVelocity, n.phase, n.delay, time);
       },
       noteMod(inId, pitch, vel) {
         const n = notes.get(inId);
         if (!n) return;
+        if (n.pitch !== pitch || n.vel !== vel) n.mappingVersion = -1;
         n.pitch = pitch;
         n.vel = vel;
         update(inId, n);

@@ -157,6 +157,14 @@ MULTIMIDI pauses each random drift generator when its amount is zero. When both
 pitch and velocity drift are zero, clock ticks skip the note-update loop unless
 a controller changed; incoming note updates and deadline-based release cleanup
 still work. Re-enabling drift resumes its paused random trajectory.
+Pitch and velocity drift use linear ramps between random destinations rather
+than cosine easing, reducing interpolation work without changing their controls.
+MULTIMIDI caches each note's velocity response and key trim until its input or
+mapping changes, and caches the overtone offset. Hold-mode drift skips per-note
+clock work unless a controller changes. Zero-delay updates bypass the scheduler
+heap when no events are queued. MIDI scheduler and DELAY release-history deadlines
+are extended lazily, avoiding heap churn on every drift update while retaining
+the same six-second history, event ordering, and release-tail modulation.
 
 ## Linux AppImage
 

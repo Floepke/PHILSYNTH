@@ -256,6 +256,19 @@ for (const action of ['allOff', 'destroy', 'releaseTarget']) {
     s.inst.onModulated('velDrift', 0);
     s.tick(1.525);
     assert.equal(outputs, count, 'unchanged modulation does not restart output computation');
+    s.inst.setParam('drift', 1);
+    s.inst.setParam('driftFreq', 0);
+    s.inst.setParam('velDrift', 1);
+    s.inst.setParam('velDriftFreq', 0);
+    s.tick(1.53);
+    const heldSteps = steps.length;
+    const heldCalls = s.log.length;
+    for (let i = 0; i < 100; i++) s.tick(1.535 + i * 0.005);
+    assert.equal(steps.length, heldSteps, 'Hold drift generators do no clock work');
+    assert.equal(s.log.length, heldCalls, 'Hold retains its output without resending updates');
+    s.inst.setParam('transpose', 24);
+    s.tick(2.1);
+    assert.ok(s.log.length > heldCalls, 'controllers still update Hold-mode notes');
   } finally {
     s.inst.destroy();
     Drifter.prototype.step = step;

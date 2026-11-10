@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import multimidi from '../src/modules/multimidi.js';
+import multimidi, { Drifter } from '../src/modules/multimidi.js';
 import { curvePolyline, defaultCurve, sampleAt } from '../src/curve.js';
 import { dspTestHost } from './dsphost.mjs';
 import { PatchRuntime } from '../src/patch.js';
@@ -7,6 +7,23 @@ import { emptySong, addClip } from '../src/song.js';
 import { renderSong } from '../src/render.js';
 
 const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-8, `${a} != ${b}`);
+
+for (const bipolar of [false, true]) {
+  const random = [0.2, 0.8, 0.4];
+  let draws = 0;
+  const drift = new Drifter(bipolar, () => random[draws++]);
+  const value = (v) => bipolar ? v * 2 - 1 : v;
+  near(drift.value, value(0.2));
+  near(drift.step(0.25, 1), value(0.35));
+  near(drift.step(0.25, 1), value(0.5));
+  near(drift.step(0.25, 1), value(0.65));
+  near(drift.step(1, 0), value(0.65));
+  near(drift.step(0, 1), value(0.65));
+  assert.equal(draws, 2, 'Hold and zero elapsed time consume no random values');
+  drift.step(0.25, 1);
+  assert.equal(draws, 3, 'cycle timing still selects a new random destination');
+  near(drift.step(0.25, 1), value(0.5875));
+}
 const customState = () => {
   const state = multimidi.defaultState();
   state.velocityMap[60] = 0.25;

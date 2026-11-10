@@ -38,12 +38,13 @@ export default {
     const records = new Set();
     const now = () => Math.max(ctx?.currentTime ?? 0, clock);
     const expire = (note) => {
-      expiries.remove(note.expiry);
       if (note.pending) return;
       if (note.cancelled) {
+        expiries.remove(note.expiry);
+        note.expiry = null;
         records.delete(note);
         if (notes.get(note.inId) === note) notes.delete(note.inId);
-      } else if (note.released) note.expiry = expiries.push({ note, due: note.expires });
+      } else if (note.released && !note.expiry) note.expiry = expiries.push({ note, due: note.expires });
     };
 
     const dispatch = ({ note, type, args, due }) => {
@@ -76,6 +77,9 @@ export default {
       }
       while (expiries.first && at >= expiries.first.due) {
         const { note: n } = expiries.pop();
+        n.expiry = null;
+        if (n.pending) continue;
+        if (at < n.expires) { expire(n); continue; }
         records.delete(n);
         if (notes.get(n.inId) === n) notes.delete(n.inId);
       }
@@ -86,7 +90,6 @@ export default {
       note.pending++;
       pending++;
       if (note.released) note.expires = Math.max(note.expires, due + 6);
-      expiries.remove(note.expiry);
       queue.push(event);
       tick(now());
     };

@@ -12,8 +12,8 @@ export function createMidiScheduler(ctx, dsp, getTargets) {
   const pending = new Set();
   const now = () => Math.max(ctx?.currentTime ?? 0, clock);
   const expire = (note, due) => {
-    expiries.remove(note.expiry);
-    note.expiry = expiries.push({ note, due });
+    note.expires = due;
+    if (!note.expiry) note.expiry = expiries.push({ note, due });
   };
   const dispatch = ({ note, type, args, due }) => {
     if (note.cancelled) return;
@@ -38,6 +38,11 @@ export function createMidiScheduler(ctx, dsp, getTargets) {
     }
     while (expiries.first && at >= expiries.first.due) {
       const { note } = expiries.pop();
+      note.expiry = null;
+      if (at < note.expires) {
+        note.expiry = expiries.push({ note, due: note.expires });
+        continue;
+      }
       records.delete(note);
       if (notes.get(note.inId) === note) notes.delete(note.inId);
     }
@@ -46,7 +51,13 @@ export function createMidiScheduler(ctx, dsp, getTargets) {
     if (note.cancelled) return;
     if (note.delay === null) { note.waiting.push({ type, args, at }); return; }
     const due = at + note.delay;
-    if (note.released) expire(note, Math.max(note.expiry.due, due + 6));
+    if (note.released) expire(note, Math.max(note.expires, due + 6));
+    if (type === 'noteMod' && note.delay === 0 && !queue.first) {
+      withMidiTrace(null, () => {
+        for (const target of note.targets) target.noteMod(note.id, args[0], args[1]);
+      });
+      return;
+    }
     queue.push({ note, type, args, due });
   };
   const cancel = (note) => {

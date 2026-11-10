@@ -13,7 +13,7 @@ function harness() {
     onClock(fn) { clocks.add(fn); return () => clocks.delete(fn); },
   }, () => [target]);
   const at = (time) => { ctx.currentTime = time; for (const tick of clocks) tick(time); };
-  return { midi, calls, target, at, clocks };
+  return { midi, calls, target, at, clocks, ctx };
 }
 
 // Equal deadlines are FIFO; arbitrary removals preserve both heap directions. Compare every
@@ -160,6 +160,45 @@ for (const action of ['allOff', 'releaseTarget', 'destroy']) {
   h.at(7);
   h.midi.noteMod(0, 62, 0.5);
   assert.equal(h.calls.length, count, 'extended note expired too');
+  h.midi.destroy();
+}
+
+// Immediate updates bypass the deadline heap; extending release history does not churn it.
+{
+  const h = harness();
+  h.midi.noteOn(1, 60, 1);
+  h.midi.noteOff(1);
+  const push = MidiQueue.prototype.push;
+  let pushes = 0;
+  MidiQueue.prototype.push = function (item) { pushes++; return push.call(this, item); };
+  try {
+    for (let i = 0; i < 1000; i++) {
+      h.at(i / 1000);
+      h.midi.noteMod(1, 60 + i / 1000, 0.5);
+    }
+    assert.equal(pushes, 0, 'no event allocations in the heap or expiry rescheduling per immediate update');
+    assert.equal(h.calls.filter(c => c.type === 'noteMod').length, 1000);
+    h.at(6);
+    assert.equal(pushes, 1, 'expiry is rescheduled only when its old deadline is reached');
+    h.at(7);
+    const count = h.calls.length;
+    h.midi.noteMod(1, 70, 0.5);
+    assert.equal(h.calls.length, count, 'lazy extension still expires at the correct deadline');
+  } finally {
+    MidiQueue.prototype.push = push;
+    h.midi.destroy();
+  }
+}
+
+// An immediate update cannot overtake queued equal-time starts from other notes.
+{
+  const h = harness();
+  h.midi.noteOn(1, 60, 1);
+  h.midi.noteOn(2, 64, 1, 0, 1);
+  h.ctx.currentTime = 1; // No clock callback: the start is still in the queue.
+  const count = h.calls.length;
+  h.midi.noteMod(1, 61, 0.5);
+  assert.deepEqual(h.calls.slice(count).map(c => c.type), ['noteOn', 'noteMod']);
   h.midi.destroy();
 }
 
