@@ -5,7 +5,8 @@
 // the columns is what a glide follows. The newest sounding note is marked at its exact pitch; the
 // line below names the hovered key.
 // Zoom: Ctrl/Cmd+wheel or the − / + buttons; scroll: Shift+wheel (or a sideways wheel) or drag the
-// key strip. A bar under the octave names shows the visible part of the 128 keys.
+// key strip. In pickFirst mode a click on the strip selects a key without editing it.
+// A bar under the octave names shows the visible part of the 128 keys.
 // The defaults edit PITCH2CTL's 0..1 map; the hooks of createKeyMapView let TUNING show its
 // pitches (or their cents away from equal temperament) on a range that follows the keys shown.
 import { isBlack, noteName } from '../song.js';
@@ -97,7 +98,7 @@ export function createKeyMapView({
   let stroke = null; // { key, value } of the last freehand point
   let pending = null; // pickFirst: the pointer went down here and has not moved yet
   let line = null; // Shift+drag: { a, va, b, vb } in fractional keys and shown values
-  let pan = null; // dragging the key strip: { x, start }
+  let pan = null; // key-strip click or drag: { x, y, start, key, moved }
   let frozen = null; // the value range while drawing (it does not move under the pointer)
   let view = { start: 0, span: KEYS }; // the visible keys (zoom / scroll)
 
@@ -297,7 +298,7 @@ export function createKeyMapView({
     cv.setPointerCapture(e.pointerId);
     const p = pos(e);
     if (p.y >= layout(cv.clientWidth, cv.clientHeight).strip) { // the key strip: scroll
-      pan = { x: p.x, start: view.start };
+      pan = { x: p.x, y: p.y, start: view.start, key: p.key, moved: false };
       cv.style.cursor = 'grabbing';
       return;
     }
@@ -322,6 +323,8 @@ export function createKeyMapView({
   cv.addEventListener('pointermove', (e) => {
     const p = pos(e);
     if (pan) {
+      if (Math.hypot(p.x - pan.x, p.y - pan.y) >= DRAG) pan.moved = true;
+      if (!pan.moved) return;
       const next = clampView(pan.start - ((p.x - pan.x) * view.span) / cv.clientWidth, view.span);
       if (next.start !== view.start) { view = next; draw(); }
       return;
@@ -341,8 +344,18 @@ export function createKeyMapView({
     showInfo();
     draw();
   });
-  const stop = () => {
-    if (pan) { pan = null; cv.style.cursor = ''; return; }
+  const stop = (event) => {
+    if (pan) {
+      if (event.type === 'pointerup' && !pan.moved && pickFirst) {
+        pick(pan.key);
+        hover = pan.key;
+        showInfo();
+        draw();
+      }
+      pan = null;
+      cv.style.cursor = '';
+      return;
+    }
     if (line) {
       // the keys whose centres the line covers take its value there
       const { a, va, b, vb } = line;

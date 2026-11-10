@@ -1,4 +1,5 @@
 // Linux: xvfb-run -a node_modules/.bin/electron test/multimidi-ui.test.mjs --no-sandbox
+// Shared key-map UI: MULTIMIDI velocity editing and TUNING keyboard selection.
 import assert from 'node:assert/strict';
 import { app, BrowserWindow } from 'electron';
 import { readFile } from 'node:fs/promises';
@@ -101,6 +102,56 @@ app.whenReady().then(async () => {
     assert.deepEqual(await run('window.velocityState().velocityCurve.points.map(p => [p.x, p.y])'), [[0, 0], [1, 1]]);
     assert.deepEqual(errors, [], 'app and worklet have no errors while editing velocity maps');
     console.log('MULTIMIDI velocity editor UI tests passed');
+
+    await run(`(async () => {
+      const { engine, select, undoHistory } = window.velocityTest;
+      const entry = await engine.root.addModule('TUNING');
+      const state = structuredClone(entry.state);
+      state.map[61] = 61.375;
+      state.map[64] = 63.875;
+      engine.root.setState(entry.id, state);
+      window.tuningId = entry.id;
+      window.tuningState = () => engine.root.modules.get(window.tuningId).state;
+      select({ kind: 'module', entry });
+      undoHistory.reset();
+    })()`);
+    const tuningBefore = await run('JSON.stringify(window.tuningState())');
+    const stripPoint = async (key, start = 0, span = 128) => {
+      await run(`document.querySelector('.p2c-view canvas').scrollIntoView({ block: 'center' })`);
+      await wait();
+      return run(`(() => {
+        const cv = document.querySelector('.p2c-view canvas'), r = cv.getBoundingClientRect();
+        return { x: Math.round(r.left + cv.clientLeft + (${key} + .5 - ${start}) / ${span} * cv.clientWidth),
+          y: Math.round(r.top + cv.clientTop + cv.clientHeight - 22) };
+      })()`);
+    };
+    const selectedTuning = () => run(`({
+      key: document.querySelector('.tuning-key-name').textContent,
+      values: [...document.querySelectorAll('.tuning-key input')].map(i => Number(i.value)),
+    })`);
+    await click(await stripPoint(61));
+    assert.deepEqual(await selectedTuning(), { key: 'C#4 (61)', values: [61.375, 37.5] },
+      'clicking a black piano key shows its exact stored pitch and cents');
+    await click(await stripPoint(64));
+    assert.deepEqual(await selectedTuning(), { key: 'E4 (64)', values: [63.875, -12.5] },
+      'clicking a white piano key updates both fields without drawing');
+    await run("document.querySelector('.tuning-cents').click()");
+    await click(await stripPoint(61));
+    assert.deepEqual((await selectedTuning()).values, [61.375, 37.5], 'selection also works in Cents view');
+    await run("document.querySelectorAll('.p2c-zoom')[1].click()");
+    // With no sounding note, zoom centres on the map: 64 keys starting at 32.
+    await click(await stripPoint(64, 32, 64));
+    assert.deepEqual((await selectedTuning()).values, [63.875, -12.5], 'selection respects keyboard zoom');
+    const from = await stripPoint(64, 32, 64);
+    win.webContents.sendInputEvent({ type: 'mouseDown', button: 'left', ...from, clickCount: 1 });
+    win.webContents.sendInputEvent({ type: 'mouseMove', x: from.x + 60, y: from.y });
+    win.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', x: from.x + 60, y: from.y, clickCount: 1 });
+    await wait();
+    assert.deepEqual((await selectedTuning()).values, [63.875, -12.5], 'dragging the keyboard scrolls without selecting another note');
+    assert.equal(await run('JSON.stringify(window.tuningState())'), tuningBefore, 'keyboard selection and scrolling never change tuning');
+    assert.equal(await run('window.velocityTest.undoHistory.travel(-1)'), false, 'selection creates no undo edit');
+    assert.deepEqual(errors, [], 'tuning selection has no app or worklet errors');
+    console.log('TUNING keyboard selection UI tests passed');
   } finally {
     win?.destroy();
     if (server) await new Promise(resolve => server.close(resolve));

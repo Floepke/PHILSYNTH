@@ -5,7 +5,7 @@ import { dspTestHost } from './dsphost.mjs';
 
 globalThis.sampleRate = 48000;
 const { default: P2C, defaultMap, rampMap, normalizeMap, mapAt, KEYS } = await import('../src/modules/pitch2ctl.dsp.js');
-const { drawLine, keyAtX, valueAtY, layout, clampView, zoomView, MIN_SPAN } = await import('../src/modules/pitch2ctlview.js');
+const { createKeyMapView, drawLine, keyAtX, valueAtY, layout, clampView, zoomView, MIN_SPAN } = await import('../src/modules/pitch2ctlview.js');
 const { getModule } = await import('../src/modules/index.js');
 
 const near = (a, b, msg, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, `${msg}: ${a} vs ${b}`);
@@ -151,6 +151,57 @@ assert.equal(mapAt(rampMap(0, 127), -3), 0);
   assert.equal(back.state.map[60], 0.25, 'and loaded');
   const old = await r2.addModule('PITCH2CTL', { values: { lowKey: 21, highKey: 108 } });
   assert.deepEqual(old.state.map, defaultMap(), 'a project from before the map: the same 88-key ramp');
+}
+
+// Selecting on the keyboard strip must never draw into the map or interrupt strip scrolling.
+{
+  const saved = Object.fromEntries(['document', 'window', 'requestAnimationFrame', 'ResizeObserver'].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  class Element extends EventTarget {
+    children = [];
+    style = {};
+    clientWidth = 1280;
+    clientHeight = 200;
+    clientLeft = 0;
+    clientTop = 0;
+    append(...children) { this.children.push(...children); }
+    setAttribute() {}
+    setPointerCapture() {}
+    getContext() { return new Proxy({}, { get: () => () => {} }); }
+    getBoundingClientRect() { return { left: 0, top: 0 }; }
+  }
+  try {
+    globalThis.document = { createElement: () => new Element() };
+    globalThis.window = { devicePixelRatio: 1 };
+    globalThis.requestAnimationFrame = () => {};
+    globalThis.ResizeObserver = class { observe() {} };
+    const picked = [];
+    let edits = 0;
+    const editor = createKeyMapView({
+      map: defaultMap(), pickFirst: true, onPick: (key) => picked.push(key),
+      save: () => edits++, beginEdit: () => edits++,
+    });
+    const canvas = editor.el.children[0];
+    const send = (type, x, y = 180) => {
+      canvas.dispatchEvent(Object.assign(new Event(type), { button: 0, pointerId: 1, clientX: x, clientY: y }));
+    };
+    send('pointerdown', 605);
+    send('pointerup', 605);
+    assert.deepEqual(picked, [60]);
+    assert.equal(edits, 0, 'keyboard click selects without changing the map or starting an undo edit');
+    send('pointerdown', 615);
+    send('pointercancel', 615);
+    assert.deepEqual(picked, [60], 'cancelled clicks do not select');
+    send('pointerdown', 625);
+    send('pointermove', 700);
+    send('pointerup', 700);
+    assert.deepEqual(picked, [60], 'keyboard drag does not become a key selection');
+    assert.equal(edits, 0);
+  } finally {
+    for (const [key, descriptor] of Object.entries(saved)) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+    }
+  }
 }
 
 console.log('pitch2ctl tests passed');

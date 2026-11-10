@@ -110,7 +110,7 @@ export default {
       buttons: [{ text: 'Reset', title: 'Back to 12-tone equal temperament: every key at its own pitch', action: () => equalMap() }],
       pickFirst: true,
       onPick: () => showKey(),
-      hint: 'Click a key to type its pitch · drag to draw · Shift+drag: straight line',
+      hint: 'Click a piano key to select its Pitch / Cents · drag the graph to draw · Shift+drag: straight line',
       ariaLabel: 'Tuning: the output pitch of every MIDI key',
     });
     const centsButton = document.createElement('button');
