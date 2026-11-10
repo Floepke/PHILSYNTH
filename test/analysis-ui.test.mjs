@@ -58,6 +58,8 @@ app.whenReady().then(async () => {
       await waitFor('!!window.analysisTest');
       await run(`(async () => {
         const { engine, render } = window.analysisTest;
+        window.analysisTest.analysePanel.applyView(null);
+        window.fftCount = 0;
         window.analysisReports = 0;
         const receive = engine.dsp.receive.bind(engine.dsp);
         engine.dsp.receive = report => {
@@ -73,6 +75,12 @@ app.whenReady().then(async () => {
         await engine.ctx.resume();
         osc.inst.noteOn(9001, 69, 1);
       })()`);
+      await delay(150);
+      assert.equal(await run('window.analysisTest.analysePanel.viewState().enabled'), false, 'new projects default to off');
+      assert.equal(await run("document.getElementById('spectrum-toggle').getAttribute('aria-pressed')"), 'false');
+      assert.equal(await run('window.analysisReports'), 0, 'default off sends no analysis frames');
+      assert.equal(await run('window.fftCount'), 0, 'default off performs no FFT');
+      await run("document.getElementById('spectrum-toggle').click()");
       await waitFor('window.fftCount > 0');
       assert.deepEqual(await run('window.frequencyLabels'), ['32', '64', '128', '256', '512', '1k', '2k', '4k', '8k', '16k'],
         'spectrogram labels the requested frequency grid through 16 kHz');
@@ -187,6 +195,10 @@ app.whenReady().then(async () => {
       assert.deepEqual(await run('({ cams: window.analysisTest.viewState().cams, size: window.analysisTest.viewState().cameraSize })'), camera, 'toggle does not move camera');
       await run('window.analysisTest.analysePanel.applyView({ enabled: false })');
       assert.equal(await run("document.getElementById('spectrum-toggle').getAttribute('aria-pressed')"), 'false');
+      await run('window.analysisTest.analysePanel.applyView({ enabled: true })');
+      assert.equal(await run('window.analysisTest.analysePanel.viewState().enabled'), true, 'saved enabled state still restores');
+      await run('window.analysisTest.analysePanel.applyView({})');
+      assert.equal(await run('window.analysisTest.analysePanel.viewState().enabled'), false, 'missing saved state defaults to off');
       await run('window.analysisTest.analysePanel.applyView({ width: 0 })');
       assert.equal(await run('window.analysisTest.analysePanel.viewState().enabled'), false, 'legacy hidden views remain off');
       await run('window.analysisTest.analysePanel.applyView({ width: 310 })');

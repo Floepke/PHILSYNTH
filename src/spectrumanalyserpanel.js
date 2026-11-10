@@ -17,7 +17,7 @@ export function createSpectrumAnalyserPanel({ host, panel, button, dsp, target, 
   const spectrum = new Spectrum();
   const history = document.createElement('canvas');
   const ink = history.getContext('2d');
-  let enabled = true;
+  let enabled = false;
   let watched = null;
   let active = false;
   let frame = 0;
@@ -139,7 +139,8 @@ export function createSpectrumAnalyserPanel({ host, panel, button, dsp, target, 
     refresh,
     viewState: () => ({ enabled }),
     applyView(view) {
-      enabled = typeof view?.enabled === 'boolean' ? view.enabled : view?.attached === true || view?.width !== 0;
+      enabled = typeof view?.enabled === 'boolean' ? view.enabled
+        : view?.attached === true || (Number.isFinite(view?.width) && view.width > 0);
       apply();
     },
   };

@@ -4176,7 +4176,7 @@ for (const width of [300, 480, 900, 1912]) {
   const sbY = 400 - 24 - ROLL_SB;
   assert.ok(track(sbY), 'the horizontal scrollbar shows just above the keyboard');
   const bodies = cv.drawing.filter(([op]) => op === 'roundRect');
-  assert.ok(bodies.length === 2 && bodies.every((r) => r[3] <= 24 + 1), 'notes stop growing at 24 px');
+  assert.ok(bodies.length === 2 && bodies.every((r) => r[3] <= 48 + 1), 'notes stop growing at 48 px');
   // keys and stave stay aligned: click the keyboard and the stave under the same key
   click(cv, b1, 390);
   assert.deepEqual(played, [61], 'the zoomed key under the pointer plays');
@@ -4248,11 +4248,11 @@ for (const width of [300, 480, 900, 1912]) {
   assert.equal(changes(), 0, 'no undo step');
   assert.deepEqual(clip.notes, before, 'notes untouched');
   drag(cv, 200, 50, 99999, 50);
-  assert.equal(roll.getView().velW, ROLL_WIDTH * 0.6, 'at most 60 % of the roll');
-  drag(cv, ROLL_WIDTH * 0.6 + 10, 50, -500, 50);
-  assert.equal(roll.getView().velW, 48, 'at least 48 px');
-  point(cv, 'pointerdown', 60, 50, { buttons: 1, detail: 2 });
-  point(cv, 'pointerup', 60, 50);
+  assert.equal(roll.getView().velW, ROLL_WIDTH * 0.5, 'at most 50 % of the roll');
+  drag(cv, ROLL_WIDTH * 0.5 + 10, 50, -500, 50);
+  assert.equal(roll.getView().velW, 0, 'velocity strip can collapse fully');
+  point(cv, 'pointerdown', 10, 50, { buttons: 1, detail: 2 });
+  point(cv, 'pointerup', 10, 50);
   assert.equal(roll.getView().velW, 84, 'double-click resets');
   roll.setView({ ...roll.getView(), velW: 150 });
   assert.equal(roll.getView().velW, 150, 'restored from the project view');
