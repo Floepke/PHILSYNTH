@@ -35,11 +35,10 @@
       <div id="panel-split" class="splitter" role="separator" aria-orientation="vertical" aria-label="Controller panel width" title="Drag left/right to resize the controller panel; grab above the grip to move the upper horizontal divider or below it to move the lower one up/down; drag fully left to hide the panel"></div>
       <main id="canvas">
         <div id="world"><svg id="cables"></svg></div>
-        <button id="zoom" title="Zoom level — click to fit all modules in view">100%</button>
+        <button id="spectrum-toggle" type="button" aria-label="Spectrum analyser" aria-pressed="true" aria-controls="analyse-panel" title="Hide spectrum analyser"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 19V13M7.5 19V8M12 19V3M16.5 19V10M21 19V15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
       </main>
-      <div id="analyse-split" class="splitter" role="separator" tabindex="0" aria-orientation="vertical" aria-label="Analyse panel width" aria-controls="analyse-panel" aria-valuemin="0" aria-valuenow="280" title="Drag left/right to resize the Analyse panel; drag fully right to pause analysis. Arrow keys resize; Home hides, End restores."></div>
       <aside id="analyse-panel" aria-label="Analyse panel">
-        <canvas aria-label="Stereo frequency spectrum, logarithmic frequency in Hz and level in dBFS"></canvas>
+        <canvas aria-label="Stereo spectrogram, logarithmic frequency in Hz, brightness indicates level, history moves upward"></canvas>
       </aside>
     </section>
     <div id="seq-hsplit" class="splitter horizontal" role="separator" tabindex="0" aria-orientation="horizontal" aria-label="Patcher / TimeLine divider" aria-controls="patcher arranger" title="Drag up/down to resize the TimeLine and left/right to resize the controller panel; pushes the upper divider when they meet. Arrow keys resize; Home/End move to an edge.">

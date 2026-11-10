@@ -510,10 +510,11 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 }
 #canvas.panning, #canvas.panning * { cursor: grabbing !important; }
 /* noisebg.js: the WebGL noise behind the world layer, never a pointer target */
-.noise-bg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+.noise-bg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; z-index: 0; }
 /* everything on the canvas lives in world space; main.js sets translate(x, y) scale(z) */
 #world {
   position: absolute;
+  z-index: 2;
   top: 0;
   left: 0;
   width: 0;
@@ -521,19 +522,22 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   transform-origin: 0 0;
 }
 #cables { position: absolute; top: 0; left: 0; width: 1px; height: 1px; pointer-events: none; overflow: visible; }
-#zoom {
+#spectrum-toggle {
   position: absolute;
   right: 12px;
   bottom: 12px;
   z-index: 30;
-  min-width: 52px;
-  padding: 4px 8px;
+  width: 32px;
+  height: 32px;
+  padding: 5px;
   background: color-mix(in srgb, var(--surface-2) 85%, transparent);
   color: var(--text-dim);
   font: 500 11px var(--mono);
   backdrop-filter: blur(4px);
 }
-#zoom:hover { color: var(--text); }
+#spectrum-toggle:hover { color: var(--text); }
+#spectrum-toggle[aria-pressed="true"] { color: var(--accent); }
+#spectrum-toggle svg { display: block; width: 20px; height: 20px; }
 /* a cable is <g class="cable">: a straight .wire from module centre to centre (under the boxes)
    and a direction .arrow in the middle of its visible part */
 #cables .cable {
@@ -752,19 +756,17 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   background: var(--surface-1);
 }
 #patcher {
-  --analyse-divider-width: calc(var(--panel-divider-width) / 2);
-  --panel-room: max(0px, 100% - var(--panel-divider-width) - var(--analyse-divider-width));
+  --panel-room: max(0px, 100% - var(--panel-divider-width));
   --panel-size: clamp(0px, var(--panel-width, 280px), var(--panel-room));
-  --analyse-room: max(0px, var(--panel-room) - var(--panel-size));
-  --analyse-size: clamp(0px, var(--analyse-width, 280px), var(--analyse-room));
+  position: relative;
+  isolation: isolate;
   display: grid;
-  grid-template-columns: var(--panel-size) var(--panel-divider-width) minmax(0, 1fr) var(--analyse-divider-width) var(--analyse-size);
+  grid-template-columns: var(--panel-size) var(--panel-divider-width) minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
-#analyse-split { cursor: ew-resize; }
-#analyse-panel { min-width: 0; min-height: 0; overflow: clip; background: var(--surface-1); }
+#analyse-panel { position: absolute; top: 0; bottom: 0; right: 0; left: calc(var(--panel-size) + var(--panel-divider-width)); min-width: 0; min-height: 0; overflow: clip; background: transparent; pointer-events: none; z-index: 1; }
 #analyse-panel.collapsed { visibility: hidden; }
 #analyse-panel canvas { display: block; width: 100%; height: 100%; }
 #seq {

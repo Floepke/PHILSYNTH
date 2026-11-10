@@ -8,6 +8,7 @@ export class AudioAnalysis {
     this.right = new Float32Array(ANALYSIS_SIZE);
     this.at = 0;
     this.count = 0;
+    this.filled = 0;
   }
 
   push(left, right) {
@@ -19,10 +20,11 @@ export class AudioAnalysis {
       this.at = (this.at + 1) % ANALYSIS_SIZE;
     }
     this.count += 128;
+    this.filled = Math.min(ANALYSIS_SIZE, this.filled + 128);
   }
 
   report() {
-    if (!this.count) return null;
+    if (!this.count || this.filled < ANALYSIS_SIZE) return null;
     const samples = new Float32Array(ANALYSIS_SIZE * 2);
     for (let i = 0; i < ANALYSIS_SIZE; i++) {
       const at = (this.at + i) % ANALYSIS_SIZE;

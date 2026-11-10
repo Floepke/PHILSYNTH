@@ -18,12 +18,6 @@ app.whenReady().then(async () => {
         window.fftCount = 0;
         const measure = Spectrum.prototype.measure;
         Spectrum.prototype.measure = function (...args) { window.fftCount++; return measure.apply(this, args); };
-        window.spectrumCurves = 0;
-        const curve = CanvasRenderingContext2D.prototype.quadraticCurveTo;
-        CanvasRenderingContext2D.prototype.quadraticCurveTo = function (...args) {
-          if (this.canvas.parentElement?.id === 'analyse-panel') window.spectrumCurves++;
-          return curve.apply(this, args);
-        };
         Object.defineProperty(navigator, 'requestMIDIAccess', { value: async () => Object.assign(new EventTarget(), { inputs: new Map() }) });
         await import('/src/main.js');
       </script>`);
@@ -32,7 +26,7 @@ app.whenReady().then(async () => {
         const path = resolve(root, '.' + new URL(req.url, 'http://localhost').pathname);
         if (path !== root && !path.startsWith(root + sep)) throw new Error('Invalid path');
         let body = path === root ? index : await readFile(path);
-        if (path === resolve(root, 'src/main.js')) body += '\nwindow.analysisTest = { engine, seq, analysePanel, select, render, viewState, applyView, shown };\n';
+        if (path === resolve(root, 'src/main.js')) body += '\nwindow.analysisTest = { engine, seq, analysePanel, select, render, viewState, applyView };\n';
         res.writeHead(200, { 'Content-Type': /\.(m?js)$/.test(path) ? 'text/javascript'
           : path.endsWith('.css') ? 'text/css' : path.endsWith('.wasm') ? 'application/wasm' : 'text/html' });
         res.end(body);
@@ -46,14 +40,10 @@ app.whenReady().then(async () => {
     win.webContents.on('console-message', event => { if (event.level === 'error') errors.push(event.message); });
     const run = code => win.webContents.executeJavaScript(code);
     const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
-    const waitFor = async (condition, label = condition) => {
+    const waitFor = async condition => {
       const end = Date.now() + 10000;
       while (!(await run(condition))) {
-        if (Date.now() > end) throw new Error(`Timed out: ${label}\n${JSON.stringify(await run(`({
-          ops: window.analysisOps, reports: window.analysisReports, last: window.lastAnalysis && { h: window.lastAnalysis.h },
-          width: document.getElementById('analyse-panel')?.clientWidth,
-          status: document.getElementById('status')?.textContent
-        })`))}\n${errors.join('\n')}`);
+        if (Date.now() > end) throw new Error(`Timed out: ${condition}\n${errors.join('\n')}`);
         await delay(20);
       }
     };
@@ -61,146 +51,155 @@ app.whenReady().then(async () => {
       await win.loadURL(`http://127.0.0.1:${server.address().port}/?dsp=${backend}`);
       await waitFor('!!window.analysisTest');
       await run(`(async () => {
-        const { engine, seq, render, select } = window.analysisTest;
-        window.analysisOps = [];
+        const { engine, render } = window.analysisTest;
         window.analysisReports = 0;
-        const post = engine.dsp.post.bind(engine.dsp);
-        engine.dsp.post = op => { if (op[0] === 'analyse') window.analysisOps.push(op[1]); post(op); };
         const receive = engine.dsp.receive.bind(engine.dsp);
         engine.dsp.receive = report => {
           if (report.analysis) { window.analysisReports++; window.lastAnalysis = report.analysis; }
           receive(report);
         };
         const osc = await engine.root.addModule('OSC', { x: 100, y: 120 });
-        const amp = await engine.root.addModule('AMP', { x: 330, y: 120 });
-        const lfo = await engine.root.addModule('LFO');
         engine.root.setParam(osc.id, 'wave', 0);
         engine.root.setParam(osc.id, 'gain', 1);
-        engine.root.setParam(amp.id, 'amp', 4);
-        engine.root.connect(osc.id, amp.id);
-        engine.root.connect(amp.id, 0);
-        window.analysisEntries = { osc, amp, lfo };
+        engine.root.connect(osc.id, 0);
+        window.osc = osc;
         render();
         await engine.ctx.resume();
         osc.inst.noteOn(9001, 69, 1);
-        window.analyseKey = key => document.getElementById('analyse-split').dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
       })()`);
-      await waitFor('window.lastAnalysis?.samples.some(value => Math.abs(value) > 1)');
+      await waitFor('window.fftCount > 0');
       assert.equal(await run('window.analysisTest.engine.dspInfo.dsp'), backend);
-      assert.equal(await run('window.lastAnalysis.h'), await run('window.analysisTest.engine.root.modules.get(0).inst.input.h'), 'no selection monitors Output');
-      assert.ok(await run('window.fftCount > 0'));
-      assert.equal(await run("document.getElementById('analyse-panel').textContent.trim()"), '', 'no headings, meter or info text');
-      assert.equal(await run("document.getElementById('analyse-panel').children.length"), 1, 'panel only contains the spectrum canvas');
-      assert.equal(await run("getComputedStyle(document.getElementById('analyse-split')).cursor"), 'ew-resize');
-      assert.equal(await run("document.getElementById('analyse-split').getBoundingClientRect().width * 2"),
-        await run("document.getElementById('panel-split').getBoundingClientRect().width"), 'Analyse divider is half the controller divider width');
-      const checkSpectrumSize = async () => {
+      assert.equal(await run("!!document.getElementById('zoom') || !!document.getElementById('analyse-split')"), false);
+      const checkSize = async () => {
         assert.ok(await run(`(() => {
           const p = document.getElementById('analyse-panel'), c = p.querySelector('canvas');
-          const a = p.getBoundingClientRect(), b = c.getBoundingClientRect();
-          return a.width > 0 && a.height > 0 && a.left === b.left && a.top === b.top
-            && a.width === b.width && a.height === b.height
-            && c.width === Math.round(b.width * devicePixelRatio) && c.height === Math.round(b.height * devicePixelRatio)
-            && getComputedStyle(p).overflow === 'clip' && p.scrollHeight === p.clientHeight && p.scrollWidth === p.clientWidth;
-        })()`), 'spectrum fills the panel edge to edge at its actual resolution, without scrolling');
+          const a = p.getBoundingClientRect(), b = document.getElementById('canvas').getBoundingClientRect();
+          return a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height
+            && c.width === Math.round(a.width * devicePixelRatio) && c.height === Math.round(a.height * devicePixelRatio)
+            && p.scrollHeight === p.clientHeight && p.scrollWidth === p.clientWidth;
+        })()`), 'spectrogram covers the entire patcher viewport without scrolling');
       };
-      await checkSpectrumSize();
+      await checkSize();
       assert.ok(await run(`(() => {
-        const g = document.querySelector('#analyse-panel canvas').getContext('2d');
-        return window.spectrumCurves > 0 && g.lineJoin === 'round' && g.lineCap === 'round';
-      })()`), 'spectrum uses rounded curves instead of a stepped polyline');
+        const p = document.getElementById('analyse-panel'), noise = document.querySelector('#canvas .noise-bg');
+        const module = window.osc.el, b = module.getBoundingClientRect();
+        p.style.pointerEvents = noise.style.pointerEvents = 'auto';
+        try {
+          const stack = document.elementsFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+          return stack.indexOf(module) >= 0 && stack.indexOf(module) < stack.indexOf(p) && stack.indexOf(p) < stack.indexOf(noise);
+        } finally { p.style.pointerEvents = noise.style.pointerEvents = ''; }
+      })()`), 'spectrogram remains above noise and below modules and cables');
+      await run('window.analysisTest.engine.ctx.suspend()');
+      await run(`(() => {
+        window.injectAnalysis = window.analysisTest.engine.dsp.onAnalysis;
+        window.analysisTest.engine.dsp.onAnalysis = () => {};
+      })()`);
+      await delay(80);
+      const row = (age = 0) => run(`(() => {
+        const c = document.querySelector('#analyse-panel canvas');
+        return Array.from(c.getContext('2d').getImageData(0, c.height - 1 - ${age}, c.width, 1).data);
+      })()`);
+      const addRow = async amplitude => {
+        await run(`(() => {
+          const samples = Float32Array.from(window.lastAnalysis.samples, (_, i) =>
+            ${amplitude} * Math.sin(2 * Math.PI * 1000 * (i % 4096) / window.lastAnalysis.sampleRate));
+          window.injectAnalysis({ ...window.lastAnalysis, samples });
+        })()`);
+        await delay(50);
+      };
+      await run("document.documentElement.style.setProperty('--wood-tint', '#804020')");
+      await addRow(1);
+      const loud = await row();
+      const peak = loud.reduce((best, value, i) => i % 4 === 3 && value > loud[best] ? i : best, 3);
+      assert.ok(loud[peak - 3] > loud[peak - 2] && loud[peak - 2] > loud[peak - 1], 'pixels use wood tint');
+      await addRow(0.001);
+      assert.ok((await row())[peak] < loud[peak], 'quieter frequencies have lower brightness');
+      assert.ok(Math.abs((await row(1))[peak] - loud[peak]) <= 2, 'history moves upward');
+      await run("document.documentElement.style.setProperty('--wood-tint', '#204080')");
+      await addRow(1);
+      const blue = await row();
+      assert.ok(blue[peak - 1] > blue[peak - 2] && blue[peak - 2] > blue[peak - 3], 'new rows follow live wood tint changes');
+      const fftBeforeSilence = await run('window.fftCount');
+      await addRow(0);
+      assert.equal((await row())[peak], 0, 'silence remains transparent');
+      assert.equal(await run('window.fftCount'), fftBeforeSilence, 'all-zero windows skip FFT');
+      assert.ok(Math.abs((await row(1))[peak] - blue[peak]) <= 2, 'silence still scrolls existing sound upward');
+      await run(`(async () => {
+        const c = document.querySelector('#analyse-panel canvas');
+        const samples = new Float32Array(window.lastAnalysis.samples.length);
+        for (let i = 0; i <= c.clientHeight; i++) {
+          window.injectAnalysis({ ...window.lastAnalysis, samples });
+          await new Promise(requestAnimationFrame);
+        }
+      })()`);
+      assert.equal(await run('window.fftCount'), fftBeforeSilence, 'scrolling all silent history performs no FFTs');
       assert.ok(await run(`(() => {
         const c = document.querySelector('#analyse-panel canvas'), g = c.getContext('2d');
-        const pixels = g.getImageData(0, 0, c.width, c.height).data;
-        for (let i = 0; i < pixels.length; i += 4) if (pixels[i + 2] > 150 && pixels[i] < 130) return true;
-        return false;
-      })()`), 'a spectrum trace is actually drawn');
-
-      await run("window.analysisTest.select({ kind: 'module', entry: window.analysisEntries.osc })");
-      await waitFor('window.lastAnalysis.h === window.analysisEntries.osc.inst.node.h');
-      assert.ok(await run('window.lastAnalysis.samples.every(value => Math.abs(value) < 1)'), 'selection measures the oscillator before the amplifier');
-      await run("window.analysisTest.select({ kind: 'module', entry: window.analysisEntries.lfo })");
-      await waitFor('window.analysisOps.at(-1) === null');
-      await run('window.analysisTest.engine.root.setParam(window.analysisEntries.lfo.id, "mode", 1)');
-      await waitFor('window.analysisOps.at(-1) === window.analysisEntries.lfo.inst.node.h', 'switching to audio mode refreshes eligibility');
-      await run('window.analysisTest.engine.root.setParam(window.analysisEntries.lfo.id, "mode", 0)');
-      await waitFor('window.analysisOps.at(-1) === null');
-      await run('window.analysisTest.select(null)');
-      await waitFor('window.lastAnalysis.h === window.analysisTest.engine.root.modules.get(0).inst.input.h');
-
-      // The Analyse divider is independent: diagonal pointer motion must only change its width.
-      const before = await run('window.analysisTest.seq.viewState()');
-      const box = await run(`(() => {
-        const b = document.getElementById('analyse-split').getBoundingClientRect();
-        return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+        const x = ${Math.floor((peak - 3) / 4)};
+        const data = g.getImageData(x, 20, 1, c.height - 20).data;
+        return data.every((value, i) => i % 4 !== 3 || value <= 64);
+      })()`), 'old sound scrolls completely out of the viewport during silence');
+      await addRow(1);
+      assert.equal(await run('window.fftCount'), fftBeforeSilence + 1, 'nonzero sound immediately resumes FFT');
+      await run("document.documentElement.style.removeProperty('--wood-tint')");
+      await run('void (window.analysisTest.engine.dsp.onAnalysis = window.injectAnalysis)');
+      await run('window.analysisTest.engine.ctx.resume()');
+      await run("window.analysisTest.select({ kind: 'module', entry: window.osc })");
+      await waitFor('window.lastAnalysis.h === window.osc.inst.node.h');
+      await run(`(async () => {
+        const midi = await window.analysisTest.engine.root.addModule('MULTIMIDI');
+        window.analysisTest.render();
+        window.analysisTest.select({ kind: 'module', entry: midi });
+        window.fallbackReports = window.analysisReports;
       })()`);
-      const mouse = (type, x, y) => win.webContents.sendInputEvent({ type, x: Math.round(x), y: Math.round(y), button: 'left', clickCount: 1 });
-      mouse('mouseDown', box.x, box.y);
-      mouse('mouseMove', box.x - 70, box.y + 90);
-      mouse('mouseUp', box.x - 70, box.y + 90);
-      await delay(100);
-      assert.ok(await run('window.analysisTest.analysePanel.viewState().width > 330'));
-      const after = await run('window.analysisTest.seq.viewState()');
-      assert.deepEqual([after.top, after.bottom, after.panelWidth], [before.top, before.bottom, before.panelWidth]);
-      assert.equal(await run('window.analysisTest.viewState().analyse.width'), await run('window.analysisTest.analysePanel.viewState().width'), 'width is included in project view');
-      await run('window.analysisTest.analysePanel.applyView({ width: 310 })');
-      await delay(50);
-      assert.equal(await run('document.getElementById("analyse-panel").clientWidth'), 310);
-      await run(`(() => {
-        window.savedAnalysisView = window.analysisTest.viewState();
-        window.analysisTest.applyView({ ...window.savedAnalysisView, analyse: undefined });
+      await waitFor('window.analysisReports > window.fallbackReports && window.lastAnalysis.h === window.analysisTest.engine.root.modules.get(0).inst.input.h');
+      const fallbackFft = await run('window.fftCount');
+      await waitFor(`window.fftCount > ${fallbackFft + 1}`);
+      const camera = await run('({ cams: window.analysisTest.viewState().cams, size: window.analysisTest.viewState().cameraSize })');
+      const button = await run(`(() => {
+        const b = document.getElementById('spectrum-toggle').getBoundingClientRect();
+        const p = document.getElementById('canvas').getBoundingClientRect();
+        return { x: b.left + b.width / 2, y: b.top + b.height / 2, width: b.width, height: b.height, right: p.right - b.right, bottom: p.bottom - b.bottom };
       })()`);
-      assert.equal(await run('window.analysisTest.analysePanel.viewState().width'), 280, 'old project views use the default width');
-      await run('window.analysisTest.applyView(window.savedAnalysisView)');
-      assert.equal(await run('window.analysisTest.analysePanel.viewState().width'), 310, 'project view restores the saved width');
-      const patcher = await run(`(() => {
-        const a = document.getElementById('analyse-panel').getBoundingClientRect();
-        const p = document.getElementById('patcher').getBoundingClientRect();
-        return { top: a.top === p.top, bottom: a.bottom === p.bottom };
-      })()`);
-      assert.deepEqual(patcher, { top: true, bottom: true }, 'panel spans only the middle patcher area');
-      const hideBox = await run(`(() => {
-        const b = document.getElementById('analyse-split').getBoundingClientRect();
-        return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
-      })()`);
-      mouse('mouseDown', hideBox.x, hideBox.y);
-      mouse('mouseMove', 1395, hideBox.y + 20);
-      mouse('mouseUp', 1395, hideBox.y + 20);
-      await waitFor('window.analysisOps.at(-1) === null');
-      await delay(100);
+      assert.equal(button.right, 12);
+      assert.equal(button.bottom, 12);
+      assert.equal(button.width, button.height, 'spectrum toggle is exactly square');
+      const click = async () => {
+        for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, x: Math.round(button.x), y: Math.round(button.y), button: 'left', clickCount: 1 });
+        await delay(100);
+      };
+      await click();
+      assert.equal(await run("document.getElementById('spectrum-toggle').getAttribute('aria-pressed')"), 'false');
+      assert.deepEqual(await run('window.analysisTest.viewState().analyse'), { enabled: false });
       const paused = await run('({ fft: window.fftCount, reports: window.analysisReports })');
       await delay(150);
-      assert.deepEqual(await run('({ fft: window.fftCount, reports: window.analysisReports })'), paused,
-        'collapsed panel runs no FFT and receives no DSP analysis frames');
-      assert.equal(await run('document.getElementById("analyse-panel").clientWidth'), 0);
-      await run("window.analyseKey('End')");
+      assert.deepEqual(await run('({ fft: window.fftCount, reports: window.analysisReports })'), paused, 'off stops analysis and FFT');
+      await click();
       await waitFor(`window.analysisReports > ${paused.reports + 1}`);
-      assert.ok(await run(`window.fftCount > ${paused.fft}`), 'reopening restores analysis');
+      assert.deepEqual(await run('({ cams: window.analysisTest.viewState().cams, size: window.analysisTest.viewState().cameraSize })'), camera, 'toggle does not move camera');
+      await run('window.analysisTest.analysePanel.applyView({ enabled: false })');
+      assert.equal(await run("document.getElementById('spectrum-toggle').getAttribute('aria-pressed')"), 'false');
+      await run('window.analysisTest.analysePanel.applyView({ width: 0 })');
+      assert.equal(await run('window.analysisTest.analysePanel.viewState().enabled'), false, 'legacy hidden views remain off');
+      await run('window.analysisTest.analysePanel.applyView({ width: 310 })');
+      assert.equal(await run('window.analysisTest.analysePanel.viewState().enabled'), true, 'legacy visible views fill the patcher');
       await run(`(() => {
-        const { seq } = window.analysisTest;
-        window.analyseLayout = seq.viewState();
-        seq.applyView({ ...window.analyseLayout, top: 0.5, bottom: 0.5 });
+        window.layout = window.analysisTest.seq.viewState();
+        window.analysisTest.seq.applyView({ ...window.layout, panelWidth: window.layout.panelWidth + 80 });
       })()`);
-      await waitFor('window.analysisOps.at(-1) === null', 'hidden patcher disables analysis');
-      await run('window.analysisTest.seq.applyView(window.analyseLayout)');
-      await waitFor('window.analysisOps.at(-1) !== null');
-      await run('window.analysisTest.seq.applyView({ ...window.analyseLayout, bottom: window.analyseLayout.top + 0.06 })');
       await delay(100);
-      await checkSpectrumSize();
-      assert.ok(await run('document.getElementById("analyse-panel").clientHeight < 100'), 'spectrum scales to a short patcher pane');
-      await run('window.analysisTest.seq.applyView(window.analyseLayout)');
-      win.setSize(400, 1100);
+      await checkSize();
+      await run('window.analysisTest.seq.applyView({ ...window.layout, top: 0.5, bottom: 0.5 })');
       await delay(100);
-      assert.ok(await run(`(() => {
-        const p = document.getElementById('patcher'), a = document.getElementById('analyse-panel');
-        return a.clientWidth >= 0 && p.scrollWidth <= p.clientWidth;
-      })()`), 'narrow windows clamp both panels without overflowing the patcher');
-      win.setSize(1400, 1100);
-      await delay(100);
+      const hidden = await run('window.analysisReports');
+      await delay(150);
+      assert.equal(await run('window.analysisReports'), hidden, 'hidden patcher pauses analysis');
+      await run('window.analysisTest.seq.applyView(window.layout)');
+      await waitFor(`window.analysisReports > ${hidden}`);
       await run('window.analysisTest.engine.ctx.close()');
-      console.log(`${backend}: full-panel spectrum, thin horizontal divider, selection and CPU gating passed`);
+      console.log(`${backend}: spectrum toggle, full viewport, layering, tinted history and CPU gating passed`);
     }
-    assert.deepEqual(errors, [], 'no application or worklet errors');
+    assert.deepEqual(errors, []);
   } finally {
     win?.destroy();
     if (server) await new Promise(resolve => server.close(resolve));

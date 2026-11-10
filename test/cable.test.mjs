@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { midpoint, arrowPath, arrowPoints, linePath, samplePoints, edgePoint, visibleSegment, centerOf } from '../src/cable.js';
-import { Ring, displace, scopePath, AMP, crossings, period, lockAge, glowLevel, GLOW_DB, CableScope, CLIP_HOLD } from '../src/cablescope.js';
+import { Ring, displace, scopePath, AMP, crossings, period, lockAge, glowLevel, peakGlow, releaseGlow, GLOW_DB, CableScope, CLIP_HOLD } from '../src/cablescope.js';
 import { MidiCableAnimation, MIDI_TRAVEL_MS } from '../src/midicable.js';
 import { captureMidiTrace, withMidiTrace } from '../src/modmidi.js';
 import { PatchRuntime } from '../src/patch.js';
@@ -148,6 +148,13 @@ console.log('cable tests passed');
 
 // glow follows the peak level of the shown points in dB: 0 dB = 1, -GLOW_DB and silence = 0
 {
+  assert.equal(peakGlow(0), 0);
+  assert.equal(peakGlow(1), 1);
+  assert.equal(peakGlow(2), 1);
+  assert.equal(peakGlow(0.001), 0);
+  assert.equal(releaseGlow(0, 1, 0.01), 1, 'glow rises immediately');
+  assert.equal(releaseGlow(1, 0, 0.1), 0.75, 'glow releases at the cable rate');
+  assert.equal(releaseGlow(1, 0, 5), 0.75, 'long frame gaps are capped');
   const ring = new Ring(64);
   assert.equal(glowLevel(ring, 0, 20), 0, 'silence: no glow');
   for (let i = 0; i < 64; i++) ring.push(Math.sin(i / 3));

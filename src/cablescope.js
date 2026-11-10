@@ -19,7 +19,7 @@ export const AMP = 16; // max displacement in world px
 export const DRIFT = 45;
 export const GLOW_DB = 48; // level range of the glow: -48 dB .. 0 dB peak -> 0..1
 export const CLIP_HOLD = 400; // ms a cable stays marked after its last out-of-bounds sample
-const GLOW_RELEASE = 2.5; // glow falls by this much per second (rises at once) // world px per second the locked wave travels along the cable
+const GLOW_RELEASE = 2.5; // glow falls by this much per second (rises at once)
 const EDGE = 10; // points over which the wave fades in/out at the ports
 const LOOK = 2048; // points searched for zero crossings beyond the longest cable (periods up to ~170 ms)
 const HYST = 0.25; // a rising crossing counts after the wave went below -HYST × its peak
@@ -111,11 +111,18 @@ export function lockAge(xs, P, prev, advanced, drift, n, size = RING) {
 }
 
 // Glow level 0..1 of the points shown (ages start..start+n): peak in dB over GLOW_DB.
+export function peakGlow(peak) {
+  return peak > 0 ? Math.max(0, Math.min(1, 1 + (20 * Math.log10(peak)) / GLOW_DB)) : 0;
+}
+
+export function releaseGlow(previous, level, dt) {
+  return Math.max(level, previous - GLOW_RELEASE * Math.min(0.1, Math.max(0, dt)));
+}
+
 export function glowLevel(ring, start, n) {
   let peak = 0;
   for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(ring.lerp(start + i)));
-  if (!(peak > 0)) return 0;
-  return Math.max(0, Math.min(1, 1 + (20 * Math.log10(peak)) / GLOW_DB));
+  return peakGlow(peak);
 }
 
 // SVG path along the cable points displaced by the ring values from age `start` on.
@@ -202,7 +209,7 @@ export class CableScope {
         live = ring.quiet <= c.a + n;
       }
       const level = live ? glowLevel(ring, c.a, n) : 0;
-      c.glow = Math.max(level, c.glow - GLOW_RELEASE * dt);
+      c.glow = releaseGlow(c.glow, level, dt);
       if (live) {
         const d = scopePath(c.pts, ring, c.a);
         c.path.setAttribute('d', d);

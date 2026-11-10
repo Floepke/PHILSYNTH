@@ -197,7 +197,6 @@ function applyCam() {
   const { x, y, z } = cam();
   world.style.transform = `translate(${x}px, ${y}px) scale(${z})`;
   noiseBg.draw({ x, y, z }); // the background noise lives in world space too
-  $('zoom').textContent = `${Math.round(z * 100)}%`;
 }
 // World box around the modules of the current level that have a box on screen, or null.
 function modulesBox() {
@@ -233,8 +232,6 @@ function fitAll() {
   if (!box) return setCam(defaultCam());
   setCam(fitBox(box, canvas.clientWidth, canvas.clientHeight));
 }
-$('zoom').onclick = fitAll;
-$('zoom').addEventListener('pointerdown', (e) => e.stopPropagation());
 
 // Wheel and pinch zoom around the pointer.
 canvas.addEventListener('wheel', (e) => {
@@ -1788,11 +1785,11 @@ await engine.init();
 patchMonitor = createPatchMonitor(engine.root);
 scope = new CableScope(engine.dsp);
 analysePanel = createSpectrumAnalyserPanel({
-  host: $('patcher'), panel: $('analyse-panel'), divider: $('analyse-split'), controller: $('panel-shell'),
+  host: $('patcher'), panel: $('analyse-panel'), button: $('spectrum-toggle'),
   dsp: engine.dsp,
   target: () => {
     const entries = selectedEntries();
-    const entry = entries.find(entry => analysisHandle(entry) !== null) ?? entries[0] ?? shown()?.modules.get(0);
+    const entry = entries.find(entry => analysisHandle(entry) !== null) ?? shown()?.modules.get(0);
     return analysisHandle(entry);
   },
   onChange: () => persist.schedule(),
