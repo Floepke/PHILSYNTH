@@ -8,7 +8,8 @@
 //                                       each note's curve shifts by its own start-velocity change
 //   drag a curve point                 edit points at the same timeline time in selected notes,
 //                                       creating missing points in notes sounding at that time
-//   Shift + drag                       fine velocity
+//   Shift + drag (multiple notes)      shift all selected starts and curves together, preserving differences
+//   Shift + drag (single note)         fine velocity
 //   double-click inside a selected note insert a point for all selected notes (hold to drag it)
 //   mouse wheel on a point             round the corner
 //   Ctrl/Cmd + drag                    draw a straight dashed line; on release every note start and
@@ -307,21 +308,24 @@ export function createVelocityStrip(o) {
     });
   }
 
-  // A single baseline for selected starts, independent of their positions in time.
-  function dragNotes(e, note, x, y) {
+  // Ordinary drags share a baseline; Shift group drags share a bounded offset for complete curves.
+  function dragNotes(e, note, x, y, relative = false, grabbed = note.vel) {
     const notes = group.notes.filter((n) => o.selected().has(n));
     const originals = notes.map((n) => ({ vel: n.vel, vels: n.vels }));
-    const grabbed = note.vel;
+    const values = relative ? originals.flatMap((n) => [n.vel, ...(n.vels ?? []).map((p) => p.v)]) : [];
+    const minDelta = relative ? -values.reduce((min, v) => Math.min(min, v), 1) : 0;
+    const maxDelta = relative ? 1 - values.reduce((max, v) => Math.max(max, v), 0) : 0;
     drag = { note, moved: false };
     capture(o.cv, e, (ev) => {
       const q = o.local(ev);
       if (!drag.moved && Math.hypot(q.x - x, q.y - y) < 2) return;
       drag.moved = true;
       presses.reset();
-      const target = snapVelocity(clamp(grabbed + ((q.x - x) * (ev.shiftKey ? 0.1 : 1)) / (W() - 2 * PAD), 0, 1));
+      const target = snapVelocity(clamp(grabbed + ((q.x - x) * (!relative && ev.shiftKey ? 0.1 : 1)) / (W() - 2 * PAD), 0, 1));
+      const delta = relative ? clamp(target - grabbed, minDelta, maxDelta) : 0;
       notes.forEach((n, i) => {
-        const d = target - originals[i].vel;
-        n.vel = target;
+        const d = relative ? delta : target - originals[i].vel;
+        n.vel = relative ? clean(originals[i].vel + d) : target;
         if (originals[i].vels) n.vels = originals[i].vels.map((p) => ({ ...p, v: clean(clamp(p.v + d, 0, 1)) }));
       });
       o.redraw();
@@ -452,6 +456,14 @@ export function createVelocityStrip(o) {
       if (e.button !== 0) return true;
       if ((e.ctrlKey || e.metaKey) && o.clip()) { presses.reset(); dragLine(e, x, y); return true; }
       const second = presses.press(e);
+      if (e.shiftKey && group?.notes.filter((n) => o.selected().has(n)).length > 1) {
+        const i = pointAt(x, y);
+        const p = group.points[i];
+        if (p && o.selected().has(p.note)) {
+          dragNotes(e, p.note, x, y, true, p.v);
+          return true;
+        }
+      }
       const many = groupHandleAt(x, y);
       if (many) { dragNotes(e, many, x, y); return true; }
       const i = pointAt(x, y);
@@ -505,7 +517,7 @@ export function createVelocityStrip(o) {
       if (many) {
         hover = { kind: 'note', note: many };
         o.redraw();
-        return { cursor: 'ew-resize', title: `Velocity ${Math.round(many.vel * 127)} — drag to set all ${group.notes.length} selected starts to one velocity; curves follow their own starts` };
+        return { cursor: 'ew-resize', title: `Velocity ${Math.round(many.vel * 127)} — drag to set all ${group.notes.length} selected starts to one velocity; Shift+drag moves selected starts and curves together` };
       }
       const i = pointAt(x, y);
       const n = i < 0 ? noteAt(x, y) : null;
@@ -513,7 +525,7 @@ export function createVelocityStrip(o) {
       o.redraw();
       if (i >= 0) {
         const p = group.points[i];
-        return { cursor: p.start ? 'ew-resize' : 'move', title: `Velocity ${Math.round(p.v * 127)} (${Math.round(p.v * 100)} %)${p.r ? `  rounding ${Math.round(p.r * 100)} %` : ''} — drag to edit ${selectedPoints.has(p.point) ? 'selected points' : 'corresponding points of selected notes'}` };
+        return { cursor: p.start ? 'ew-resize' : 'move', title: `Velocity ${Math.round(p.v * 127)} (${Math.round(p.v * 100)} %)${p.r ? `  rounding ${Math.round(p.r * 100)} %` : ''} — drag to edit ${selectedPoints.has(p.point) ? 'selected points' : 'corresponding points of selected notes'}; Shift+drag moves selected starts and curves together` };
       }
       if (n) return { cursor: 'pointer', title: `Velocity ${Math.round(n.vel * 127)} — drag to change` };
       return { cursor: 'crosshair', title: `${group ? 'Double-click to add a velocity point' : 'Select notes to edit their velocity'} · Right-drag: select starts / points · Ctrl+drag: draw a velocity line` };

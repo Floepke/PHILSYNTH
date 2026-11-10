@@ -3108,6 +3108,65 @@ for (const free of [false, true]) {
   assert.deepEqual(clip.notes, [other], 'the selection was kept');
 }
 
+// Shift-drag translates complete selected velocity curves without flattening their differences.
+for (const fromPoint of [false, true]) {
+  const { clip, roll, changes } = setup();
+  const cv = roll.surface.cv;
+  const vx = (v) => 7 + v * 70;
+  const a = note(60, 0, 4, 0.3);
+  const b = note(64, 5, 3, 0.5);
+  const other = note(67, 9, 2, 0.7);
+  a.vels = [{ t: 1, v: 0.4, r: 0.2 }, { t: 3, v: 0.8, r: 0.7 }];
+  b.vels = [{ t: 2, v: 0.1, r: 0.3 }];
+  other.vels = [{ t: 1, v: 0.6, r: 0.4 }];
+  clip.notes.push(a, b, other);
+  click(cv, nx(60), ny(0));
+  click(cv, nx(64), ny(5), { ctrlKey: true });
+  const before = structuredClone(clip.notes);
+  const count = changes();
+  const v = fromPoint ? 0.4 : 0.3;
+  const t = fromPoint ? 1 : 0;
+  const expectOffset = (delta) => {
+    const expected = structuredClone(before);
+    for (const n of expected.slice(0, 2)) {
+      n.vel = Math.round((n.vel + delta) * 1e9) / 1e9;
+      for (const p of n.vels) p.v = Math.round((p.v + delta) * 1e9) / 1e9;
+    }
+    assert.deepEqual(clip.notes, expected);
+  };
+  point(cv, 'pointerdown', vx(v), ny(t), { buttons: 1, shiftKey: true });
+  point(cv, 'pointermove', vx(v + 0.1), ny(t + 0.5), { buttons: 1, shiftKey: true });
+  expectOffset(0.1);
+  point(cv, 'pointermove', vx(2), ny(t), { buttons: 1, shiftKey: true });
+  expectOffset(0.2);
+  point(cv, 'pointermove', vx(-1), ny(t), { buttons: 1, shiftKey: true });
+  expectOffset(-0.1);
+  point(cv, 'pointermove', vx(v), ny(t), { buttons: 1, shiftKey: true });
+  expectOffset(0);
+  point(cv, 'pointercancel', vx(v), ny(t), { shiftKey: true });
+  assert.deepEqual(clip.notes, before, 'cancel restores every start and curve');
+  assert.equal(changes(), count, 'cancel creates no undo step');
+  drag(cv, vx(v), ny(t), vx(v + 0.1), ny(t + 0.5), { shiftKey: true });
+  expectOffset(0.1);
+  assert.equal(changes(), count + 1, 'one undoable edit for the whole group');
+  key(cv, 'Delete');
+  assert.deepEqual(clip.notes, [other], 'group selection is retained');
+}
+
+// Relative group velocity uses the grabbed handle's snapped target, not individual snapping.
+{
+  const { clip, roll } = setup({ snapVelocity: true });
+  const cv = roll.surface.cv;
+  const vx = (v) => 7 + v * 70;
+  const a = note(60, 0, 3, 0.3);
+  const b = note(64, 4, 2, 0.45);
+  a.vels = [{ t: 1, v: 0.6, r: 0.2 }];
+  clip.notes.push(a, b);
+  key(cv, 'a', { ctrlKey: true });
+  drag(cv, vx(0.3), ny(0), vx(0.43), ny(0), { shiftKey: true });
+  assert.deepEqual([a.vel, b.vel, a.vels[0].v], [0.4375, 0.5875, 0.7375]);
+}
+
 // Unified start velocities reach both endpoints even with extreme curve points.
 {
   const { clip, roll, changes } = setup({ snapVelocity: true });

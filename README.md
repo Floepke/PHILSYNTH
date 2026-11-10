@@ -490,6 +490,10 @@ note's start velocity to the dragged value, regardless of its start time.
 Each note's curve shifts by its own start-velocity change, with points clamped
 to 0–100%; point times and rounding are unchanged. Use Ctrl/Cmd + drag to draw
 a time-based ramp through selected note starts and curve points instead.
+With multiple notes selected, hold Shift before dragging a start handle or curve
+point to offset every selected start and curve value by the same amount.
+Differences, point times, and rounding are preserved; the group stops when any
+value reaches 0% or 100%, preventing flattened curves. Unselected notes are untouched.
 Editing a curve
 point changes only points at the same timeline time in selected notes, never
 start velocities or other points. Missing points are created only in selected
