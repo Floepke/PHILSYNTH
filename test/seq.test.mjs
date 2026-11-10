@@ -4412,7 +4412,7 @@ for (const notes of [
   }
   const elements = new Map();
   const inputIds = ['seq-name', 'seq-snap-div', 'seq-free-time'];
-  const transportIds = ['seq-restart', 'seq-play', 'seq-loop', 'seq-stop'];
+  const transportIds = ['seq-restart', 'seq-play', 'seq-loop', 'seq-stop', 'seq-record'];
   for (const id of ['seq', 'seq-bar', 'seq-bar-content', ...transportIds, 'seq-pos', 'seq-target', 'seq-snap-base', 'seq-ctl', 'seq-ctl-field', 'seq-target-field', ...inputIds,
     'workspace', 'patcher', 'roll', 'arranger', 'seq-split', 'seq-hsplit', 'panel', 'panel-split', 'status']) {
     elements.set(id, new Element(inputIds.includes(id) ? 'input' : transportIds.includes(id) ? 'button' : 'div'));

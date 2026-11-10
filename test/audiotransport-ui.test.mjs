@@ -76,7 +76,7 @@ app.whenReady().then(async () => {
         }
         const tr = new AudioTransport({
           getScope: () => [], getSong: () => engine.song, getBpm: () => 120, getTarget: () => null,
-        }, { dsp: engine.dsp, sync: () => engine.syncSong(), onError: e => errors.push(String(e)) });
+        }, { dsp: engine.dsp, sync: () => engine.syncSong(), audioTime: () => engine.ctx.currentTime, onError: e => errors.push(String(e)) });
         engine.transport = tr;
         engine.dsp.onPlayback = state => {
           tr.receive(state);

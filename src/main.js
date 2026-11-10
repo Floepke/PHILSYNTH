@@ -1798,6 +1798,7 @@ transport = new AudioTransport({
 }, {
   dsp: engine.dsp,
   sync: () => engine.syncSong(),
+  audioTime: () => engine.ctx.currentTime,
   onError: (error) => { console.error('Playback:', error); $('status').textContent = `Playback failed: ${error.message}`; },
 });
 engine.transport = transport;
@@ -1924,11 +1925,12 @@ const flushAll = () => {
 window.addEventListener('pagehide', flushAll);
 connectLiveReload(flushAll);
 midi = initMidi({
-  getTarget: () => modulePreview?.target ?? midiTarget(),
+  getTarget: () => modulePreview?.target ?? (seq.recordArmed() ? seq.recordTarget() : midiTarget()),
   pitchOffset: () => modulePreview ? 0 : pitchOffset(),
   selected: preferencesManager.get(MIDI_INPUT_ID),
   onStatus: (msg) => ($('status').textContent = msg),
   onActivity: () => engine.resume(),
+  onNote: (event) => { if (!modulePreview) seq.recordMidi(event); },
   onNoTarget: () => ($('status').textContent = 'MIDI note received, but no module to play: select a module that takes MIDI (e.g. OSC).'),
 });
 midi.enable();

@@ -885,6 +885,12 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 #seq-transport .seq-play:hover:not(:disabled),
 #sig-dialog :is(select, .spin-buttons button):hover:not(:disabled) { filter: brightness(1.18); }
 #seq-transport .seq-play.playing { background: #ff5a36; border-color: #ff5a36; color: #0b0b0c; text-shadow: none; }
+#seq-transport #seq-record { color: #ff4b4b; }
+#seq-transport #seq-record.armed { animation: record-pulse var(--record-beat, 0.5s) steps(1, end) infinite; }
+@keyframes record-pulse {
+  0%, 100% { background: #e52e35; border-color: #ff4b4b; color: #0b0b0c; text-shadow: none; }
+  50% { background: var(--wood-raised); border-color: var(--wood-border); color: #ff4b4b; }
+}
 #seq-bar #seq-target { box-shadow: inset 3px 0 0 var(--clip-color), inset 0 1px 0 rgba(224, 224, 224, 0.22), inset 0 -1px 0 rgba(7, 7, 7, 0.7), 0 1px 2px rgba(0, 0, 0, 0.45); }
 #seq-bar select::picker-icon, #sig-dialog select::picker-icon { color: var(--wood-ink); }
 #workspace.roll-collapsed #roll,

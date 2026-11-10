@@ -71,6 +71,7 @@ class EngineProcessor extends AudioWorkletProcessor {
       const t0 = Date.now();
       this.playback.process();
       this.graph.render(out[0], out[1] ?? out[0]);
+      this.playback.renderCountIn(out[0], out[1] ?? out[0], sampleRate);
       const cpu = this.load.add(t0, Date.now());
       if (cpu) this.port.postMessage({ cpu });
       this.failed = false;

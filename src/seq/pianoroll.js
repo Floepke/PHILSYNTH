@@ -71,11 +71,11 @@ const KEYBOARD = 24;
 // free space above time 0 (keeps the first notes clear of the PHILSYNTH menu button); the
 // automation lane uses the same
 export const TOP_MARGIN = 128;
-const TILT = -Math.PI / 9;
+const TILT = -Math.PI / 6;
 const HEAD_STRETCH = 1.25; // noteheads are stretched along the time (y) axis
 const GUTTER = 36; // bar / beat ruler (right of the velocity strip)
-const VEL_MIN = 48; // the ruler drags the velocity strip between these widths; the grid scales
-const VEL_MAX_SHARE = 0.6; // of the roll width
+const VEL_MIN = 0; // the ruler drags the velocity strip between these widths; the grid scales
+const VEL_MAX_SHARE = 0.5; // of the roll width
 const BG = '#45464e';
 const PLAYHEAD = '#ff916e';
 const SELECT = '#65b4ff';
@@ -86,11 +86,11 @@ const BOUNDARY = STAVE;
 const TIME_EPSILON = 1e-7;
 const MICRO_PX = 4; // px of sideways Shift-drag per cent of micropitch
 const SLIDER_W = 160; // px, the micropitch slider (±50 cents)
-const BEND_HIT = 7; // px, grab radius of a bend point
-const DURATION_DRAG_THRESHOLD = 10;
+const BEND_HIT = 8; // px, grab radius of a bend point
+const DURATION_DRAG_THRESHOLD = 10; // px, minimum drag distance to resize a note's duration
 const HZ_MAX = 24; // pitch (x) zoom: 1 = all 128 keys fit
 const HZ_STEP = 1.15; // per wheel notch
-const NOTE_MAX_W = 24; // px, notes stop growing with the pitch zoom (unless unzoomed keys are wider)
+const NOTE_MAX_W = 48; // px, notes stop growing with the pitch zoom (unless unzoomed keys are wider)
 const ROUND_STEP = 0.05; // rounding change per wheel step on a bend point
 // px, zooming out (time axis): grid lines closer together than this disappear. Beat lines go as a
 // whole, bar lines are thinned so the ones left stay at least this far apart (snap bands unaffected).

@@ -48,8 +48,8 @@ function createTicker(fn) {
 
 export class Transport {
   // getTarget(moduleNumber) -> instance with noteOn/noteOff, or null
-  constructor({ getSong, getBpm, getTarget, setAuto = null, getLayers = null, getScope = () => null, onState, now = () => performance.now(), ticker = createTicker, pitchOffset = () => 0, events = { starting: notesStarting, sounding: notesSounding } }) {
-    Object.assign(this, { getTarget, setAuto, getScope, onState, now, pitchOffset });
+  constructor({ getSong, getBpm, getTarget, setAuto = null, getLayers = null, getScope = () => null, onState, onCountBeat, now = () => performance.now(), ticker = createTicker, pitchOffset = () => 0, events = { starting: notesStarting, sounding: notesSounding } }) {
+    Object.assign(this, { getTarget, setAuto, getScope, onState, onCountBeat, now, pitchOffset });
     this.scope = null; // the level playing (see getScope)
     this.song = () => getSong(this.scopeNow());
     this.bpm = () => getBpm(this.scopeNow());
@@ -59,6 +59,10 @@ export class Transport {
     this.clipId = null;
     this.clipSong = null; // the song of the looped clip (any layer)
     this.pos = 0;
+    this.elapsed = 0; // unwrapped quarters since playback began; negative during the count-in
+    this.countIn = null;
+    this.endAt = null;
+    this.generation = 0;
     this.active = []; // { id, inst, end, note, start, vel (last sent) } sounding notes
     this.chase = true; // trigger notes the playhead lands inside (see chaseAt)
     this.chasePending = false;
@@ -96,35 +100,45 @@ export class Transport {
     return [0, end > 0 ? barCeil(song, end) : 0];
   }
 
-  play({ fromStart = false } = {}) {
+  play({ fromStart = false, countIn = null, endAt = null } = {}) {
     const [start, end] = this.songBounds();
     if (end <= start) {
       if (this.playing) this.stop();
       return false;
     }
     const sameScope = JSON.stringify(this.scope) === JSON.stringify(this.getScope());
-    if (this.playing && this.clipId === null && !fromStart && sameScope) return true;
+    if (this.playing && this.clipId === null && !fromStart && !countIn && sameScope) return true;
     this.clipId = null;
-    return this.start(fromStart || this.pos < start || this.pos >= end ? start : this.pos);
+    return this.start(fromStart || this.pos < start || this.pos >= end ? start : this.pos, { countIn, endAt });
   }
 
-  playClip(id, song = this.getSong()) {
+  playClip(id, song = this.getSong(), options = {}) {
     const clip = getClip(song, id);
     if (!clip) return false;
     this.clipId = clip.id;
     this.clipSong = song;
-    return this.start(clip.start);
+    return this.start(clip.start, options);
   }
 
-  start(pos = this.pos) {
+  get countingIn() { return this.playing && this.elapsed < 0; }
+
+  recordingTime() { return this.elapsed; }
+
+  start(pos = this.pos, { countIn = null, endAt = null } = {}) {
     if (!Number.isFinite(pos)) pos = Number.isFinite(this.pos) ? this.pos : 0; // a NaN position would feed garbage to the engine
     this.releaseAll();
     this.releaseAuto();
     this.scope = this.getScope();
     this.pos = this.from = pos;
+    this.generation++;
+    this.countIn = countIn;
+    this.elapsed = countIn ? -countIn.beats * countIn.beat : 0;
+    this.endAt = endAt;
+    this.nextCountBeat = 1;
     this.chasePending = true;
     this.playing = true;
     this.last = this.now();
+    if (countIn) this.onCountBeat?.(0);
     this.ticker.start();
     this.onState?.(this);
     return true;
@@ -151,6 +165,10 @@ export class Transport {
       if (q < clip.start || q >= clip.start + clip.length) q = clip.start;
     }
     this.releaseAll();
+    this.generation++;
+    this.elapsed = 0;
+    this.countIn = null;
+    this.endAt = null;
     this.pos = this.from = this.clipId !== null ? q : Math.max(0, q); // a looped clip may sit before zero
     this.chasePending = true;
     this.last = this.now();
@@ -182,6 +200,20 @@ export class Transport {
     let span = end - back;
     const dt = Math.min(0.25, Math.max(0, (nowMs - this.last) / 1000)); // a stalled tab must not jump far ahead
     this.last = nowMs;
+    let advance = (dt * this.getBpm()) / 60;
+    if (this.elapsed < 0) {
+      const before = this.elapsed;
+      this.elapsed = Math.min(0, this.elapsed + advance);
+      const count = this.countIn;
+      const counted = count.beats * count.beat + this.elapsed;
+      while (this.nextCountBeat < count.beats && counted + 1e-9 >= this.nextCountBeat * count.beat) {
+        this.onCountBeat?.(this.nextCountBeat++);
+      }
+      if (this.elapsed < 0) return;
+      advance = Math.max(0, advance + before);
+      this.onState?.(this);
+    }
+    this.elapsed += this.endAt === null ? advance : Math.min(advance, Math.max(0, this.endAt - this.pos));
     if (this.from < start || this.from >= end) {
       this.releaseAll();
       this.from = this.pos = start;
@@ -191,7 +223,13 @@ export class Transport {
       this.chasePending = false;
       if (this.chase) this.chaseAt(this.from);
     }
-    let to = this.pos + (dt * this.getBpm()) / 60;
+    let to = this.pos + advance;
+    if (this.endAt !== null && to >= this.endAt) {
+      this.advance(this.from, this.endAt);
+      this.pos = this.from = this.endAt;
+      this.stop();
+      return;
+    }
     for (let guard = 0; to >= end && guard < 4; guard++) {
       this.advance(this.from, end);
       this.releaseAll();

@@ -93,9 +93,13 @@ export const MIDI_AUTO = 'auto';
 // MIDI devices. `selected`: MIDI_AUTO (every input except Through ports) or the name of one
 // input; select(name) changes it (onSelect(name) lets the caller remember it).
 // onNoTarget(): a note arrived but no module can play it.
-export function initMidi({ getTarget, onStatus, onActivity, onNoTarget, onSelect, pitchOffset, selected = MIDI_AUTO }) {
-  const { noteOn, noteOff, allOff, releaseAll } = notePlayer(getTarget, pitchOffset);
+export function initMidi({ getTarget, onStatus, onActivity, onNoTarget, onSelect, onNote, pitchOffset, selected = MIDI_AUTO }) {
+  const player = notePlayer(getTarget, pitchOffset);
+  const { noteOn, noteOff, allOff } = player;
+  const releaseAll = () => { player.releaseAll(); onNote?.({ type: 'allOff' }); };
   const hooked = new WeakSet();
+  const inputIds = new WeakMap();
+  let nextInput = 0;
   const send = (fn, ...a) => {
     onActivity?.();
     const ok = ({ noteOn, noteOff, allOff })[fn](...a);
@@ -105,9 +109,14 @@ export function initMidi({ getTarget, onStatus, onActivity, onNoTarget, onSelect
   const nameOf = (input) => input.name || input.id;
   const used = (input) => (selected === MIDI_AUTO ? !isThru(nameOf(input)) : nameOf(input) === selected);
 
-  const onMessage = (e) => {
+  const onMessage = (input, e) => {
     const [status, d1, d2 = 0] = e.data;
     const cmd = status & 0xf0;
+    const prefix = `${inputIds.get(input)}:${status & 0x0f}:`;
+    const event = { key: `${prefix}${d1}`, time: e.timeStamp / 1000 };
+    if (cmd === 0x90 && d2 > 0) onNote?.({ ...event, type: 'on', pitch: d1, velocity: d2 / 127 });
+    else if (cmd === 0x80 || cmd === 0x90) onNote?.({ ...event, type: 'off' });
+    else if (cmd === 0xb0 && (d1 === 120 || d1 === 123)) onNote?.({ ...event, type: 'allOff', prefix });
     if (cmd === 0x90 && d2 > 0) send('noteOn', d1, d2 / 127, d1, e.timeStamp / 1000);
     else if (cmd === 0x80 || cmd === 0x90) send('noteOff', d1);
     else if (cmd === 0xb0 && (d1 === 120 || d1 === 123)) send('allOff');
@@ -122,11 +131,13 @@ export function initMidi({ getTarget, onStatus, onActivity, onNoTarget, onSelect
     return out;
   };
 
-  const hookInputs = () => {
+  const hookInputs = (event) => {
+    if (event?.port?.type === 'input' && event.port.state === 'disconnected' && used(event.port)) releaseAll();
     access.inputs.forEach((input) => {
       if (hooked.has(input)) return;
       hooked.add(input);
-      input.addEventListener('midimessage', (e) => { if (used(input)) onMessage(e); });
+      inputIds.set(input, ++nextInput);
+      input.addEventListener('midimessage', (e) => { if (used(input)) onMessage(input, e); });
       input.open?.().catch(() => {});
     });
     const all = list();

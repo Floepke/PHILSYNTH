@@ -132,6 +132,7 @@ export class Playback {
       now: () => this.now() * 1000,
       ticker: () => ({ start() {}, stop() {} }),
       events: this.events,
+      onCountBeat: (beat) => { this.blip = { time: this.now(), hz: beat === 0 ? 440 : 220 }; },
     });
   }
   runtime(ids) { return this.root ? runtimesAt(this.root, ids)[0] : null; }
@@ -276,12 +277,28 @@ export class Playback {
       tr.clipId = data.clipId;
       tr.clipSong = data.clipId === null ? null : (this.scope.length ? this.runtime(this.scope)?.song : this.song);
       tr.chase = data.chase;
-      tr.start(data.pos);
+      tr.start(data.pos, { countIn: data.countIn, endAt: data.endAt ?? null });
     } else if (data.type === 'seek') tr.seek(data.pos);
     else if (data.type === 'stop') tr.stop({ to: data.pos });
     else if (data.type === 'panic') {
       tr.stop();
       for (const e of this.root?.modules.values() ?? []) e.inst.allOff?.();
+    }
+    if (!tr.playing) this.blip = null;
+  }
+
+  renderCountIn(left, right, rate) {
+    if (!this.blip) return;
+    const { time, hz } = this.blip;
+    const age = this.now() - time;
+    for (let i = 0; i < left.length; i++) {
+      const t = age + i / rate;
+      if (t >= 0.1) { this.blip = null; break; }
+      const attack = Math.min(1, t / 0.002);
+      const release = Math.max(0, 1 - t / 0.1);
+      const v = 0.2 * attack * release * Math.exp(-t * 55) * Math.sin(2 * Math.PI * hz * t);
+      left[i] += v;
+      if (right !== left) right[i] += v;
     }
   }
 
@@ -301,6 +318,7 @@ export class Playback {
     const tr = this.transport;
     const result = {
       revision: this.revision, playing: tr.playing, pos: tr.pos, clipId: tr.clipId,
+      elapsed: tr.elapsed, time: this.now(), bpm: tr.getBpm(),
       mods: [...this.driven.values()].flat(),
       midi: this.midi,
     };

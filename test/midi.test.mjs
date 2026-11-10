@@ -38,7 +38,9 @@ const target = {
   },
 };
 let shift = 0; // Output Global Transpose / Cents Offset
-const midi = initMidi({ getTarget: () => target, pitchOffset: () => shift, onStatus: (s) => (status = s), onActivity: () => activity++ });
+const midiRecorded = [];
+const midi = initMidi({ getTarget: () => target, pitchOffset: () => shift, onStatus: (s) => (status = s), onActivity: () => activity++,
+  onNote: (event) => midiRecorded.push(event) });
 
 // initMidi itself does not listen to the computer keyboard (initKeyboard does)
 assert.ok(!winListeners.keydown && !winListeners.keyup, 'no keyboard listeners');
@@ -238,6 +240,41 @@ assert.equal(vel2ctl.liveMidi, false);
   assert.equal(changes, n, 'unsubscribed');
   shift = 0;
   kbTarget = target;
+  calls.splice(0);
+}
+// Recording observes raw device pitches, original event times and independent port/channel keys.
+{
+  const recorded = [];
+  const recorderMidi = initMidi({ getTarget: () => target, pitchOffset: () => shift, onStatus() {}, onNote: (event) => recorded.push(event) });
+  const input = new FakeInput('Recording controller');
+  inputs.set('recording', input);
+  await recorderMidi.enable();
+  accessListeners.forEach((fn) => fn());
+  const emit = (source, timeStamp, ...bytes) => source.l.forEach((fn) => fn({ data: Uint8Array.from(bytes), timeStamp }));
+  shift = 12;
+  emit(input, 1000, 0x90, 60, 64);
+  emit(input, 1010, 0x91, 60, 127);
+  emit(ctl, 1020, 0x90, 60, 100);
+  emit(input, 1100, 0x80, 60, 0);
+  emit(input, 1110, 0x91, 60, 0);
+  const ons = recorded.filter((event) => event.type === 'on');
+  assert.deepEqual(ons.map(({ pitch, velocity, time }) => [pitch, velocity, time]),
+    [[60, 64 / 127, 1], [60, 1, 1.01], [60, 100 / 127, 1.02]]);
+  assert.equal(new Set(ons.map((event) => event.key)).size, 3, 'ports and channels have independent recording keys');
+  const offs = recorded.filter((event) => event.type === 'off');
+  assert.deepEqual(offs.map((event) => event.key), ons.slice(0, 2).map((event) => event.key));
+  emit(input, 1120, 0xb1, 123, 0);
+  assert.equal(recorded.at(-1).type, 'allOff');
+  assert.ok(ons[1].key.startsWith(recorded.at(-1).prefix));
+  recorderMidi.select('Recording controller');
+  assert.equal(recorded.at(-1).type, 'allOff', 'switching MIDI inputs closes recorded held notes');
+  input.state = 'disconnected';
+  const beforeDisconnect = midiRecorded.length;
+  accessListeners.forEach((fn) => fn({ port: Object.assign(input, { type: 'input' }) }));
+  assert.ok(midiRecorded.length > beforeDisconnect, 'disconnecting a controller releases recorded notes');
+  assert.equal(midiRecorded.at(-1).type, 'allOff');
+  inputs.delete('recording');
+  shift = 0;
   calls.splice(0);
 }
 console.log('all midi tests passed');

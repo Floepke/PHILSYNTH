@@ -339,7 +339,7 @@ for (const type of ['DELAY', 'STRUM', 'TRILL']) {
   const pending = new Promise((r) => { resolve = r; });
   const tr = new AudioTransport({
     getScope: () => [], getSong: () => song, getBpm: () => 120, getTarget: () => null,
-  }, { dsp: { post: (op) => ops.push(op) }, sync: () => pending, onError: (error) => { throw error; } });
+  }, { dsp: { post: (op) => ops.push(op) }, sync: () => pending, audioTime: () => 0, onError: (error) => { throw error; } });
   tr.play();
   tr.stop();
   resolve();
@@ -359,7 +359,7 @@ for (const type of ['DELAY', 'STRUM', 'TRILL']) {
   const pending = new Promise((r) => { resolve = r; });
   const tr = new AudioTransport({
     getScope: () => [], getSong: () => song, getBpm: () => 120, getTarget: () => null,
-  }, { dsp: { post: (op) => ops.push(op) }, sync: () => pending, onError: (error) => errors.push(error) });
+  }, { dsp: { post: (op) => ops.push(op) }, sync: () => pending, audioTime: () => 0, onError: (error) => errors.push(error) });
   tr.play();
   tr.seek(1.5);
   resolve();

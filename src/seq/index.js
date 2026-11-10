@@ -13,6 +13,7 @@ import { createAutomationLane } from './automation.js';
 import { paramsOf, fromNorm, controllerAt, controllerNumber } from '../params.js';
 import { colorOf } from '../modcolor.js';
 import { openClipColorDialog } from '../colordialog.js';
+import { MidiRecorder } from './recording.js';
 
 // controller value as the panel shows it
 const formatValue = (e, p, v) => (p.format ? p.format(v, e.values) : p.options ? p.options[v] : String(+v.toFixed(3)));
@@ -31,7 +32,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
   const $ = (id) => document.getElementById(id);
   const seq = $('seq');
   const ui = {
-    restart: $('seq-restart'), play: $('seq-play'), loop: $('seq-loop'), stop: $('seq-stop'),
+    restart: $('seq-restart'), play: $('seq-play'), loop: $('seq-loop'), stop: $('seq-stop'), record: $('seq-record'),
     pos: $('seq-pos'), name: $('seq-name'), target: $('seq-target'),
     base: $('seq-snap-base'), div: $('seq-snap-div'), free: $('seq-free-time'),
     ctl: $('seq-ctl'), ctlField: $('seq-ctl-field'), targetField: $('seq-target-field'),
@@ -233,6 +234,18 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     },
   });
   const arranger = createArranger($('arranger'), { ...ctx, timelineDisplay });
+  const recorder = new MidiRecorder({
+    transport, song, clip,
+    onNotes: () => { onSongChange(); onChange(); roll.redraw(); arranger.redraw(); },
+    onCommit: () => ctx.changed(),
+    onState: () => {
+      ui.record.classList.toggle('armed', recorder.armed);
+      ui.record.setAttribute('aria-pressed', String(recorder.armed));
+      ui.record.setAttribute('aria-label', recorder.armed ? 'Disarm MIDI recording' : 'Arm MIDI recording');
+      if (!frame) loop();
+    },
+    onError: (message) => { $('status').textContent = message; },
+  });
   const defaultRollView = roll.getView();
   const defaultLaneView = lane.getView();
   let viewClip = null;
@@ -280,6 +293,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
 
   const fmt = (v) => String(+v.toFixed(6));
   function sync() {
+    recorder.update();
     if (!undoHistory) trackSong();
     const c = clip();
     for (const k of ['name', 'target']) ui[k].disabled = !c;
@@ -393,6 +407,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     if (k !== 'z' && !(k === 'y' && !e.shiftKey)) return;
     e.preventDefault();
     e.stopPropagation();
+    if (recorder.take) transport.stop();
     const result = undoHistory ? undoHistory.travel(k === 'y' || e.shiftKey ? 1 : -1) : travel(k === 'y' || e.shiftKey ? 1 : -1);
     const label = k === 'y' || e.shiftKey ? 'Redo' : 'Undo';
     if (result && typeof result.then === 'function') {
@@ -404,6 +419,15 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
   $('seq-bar').addEventListener('keydown', onUndoKey);
 
   // ---- transport ----
+  ui.record.addEventListener('mousedown', (e) => e.preventDefault());
+  ui.record.onclick = () => {
+    engine.resume();
+    stopArmed = false;
+    const disarm = recorder.armed;
+    if ((!disarm && transport.playing) || transport.countingIn) transport.stop();
+    if (disarm) recorder.finish();
+    else recorder.arm();
+  };
   for (const [button, key] of [[ui.restart, ','], [ui.play, '.'], [ui.loop, '/'], [ui.stop, "'"]]) {
     button.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus (Space) where it is
     button.onclick = () => transportAction(key);
@@ -415,17 +439,20 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     if (transport.playing) {
       // pausing parks the playhead at the restart point, else at the start of the selected clip
       transport.stop({ to: restartTo() ?? getClip(song(), song().selected)?.start ?? null });
+      recorder.finish();
       return;
     }
     const editor = isAuto(clip()) ? lane : roll;
     const pointerTime = fromPointer ? editor.getPointerTime() : null;
     if (pointerTime !== null) transport.seek(pointerTime);
+    if (recorder.armed) { recorder.start(); return; }
     if (!transport.play() && !song().clips.length) {
       $('status').textContent = 'Nothing to play: double-click in the TimeLine to create a clip.';
     }
   }
   function playSong(fromStart = false) {
     engine.resume();
+    if (recorder.armed) { recorder.start({ fromStart }); return; }
     if (!transport.play({ fromStart })) {
       $('status').textContent = 'Nothing to play: double-click in the TimeLine to create a clip.';
     }
@@ -438,9 +465,10 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     else if (panic) {
       engine.panic();
       $('status').textContent = 'Panic: all notes off, echo / reverb tails and other DSP state cleared.';
-    } else if (key === "'") transport.stop({ to: restartTo() });
+    } else if (key === "'") { transport.stop({ to: restartTo() }); recorder.finish(); }
     else if (key === '/') {
       engine.resume();
+      if (recorder.armed) { recorder.start({ loop: true }); return; }
       if (!transport.playClip(song().selected, song())) $('status').textContent = 'Select a clip in the TimeLine to loop it.';
     } else playSong(key === ',');
   }
@@ -453,19 +481,24 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
   });
   let frame = 0;
   const loop = () => {
-    frame = transport.playing ? requestAnimationFrame(loop) : 0;
+    frame = transport.playing || recorder.armed ? requestAnimationFrame(loop) : 0;
+    recorder.update();
+    ui.record.style.setProperty('--record-beat', `${60 / transport.getBpm()}s`);
     showPos();
     roll.redraw();
     lane.redraw();
     arranger.redraw();
   };
   transport.onState = () => {
+    recorder.update();
     ui.play.classList.toggle('playing', transport.playing && transport.clipId === null);
     ui.loop.classList.toggle('playing', transport.playing && transport.clipId !== null);
     if (!frame) loop();
   };
   function showPos() {
-    ui.pos.textContent = formatPos(transport.pos, song());
+    ui.pos.textContent = transport.countingIn
+      ? `Count ${Math.min(transport.countIn.beats, Math.floor((transport.elapsed + transport.countIn.beats * transport.countIn.beat) / transport.countIn.beat) + 1)}`
+      : formatPos(transport.pos, song());
     const looping = transport.loopClip ? (transport.clipSong === song() ? transport.loopClip() : null) : getClip(song(), transport.clipId);
     ui.pos.title = looping ? `Looping ${looping.name} (/ to restart, . for the song)` : 'Play position: bar.beat.hundredths';
   }
@@ -585,10 +618,14 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
   watchLayer();
 
   return {
+    recordArmed: () => recorder.armed,
+    recordTarget: () => (recorder.armed ? entryOf(clip()?.target ?? null) : null),
+    recordMidi: (event) => recorder.input(event),
     redrawPianoroll: () => roll.redraw(),
     redrawTimeline: () => arranger.redraw(),
     // after a project was loaded
     reload() {
+      recorder.finish();
       layerVersion++;
       transport.stop();
       transport.seek(0);
@@ -598,6 +635,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     },
     // the shown layer changed (entered / left a Patch): show its TimeLine
     setLayer() {
+      recorder.finish();
       layerVersion++;
       watchLayer();
       sync();
