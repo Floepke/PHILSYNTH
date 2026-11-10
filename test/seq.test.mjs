@@ -1339,7 +1339,7 @@ for (const how of ['wheel', 'edge']) {
       });
       flush();
       const cv = lane.surface.cv;
-      const lx = (v) => 48 + v * 420;
+      const lx = (v) => 48 + v * (420 - ROLL_SB);
       const ly = (t) => t * 48 - lane.getView().sy;
       point(cv, 'pointerdown', lx(0.5), ly(2), { buttons: 1 });
       point(cv, 'pointermove', lx(0.5), 1000, { buttons: 1 });
@@ -3514,7 +3514,7 @@ for (const free of [false, true]) {
   });
   flush();
   const cv = lane.surface.cv;
-  const lx = (v) => 48 + v * 420;
+  const lx = (v) => 48 + v * (420 - ROLL_SB);
   const ly = (t) => t * 48 - lane.getView().sy; // starts with free space above time 0, like the piano roll
   assert.equal(lane.getView().sy, -TOP_MARGIN, 'starts with the piano roll\'s top margin');
   dbl(cv, lx(0.25), ly(1.1));
@@ -3580,7 +3580,7 @@ for (const free of [false, true]) {
   assert.equal(lane.getPointerTime(), null);
   point(cv, 'pointermove', 200, TOP_MARGIN + 1.4 * 48);
   assert.equal(lane.getPointerTime(), 9.5);
-  a.points.push({ t: 1.4, v: (200 - 48) / 420, r: 0 });
+  a.points.push({ t: 1.4, v: (200 - 48) / (420 - ROLL_SB), r: 0 });
   point(cv, 'pointermove', 200, TOP_MARGIN + 1.4 * 48);
   assert.equal(lane.getPointerTime(), 9.5, 'hovering a point still uses floor snapping');
   song.snap.div = 2;
@@ -3991,6 +3991,76 @@ for (const width of [300, 480, 900, 1912]) {
   assert.equal(changes(), 0, 'scrolling is no undo step');
   const keys = cv.drawing.filter(([op, , y, , h]) => op === 'fillRect' && y === 377 && h === 22);
   assert.ok(keys.every(([, kx, , kw]) => kx + kw <= ROLL_WIDTH - ROLL_SB), 'the keyboard ends at the scrollbar');
+}
+
+// Automation uses the same jump-to-click scrollbar without editing points or their values.
+{
+  const song = emptySong();
+  const clip = addAutoClip(song, { length: 64 });
+  clip.points.push({ t: 1, v: 1, r: 0 }, { t: 80, v: 0.5, r: 0 });
+  const original = JSON.stringify(clip.points);
+  const laneHost = host();
+  let changes = 0;
+  let viewChanges = 0;
+  let current = clip;
+  const lane = createAutomationLane(laneHost, {
+    song: () => song, clip: () => current, color: () => '#e76f51',
+    transport: { playing: false, pos: 0 }, autoParam: () => null,
+    changed: () => changes++, viewChanged: () => viewChanges++,
+  });
+  flush();
+  const cv = lane.surface.cv;
+  const x = 480 - ROLL_SB / 2;
+  const bottom = 400 - 24;
+  const max = (80 + 4) * 48 - bottom;
+  const size = Math.max(48, bottom * bottom / (max + TOP_MARGIN + bottom));
+  assert.ok(cv.drawing.some(([op, tx, ty, w, h, color]) => op === 'fillRect'
+    && tx === 448 && ty === 0 && w === ROLL_SB && h === 400 && color === '#151517'),
+  'track and dead corner sit beside the value grid and scale');
+  click(cv, x, 200);
+  const expected = -TOP_MARGIN + (200 - size / 2) / (bottom - size) * (max + TOP_MARGIN);
+  assert.ok(Math.abs(lane.getView().sy - expected) < 1e-9, 'track click centres the thumb at the clicked position');
+  assert.ok(viewChanges > 0, 'scrollbar saves the view');
+  lane.setView({ sy: -TOP_MARGIN }); flush();
+  drag(cv, x, 200, x, 240);
+  assert.ok(Math.abs(lane.getView().sy - (-TOP_MARGIN + (240 - size / 2) / (bottom - size) * (max + TOP_MARGIN))) < 1e-9,
+    'track press continues dragging');
+  click(cv, x, bottom - 1);
+  assert.equal(lane.getView().sy, max, 'range includes points past the clip end and an extra bar');
+  drag(cv, x, bottom - 12, x, bottom - 32);
+  assert.ok(Math.abs(lane.getView().sy - (max - 20 / (bottom - size) * (max + TOP_MARGIN))) < 1e-9,
+    'handle drag retains its grab offset');
+  drag(cv, x, 10, x, -500);
+  assert.equal(lane.getView().sy, -TOP_MARGIN, 'drag clamps to the top margin');
+  point(cv, 'pointerdown', x, 250, { buttons: 1 });
+  point(cv, 'pointercancel', x, 250);
+  click(cv, x, bottom - 1);
+  assert.equal(lane.getView().sy, max, 'cancel releases the scrollbar for the next drag');
+  const saved = lane.getView();
+  dbl(cv, x, bottom + 10);
+  click(cv, x, 100, { button: 2 });
+  assert.deepEqual(lane.getView(), saved, 'dead corner and right click do not scroll');
+  assert.equal(lane.getPointerTime(), null, 'scrollbar is not a playback time target');
+  fire(cv, 'wheel', { clientX: x, clientY: 100, deltaY: -60, deltaMode: 0 });
+  assert.equal(lane.getView().sy, max - 60, 'wheel over the track scrolls');
+  fire(cv, 'wheel', { clientX: x, clientY: 100, deltaY: -100, deltaMode: 0, ctrlKey: true });
+  assert.ok(lane.getView().ppq > 48, 'wheel zoom still works over the track');
+  laneHost.clientHeight = 600;
+  lane.redraw(); flush();
+  click(cv, x, 575);
+  assert.equal(lane.getView().sy, 84 * lane.getView().ppq - 576, 'range follows zoom and resize');
+  lane.setView({ sy: -TOP_MARGIN, ppq: 48 }); flush();
+  point(cv, 'pointerdown', 436, 176, { buttons: 1 });
+  point(cv, 'pointerup', 436, 176);
+  fire(cv, 'wheel', { clientX: 436, clientY: 176, deltaY: -1, deltaMode: 0 });
+  assert.equal(clip.points[0].r, 0.05, 'maximum-value point stays inside the grid and editable');
+  clip.points[0].r = 0;
+  assert.equal(JSON.stringify(clip.points), original, 'scrollbar gestures never edit automation');
+  assert.equal(changes, 1, 'only the explicit point rounding creates an edit');
+  current = null;
+  lane.redraw(); flush();
+  click(cv, x, 575);
+  assert.ok(Number.isFinite(lane.getView().sy), 'scrollbar works without a selected clip');
 }
 
 // Shift + wheel zooms pitch (stave and keyboard) around the pointer; zoomed in, a horizontal
@@ -4649,6 +4719,81 @@ for (const notes of [
     point(cv, 'dblclick', ax(25), ay(0));
     assert.equal(song.clips.find((c) => c.id === song.selected).target, 3, 'no module chosen: the selected clip\'s module');
     seq.applyView({ top: 0.37, bottom: 0.81 });
+    song.clips = [];
+    song.selected = null;
+    seq.reload(); flush();
+  }
+
+  // Each clip restores its editor camera, independently of project-global and other layer views.
+  {
+    const midi = addClip(song, { length: 128, y: 0 });
+    const midi2 = addClip(song, { length: 128, y: 34 });
+    const auto = addAutoClip(song, { length: 128, y: 68 });
+    const auto2 = addAutoClip(song, { length: 128, y: 102 });
+    const timeline = elements.get('arranger').children[0];
+    const roll = elements.get('roll').children[0];
+    const lane = elements.get('roll').children[1];
+    song.selected = midi.id;
+    seq.reload(); flush();
+    seq.applyView({ arranger: { sx: 0, sy: 0, ppq: 16 } });
+    const select = (c) => click(timeline, ax(1), ay(c.y));
+    const wheel = (cv, props) => fire(cv, 'wheel', { clientX: 200, clientY: 200, deltaMode: 0, deltaY: 120, ...props });
+    const beforeScroll = songChanges;
+    wheel(roll, { shiftKey: true, deltaY: -120 });
+    wheel(roll, { deltaY: 0, deltaX: 30 });
+    wheel(roll, {});
+    const midiView = structuredClone(midi.editorView);
+    assert.ok(midiView.sy > -TOP_MARGIN);
+    assert.ok(midiView.hz > 1, 'pitch zoom is remembered with horizontal scrolling');
+    assert.ok(midiView.hx > 0);
+    assert.equal(songChanges, beforeScroll, 'scroll saves without a musical edit or audio resync');
+    select(midi2);
+    assert.equal(seq.viewState().roll.sy, -TOP_MARGIN, 'new clip starts at the top');
+    wheel(roll, { deltaY: 300 });
+    click(roll, 464, 300);
+    const midi2View = structuredClone(midi2.editorView);
+    select(midi);
+    assert.deepEqual(seq.viewState().roll, midiView, 'MIDI selection restores its own camera');
+    select(midi2);
+    assert.deepEqual(seq.viewState().roll, midi2View);
+    select(auto);
+    wheel(lane, { ctrlKey: true, deltaY: -100 });
+    wheel(lane, { deltaY: 240 });
+    const autoView = structuredClone(auto.editorView);
+    select(auto2);
+    assert.equal(seq.viewState().lane.sy, -TOP_MARGIN);
+    wheel(lane, { deltaY: 500 });
+    drag(lane, 464, 250, 464, 280);
+    const auto2View = structuredClone(auto2.editorView);
+    select(auto);
+    assert.deepEqual(seq.viewState().lane, autoView, 'automation selection restores its own camera');
+    point(timeline, 'dblclick', ax(1), ay(auto.y));
+    assert.deepEqual(seq.viewState().lane, autoView, 'maximizing does not reset the clip camera');
+    select(auto2);
+    assert.deepEqual(seq.viewState().lane, auto2View);
+    const saved = JSON.parse(JSON.stringify(song));
+    engine.song = normalizeSong(saved);
+    seq.reload(); flush();
+    seq.applyView({ lane: { sy: 0, ppq: 12 }, roll: { sy: 0, ppq: 12 } });
+    flush();
+    assert.deepEqual(seq.viewState().lane, auto2View, 'clip camera wins over stale project-global view after reload');
+    engine.song.selected = midi.id;
+    seq.reload(); flush();
+    assert.deepEqual(seq.viewState().roll, midiView, 'project reload restores a different clip too');
+    const layer = emptySong();
+    const nested = addClip(layer, { length: 128 });
+    nested.id = midi.id;
+    nested.editorView = { ...midiView, sy: 950 };
+    layer.selected = nested.id;
+    engine.song = layer;
+    seq.setLayer(); flush();
+    assert.equal(seq.viewState().roll.sy, 950, 'same clip ID in another layer has its own view');
+    engine.song = song;
+    song.selected = midi.id;
+    seq.setLayer(); flush();
+    assert.deepEqual(seq.viewState().roll, midiView, 'returning from a Patch restores the outer clip');
+    assert.deepEqual(midi.notes, []);
+    assert.deepEqual(auto.points, [], 'camera changes do not edit musical content');
     song.clips = [];
     song.selected = null;
     seq.reload(); flush();

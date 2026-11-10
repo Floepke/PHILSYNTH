@@ -239,6 +239,11 @@ export function normalizeSong(s) {
       clip.controller = Math.max(0, Math.round(num(c.controller, 0)));
       clip.points = normalizePoints(c.points);
     }
+    if (c.editorView && typeof c.editorView === 'object') {
+      const keys = c.kind === 'auto' ? ['sy', 'ppq'] : ['sy', 'ppq', 'hx', 'hz', 'velW'];
+      const view = Object.fromEntries(keys.filter((k) => Number.isFinite(c.editorView[k])).map((k) => [k, c.editorView[k]]));
+      if (Object.keys(view).length) clip.editorView = view;
+    }
     if (Number.isInteger(c.link) && c.link > 0) clip.link = c.link;
     song.clips.push(clip);
   }

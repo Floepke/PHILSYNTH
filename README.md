@@ -437,6 +437,13 @@ cursor dragging without requesting pointer lock. If Electron refuses pointer
 lock, ordinary dragging remains available with a console warning.
 Escape cancels the gesture.
 
+The automation editor has a vertical scrollbar beside the value grid, matching
+the piano roll. Drag its handle to scroll, or click the track to jump directly
+to that position and keep dragging. Wheel scrolling and time zoom remain available.
+Each MIDI and automation clip remembers its own editor scroll position and zoom.
+These views are saved inside the clips with the project and restored when you
+select a clip again, including clips inside Patch modules.
+
 The timeline's time-signature row and measure ruler each match a normal clip
 lane's height, with enlarged signature flags and measure numbers.
 

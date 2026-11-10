@@ -69,8 +69,6 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     // scroll: false keeps the TimeLine where it is (selection made in the TimeLine itself)
     select(id, { scroll = true } = {}) {
       song().selected = id;
-      roll.reveal();
-      lane.reveal();
       if (scroll) arranger.reveal(id);
       sync();
       onSongChange();
@@ -81,7 +79,6 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
       layout.bottom = 1;
       applyLayout();
       const editor = isAuto(clip()) ? lane : roll;
-      editor.reveal();
       editor.surface.cv.focus();
       onChange();
     },
@@ -209,10 +206,32 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
   // heldKeys: keys held on the MIDI device / computer keyboard light up blue on its keyboard
   const roll = createPianoRoll($('roll'), {
     ...ctx, pianorollPreferences, clip: () => (isAuto(clip()) ? null : clip()), live: () => arranger.redraw(), heldKeys: heldPitches,
+    viewChanged: () => {
+      const c = clip();
+      if (c && !isAuto(c)) c.editorView = roll.getView();
+      onChange();
+    },
   });
   onHeldChange(() => roll.redraw());
-  const lane = createAutomationLane($('roll'), { ...ctx, clip: () => (isAuto(clip()) ? clip() : null) });
+  const lane = createAutomationLane($('roll'), {
+    ...ctx, clip: () => (isAuto(clip()) ? clip() : null),
+    viewChanged: () => {
+      const c = clip();
+      if (isAuto(c)) c.editorView = lane.getView();
+      onChange();
+    },
+  });
   const arranger = createArranger($('arranger'), { ...ctx, timelineDisplay });
+  const defaultRollView = roll.getView();
+  const defaultLaneView = lane.getView();
+  let viewClip = null;
+  function restoreClipView() {
+    const c = clip();
+    if (c === viewClip) return;
+    viewClip = c;
+    if (isAuto(c)) lane.setView({ ...defaultLaneView, ...c.editorView });
+    else roll.setView({ ...defaultRollView, ...c?.editorView });
+  }
 
   // ---- toolbar ----
   createHoverToolbar($('seq-bar'), $('seq-bar-content'));
@@ -220,6 +239,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
 
   function refreshTargets() {
     const c = clip();
+    restoreClipView();
     const auto = isAuto(c);
     const opts = [new Option('— none —', '')];
     for (const e of patch().modules.values()) {
@@ -594,8 +614,14 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
         if (Number.isFinite(v.panelWidth)) layout.panelWidth = Math.max(0, v.panelWidth);
       } else Object.assign(layout, defaults);
       applyLayout();
+      restoreClipView();
       roll.setView(v?.roll);
       lane.setView(v?.lane);
+      const c = clip();
+      if (c?.editorView) {
+        const editor = isAuto(c) ? lane : roll;
+        editor.setView({ ...(isAuto(c) ? defaultLaneView : defaultRollView), ...c.editorView });
+      }
       arranger.setView(v?.arranger);
       sync();
     },

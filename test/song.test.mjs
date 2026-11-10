@@ -102,6 +102,30 @@ assert.equal(n.selected, 3);
 assert.deepEqual(normalizeSong(null), emptySong());
 assert.deepEqual(normalizeSong(JSON.parse(JSON.stringify(n))), n); // save/load round trip
 
+// Editor cameras live on individual clips, including imported and linked clips.
+{
+  const song = emptySong();
+  const midi = addClip(song);
+  const auto = addAutoClip(song);
+  midi.editorView = { sy: 320, ppq: 96, hx: 70, hz: 3, velW: 100 };
+  auto.editorView = { sy: 180, ppq: 64 };
+  const loaded = normalizeSong(JSON.parse(JSON.stringify(song)));
+  assert.deepEqual(loaded.clips.map((c) => c.editorView), [midi.editorView, auto.editorView]);
+  const imported = parseClipFile(clipFileText([midi, auto]));
+  assert.deepEqual(imported.map((c) => c.editorView), [midi.editorView, auto.editorView]);
+  const clone = cloneClip(song, midi);
+  clone.editorView = { ...clone.editorView, sy: 999 };
+  assert.equal(midi.editorView.sy, 320, 'linked clips keep independent cameras');
+  const invalid = normalizeSong({ clips: [
+    { editorView: { sy: Infinity, ppq: '96', hx: NaN, other: 12 } },
+    { kind: 'auto', editorView: { sy: -128, ppq: 48, hx: 99 } },
+    {},
+  ] });
+  assert.equal('editorView' in invalid.clips[0], false);
+  assert.deepEqual(invalid.clips[1].editorView, { sy: -128, ppq: 48 });
+  assert.equal('editorView' in invalid.clips[2], false, 'older clips need no migration');
+}
+
 // ---- clip editing ----
 const s = emptySong();
 const a = addClip(s, { start: 4, length: 4, target: 2 });
