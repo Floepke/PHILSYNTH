@@ -47,6 +47,7 @@ import { moduleDocs } from './moduledocs.js';
 import { createPatchMonitor } from './patchmonitor.js';
 import { songFacts } from './songfacts.js';
 import { initMouseNavigation, MOUSE_FORWARD } from './mousebuttons.js';
+import { initPanelScroll } from './panelscroll.js';
 
 const engine = new Engine();
 let transport = null; // song playback (created after the engine)
@@ -80,6 +81,7 @@ const svg = $('cables');
 const world = $('world');
 const panel = $('panel-content');
 const panelScroller = $('panel');
+initPanelScroll(panelScroller, $('panel-scroll'), $('panel-scroll-thumb'));
 const dialog = $('insert-dialog');
 const moduleList = $('module-list');
 const SVGNS = 'http://www.w3.org/2000/svg';

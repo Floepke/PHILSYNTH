@@ -35,6 +35,7 @@
 //   drag the thick end line      change the clip length (wheel-scroll or drag past the top / bottom edge to go further)
 //   Shift + drag / right drag    select notes with a rectangle (Shift: starting off a note's circle) (wheel-scroll or drag past the top / bottom edge to extend it across the clip)
 //   Shift + click a note         add it to / remove it from the selection
+//   Ctrl/Cmd + click a note      add it to / remove it from the selection without editing it
 //   Alt + drag a note           clone it (or the selection) and move the clones
 //   right click                 delete the note under the pointer on release
 //   hold right button 250 ms    open the menu instead (release never deletes)
@@ -1182,6 +1183,16 @@ export function createPianoRoll(host, ctx) {
     }
     if (e.button !== 0) return;
     e.preventDefault();
+    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+      const h = hit(x, y);
+      if (h) {
+        presses.reset();
+        selected = new Set(selected);
+        if (selected.has(h.note)) selected.delete(h.note); else selected.add(h.note);
+        s.redraw();
+        return;
+      }
+    }
     const second = !e.shiftKey && !e.altKey && presses.press(e);
     const bend = !e.altKey && bendAt(x, y);
     if (bend) { presses.reset(); dragBend(e, clip, bend.note, bend.i, x, y); return; }

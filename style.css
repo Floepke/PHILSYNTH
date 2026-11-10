@@ -156,7 +156,9 @@ kbd {
 }
 
 /* ---------- side panel ---------- */
+#panel-shell { display: flex; min-width: 0; min-height: 0; overflow: hidden; }
 #panel {
+  flex: 1;
   min-width: 0;
   min-height: 0;
   background: var(--surface-1);
@@ -177,7 +179,23 @@ kbd {
 }
 #panel::-webkit-scrollbar-thumb:hover { background-color: #4a4a52; }
 #panel::-webkit-scrollbar-thumb:active { background-color: #5a5a64; }
-body.panel-collapsed #panel { visibility: hidden; }
+#panel.jump-scroll { scrollbar-width: none; }
+#panel.jump-scroll::-webkit-scrollbar { display: none; }
+#panel-scroll { flex: 0 0 32px; position: relative; background: var(--surface-2); touch-action: none; user-select: none; }
+#panel-scroll[hidden] { display: none; }
+#panel-scroll:focus-visible { outline: 2px solid var(--text-dim); outline-offset: -2px; }
+#panel-scroll-thumb {
+  position: absolute;
+  top: 0;
+  width: 100%;
+  box-sizing: border-box;
+  border: 8px solid transparent;
+  border-radius: 16px;
+  background: var(--surface-4) padding-box;
+}
+#panel-scroll-thumb:hover { background-color: #4a4a52; }
+#panel-scroll.dragging #panel-scroll-thumb { background-color: #5a5a64; }
+body.panel-collapsed #panel-shell { visibility: hidden; }
 .panel-header {
   display: flex;
   align-items: baseline;

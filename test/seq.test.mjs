@@ -1499,6 +1499,48 @@ for (const how of ['wheel', 'edge']) {
   assert.equal(clip.notes.length, 0);
 }
 
+// Ctrl-click (Windows/Linux) and Cmd-click (macOS) toggle individual notes without editing.
+for (const modifier of ['ctrlKey', 'metaKey']) {
+  for (const part of ['head', 'body']) {
+    const { clip, roll, changes, previews } = setup();
+    const cv = roll.surface.cv;
+    clip.notes.push(note(60, 1), note(64, 2), note(67, 1));
+    const before = JSON.stringify(clip.notes);
+    const offset = part === 'head' ? 5 : 24;
+    click(cv, nx(60), ny(1) + offset);
+    click(cv, nx(64), ny(2) + offset, { [modifier]: true });
+    assert.equal(changes(), 0, 'selection-only clicks create no musical edit');
+    assert.equal(previews(), 0, 'selection leaves no sounding preview');
+    assert.equal(JSON.stringify(clip.notes), before, 'modifier click never moves, resizes or bends a note');
+    key(cv, 'ArrowRight');
+    assert.deepEqual(clip.notes.map((n) => n.pitch), [61, 65, 67], `${modifier}: both notes are selected (${part})`);
+    const afterMove = JSON.stringify(clip.notes);
+    const edits = changes();
+    click(cv, nx(61), ny(1) + offset, { [modifier]: true });
+    assert.equal(JSON.stringify(clip.notes), afterMove, 'toggling off does not edit the note');
+    assert.equal(changes(), edits, 'toggling off creates no undo edit');
+    key(cv, 'Delete');
+    assert.deepEqual(clip.notes.map((n) => n.pitch), [61, 67], `${modifier}: toggled-off note stays, selected note is deleted`);
+  }
+  {
+    const { clip, roll, changes } = setup();
+    const cv = roll.surface.cv;
+    clip.notes.push(note(60, 1), note(64, 2));
+    const before = JSON.stringify(clip.notes);
+    // Rapid modifier clicks on a selected body must toggle, not insert bend points.
+    click(cv, nx(60), ny(1) + 24, { [modifier]: true });
+    click(cv, nx(60), ny(1) + 24, { [modifier]: true });
+    key(cv, 'Delete');
+    assert.equal(JSON.stringify(clip.notes), before, 'toggling the last selected note off clears selection');
+    assert.equal(changes(), 0);
+    click(cv, nx(60), ny(1) + 5);
+    click(cv, nx(64), ny(2) + 5, { [modifier]: true });
+    drag(cv, nx(60), ny(1) + 5, nx(61), ny(2) + 5);
+    assert.deepEqual(clip.notes.map((n) => [n.pitch, n.start]), [[61, 2], [65, 3]],
+      'ordinary dragging still moves the modifier-built selection together');
+  }
+}
+
 // Released while still moving, Firefox (macOS) can end the capture with lostpointercapture instead
 // of a pointerup: a drawn rectangle still selects; pointercancel restores the old selection.
 for (const end of ['lostpointercapture', 'pointercancel']) {

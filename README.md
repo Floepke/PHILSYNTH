@@ -20,6 +20,8 @@ Interface > Controller Panel Divider Width sets only the divider between the
 controller panel and patcher, in CSS px (10–128; default 48). The 10 px minimum
 fits its 6 px grip with padding. App scaling still applies; the widget-bearing
 horizontal dividers keep their existing size.
+Click the controller-panel scrollbar track to jump directly to that position.
+Dragging the handle and wheel scrolling still work normally.
 
 Divider dragging updates the layout at most once per animation frame. Sequencer
 canvas resizing shares the playback redraw instead of painting again inside
@@ -200,6 +202,10 @@ Window-manager Close, Alt+F4, and Ctrl/Cmd+Q first show the same "Exit to OS?"
 confirmation as the Exit menu item. Yes saves before quitting; No keeps the app open.
 In a focused TimeLine or piano roll, Escape clears an existing selection first;
 the next Escape opens the exit confirmation, without needing to move focus.
+In the piano roll, Ctrl-click a note (Cmd-click on macOS) to add it to the
+selection; clicking an already selected note with the same modifier removes it.
+This works on the note's head or body without editing it. Shift-click also
+keeps its existing selection-toggle behavior.
 The overflow toolbar reaches its scroll endpoints before either edge widget's
 centre, so its outer controls are fully visible when hovered.
 Dropdown option popups have rounded corners in Electron and browsers supporting

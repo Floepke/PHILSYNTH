@@ -28,7 +28,10 @@
       </div>
     </div>
     <section id="patcher" aria-label="Patcher">
-      <aside id="panel"><div id="panel-content"></div></aside>
+      <div id="panel-shell">
+        <aside id="panel"><div id="panel-content"></div></aside>
+        <div id="panel-scroll" role="scrollbar" tabindex="0" aria-label="Controller panel scroll" aria-controls="panel" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" hidden><div id="panel-scroll-thumb"></div></div>
+      </div>
       <div id="panel-split" class="splitter" role="separator" aria-orientation="vertical" aria-label="Controller panel width" title="Drag left/right to resize the controller panel; grab above the grip to move the upper horizontal divider or below it to move the lower one up/down; drag fully left to hide the panel"></div>
       <main id="canvas">
         <div id="world"><svg id="cables"></svg></div>

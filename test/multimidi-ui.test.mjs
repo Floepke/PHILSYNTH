@@ -78,6 +78,19 @@ app.whenReady().then(async () => {
       win.webContents.sendInputEvent({ type: 'mouseUp', button: 'left', ...p, clickCount });
       await wait(20);
     };
+    const scrollTrack = await run(`(() => {
+      const p = document.getElementById('panel'), t = document.getElementById('panel-scroll'), r = t.getBoundingClientRect();
+      p.scrollTop = 0;
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height * .8), hidden: t.hidden };
+    })()`);
+    assert.equal(scrollTrack.hidden, false);
+    await click({ x: scrollTrack.x, y: scrollTrack.y });
+    await wait();
+    assert.equal(await run(`(() => {
+      const p = document.getElementById('panel'), t = document.getElementById('panel-scroll'), h = document.getElementById('panel-scroll-thumb');
+      const r = t.getBoundingClientRect(), b = h.getBoundingClientRect();
+      return p.scrollTop > 0 && Math.abs(b.top + b.height / 2 - ${scrollTrack.y}) < 2;
+    })()`), true, 'actual controller-panel track click jumps to the clicked position');
     await click(await point('.p2c-view canvas', 60.5 / 128, 0.75, true));
     const trimmed = await run('window.velocityState().velocityMap[60]');
     assert.ok(Math.abs(trimmed - 0.25) < 0.01, 'drawing trims the chosen key to 25%');
