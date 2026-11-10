@@ -18,6 +18,12 @@ app.whenReady().then(async () => {
         window.fftCount = 0;
         const measure = Spectrum.prototype.measure;
         Spectrum.prototype.measure = function (...args) { window.fftCount++; return measure.apply(this, args); };
+        window.frequencyLabels = [];
+        const fillText = CanvasRenderingContext2D.prototype.fillText;
+        CanvasRenderingContext2D.prototype.fillText = function (text, ...args) {
+          if (this.canvas.parentElement?.id === 'analyse-panel' && !window.frequencyLabels.includes(text)) window.frequencyLabels.push(text);
+          return fillText.call(this, text, ...args);
+        };
         Object.defineProperty(navigator, 'requestMIDIAccess', { value: async () => Object.assign(new EventTarget(), { inputs: new Map() }) });
         await import('/src/main.js');
       </script>`);
@@ -68,6 +74,8 @@ app.whenReady().then(async () => {
         osc.inst.noteOn(9001, 69, 1);
       })()`);
       await waitFor('window.fftCount > 0');
+      assert.deepEqual(await run('window.frequencyLabels'), ['32', '64', '128', '256', '512', '1k', '2k', '4k', '8k', '16k'],
+        'spectrogram labels the requested frequency grid through 16 kHz');
       assert.equal(await run('window.analysisTest.engine.dspInfo.dsp'), backend);
       assert.equal(await run("!!document.getElementById('zoom') || !!document.getElementById('analyse-split')"), false);
       const checkSize = async () => {

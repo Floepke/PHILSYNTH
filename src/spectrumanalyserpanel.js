@@ -81,7 +81,7 @@ export function createSpectrumAnalyserPanel({ host, panel, button, dsp, target, 
     g.drawImage(history, 0, 0, w, h);
     g.font = '10px monospace';
     g.lineWidth = 1;
-    for (const hz of [20, 100, 1000, 10000]) {
+    for (const hz of [32, 64, 128, 256, 512, 1000, 2000, 4000, 8000, 16000]) {
       if (hz > high) continue;
       const x = xOf(hz);
       g.strokeStyle = 'rgba(160, 160, 168, 0.25)';
