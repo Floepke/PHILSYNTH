@@ -18,7 +18,7 @@ const ROUND_STEP = 0.05;
 const IN = (x) => `in ${x.toFixed(3)}`;
 const OUT = (y) => `out ${y.toFixed(3)}`;
 
-export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onChange, beginEdit, endEdit, identity = true, mapping = false, formatX = IN, formatY = OUT }) {
+export function createCurveEditor({ curve, color = '#c0a040', title = 'Shaping curve', labels = {}, onChange, beginEdit, endEdit, identity = true, mapping = false, formatX = IN, formatY = OUT }) {
   let pts = normalizeCurve(curve).points;
   let hover = -1;
   let drag = -1;
@@ -28,6 +28,7 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
 
   const el = document.createElement('div');
   el.className = 'curve-editor';
+  el.setAttribute('data-editor-title', title);
   const canvas = document.createElement('canvas');
   const info = document.createElement('div');
   info.className = 'curve-info';

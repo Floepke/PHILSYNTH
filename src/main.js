@@ -1187,7 +1187,7 @@ function patcherMenuItems(entry, at, all = false) {
   return items;
 }
 const patcherShortcutActive = () => document.activeElement === document.body || canvas.contains(document.activeElement);
-registerShortcutMenu('patcher', () => patcherMenuItems(sel?.kind === 'module' ? sel.entry : null, lastPointer, true), { active: patcherShortcutActive });
+registerShortcutMenu('patcher', () => patcherMenuItems(selectedEntries()[0] ?? null, lastPointer, true), { active: patcherShortcutActive });
 registerShortcutAction({
   id: 'patcher/select-all', label: 'Select all modules', scope: 'patcher', keys: [parseShortcut(shortcut('A'))],
   active: patcherShortcutActive, run: () => selectEntries([...current().modules.values()]),
@@ -1296,6 +1296,7 @@ function panelHeader(title, sub, color) {
   setColor(h, color);
   const t = document.createElement('h2');
   t.textContent = title;
+  t.title = title;
   const s = document.createElement('span');
   s.textContent = sub;
   h.append(t, s);
@@ -1484,6 +1485,14 @@ function select(s) {
   if (view) {
     if (entry.def.viewAboveControllers) panel.insertBefore(view.el, header.nextSibling);
     else panel.append(view.el);
+  }
+  // Keep headings outside graph containers, whose heights belong to their canvases.
+  for (const editor of panel.querySelectorAll('[data-editor-title]')) {
+    const heading = document.createElement('h3');
+    heading.className = 'panel-editor-title';
+    heading.textContent = editor.dataset.editorTitle;
+    heading.title = editor.dataset.editorTitle;
+    editor.before(heading);
   }
   // structured reference: summary, every controller, usage notes (src/moduledocs.js)
   const docs = moduleDocs(entry.def, paramsOf(entry));

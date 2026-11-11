@@ -101,7 +101,7 @@ export const GUIDE = [
       {
         title: 'Select',
         items: [
-          'Click a module to select it: the controller panel shows its controllers, their descriptions and usage notes.',
+          'Click a module to select it: the controller panel shows its controllers, their descriptions and usage notes. Mini editors have matching section headings. Module and editor titles stay on one line as you resize the panel; hover a shortened title to read its full name.',
           `Drag on empty canvas or use the mouse <b>Forward</b> button + drag to draw a selection rectangle; ${k('Shift')} + drag on empty canvas pans the view (also on a trackpad). Forward-drag can also start over a module. ${k(CMD)} + drag adds to the selection, ${k(CMD)} + click toggles one module, ${k(CMD, 'A')} selects all.`,
         ],
       },

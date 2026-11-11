@@ -42,24 +42,17 @@ const velocityState = (state) => ({
 
 function velocityView(entry, api) {
   const el = document.createElement('div');
-  const heading = (text) => {
-    const h = document.createElement('h3');
-    h.textContent = text;
-    el.append(h);
-  };
-  heading('Velocity per key');
   const keys = createKeyMapView({
-    ...api, getMap: () => entry.state.velocityMap,
+    ...api, title: 'Velocity per key', getMap: () => entry.state.velocityMap,
     save: (map) => api.setState({ ...entry.state, velocityMap: map }),
     buttons: [{ text: 'Reset', title: 'Restore every key to 100 % velocity', action: fullVelocityMap }],
     hint: 'Drag to trim velocity per incoming key · Shift+drag: straight line',
     ariaLabel: 'Velocity trim: one independent value per MIDI key',
   });
   el.append(keys.el);
-  heading('Velocity response');
   let source = entry.state.velocityCurve;
   const curve = createCurveEditor({
-    curve: source, color: api.color, mapping: true,
+    curve: source, color: api.color, title: 'Velocity response', mapping: true,
     labels: { x0: '0', x1: 'Input velocity →', y1: 'Output velocity ↑' },
     formatX: (x) => `in ${Math.round(x * 100)} %`,
     formatY: (y) => `out ${Math.round(y * 100)} %`,

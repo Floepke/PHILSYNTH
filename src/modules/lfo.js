@@ -60,6 +60,7 @@ export default {
     const el = document.createElement('div');
     const wrap = document.createElement('div');
     wrap.className = 'wave-view';
+    wrap.setAttribute('data-editor-title', 'LFO output');
     const cv = document.createElement('canvas');
     cv.setAttribute('role', 'img');
     cv.setAttribute('aria-label', 'Live LFO output: last 5 seconds, 0 to 100 percent, before Out Smooth');

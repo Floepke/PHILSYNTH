@@ -78,6 +78,7 @@ const seconds = (n, rate) => `${(n / rate).toFixed(n / rate < 10 ? 2 : 1)} s`;
 export function createSampleView(entry, api, { table = false } = {}) {
   const el = document.createElement('div');
   el.className = 'sample-view';
+  el.setAttribute('data-editor-title', table ? 'Wavetable' : 'Sample editor');
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'sample-load';

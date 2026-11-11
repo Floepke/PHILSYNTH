@@ -142,6 +142,7 @@ export function pasteAdsr(clip, params) {
 export function createAdsrView({ color = '#db7c3d', values, params, setParam, beginEdit, endEdit }) {
   const el = document.createElement('div');
   el.className = 'wave-view adsr-view';
+  el.setAttribute('data-editor-title', 'ADSR envelope');
   const cv = document.createElement('canvas');
   cv.setAttribute('role', 'img');
   cv.setAttribute('aria-label', 'ADSR envelope editor');

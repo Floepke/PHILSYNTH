@@ -116,6 +116,7 @@ console.log('waveshaper tests passed');
   class Element extends EventTarget {
     constructor(tag) { super(); this.tag = tag; this.children = []; this.style = {}; this.clientWidth = 320; }
     append(...els) { this.children.push(...els); }
+    setAttribute(name, value) { this[name] = value; }
     getContext() { return g; }
     getBoundingClientRect() { return { left: 0, top: 0 }; }
   }
@@ -130,6 +131,7 @@ console.log('waveshaper tests passed');
   assert.equal(texts.length, 0, 'canvas resizing waits for an animation frame, outside observer delivery');
   frames.shift()();
   const [canvas, info] = panel.el.children;
+  assert.equal(panel.el['data-editor-title'], 'Shaping curve', 'shared editor declares its panel heading');
   assert.equal(canvas.width, 320);
   assert.equal(canvas.height, 180, 'shared curve editor uses a 16:9 canvas');
   assert.equal(canvas.style.height, '180px');

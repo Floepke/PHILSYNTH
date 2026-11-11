@@ -17,7 +17,7 @@ app.whenReady().then(async () => {
         const path = resolve(root, '.' + new URL(req.url, 'http://localhost').pathname);
         if (path !== root && !path.startsWith(root + sep)) throw new Error('Invalid path');
         let body = await readFile(path === root ? resolve(root, 'index.html') : path);
-        if (path === resolve(root, 'src/main.js')) body += '\nwindow.velocityTest = { engine, select, seq, undoHistory };\n';
+        if (path === resolve(root, 'src/main.js')) body += '\nwindow.velocityTest = { engine, select, seq, undoHistory, render };\n';
         res.writeHead(200, { 'Content-Type': /\.(m?js)$/.test(path) ? 'text/javascript' : path.endsWith('.css') ? 'text/css' : path.endsWith('.wasm') ? 'application/wasm' : 'text/html' });
         res.end(body);
       } catch (error) {
@@ -63,6 +63,28 @@ app.whenReady().then(async () => {
       return rows.length === 13 && !!(rows.at(-1).compareDocumentPosition(key) & Node.DOCUMENT_POSITION_FOLLOWING)
         && !!(key.compareDocumentPosition(curve) & Node.DOCUMENT_POSITION_FOLLOWING);
     })()`), true, 'both reused graph editors appear after all MULTIMIDI controllers');
+    assert.deepEqual(await run(`[...document.querySelectorAll('#panel .panel-editor-title')].map(h => h.textContent)`),
+      ['Velocity per key', 'Velocity response'], 'velocity editors share the standard panel headings without duplicates');
+    const headingMetrics = () => run(`(() => {
+      const h = document.querySelector('.panel-header');
+      return {
+        height: h.getBoundingClientRect().height,
+        headings: [...document.querySelectorAll('.panel-header h2, .panel-editor-title')].map(el => ({
+          whiteSpace: getComputedStyle(el).whiteSpace, overflow: getComputedStyle(el).textOverflow,
+          title: el.getAttribute('data-tip') ?? el.title, text: el.textContent, height: el.getBoundingClientRect().height,
+        })),
+      };
+    })()`);
+    const wideHeadings = await headingMetrics();
+    await run(`document.getElementById('panel-shell').style.width = '200px'`);
+    await wait();
+    const narrowHeadings = await headingMetrics();
+    assert.equal(narrowHeadings.height, wideHeadings.height, 'module header height stays fixed on a narrow panel');
+    assert.deepEqual(narrowHeadings.headings, wideHeadings.headings, 'editor heading heights stay fixed on resize');
+    assert.ok(narrowHeadings.headings.every(h => h.whiteSpace === 'nowrap' && h.overflow === 'ellipsis' && h.title === h.text),
+      `all panel headings are single-line, ellipsized and expose their complete text: ${JSON.stringify(narrowHeadings.headings)}`);
+    await run(`document.getElementById('panel-shell').style.removeProperty('width')`);
+    await wait();
 
     const point = async (selector, x, y, keyMap = false) => {
       await run(`document.querySelector('${selector}').scrollIntoView({ block: 'center' })`);
@@ -70,7 +92,7 @@ app.whenReady().then(async () => {
       return run(`(() => {
         const cv = document.querySelector('${selector}'), r = cv.getBoundingClientRect();
         return { x: Math.round(r.left + cv.clientLeft + ${keyMap ? `${x} * cv.clientWidth` : `12 + ${x} * (cv.clientWidth - 24)`}),
-          y: Math.round(r.top + cv.clientTop + ${keyMap ? `6 + ${y} * (cv.clientHeight - 36)` : `12 + ${y} * (cv.clientWidth - 24)`}) };
+          y: Math.round(r.top + cv.clientTop + ${keyMap ? `6 + ${y} * (cv.clientHeight - 36)` : `12 + ${y} * (cv.clientHeight - 24)`}) };
       })()`);
     };
     const click = async (p, clickCount = 1) => {
@@ -253,6 +275,57 @@ app.whenReady().then(async () => {
       'resetting an automation clone clears its source color too');
     assert.deepEqual(errors, [], 'clip colors have no app or worklet errors');
     console.log('Clip color menu, multi-selection, undo, cancel and inheritance UI tests passed');
+    for (const [type, titles] of [
+      ['OSC', ['Waveform', 'ADSR envelope']],
+      ['ADSR', ['ADSR envelope']],
+      ['OPERATOR', ['ADSR envelope']],
+      ['ENVELOPE', ['Envelope curve']],
+      ['WAVESHAPER', ['Shaping curve']],
+      ['LFO', ['LFO output']],
+      ['EQ', ['Frequency response']],
+      ['DISTORTION', ['Distortion types']],
+      ['COMPRESSOR', ['Compression curve']],
+      ['PITCH2CTL', ['Pitch to controller']],
+      ['SAMPLER', ['Sample editor']],
+      ['WAVETABLE', ['Wavetable']],
+      ['IMAGESAMPLER', ['Image scanner', 'ADSR envelope']],
+    ]) {
+      await run(`(async () => {
+        const { engine, select } = window.velocityTest;
+        const entry = await engine.root.addModule(${JSON.stringify(type)});
+        select({ kind: 'module', entry });
+      })()`);
+      assert.deepEqual(await run(`[...document.querySelectorAll('#panel .panel-editor-title')].map(h => h.textContent)`),
+        titles, `${type}: each mini editor has a consistent, non-duplicated heading`);
+    }
+    assert.deepEqual(errors, [], 'mini editor headings render without app or worklet errors');
+    console.log('Module mini-editor heading UI tests passed');
+    for (const key of ['Backspace', 'Delete']) {
+      await run(`(async () => {
+        const { engine, select, undoHistory } = window.velocityTest;
+        const a = await engine.root.addModule('OSC');
+        const b = await engine.root.addModule('AMP');
+        engine.root.connect(a.id, b.id);
+        window.velocityTest.render();
+        window.deleteIds = [a.id, b.id];
+        select({ kind: 'group', entries: [engine.root.modules.get(0), a, b] });
+        undoHistory.reset();
+        const canvas = document.getElementById('canvas');
+        canvas.focus();
+        canvas.dispatchEvent(new KeyboardEvent('keydown', {
+          key: ${JSON.stringify(key)}, bubbles: true, cancelable: true,
+        }));
+      })()`);
+      assert.equal(await run('window.deleteIds.every(id => !window.velocityTest.engine.root.modules.has(id))'),
+        true, `${key} deletes every selected non-Output module`);
+      assert.equal(await run('window.velocityTest.engine.root.modules.has(0)'), true, 'Output stays');
+      assert.equal(await run('window.velocityTest.undoHistory.travel(-1)'), true, 'group deletion is undoable');
+      assert.equal(await run('window.deleteIds.every(id => window.velocityTest.engine.root.modules.has(id))'),
+        true, 'one undo restores the entire deleted group');
+      assert.equal(await run(`window.velocityTest.engine.root.cables.some(c => c.from === window.deleteIds[0] && c.to === window.deleteIds[1])`),
+        true, 'undo restores the cables between deleted modules');
+    }
+    console.log('Group module deletion keyboard UI tests passed');
   } finally {
     win?.destroy();
     if (server) await new Promise(resolve => server.close(resolve));

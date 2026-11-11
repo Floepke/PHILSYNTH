@@ -16,6 +16,7 @@ const F_HI = 22000;
 export function createEqView({ color = '#7a6aa8', values, setParam, beginEdit, endEdit }) {
   const el = document.createElement('div');
   el.className = 'wave-view eq-view';
+  el.setAttribute('data-editor-title', 'Frequency response');
   const cv = document.createElement('canvas');
   cv.setAttribute('role', 'img');
   cv.setAttribute('aria-label', 'EQ frequency response');

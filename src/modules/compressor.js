@@ -33,6 +33,7 @@ export default {
     el.className = 'comp-view';
     const wrap = document.createElement('div');
     wrap.className = 'wave-view comp-curve';
+    wrap.setAttribute('data-editor-title', 'Compression curve');
     const cv = document.createElement('canvas');
     cv.setAttribute('role', 'img');
     wrap.append(cv);

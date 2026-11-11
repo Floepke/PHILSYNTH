@@ -49,7 +49,7 @@ export default {
     let mode = entry.values.mode | 0;
     const labels = () => ({ x0: '0 ms', x1: `${ms(length)} →`, y1: 'Out Max ↑' });
     const ed = createCurveEditor({
-      curve: entry.state, color: api.color, labels: labels(), identity: false,
+      curve: entry.state, color: api.color, title: 'Envelope curve', labels: labels(), identity: false,
       formatX: (x) => ms(x * length), formatY: (y) => `level ${Math.round(y * 100)} %`,
       onChange: (c) => api.setState(c), beginEdit: api.beginEdit, endEdit: api.endEdit,
     });

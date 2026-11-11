@@ -111,7 +111,7 @@ export default {
       pickFirst: true,
       onPick: () => showKey(),
       hint: 'Click a piano key to select its Pitch / Cents · drag the graph to draw · Shift+drag: straight line',
-      ariaLabel: 'Tuning: the output pitch of every MIDI key',
+      ariaLabel: 'Tuning: the output pitch of every MIDI key', title: 'Tuning per key',
     });
     const centsButton = document.createElement('button');
     centsButton.type = 'button';

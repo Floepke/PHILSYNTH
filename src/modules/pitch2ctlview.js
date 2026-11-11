@@ -77,9 +77,11 @@ export function createKeyMapView({
   onPick = null,
   hint = 'Drag to draw per key · Shift+drag: straight line',
   ariaLabel = 'Key map: one value per MIDI key',
+  title = 'Pitch to controller',
 } = {}) {
   const el = document.createElement('div');
   el.className = 'p2c-view';
+  el.setAttribute('data-editor-title', title);
   const cv = document.createElement('canvas');
   cv.setAttribute('role', 'img');
   cv.setAttribute('aria-label', ariaLabel);

@@ -29,6 +29,7 @@ export function waveformPoints(wave, duty, n = 256, cycles = CYCLES) {
 export function createWaveView({ color = '#db7c3d', values }) {
   const el = document.createElement('div');
   el.className = 'wave-view';
+  el.setAttribute('data-editor-title', 'Waveform');
   const cv = document.createElement('canvas');
   cv.setAttribute('role', 'img');
   el.append(cv);

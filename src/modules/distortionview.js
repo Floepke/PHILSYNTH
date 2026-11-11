@@ -30,6 +30,7 @@ export function previewPoints(type, bits = 16, n = 512) {
 export function createDistortionView({ color = '#ad643b', values, options, setParam, beginEdit, endEdit }) {
   const el = document.createElement('div');
   el.className = 'wave-view dist-view';
+  el.setAttribute('data-editor-title', 'Distortion types');
   const cv = document.createElement('canvas');
   cv.setAttribute('role', 'img');
   cv.title = 'Every distortion type with a sine getting louder from left to right. Click a row to select it.';

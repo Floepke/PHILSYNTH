@@ -162,6 +162,7 @@ export function createImageView(entry, api) {
   info.className = 'sample-info';
   const box = document.createElement('div');
   box.className = 'wave-view image-box';
+  box.setAttribute('data-editor-title', 'Image scanner');
   const cv = document.createElement('canvas');
   cv.setAttribute('role', 'img');
   cv.className = 'image-scan';
