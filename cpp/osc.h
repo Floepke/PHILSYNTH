@@ -4,7 +4,7 @@
 
 namespace ms {
 
-enum Wave { SINE = 0, TRIANGLE = 1, SAW = 2, SQUARE = 3, HALF_SINE = 4, WHITE = 5, PINK = 6, BROWN = 7, BLUE = 8, VIOLET = 9, SAMPLER_NOISE = 10 };
+enum Wave { SINE = 0, TRIANGLE = 1, SAW = 2, SQUARE = 3, HALF_SINE = 4, WHITE = 5, PINK = 6, BROWN = 7, BLUE = 8, VIOLET = 9, SAMPLER_NOISE = 10, SPLIT_SINE = 11 };
 
 inline double polyBlep(double t, double dt) {
   if (t < dt) { t /= dt; return t + t - t * t - 1; }
@@ -32,6 +32,14 @@ inline double sawBend(double t, double d) {
 
 inline double shape(int wave, double t, double d, double inc) {
   if (wave == HALF_SINE) return d > 0 && t < d ? sin((PI * t) / d) : 0;
+  if (wave == SPLIT_SINE) {
+    if (d <= 0 || d >= 1) return 0;
+    if (d < 0.5) {
+      return t < d || t > 1 - d ? sin(2 * PI * t) : 0;
+    }
+    const double edge = d - 0.5;
+    return t > edge && t < 1 - edge ? sin(2 * PI * t) : 0;
+  }
   const double e = mind(0.49, 2 * inc);
   if (wave == SQUARE) {
     d = mind(1 - e, maxd(e, d));
@@ -197,7 +205,7 @@ struct Osc : Kernel {
     const Stage D = stage(p[DECAY], p[DEC_CURVE], FALL_KMAX);
     const Stage R = stage(p[RELEASE], p[REL_CURVE], FALL_KMAX);
     const int wave = toInt32(p[WAVE]);
-    const bool noise = wave >= WHITE;
+    const bool noise = wave >= WHITE && wave <= SAMPLER_NOISE;
     const bool sampler = wave == SAMPLER_NOISE;
     const double k = 1 - exp(-n / (SMOOTH_S * sr));
     const double dutyT = mind(1, maxd(0, p[DUTY] / 100));

@@ -300,6 +300,7 @@ assert.ok(root.connect(2, 3)); assert.equal(root.connect(3, 2), false, 'loop rej
 // save / load round trip incl. nested
 const nestedOsc = await inner.addModule('OSC', { values: { polyphony: 5, wave: 4, duty: 25 } });
 const samplerNoise = await inner.addModule('OSC', { values: { wave: 10 } });
+const splitSine = await inner.addModule('OSC', { values: { wave: 11, duty: 75 } });
 root.setParam(0, 'volume', 0.3);
 const json = JSON.parse(JSON.stringify(root.toJSON()));
 const root2 = await PatchRuntime.create(engine, dsp.destination);
@@ -311,6 +312,8 @@ assert.equal(n2.values.polyphony, 5);
 assert.equal(n2.values.wave, 4, 'half sine survives saving and loading');
 assert.equal(n2.values.duty, 25, 'half sine bow length survives saving and loading');
 assert.equal(root2.modules.get(2).inst.patch.modules.get(samplerNoise.id).values.wave, 10, 'Noise (sampler) survives saving and loading');
+assert.equal(root2.modules.get(2).inst.patch.modules.get(splitSine.id).values.wave, 11, 'split sine survives saving and loading');
+assert.equal(root2.modules.get(2).inst.patch.modules.get(splitSine.id).values.duty, 75, 'split sine duty survives saving and loading');
 
 // deleting a patch module destroys its contents and cables
 root.removeModule(2);
@@ -609,16 +612,16 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.ok(Math.abs(ko.p.gain - 0.4) < 1e-9, '0% amplitude holds the middle');
   r.setParam(lfo.id, 'amp', 100);
 
-  // stepped controller: normalized modulation spans all eleven waveform choices
-  r.setParam(lfo.id, 'outController', 1); // waveform 0..10
+  // stepped controller: normalized modulation spans all twelve waveform choices
+  r.setParam(lfo.id, 'outController', 1); // waveform 0..11
   r.setParam(lfo.id, 'outMin', 0);
   r.setParam(lfo.id, 'outMax', 100);
   set(lfo, 0.7);
   assert.ok(Math.abs(ko.p.gain - 0.4) < 1e-9, 'the previous controller keeps its last driven value');
   assert.ok(Math.abs(osc.values.gain - 0.4) < 1e-9);
-  assert.equal(ko.p.wave, 7, '70% of 0..10 selects step 7');
+  assert.equal(ko.p.wave, 8, '70% of 0..11 selects step 8');
   set(lfo, 1);
-  assert.equal(ko.p.wave, 10, 'modulation can select Noise (sampler)');
+  assert.equal(ko.p.wave, 11, 'modulation can select Sine (split inwards/outwards)');
 
   // log controller (filter cutoff 20..20000): 50% is the geometric middle
   assert.ok(r.connect(lfo.id, flt.id));

@@ -573,7 +573,7 @@ for (let filter = 0; filter <= 8; filter++) {
 compare('echo', { blocks: 10 });
 
 // OSC: every waveform, duty sweeps, glides, release, voice stealing, polyphony changes
-for (let wave = 0; wave <= 4; wave++) {
+for (const wave of [0, 1, 2, 3, 4, 11]) {
   compare('osc', {
     blocks: 160,
     script: [
@@ -585,6 +585,18 @@ for (let wave = 0; wave <= 4; wave++) {
     ],
   });
 }
+
+// Split sine duty endpoints, narrow lobes and switching between pitched and noise rendering.
+compare('osc', {
+  opts: { seed: 2468 },
+  blocks: 480,
+  script: [
+    [0, param('wave', 11)], [0, noteOn(1, 60, 1, 0.25)],
+    [20, param('duty', 0)], [100, param('duty', 100)], [180, param('duty', 50)],
+    [260, param('duty', 0.1)], [340, param('duty', 99.9)],
+    [420, param('wave', 5)], [440, param('wave', 11)],
+  ],
+});
 
 // OSC envelope curves: analog / inverse shapes, live curve and time changes, release from mid-stage
 compare('osc', {
@@ -600,7 +612,7 @@ compare('osc', {
 });
 
 // OSC start phase (MODMIDI phase): wrapped into [0, 1), invalid -> 0, retrigger takes the new phase
-for (let wave = 0; wave <= 4; wave++) {
+for (const wave of [0, 1, 2, 3, 4, 11]) {
   compare('osc', {
     blocks: 60,
     script: [

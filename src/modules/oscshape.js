@@ -3,9 +3,10 @@ export const WAVES = {
   SINE: 0, TRIANGLE: 1, SAW: 2, SQUARE: 3, HALF_SINE: 4, // TRIANGLE = Tri/Saw morph
   WHITE: 5, PINK: 6, BROWN: 7, BLUE: 8, VIOLET: 9, // noise colours (unpitched, see noiseSample)
   SAMPLER_NOISE: 10,
+  SPLIT_SINE: 11,
 };
-export const WAVE_NAMES = ['Sine', 'Tri/Saw', 'Saw', 'Square', 'Half sine', 'White noise', 'Pink noise', 'Brown noise', 'Blue noise', 'Violet noise', 'Noise (sampler)'];
-export const isNoise = (wave) => wave >= WAVES.WHITE;
+export const WAVE_NAMES = ['Sine', 'Tri/Saw', 'Saw', 'Square', 'Half sine', 'White noise', 'Pink noise', 'Brown noise', 'Blue noise', 'Violet noise', 'Noise (sampler)', 'Sine (split inwards/outwards)'];
+export const isNoise = (wave) => wave >= WAVES.WHITE && wave <= WAVES.SAMPLER_NOISE;
 
 // xorshift32 step: same integer maths as Rng in cpp/kernel.h, so JS and C++ give identical noise.
 export function xorshift(s) {
@@ -82,8 +83,17 @@ export function polyBlep(t, dt) {
 //            the slope glides along a raised cosine, so the curve joins both ramps smoothly (sawBend)
 //   Square:  pulse width d
 //   Half sine: positive half-wave during d, then exactly zero (deliberately unipolar)
+//   Split sine: keep the original sine, cutting a central gap below 0.5 or edge gaps above 0.5.
 export function shape(wave, t, d, inc) {
   if (wave === WAVES.HALF_SINE) return d > 0 && t < d ? Math.sin((Math.PI * t) / d) : 0;
+  if (wave === WAVES.SPLIT_SINE) {
+    if (d <= 0 || d >= 1) return 0;
+    if (d < 0.5) {
+      return t < d || t > 1 - d ? Math.sin(2 * Math.PI * t) : 0;
+    }
+    const edge = d - 0.5;
+    return t > edge && t < 1 - edge ? Math.sin(2 * Math.PI * t) : 0;
+  }
   const e = Math.min(0.49, 2 * inc); // keep the shortest segment ≥ ~2 samples
   if (wave === WAVES.SQUARE) {
     d = Math.min(1 - e, Math.max(e, d));

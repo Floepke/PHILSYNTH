@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { loadKernel } from './kernelproc.mjs';
 import osc from '../src/modules/osc.js';
 import { fromNorm, nudge } from '../src/params.js';
+import { WAVES, isNoise } from '../src/modules/oscshape.js';
 
 const SR = 48000;
 const Proc = await loadKernel('osc.dsp.js', SR);
@@ -19,15 +20,18 @@ assert.deepEqual(osc.params.map((p) => p.id), ['polyphony', 'wave', 'duty', 'att
 assert.deepEqual(osc.params.filter((p) => /Curve$/.test(p.id)).map((p) => p.default), [100, 100, 100], 'analog envelope curves by default');
 const waveParam = osc.params[1];
 assert.deepEqual(waveParam.options, ['Sine', 'Tri/Saw', 'Saw', 'Square', 'Half sine',
-  'White noise', 'Pink noise', 'Brown noise', 'Blue noise', 'Violet noise', 'Noise (sampler)']);
+  'White noise', 'Pink noise', 'Brown noise', 'Blue noise', 'Violet noise', 'Noise (sampler)', 'Sine (split inwards/outwards)']);
 assert.equal(waveParam.default, SAW);
-assert.equal(waveParam.max, 10);
-assert.equal(fromNorm(waveParam, 1), 10);
+assert.equal(waveParam.max, 11);
+assert.equal(fromNorm(waveParam, 1), WAVES.SPLIT_SINE);
 assert.equal(nudge(waveParam, SQUARE, 1), HALF_SINE);
 assert.equal(nudge(waveParam, HALF_SINE, 1), 5);
 const dutyParam = osc.params[2];
 assert.ok(dutyParam.visible({ wave: SAW }) && !dutyParam.visible({ wave: 6 }), 'Duty Cycle hidden for noise');
 assert.equal(dutyParam.visible({ wave: 10 }), false);
+assert.equal(dutyParam.visible({ wave: WAVES.SPLIT_SINE }), true);
+assert.equal(isNoise(WAVES.SPLIT_SINE), false);
+assert.equal(nudge(waveParam, WAVES.SAMPLER_NOISE, 1), WAVES.SPLIT_SINE);
 
 // 50 % = the classic waveforms
 for (let i = 1; i < 20; i++) {
@@ -92,6 +96,46 @@ for (const d of [0, 0.001, 0.01, 0.1, 0.25, 0.5, 0.8, 1]) {
       close(shape(HALF_SINE, fraction * d, d, dt), Math.sin(Math.PI * fraction), 1e-12, `sine bow @${d}`);
     }
   }
+}
+
+// Split sine retains the original phase and scale, replacing only the cut sections with zero.
+for (const d of [0, 0.001, 0.1, 0.25, 0.49, 0.5, 0.51, 0.75, 0.9, 0.999, 1]) {
+  const c = cycle(WAVES.SPLIT_SINE, d);
+  assert.ok(c.every(x => Number.isFinite(x) && Math.abs(x) <= 1));
+  close(mean(c), 0, 1e-12, `split sine has no DC @${d}`);
+  close(c.filter(x => x !== 0).length / N, 2 * Math.min(d, 1 - d), 2 / N, `split sine active fraction @${d}`);
+  for (const dt of [inc, 0.01, 0.45]) {
+    if (d === 0 || d === 1) {
+      assert.ok(c.every(x => x === 0), 'both duty endpoints are exactly silent');
+      continue;
+    }
+    for (const f of [0.125, 0.25, 0.5, 0.75, 0.875]) {
+      if (d < 0.5) {
+        close(shape(WAVES.SPLIT_SINE, f * d, d, dt), Math.sin(2 * Math.PI * f * d), 1e-12, 'uncut sine at left retains its scale');
+        close(shape(WAVES.SPLIT_SINE, 1 - f * d, d, dt), Math.sin(2 * Math.PI * (1 - f * d)), 1e-12, 'uncut sine at right retains its scale');
+        assert.equal(shape(WAVES.SPLIT_SINE, d + f * (1 - 2 * d), d, dt), 0, 'centre gap is zero');
+      } else {
+        const edge = d - 0.5;
+        const width = 2 * (1 - d);
+        close(shape(WAVES.SPLIT_SINE, edge + f * width, d, dt), Math.sin(2 * Math.PI * (edge + f * width)), 1e-12, 'uncut sine at centre retains its scale');
+        if (edge > 0) {
+          assert.equal(shape(WAVES.SPLIT_SINE, f * edge, d, dt), 0, 'left edge gap is zero');
+          assert.equal(shape(WAVES.SPLIT_SINE, 1 - f * edge, d, dt), 0, 'right edge gap is zero');
+        }
+        if (d > 0 && d < 0.5) {
+          assert.equal(shape(WAVES.SPLIT_SINE, d, d, inc), 0, 'central cut starts exactly at its left boundary');
+          assert.equal(shape(WAVES.SPLIT_SINE, 1 - d, d, inc), 0, 'central cut includes its right boundary');
+        } else if (d > 0.5 && d < 1) {
+          assert.equal(shape(WAVES.SPLIT_SINE, d - 0.5, d, inc), 0, 'left edge cut includes its boundary');
+          assert.equal(shape(WAVES.SPLIT_SINE, 1.5 - d, d, inc), 0, 'right edge cut includes its boundary');
+        }
+      }
+    }
+  }
+}
+for (let i = 0; i <= 100; i++) {
+  const t = i / 100;
+  close(shape(WAVES.SPLIT_SINE, t, 0.5, inc), Math.sin(2 * Math.PI * t), 1e-12, 'split sine is a pure sine at 50%');
 }
 
 // the processor renders with duty, also while it sweeps
@@ -164,6 +208,31 @@ halfMsg({ type: 'allOff' });
 half.process([], [halfOut]);
 assert.ok(halfOut[0].every((x) => x === 0), 'allOff silences half sine');
 
+// Split sine uses the pitched renderer and its smoothed duty control, including silent endpoints.
+{
+  const k = new Proc();
+  for (const [id, value] of Object.entries({ wave: WAVES.SPLIT_SINE, attack: 0.001, decay: 0.001, sustain: 1, gain: 1 })) {
+    k.param(id, value);
+  }
+  k.noteOn(1, 69 + 12 * Math.log2((SR / 128) / 440), 1, 0);
+  const out = [new Float32Array(128), new Float32Array(128)];
+  for (const d of [0.5, 0.25, 0, 0.75, 1, 0.001, 0.999, 0.5]) {
+    k.param('duty', d * 100);
+    for (let b = 0; b < 64; b++) {
+      k.process([], [out]);
+      assert.ok(out[0].every(x => Number.isFinite(x) && Math.abs(x) <= 0.5), 'split sine is bounded during modulation');
+      assert.deepEqual(out[0], out[1], 'split sine stereo channels match');
+    }
+    close(k.duty, d, 1e-15, 'split sine duty settles to its target');
+    k.voiceOf(1).phase = 0;
+    k.process([], [out]);
+    for (let i = 0; i < 128; i++) {
+      close(out[0][i], 0.5 * shape(WAVES.SPLIT_SINE, i / 128, d, 1 / 128), 1e-7, `rendered split sine @${d}`);
+    }
+    if (d === 0 || d === 1) assert.ok(out[0].every(x => x === 0), 'renderer is exactly silent at both endpoints');
+  }
+}
+
 console.log('osc tests passed');
 
 // Panel waveform preview uses the same shape() as the DSP, two cycles, peak-normalised.
@@ -181,6 +250,13 @@ console.log('osc tests passed');
   close(sine[250], 1, 1e-3, 'second cycle repeats');
   const hs = waveformPoints(HALF_SINE, 50, 401);
   assert.ok(Math.min(...hs) >= 0, 'half sine stays unipolar');
+  for (const d of [0, 25, 50, 75, 100]) {
+    const split = waveformPoints(WAVES.SPLIT_SINE, d, 401);
+    for (let i = 0; i < split.length; i++) {
+      close(split[i], shape(WAVES.SPLIT_SINE, ((i / 400) * 2) % 1, d / 100, 1 / 4096), 1e-12, 'split sine preview matches audio');
+    }
+  }
+  assert.deepEqual(waveformPoints(WAVES.SPLIT_SINE, 50, 401), sine, '50% split sine preview matches normal sine');
   assert.deepEqual(waveformPoints(SAW, -10, 50), waveformPoints(SAW, 0, 50), 'duty clamps');
   for (const w of [5, 6, 7, 8, 9]) {
     const nz = waveformPoints(w, 50, 300);
