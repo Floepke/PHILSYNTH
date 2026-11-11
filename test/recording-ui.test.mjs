@@ -77,7 +77,8 @@ app.whenReady().then(async () => {
     assert.equal(await run("document.getElementById('seq-record').getAttribute('aria-pressed')"), 'true');
     await new Promise((resolve) => setTimeout(resolve, 30));
     assert.equal(await run("getComputedStyle(document.getElementById('seq-record')).animationName"), 'record-pulse');
-    assert.equal(await run("getComputedStyle(document.getElementById('seq-record')).animationDuration"), '0.25s');
+    assert.equal(await run("getComputedStyle(document.getElementById('seq-record')).animationDuration"), '0.5s');
+    assert.equal(await run("document.getElementById('seq-record').getAnimations()[0].playbackRate"), 2, '240 BPM doubles the flash rate without changing its duration');
     assert.equal(await run('window.recordingTest.transport.playing'), false, 'arming does not start playback');
     await run(`(() => {
       const cv = document.querySelector('#roll canvas'), box = cv.getBoundingClientRect();

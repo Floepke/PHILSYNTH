@@ -24,7 +24,7 @@ export default {
   acceptsMidi: false,
   params: [
     // tempo of this patch level; LFO, DELAY and ECHO sync to it
-    { id: 'bpm', label: 'BPM', min: 20, max: 1000, default: 120, step: 1, wheelStep: 1 }, // 1 BPM per wheel click
+    { id: 'bpm', label: 'BPM (♩/min)', min: 20, max: 1000, default: 120, step: 1, wheelStep: 1 }, // 1 BPM per wheel click
     // per level: shift every note entering this level while it is the current one, see PatchRuntime.pitchOffset
     { id: 'transpose', dsp: false, label: 'Global Transpose', min: -48, max: 48, default: 0, step: 1, wheelStep: 1, format: (v) => `${v > 0 ? '+' : ''}${v} st` },
     { id: 'cents', dsp: false, label: 'Global Cents Offset', min: -100, max: 100, default: 0, step: 1, wheelStep: 1, format: (v) => `${v > 0 ? '+' : ''}${v} ct` },

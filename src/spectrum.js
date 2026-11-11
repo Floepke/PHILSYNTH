@@ -1,10 +1,10 @@
-import { ANALYSIS_SIZE } from './dsp/analysis.js';
+import { ANALYSIS_SIZE, validateAnalysisSize } from './dsp/analysis.js';
 
 export const dbFS = value => value > 0 ? 20 * Math.log10(value) : -Infinity;
 
 export class Spectrum {
-  constructor() {
-    const n = ANALYSIS_SIZE;
+  constructor(size = ANALYSIS_SIZE) {
+    const n = validateAnalysisSize(size);
     this.real = new Float64Array(n);
     this.imag = new Float64Array(n);
     this.power = new Float64Array(n / 2);
@@ -13,7 +13,8 @@ export class Spectrum {
   }
 
   measure(samples) {
-    const n = ANALYSIS_SIZE;
+    const n = this.real.length;
+    if (samples.length !== n * 2) throw new Error('Spectrum sample window does not match FFT size');
     const { real, imag, power, levels, window } = this;
     power.fill(0);
     for (let channel = 0; channel < 2; channel++) {

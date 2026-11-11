@@ -485,6 +485,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   white-space: nowrap;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
+.ctl-note-symbol { font-size: 1.5em; line-height: 0; vertical-align: baseline; }
 .ctl:hover .ctl-label, .ctl.active .ctl-label { color: var(--text); }
 .ctl-value {
   color: var(--text);
@@ -526,7 +527,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 #spectrum-toggle {
   position: absolute;
   right: 12px;
-  bottom: 12px;
+  top: 12px;
   z-index: 30;
   width: 32px;
   height: 32px;
@@ -808,7 +809,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 }
 .seq-play svg { width: 16px; height: 16px; fill: currentColor; vertical-align: middle; }
 #seq-loop svg { width: 24px; }
-.seq-play.playing { background: #ff5a36; border-color: #ff5a36; color: #0b0b0c; }
+.seq-play.playing { background: #30473b; border-color: #607c69; color: #d7e3da; }
 .seq-pos {
   min-width: 7ch;
   color: var(--beam-ink);
@@ -894,9 +895,9 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 #seq-bar :is(select, .spin-buttons button):hover:not(:disabled),
 #seq-transport .seq-play:hover:not(:disabled),
 #sig-dialog :is(select, .spin-buttons button):hover:not(:disabled) { filter: brightness(1.18); }
-#seq-transport .seq-play.playing { background: #ff5a36; border-color: #ff5a36; color: #0b0b0c; text-shadow: none; }
+#seq-transport .seq-play.playing { background: #30473b; border-color: #607c69; color: #d7e3da; text-shadow: none; }
 #seq-transport #seq-record { color: #ff4b4b; }
-#seq-transport #seq-record.armed { animation: record-pulse var(--record-beat, 0.5s) steps(1, end) infinite; }
+#seq-transport #seq-record.armed { animation: record-pulse 0.5s steps(1, end) infinite; }
 @keyframes record-pulse {
   0%, 100% { background: #e52e35; border-color: #ff4b4b; color: #0b0b0c; text-shadow: none; }
   50% { background: var(--wood-raised); border-color: var(--wood-border); color: #ff4b4b; }

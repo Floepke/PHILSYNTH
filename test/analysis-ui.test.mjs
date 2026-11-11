@@ -19,9 +19,11 @@ app.whenReady().then(async () => {
         const measure = Spectrum.prototype.measure;
         Spectrum.prototype.measure = function (...args) { window.fftCount++; return measure.apply(this, args); };
         window.frequencyLabels = [];
+        window.frequencyLabelY = [];
         const fillText = CanvasRenderingContext2D.prototype.fillText;
         CanvasRenderingContext2D.prototype.fillText = function (text, ...args) {
           if (this.canvas.parentElement?.id === 'analyse-panel' && !window.frequencyLabels.includes(text)) window.frequencyLabels.push(text);
+          if (this.canvas.parentElement?.id === 'analyse-panel') window.frequencyLabelY.push(args[1]);
           return fillText.call(this, text, ...args);
         };
         Object.defineProperty(navigator, 'requestMIDIAccess', { value: async () => Object.assign(new EventTarget(), { inputs: new Map() }) });
@@ -32,7 +34,7 @@ app.whenReady().then(async () => {
         const path = resolve(root, '.' + new URL(req.url, 'http://localhost').pathname);
         if (path !== root && !path.startsWith(root + sep)) throw new Error('Invalid path');
         let body = path === root ? index : await readFile(path);
-        if (path === resolve(root, 'src/main.js')) body += '\nwindow.analysisTest = { engine, seq, analysePanel, select, render, viewState, applyView };\n';
+        if (path === resolve(root, 'src/main.js')) body += '\nwindow.analysisTest = { engine, seq, analysePanel, select, render, viewState, applyView, preferencesManager };\n';
         res.writeHead(200, { 'Content-Type': /\.(m?js)$/.test(path) ? 'text/javascript'
           : path.endsWith('.css') ? 'text/css' : path.endsWith('.wasm') ? 'application/wasm' : 'text/html' });
         res.end(body);
@@ -84,6 +86,9 @@ app.whenReady().then(async () => {
       await waitFor('window.fftCount > 0');
       assert.deepEqual(await run('window.frequencyLabels'), ['32', '64', '128', '256', '512', '1k', '2k', '4k', '8k', '16k'],
         'spectrogram labels the requested frequency grid through 16 kHz');
+      assert.ok(await run(`window.frequencyLabelY.every(y =>
+        y === Math.round(document.querySelector('#analyse-panel canvas').getBoundingClientRect().height) - 4)`),
+        'frequency labels sit along the bottom of the patcher');
       assert.equal(await run('window.analysisTest.engine.dspInfo.dsp'), backend);
       assert.equal(await run("!!document.getElementById('zoom') || !!document.getElementById('analyse-split')"), false);
       const checkSize = async () => {
@@ -113,7 +118,7 @@ app.whenReady().then(async () => {
       await delay(80);
       const row = (age = 0) => run(`(() => {
         const c = document.querySelector('#analyse-panel canvas');
-        return Array.from(c.getContext('2d').getImageData(0, c.height - 1 - ${age}, c.width, 1).data);
+        return Array.from(c.getContext('2d').getImageData(0, ${age} * Math.max(1, Math.round(devicePixelRatio)), c.width, 1).data);
       })()`);
       const addRow = async amplitude => {
         await run(`(() => {
@@ -124,22 +129,24 @@ app.whenReady().then(async () => {
         await delay(50);
       };
       await run("document.documentElement.style.setProperty('--wood-tint', '#804020')");
+      await addRow(0);
+      const silent = await row();
       await addRow(1);
       const loud = await row();
       const peak = loud.reduce((best, value, i) => i % 4 === 3 && value > loud[best] ? i : best, 3);
       assert.ok(loud[peak - 3] > loud[peak - 2] && loud[peak - 2] > loud[peak - 1], 'pixels use wood tint');
       await addRow(0.001);
       assert.ok((await row())[peak] < loud[peak], 'quieter frequencies have lower brightness');
-      assert.ok(Math.abs((await row(1))[peak] - loud[peak]) <= 2, 'history moves upward');
+      assert.ok(Math.abs((await row(1))[peak] - loud[peak]) <= 2, 'history moves downward');
       await run("document.documentElement.style.setProperty('--wood-tint', '#204080')");
       await addRow(1);
       const blue = await row();
       assert.ok(blue[peak - 1] > blue[peak - 2] && blue[peak - 2] > blue[peak - 3], 'new rows follow live wood tint changes');
       const fftBeforeSilence = await run('window.fftCount');
       await addRow(0);
-      assert.equal((await row())[peak], 0, 'silence remains transparent');
+      assert.equal((await row())[peak], silent[peak], 'silence remains transparent behind the frequency grid');
       assert.equal(await run('window.fftCount'), fftBeforeSilence, 'all-zero windows skip FFT');
-      assert.ok(Math.abs((await row(1))[peak] - blue[peak]) <= 2, 'silence still scrolls existing sound upward');
+      assert.ok(Math.abs((await row(1))[peak] - blue[peak]) <= 2, 'silence still scrolls existing sound downward');
       await run(`(async () => {
         const c = document.querySelector('#analyse-panel canvas');
         const samples = new Float32Array(window.lastAnalysis.samples.length);
@@ -157,6 +164,27 @@ app.whenReady().then(async () => {
       })()`), 'old sound scrolls completely out of the viewport during silence');
       await addRow(1);
       assert.equal(await run('window.fftCount'), fftBeforeSilence + 1, 'nonzero sound immediately resumes FFT');
+      await run("window.analysisTest.preferencesManager.preview('patcher.spectrumFlowDirection', 'up')");
+      const bottomRow = (age = 0) => run(`(() => {
+        const c = document.querySelector('#analyse-panel canvas');
+        return Array.from(c.getContext('2d').getImageData(0, c.height - 1 - ${age} * Math.max(1, Math.round(devicePixelRatio)), c.width, 1).data);
+      })()`);
+      await addRow(1);
+      const upwardLoud = await bottomRow();
+      await addRow(0);
+      assert.ok(Math.abs((await bottomRow(1))[peak] - upwardLoud[peak]) <= 2, 'upward preference scrolls sound toward the top');
+      assert.ok((await bottomRow())[peak] < upwardLoud[peak], 'upward preference inserts new silence at the bottom');
+      await run('window.analysisTest.preferencesManager.restore()');
+      await run('void (window.analysisTest.engine.dsp.onAnalysis = window.injectAnalysis)');
+      await run('window.analysisTest.engine.ctx.resume()');
+      for (const size of [512, 8192, 32768]) {
+        await run(`window.analysisTest.preferencesManager.preview('patcher.spectrumSize', '${size}')`);
+        await waitFor(`window.lastAnalysis.samples.length === ${size * 2}`);
+        const previousFft = await run('window.fftCount');
+        await waitFor(`window.fftCount > ${previousFft}`);
+      }
+      await run('window.analysisTest.preferencesManager.restore()');
+      await waitFor('window.lastAnalysis.samples.length === 8192');
       await run("document.documentElement.style.removeProperty('--wood-tint')");
       await run('void (window.analysisTest.engine.dsp.onAnalysis = window.injectAnalysis)');
       await run('window.analysisTest.engine.ctx.resume()');
@@ -175,10 +203,10 @@ app.whenReady().then(async () => {
       const button = await run(`(() => {
         const b = document.getElementById('spectrum-toggle').getBoundingClientRect();
         const p = document.getElementById('canvas').getBoundingClientRect();
-        return { x: b.left + b.width / 2, y: b.top + b.height / 2, width: b.width, height: b.height, right: p.right - b.right, bottom: p.bottom - b.bottom };
+        return { x: b.left + b.width / 2, y: b.top + b.height / 2, width: b.width, height: b.height, right: p.right - b.right, top: b.top - p.top };
       })()`);
       assert.equal(button.right, 12);
-      assert.equal(button.bottom, 12);
+      assert.equal(button.top, 12);
       assert.equal(button.width, button.height, 'spectrum toggle is exactly square');
       const click = async () => {
         for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({ type, x: Math.round(button.x), y: Math.round(button.y), button: 'left', clickCount: 1 });

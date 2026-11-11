@@ -126,7 +126,7 @@ export class DspHost {
   // Cable display: the graph reports the output of these nodes (see Graph.scope) to onScope.
   scope(handles) { this.post(['scope', handles]); }
 
-  analyse(handle) { this.post(['analyse', handle]); }
+  analyse(handle, size) { this.post(['analyse', handle, size]); }
 
   // report from the graph: { time, mods: [handle, controller id, value, ...], scope?, meters?: [handle, value, ...] }
   receive(r) {

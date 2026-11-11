@@ -238,6 +238,10 @@ export function createVelocityStrip(o) {
     // label strip under the velocity area (the keyboard strip of the roll; below the roll's
     // horizontal scrollbar row when that shows)
     const labelTop = Math.max(bottom, o.labelTop?.() ?? bottom);
+    g.save();
+    g.beginPath();
+    g.rect(0, labelTop, W(), h - labelTop);
+    g.clip();
     g.fillStyle = '#292b31';
     g.fillRect(0, labelTop, W(), h - labelTop);
     g.fillStyle = '#9a9ea8';
@@ -248,6 +252,7 @@ export function createVelocityStrip(o) {
     const v = drag?.note ? drag.note.vel : p ? p.v : hover?.kind === 'note' ? hover.note.vel : null;
     const label = line ? `${Math.round(line.a.v * 127)} → ${Math.round(line.b.v * 127)}` : v === null ? 'VELOCITY' : `VEL ${Math.round(v * 127)}`;
     g.fillText(label, W() / 2, labelTop + (h - labelTop) / 2);
+    g.restore();
     g.strokeStyle = '#34363e';
     g.lineWidth = 2;
     g.beginPath(); g.moveTo(W(), 0); g.lineTo(W(), h); g.stroke();

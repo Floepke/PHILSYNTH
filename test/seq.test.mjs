@@ -1652,12 +1652,56 @@ for (const end of ['lostpointercapture', 'pointercancel']) {
   clip.notes.length = 0;
   clip.notes.push(note(60, 0.3), note(62, 1.8));
   key(cv, 'q');
-  assert.ok(clip.notes.every((n) => Number.isInteger(n.start * 4)), JSON.stringify(clip.notes));
+  assert.ok(clip.notes.every((n) => Number.isInteger(n.start * 4) && Number.isInteger((n.start + n.length) * 4)), JSON.stringify(clip.notes));
   clip.notes.length = 0;
   drag(cv, nx(60), ny(4), nx(60), ny(6));
   assert.equal(clip.notes[0].length, 2);
   click(cv, nx(65), ny(0.5));
   assert.equal(clip.notes[1].length, 2);
+}
+
+// Quantize snaps each original edge to the Input Grid, including divided grids and Free timing.
+for (const snap of [{ base: 16, div: 1 }, { base: 8, div: 3 }, { base: 4, div: 1, free: true }]) {
+  const { song, clip, roll, changes } = setup();
+  song.snap = snap;
+  const st = snapStep(snap);
+  clip.notes.push(
+    note(60, st, st * 1.7), // aligned start, unaligned end
+    note(62, st * 1.4, st * 1.3), // end must snap independently of the moved start
+    note(64, st * 3.8, st * 0.1), // both edges round to the same point
+    note(65, -st * 0.4, st * 0.5),
+  );
+  key(roll.surface.cv, 'q');
+  const clean = v => Math.round(v * 1e9) / 1e9;
+  assert.deepEqual(clip.notes.map(n => [n.start, n.length]), [
+    [clean(st), clean(2 * st)], [clean(st), clean(2 * st)],
+    [clean(4 * st), clean(st)], [0, clean(st)],
+  ]);
+  assert.equal(changes(), 1, 'quantizing all notes is one edit');
+  key(roll.surface.cv, 'q');
+  assert.equal(changes(), 1, 'already quantized notes do not create another edit');
+}
+
+// Context-menu quantize affects only the selection; velocity endpoints follow length changes.
+{
+  const { clip, roll, menus, changes } = setup();
+  const a = note(60, 1, 0.43);
+  a.vels = [{ t: 0.2, v: 0.5, r: 0 }, { t: 0.43, v: 0.2, r: 0.4 }];
+  const b = note(64, 2, 0.32);
+  b.vels = [{ t: 0.1, v: 0.6, r: 0 }, { t: 0.3, v: 0.4, r: 0 }, { t: 0.32, v: 0.1, r: 0 }];
+  const untouched = note(67, 3.1, 0.37);
+  clip.notes.push(a, b, untouched);
+  click(roll.surface.cv, nx(60), ny(1) + 5);
+  click(roll.surface.cv, nx(64), ny(2) + 5, { shiftKey: true });
+  const before = changes();
+  holdRightClick(roll.surface.cv, nx(80), ny(6));
+  pick(menus, 'Quantize selection');
+  assert.equal(changes(), before + 1, 'selected quantization is one edit');
+  assert.equal(a.length, 0.5);
+  assert.deepEqual(a.vels, [{ t: 0.2, v: 0.5, r: 0 }, { t: 0.5, v: 0.2, r: 0.4 }]);
+  assert.equal(b.length, 0.25);
+  assert.deepEqual(b.vels, [{ t: 0.1, v: 0.6, r: 0 }, { t: 0.25, v: 0.1, r: 0 }]);
+  assert.deepEqual(untouched, note(67, 3.1, 0.37), 'unselected notes are unchanged');
 }
 
 // Alt-drag clones from head OR body, without modifying the source or its duration/velocity.

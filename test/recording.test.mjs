@@ -57,7 +57,7 @@ function setup({ start = 4, length = 4 } = {}) {
   h.input('on');
   h.run(1995);
   h.input('off');
-  assert.equal(h.clip.notes.length, 1, 'count-in input is ignored');
+  assert.equal(h.clip.notes.length, 1, 'notes released entirely during count-in are ignored');
   assert.equal(h.events.length, 0, 'even chased notes wait for the count-in');
   near(h.transport.pos, 5.25);
   assert.deepEqual(h.beats, [[0, 0], [1, 500], [2, 1000], [3, 1500]]);
@@ -77,6 +77,56 @@ function setup({ start = 4, length = 4 } = {}) {
   h.transport.stop();
   assert.equal(h.recorder.armed, false);
   assert.equal(h.commits(), 1, 'the entire take is one undoable edit');
+}
+
+// Early notes held across the count-in boundary start exactly at the take's start.
+for (const loop of [false, true]) {
+  const h = setup();
+  h.transport.seek(loop ? 4 : 5);
+  h.recorder.arm();
+  h.recorder.start({ loop });
+  h.run(1975);
+  h.input('on', 'early', 64, 0.6);
+  h.run(125);
+  h.input('off', 'early');
+  assert.equal(h.clip.notes.length, 1);
+  near(h.clip.notes[0].start, loop ? 0 : 1);
+  near(h.clip.notes[0].length, 0.2, 'duration excludes the count-in');
+  assert.equal(h.clip.notes[0].pitch, 64);
+  assert.equal(h.clip.notes[0].vel, 0.6);
+  h.transport.stop();
+  assert.equal(h.commits(), 1, 'early notes belong to the same undoable take');
+}
+
+// Releasing or all-off during count-in clears pending notes rather than recording phantom notes.
+{
+  const h = setup();
+  h.recorder.arm();
+  h.recorder.start({ loop: true });
+  h.run(1900);
+  h.input('on', 'released');
+  h.input('on', 'device:0:60');
+  h.input('off', 'released');
+  h.recorder.input({ type: 'allOff', prefix: 'device:' });
+  assert.equal(h.recorder.held.size, 0);
+  h.run(200);
+  h.transport.stop();
+  assert.equal(h.clip.notes.length, 0);
+  assert.equal(h.commits(), 0);
+}
+
+// Stopping just after the boundary captures an early note even without a note-off.
+{
+  const h = setup();
+  h.recorder.arm();
+  h.recorder.start({ loop: true });
+  h.run(1980);
+  h.input('on');
+  h.run(120);
+  h.transport.stop();
+  assert.equal(h.clip.notes.length, 1);
+  near(h.clip.notes[0].start, 0);
+  near(h.clip.notes[0].length, 0.2);
 }
 
 // The meter at the recording start controls the count-in, including denominator and hidden lines.

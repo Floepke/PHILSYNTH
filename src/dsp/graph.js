@@ -45,7 +45,7 @@ import { KERNELS } from './kernels.js';
 import { fromNorm, toNorm } from '../params.js';
 import { filterPhaseDelay } from './loopphase.js';
 import { noteHz } from '../modules/delaytime.js';
-import { AudioAnalysis } from './analysis.js';
+import { AudioAnalysis, ANALYSIS_SIZE } from './analysis.js';
 
 const BLOCK = 128;
 const NO_INPUT = [[]];
@@ -100,7 +100,7 @@ export class Graph {
       case 'routes': this.setRoutes(a, b); break;
       case 'clock': this.clock = !!a; break;
       case 'scope': this.setScope(a); break;
-      case 'analyse': this.setAnalysis(a); break;
+      case 'analyse': this.setAnalysis(a, b); break;
       case 'panic': this.panic(); break;
     }
   }
@@ -254,9 +254,9 @@ export class Graph {
     this.scopeClip = new Uint8Array(list.length);
   }
 
-  setAnalysis(h) {
-    if ((this.analysis?.h ?? null) === h) return;
-    this.analysis = h === null ? null : new AudioAnalysis(h);
+  setAnalysis(h, size = ANALYSIS_SIZE) {
+    if ((this.analysis?.h ?? null) === h && (h === null || this.analysis.size === size)) return;
+    this.analysis = h === null ? null : new AudioAnalysis(h, size);
     this.dirty = true;
   }
 

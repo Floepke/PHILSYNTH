@@ -11,10 +11,11 @@ export function analysisHandle(entry) {
   return entry.inst.node?.h ?? null;
 }
 
-export function createSpectrumAnalyserPanel({ host, panel, button, dsp, target, onChange }) {
+export function createSpectrumAnalyserPanel({ host, panel, button, dsp, target, onChange, preferences }) {
   const cv = panel.querySelector('canvas');
   const g = cv.getContext('2d');
-  const spectrum = new Spectrum();
+  let size = preferences?.spectrumSize ?? ANALYSIS_SIZE;
+  let spectrum = new Spectrum(size);
   const history = document.createElement('canvas');
   const ink = history.getContext('2d');
   let enabled = false;
@@ -23,6 +24,7 @@ export function createSpectrumAnalyserPanel({ host, panel, button, dsp, target, 
   let frame = 0;
   let latest = null;
   let rate = 48000;
+  let scrollRemainder = 0;
 
   function draw() {
     frame = 0;
@@ -48,33 +50,41 @@ export function createSpectrumAnalyserPanel({ host, panel, button, dsp, target, 
     if (right <= left || bottom <= top) return;
     const high = Math.min(20000, rate / 2);
     const xOf = hz => left + Math.log(hz / 20) / Math.log(high / 20) * (right - left);
+    let rowHeight = 0;
+    if (latest) {
+      scrollRemainder += Math.max(1, Math.round(dpr)) * (preferences?.spectrumSpeed ?? 1);
+      rowHeight = Math.min(history.height, Math.floor(scrollRemainder));
+      scrollRemainder -= Math.floor(scrollRemainder);
+      if (!rowHeight) latest = null;
+    }
     if (latest) {
       const levels = latest.samples.some(value => value !== 0) ? spectrum.measure(latest.samples) : null;
       latest = null;
-      const rowHeight = Math.min(history.height, Math.max(1, Math.round(dpr)));
+      const down = preferences?.spectrumFlowDirection !== 'up';
+      const rowY = down ? 0 : history.height - rowHeight;
       ink.globalCompositeOperation = 'copy';
-      ink.drawImage(history, 0, -rowHeight);
+      ink.drawImage(history, 0, down ? rowHeight : -rowHeight);
       ink.globalCompositeOperation = 'source-over';
-      ink.clearRect(0, history.height - rowHeight, history.width, rowHeight);
+      ink.clearRect(0, rowY, history.width, rowHeight);
       const tint = levels ? getComputedStyle(panel).getPropertyValue('--wood-tint').trim() : null;
       // One full-rate spectrum per row; silence stays transparent above the noise background.
       for (let x = 0; levels && x < history.width; x++) {
         const position = x / dpr;
         const lo = 20 * (high / 20) ** (position / right);
         const hi = 20 * (high / 20) ** ((position + 1 / dpr) / right);
-        const bin = clamp(lo * ANALYSIS_SIZE / rate, 1, levels.length - 1);
+        const bin = clamp(lo * size / rate, 1, levels.length - 1);
         const first = Math.floor(bin);
-        const last = Math.min(levels.length - 1, Math.floor(hi * ANALYSIS_SIZE / rate));
+        const last = Math.min(levels.length - 1, Math.floor(hi * size / rate));
         const a = clamp(levels[first], -100, 12);
         const b = clamp(levels[Math.min(first + 1, levels.length - 1)], -100, 12);
         let db = a + (b - a) * (bin - first);
-        if ((hi - lo) * ANALYSIS_SIZE / rate >= 1) {
+        if ((hi - lo) * size / rate >= 1) {
           for (let i = first + 1; i <= last; i++) db = Math.max(db, levels[i]);
         }
         const strength = clamp((db + 100) / 100, 0, 1);
         ink.globalAlpha = strength;
         ink.fillStyle = `color-mix(in srgb, ${tint} ${100 - 55 * strength}%, white)`;
-        ink.fillRect(x, history.height - rowHeight, 1, rowHeight);
+        ink.fillRect(x, rowY, 1, rowHeight);
       }
       ink.globalAlpha = 1;
     }
@@ -88,7 +98,7 @@ export function createSpectrumAnalyserPanel({ host, panel, button, dsp, target, 
       g.beginPath(); g.moveTo(x, top); g.lineTo(x, bottom); g.stroke();
       g.fillStyle = 'rgba(160, 160, 168, 0.7)';
       const text = hz >= 1000 ? `${hz / 1000}k` : String(hz);
-      g.fillText(text, clamp(x - 6, 2, Math.max(2, w - g.measureText(text).width - 2)), 12);
+      g.fillText(text, clamp(x - 6, 2, Math.max(2, w - g.measureText(text).width - 2)), h - 4);
     }
   }
 
@@ -97,13 +107,20 @@ export function createSpectrumAnalyserPanel({ host, panel, button, dsp, target, 
   }
 
   function refresh() {
+    const nextSize = preferences?.spectrumSize ?? ANALYSIS_SIZE;
+    const resized = nextSize !== size;
+    if (resized) {
+      spectrum = new Spectrum(nextSize);
+      size = nextSize;
+      latest = null;
+    }
     const visible = enabled && panel.clientWidth > 0 && host.clientHeight > 0
       && !document.hidden && getComputedStyle(panel).visibility !== 'hidden';
     active = visible;
     const h = visible ? target() : null;
-    if (h !== watched) {
+    if (h !== watched || (resized && h !== null)) {
       watched = h;
-      dsp.analyse(h);
+      dsp.analyse(h, size);
       latest = null;
     }
     if (!active && frame) { cancelAnimationFrame(frame); frame = 0; }
@@ -112,6 +129,15 @@ export function createSpectrumAnalyserPanel({ host, panel, button, dsp, target, 
   }
 
   function apply() {
+    if (!enabled) {
+      latest = null;
+      scrollRemainder = 0;
+      ink.clearRect(0, 0, history.width, history.height);
+      g.save();
+      g.resetTransform();
+      g.clearRect(0, 0, cv.width, cv.height);
+      g.restore();
+    }
     panel.classList.toggle('collapsed', !enabled);
     button.setAttribute('aria-pressed', String(enabled));
     button.title = `${enabled ? 'Hide' : 'Show'} spectrum analyser`;
@@ -125,7 +151,7 @@ export function createSpectrumAnalyserPanel({ host, panel, button, dsp, target, 
     onChange();
   });
   dsp.onAnalysis = data => {
-    if (!active || watched === null || data.h !== watched) return;
+    if (!active || watched === null || data.h !== watched || data.samples.length !== size * 2) return;
     latest = data;
     rate = data.sampleRate;
     redraw();

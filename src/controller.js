@@ -28,6 +28,15 @@ export function createController(p, { index, value, onInput, format, onBegin, on
   const name = document.createElement('span');
   name.className = 'ctl-label';
   name.textContent = p.label;
+  // If the label contains a note symbol (♩), split it and style the symbol separately.
+  if (p.label.includes('♩')) {
+    const [before, after] = p.label.split('♩');
+    const note = document.createElement('span');
+    note.className = 'ctl-note-symbol';
+    note.textContent = '♩';
+    name.textContent = before;
+    name.append(note, after);
+  }
   const out = document.createElement('output');
   out.className = 'ctl-value';
   el.append(fill, num, name, out);

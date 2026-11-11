@@ -45,7 +45,7 @@
 //   Ctrl/Cmd + X / C / V        cut / copy / paste notes at the pointer's snapped time
 //   Ctrl/Cmd + D                duplicate the selection right after itself
 //   Ctrl/Cmd + A, Escape        select all / clear the selection
-//   Q                           quantize note starts to the grid (selection, else all notes)
+//   Q                           quantize note starts and ends to the grid (selection, else all notes)
 //   Space                       toggle song playback from the pointer's snapped time
 // The velocity strip on the left edits the velocity (curves) of the selected notes, see velocity.js.
 // Drag the bar ruler sideways to resize the velocity strip, vertically to zoom time.
@@ -1357,7 +1357,7 @@ export function createPianoRoll(host, ctx) {
     selected = new Set(copies);
     ctx.changed();
   }
-  // snap the starts of the selected notes (all notes without a selection) to the grid
+  // Snap both edges independently, keeping at least one grid step of duration.
   function quantize() {
     const clip = ctx.clip();
     if (!clip) return;
@@ -1365,8 +1365,15 @@ export function createPianoRoll(host, ctx) {
     const st = gridStep();
     let changed = false;
     for (const n of notes) {
-      const t = Math.max(0, snapRound(n.start, st));
-      if (t !== n.start) { n.start = t; changed = true; }
+      const start = Math.max(0, snapRound(n.start, st));
+      const end = snapRound(n.start + n.length, st);
+      const length = clean(Math.max(st, end - start));
+      if (start !== n.start || length !== n.length) {
+        if (length !== n.length && n.vels) n.vels = velsForLength(n.vels, n.length, length);
+        n.start = start;
+        n.length = length;
+        changed = true;
+      }
     }
     if (changed) ctx.changed();
     s.redraw();

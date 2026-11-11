@@ -489,7 +489,13 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
   const loop = () => {
     frame = transport.playing || recorder.armed ? requestAnimationFrame(loop) : 0;
     recorder.update();
-    ui.record.style.setProperty('--record-beat', `${60 / transport.getBpm()}s`);
+    // Changing duration reinterprets elapsed animation time; playback rate preserves its phase.
+    const rate = transport.getBpm() / 120;
+    for (const animation of ui.record.getAnimations?.() ?? []) {
+      if (animation.animationName === 'record-pulse' && animation.playbackRate !== rate) {
+        animation.updatePlaybackRate(rate);
+      }
+    }
     showPos();
     roll.redraw();
     lane.redraw();

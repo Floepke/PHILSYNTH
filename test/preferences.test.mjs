@@ -9,6 +9,36 @@ import { atomicWrite } from '../electron/atomicwrite.mjs';
 import { registerInterfacePreferences, PANEL_DIVIDER_WIDTH_ID, LAUNCH_FULLSCREEN_ID } from '../src/interfacepreferences.js';
 import { registerMidiPreferences, migrateMidiInput, MIDI_INPUT_ID } from '../src/midipreferences.js';
 import { registerPianorollPreferences, SNAP_VELOCITY_ID } from '../src/pianorollpreferences.js';
+import { registerPatcherPreferences, SPECTRUM_FLOW_ID, SPECTRUM_SIZE_ID } from '../src/patcherpreferences.js';
+
+{
+  let stored = null;
+  let redraws = 0;
+  const manager = createPreferencesManager({ storage: { load: async () => stored, save: async text => { stored = text; } } });
+  const settings = registerPatcherPreferences(manager, () => redraws++);
+  await manager.load();
+  assert.equal(settings.spectrumFlowDirection, 'down');
+  assert.equal(settings.spectrumSize, 4096);
+  manager.preview(SPECTRUM_SIZE_ID, '8192');
+  assert.equal(settings.spectrumSize, 8192);
+  manager.restore();
+  assert.equal(settings.spectrumSize, 4096);
+  assert.equal(manager.entries()[0].category, 'Patcher');
+  const before = redraws;
+  manager.preview(SPECTRUM_FLOW_ID, 'up');
+  assert.equal(settings.spectrumFlowDirection, 'up');
+  assert.equal(redraws, before + 1);
+  manager.restore();
+  assert.equal(settings.spectrumFlowDirection, 'down', 'Cancel restores the saved flow direction');
+  await manager.save({ [SPECTRUM_FLOW_ID]: 'up', [SPECTRUM_SIZE_ID]: '16384' });
+  const reloaded = createPreferencesManager({ storage: { load: async () => stored } });
+  const restored = registerPatcherPreferences(reloaded);
+  await reloaded.load();
+  assert.equal(restored.spectrumFlowDirection, 'up', 'flow direction persists across sessions');
+  assert.equal(restored.spectrumSize, 16384, 'FFT size persists across sessions');
+  assert.throws(() => manager.preview(SPECTRUM_FLOW_ID, 'left'), /Invalid value/);
+  assert.throws(() => manager.preview(SPECTRUM_SIZE_ID, '4048'), /Invalid value/);
+}
 
 {
   let stored = null;

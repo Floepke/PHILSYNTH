@@ -15,6 +15,7 @@ import { createPreferencesDialog } from './preferencesdialog.js';
 import { registerInterfacePreferences } from './interfacepreferences.js';
 import { registerTimelinePreferences } from './timelinepreferences.js';
 import { registerPianorollPreferences } from './pianorollpreferences.js';
+import { registerPatcherPreferences } from './patcherpreferences.js';
 import { AudioTransport } from './audiotransport.js';
 import { unsavedDialog, exportLevelDialog, infoDialog } from './dialogs.js';
 import { exitToOS } from './exit.js';
@@ -66,6 +67,7 @@ initWoodTheme(preferencesManager);
 registerInterfacePreferences(preferencesManager);
 const timelineDisplay = registerTimelinePreferences(preferencesManager, () => seq?.redrawTimeline());
 const pianorollPreferences = registerPianorollPreferences(preferencesManager, () => seq?.redrawPianoroll());
+const patcherPreferences = registerPatcherPreferences(preferencesManager, () => analysePanel?.refresh());
 registerMidiPreferences(preferencesManager, () => midi);
 registerShortcutPreferences(preferencesManager);
 let preferencesLoadError = '';
@@ -1817,6 +1819,7 @@ scope = new CableScope(engine.dsp);
 analysePanel = createSpectrumAnalyserPanel({
   host: $('patcher'), panel: $('analyse-panel'), button: $('spectrum-toggle'),
   dsp: engine.dsp,
+  preferences: patcherPreferences,
   target: () => {
     const entries = selectedEntries();
     const entry = entries.find(entry => analysisHandle(entry) !== null) ?? shown()?.modules.get(0);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { AudioAnalysis, ANALYSIS_SIZE } from '../src/dsp/analysis.js';
+import { AudioAnalysis, ANALYSIS_SIZE, ANALYSIS_SIZES } from '../src/dsp/analysis.js';
 import { Spectrum, dbFS } from '../src/spectrum.js';
 import { analysisHandle } from '../src/spectrumanalyserpanel.js';
 import { dspTestHost } from './dsphost.mjs';
@@ -8,6 +8,25 @@ import { instantiateDsp, wasmKernels } from '../src/dsp/wasm.js';
 
 const near = (a, b, epsilon = 1e-6) => assert.ok(Math.abs(a - b) < epsilon, `${a} != ${b}`);
 globalThis.sampleRate = 48000;
+
+for (const size of ANALYSIS_SIZES) {
+  const analysis = new AudioAnalysis(3, size);
+  const samples = Float32Array.from({ length: size }, (_, i) => 0.5 * Math.sin(2 * Math.PI * 8 * i / size));
+  for (let i = 0; i < size; i += 128) {
+    analysis.push(samples.subarray(i, i + 128), samples.subarray(i, i + 128));
+    if (i + 128 < size) assert.equal(analysis.report(), null, 'wait for the configured full window');
+  }
+  const report = analysis.report();
+  assert.equal(report.samples.length, size * 2);
+  assert.deepEqual(report.samples.subarray(0, size), samples);
+  const levels = new Spectrum(size).measure(report.samples);
+  assert.equal(levels.length, size / 2);
+  assert.equal(levels.indexOf(Math.max(...levels)), 8);
+  near(levels[8], dbFS(0.5));
+}
+assert.throws(() => new AudioAnalysis(3, 4048), /Invalid spectrum analyser size/);
+assert.throws(() => new Spectrum(4048), /Invalid spectrum analyser size/);
+assert.throws(() => new Spectrum().measure(new Float32Array(512)), /does not match/);
 
 // The full-rate stereo window retains samples a decimated cable scope would miss.
 {
@@ -76,6 +95,11 @@ for (const backend of ['js', 'wasm', 'wasm-jsgraph']) {
   const result = graph.analysis.report();
   assert.ok(result.samples.some(value => Math.abs(value) > 0.1), `${backend}: uncabled sound is measured`);
   assert.ok(master.every(v => v === 0), `${backend}: monitoring does not leak to speakers`);
+  dsp.analyse(osc.h, 8192);
+  assert.equal(graph.analysis.size, 8192, `${backend}: same target can change window size`);
+  render(8192 / 128);
+  assert.equal(graph.analysis.report().samples.length, 16384);
+  dsp.analyse(osc.h);
   osc.send({ type: 'allOff' });
   render(1);
   graph.analysis.report();

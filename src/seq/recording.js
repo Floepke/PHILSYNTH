@@ -110,7 +110,8 @@ export class MidiRecorder {
         this.held.delete(key);
       }
     }
-    if (event.type === 'on' && this.transport.playing && this.transport.recordingTime(event.time) >= 0) {
+    // position() clamps the count-in to zero: early notes held into the take start on its boundary.
+    if (event.type === 'on' && this.transport.playing) {
       this.held.set(event.key, { pitch: event.pitch, velocity: event.velocity, at: elapsed });
     }
     if (take.clip.notes.length !== before) this.onNotes();

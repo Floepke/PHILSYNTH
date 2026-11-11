@@ -78,7 +78,11 @@ app.whenReady().then(async () => {
       }
       return { surfaces, textures, dialogs, moduleSizing,
         ink: getComputedStyle(document.querySelector('dialog p')).color,
-        playing: getComputedStyle(document.querySelector('.playing')).backgroundColor,
+        playing: {
+          background: getComputedStyle(document.querySelector('.playing')).backgroundColor,
+          border: getComputedStyle(document.querySelector('.playing')).borderTopColor,
+          icon: getComputedStyle(document.querySelector('.playing')).color,
+        },
         moduleColor: getComputedStyle(document.querySelector('.module')).getPropertyValue('--mod-color').trim() };
     })()`);
     assert.ok(results.moduleSizing.width > results.moduleSizing.viewport, 'long module names can grow beyond the viewport');
@@ -107,7 +111,9 @@ app.whenReady().then(async () => {
       assert.ok(max < 128, axis + ' grain stays dark');
     }
     assert.equal(results.ink, 'rgb(229, 229, 229)');
-    assert.equal(results.playing, 'rgb(255, 90, 54)', 'playback indicator retains its color');
+    assert.deepEqual(results.playing, {
+      background: 'rgb(48, 71, 59)', border: 'rgb(96, 124, 105)', icon: 'rgb(215, 227, 218)',
+    }, 'playback indicator uses muted green with a legible light icon');
     assert.equal(results.moduleColor, '#ff0000', 'module color is unchanged');
     const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')
       .replace('<script type="module" src="src/main.js"></script>', `<script type="module">
@@ -117,6 +123,7 @@ app.whenReady().then(async () => {
         import { registerInterfacePreferences } from '/src/interfacepreferences.js';
         import { registerTimelinePreferences } from '/src/timelinepreferences.js';
         import { registerPianorollPreferences } from '/src/pianorollpreferences.js';
+        import { registerPatcherPreferences } from '/src/patcherpreferences.js';
         import { registerMidiPreferences } from '/src/midipreferences.js';
         import { sigDialog } from '/src/dialogs.js';
         import { showMenu, closeMenu } from '/src/seq/menu.js';
@@ -139,6 +146,7 @@ app.whenReady().then(async () => {
         window.preferencesManager.register({ id: 'test.mode', category: 'Testing', label: 'Mode', type: 'select', defaultValue: 'auto', options: [{ value: 'auto', label: 'Automatic' }, { value: 'manual', label: 'Manual' }] });
         window.timelineDisplay = registerTimelinePreferences(window.preferencesManager);
         window.pianorollSettings = registerPianorollPreferences(window.preferencesManager);
+        window.patcherSettings = registerPatcherPreferences(window.preferencesManager);
         window.midiSelection = 'auto';
         window.midiDevices = [{ name: 'Keyboard' }];
         registerMidiPreferences(window.preferencesManager, () => ({
@@ -153,8 +161,9 @@ app.whenReady().then(async () => {
     const routes = new Map([
       ['/', ['text/html', html]],
       ['/style.css', ['text/css', css]],
+      ['/src/dsp/analysis.js', ['text/javascript', readFileSync(new URL('../src/dsp/analysis.js', import.meta.url), 'utf8')]],
       ['/src/seq/menu.js', ['text/javascript', readFileSync(new URL('../src/seq/menu.js', import.meta.url), 'utf8')]],
-      ...['woodtheme', 'modcolor', 'preferences', 'preferencesdialog', 'interfacepreferences', 'timelinepreferences', 'pianorollpreferences', 'midipreferences', 'midi', 'modmidi', 'dialogs', 'song', 'curve', 'fileformat', 'shortcuts'].map(name => [`/src/${name}.js`, ['text/javascript',
+      ...['woodtheme', 'modcolor', 'preferences', 'preferencesdialog', 'interfacepreferences', 'timelinepreferences', 'pianorollpreferences', 'patcherpreferences', 'midipreferences', 'midi', 'modmidi', 'dialogs', 'song', 'curve', 'fileformat', 'shortcuts'].map(name => [`/src/${name}.js`, ['text/javascript',
         readFileSync(new URL('../src/' + name + '.js', import.meta.url), 'utf8')]]),
     ]);
     server = http.createServer((req, res) => {
@@ -177,7 +186,7 @@ app.whenReady().then(async () => {
     assert.equal(await tint(), defaultTint, 'existing default tint is preserved');
     await open();
     assert.equal(await run("document.activeElement.id"), 'preferences-categories', 'category list receives focus');
-    assert.deepEqual(await run("Array.from(document.getElementById('preferences-categories').options, o => o.text)"), ['Interface', 'Testing', 'Timeline', 'Pianoroll', 'MIDI']);
+    assert.deepEqual(await run("Array.from(document.getElementById('preferences-categories').options, o => o.text)"), ['Interface', 'Testing', 'Timeline', 'Pianoroll', 'Patcher', 'MIDI']);
     const groups = await run(`Array.from(document.querySelectorAll('#preferences-content fieldset'), group => ({
       label: group.querySelector('legend')?.textContent,
       border: getComputedStyle(group).borderTopWidth,
@@ -353,6 +362,35 @@ app.whenReady().then(async () => {
     await submit('ok'); await flushClose();
     await win.loadURL(url);
     assert.equal(await run('window.pianorollSettings.snapVelocity'), false, 'piano-roll preferences survive reload');
+    const patcherCategory = () => run(`(() => {
+      const list = document.getElementById('preferences-categories');
+      list.value = 'Patcher'; list.dispatchEvent(new Event('change'));
+    })()`);
+    const upward = () => run(`(() => {
+      const input = document.getElementById('pref-patcher-spectrumFlowDirection');
+      input.value = 'up'; input.dispatchEvent(new Event('change'));
+    })()`);
+    await open(); await patcherCategory();
+    assert.deepEqual(await run("Array.from(document.querySelectorAll('#preferences-content legend'), el => el.textContent)"), ['Spectrum Analyser flow direction', 'Spectrum Analyser FFT size']);
+    await run(`(() => {
+      const input = document.getElementById('pref-patcher-spectrumSize');
+      input.value = '8192'; input.dispatchEvent(new Event('change'));
+    })()`);
+    assert.equal(await run('window.patcherSettings.spectrumSize'), 8192);
+    await upward();
+    assert.equal(await run('window.patcherSettings.spectrumFlowDirection'), 'up');
+    await submit('cancel'); await flushClose();
+    assert.equal(await run('window.patcherSettings.spectrumFlowDirection'), 'down');
+    assert.equal(await run('window.patcherSettings.spectrumSize'), 4096, 'Cancel restores the FFT size');
+    await open(); await patcherCategory(); await upward();
+    await run(`(() => {
+      const input = document.getElementById('pref-patcher-spectrumSize');
+      input.value = '8192'; input.dispatchEvent(new Event('change'));
+    })()`);
+    await submit('ok'); await flushClose();
+    await win.loadURL(url);
+    assert.equal(await run('window.patcherSettings.spectrumFlowDirection'), 'up', 'patcher preferences survive reload');
+    assert.equal(await run('window.patcherSettings.spectrumSize'), 8192, 'FFT size survives reload');
     assert.deepEqual(await run('window.themeErrors'), []);
     await open();
     const midiCategory = () => run(`(() => {

@@ -1,11 +1,18 @@
 export const ANALYSIS_SIZE = 4096;
+export const ANALYSIS_SIZES = [512, 1024, 2048, 4096, 8192, 16384, 32768];
+
+export function validateAnalysisSize(size) {
+  if (!ANALYSIS_SIZES.includes(size)) throw new Error(`Invalid spectrum analyser size: ${size}`);
+  return size;
+}
 
 // Full-rate stereo spectrum window, only allocated while the Analyse panel is visible.
 export class AudioAnalysis {
-  constructor(h) {
+  constructor(h, size = ANALYSIS_SIZE) {
     this.h = h;
-    this.left = new Float32Array(ANALYSIS_SIZE);
-    this.right = new Float32Array(ANALYSIS_SIZE);
+    this.size = validateAnalysisSize(size);
+    this.left = new Float32Array(size);
+    this.right = new Float32Array(size);
     this.at = 0;
     this.count = 0;
     this.filled = 0;
@@ -17,19 +24,19 @@ export class AudioAnalysis {
       const r = right ? right[i] : 0;
       this.left[this.at] = l;
       this.right[this.at] = r;
-      this.at = (this.at + 1) % ANALYSIS_SIZE;
+      this.at = (this.at + 1) % this.size;
     }
     this.count += 128;
-    this.filled = Math.min(ANALYSIS_SIZE, this.filled + 128);
+    this.filled = Math.min(this.size, this.filled + 128);
   }
 
   report() {
-    if (!this.count || this.filled < ANALYSIS_SIZE) return null;
-    const samples = new Float32Array(ANALYSIS_SIZE * 2);
-    for (let i = 0; i < ANALYSIS_SIZE; i++) {
-      const at = (this.at + i) % ANALYSIS_SIZE;
+    if (!this.count || this.filled < this.size) return null;
+    const samples = new Float32Array(this.size * 2);
+    for (let i = 0; i < this.size; i++) {
+      const at = (this.at + i) % this.size;
       samples[i] = this.left[at];
-      samples[ANALYSIS_SIZE + i] = this.right[at];
+      samples[this.size + i] = this.right[at];
     }
     const result = {
       h: this.h, samples, sampleRate,
