@@ -1,6 +1,6 @@
 // Right-click menu for the sequencer views (DOM overlay, closes on any outside press, Escape,
 // outside scrolling or window blur). Nested children fold inline; menus grow to fit and scroll within the window.
-//   showMenu({ x, y (client px), items: [{ id?, label, shortcut?, shortcuts?, disabled?, checked?, action?, children? } | '-'], className?, onClose?, container?, shortcutScope? }) -> close()
+//   showMenu({ x, y (client px), items: [{ id?, label, shortcut?, shortcuts?, disabled?, checked?, action?, children? } | '-'], className?, onClose?, container?, shortcutScope?, consumeOutsideClick? }) -> close()
 import { menuActionId, shortcutRegistry } from '../shortcuts.js';
 
 let current = null;
@@ -13,7 +13,7 @@ export function closeMenu() {
   current?.();
 }
 
-export function showMenu({ x, y, items, className = '', onClose = null, container = document.body, shortcutScope = null }) {
+export function showMenu({ x, y, items, className = '', onClose = null, container = document.body, shortcutScope = null, consumeOutsideClick = false }) {
   closeMenu();
   const el = document.createElement('div');
   el.className = className ? `ctx-menu ${className}` : 'ctx-menu';
@@ -114,7 +114,14 @@ export function showMenu({ x, y, items, className = '', onClose = null, containe
   }
   const visibleEntries = () => entries.filter(entry => !entry.button.disabled && entry.ancestors.every(parent => !parent.group.hidden));
 
-  const outside = (e) => { if (!el.contains(e.target)) close(); };
+  const outside = (e) => {
+    if (el.contains(e.target)) return;
+    if (consumeOutsideClick && e.button === 0) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+    close();
+  };
   const keys = (e) => {
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); return; }
     const visible = visibleEntries();

@@ -1,8 +1,8 @@
-// Run: node test/guide.test.mjs   (the tutorials shown when nothing is selected)
+// Run: node test/guide.test.mjs   (the manual shown when nothing is selected)
 import assert from 'node:assert/strict';
 import { GUIDE, renderGuide } from '../src/guide.js';
 
-assert.deepEqual(GUIDE.map((t) => t.id), ['patcher', 'timeline', 'pianoroll', 'workspace'], 'patcher, TimeLine, piano roll, then workspace');
+assert.deepEqual(GUIDE.map((t) => t.id), ['interface', 'patcher', 'timeline', 'pianoroll', 'workspace'], 'Interface, patcher, TimeLine, piano roll, then workspace');
 for (const t of GUIDE) {
   assert.ok(t.title && t.intro, t.id);
   assert.ok(t.steps.length >= 1, t.id);
@@ -13,10 +13,11 @@ for (const t of GUIDE) {
   assert.equal((html.match(/<b>/g) ?? []).length, (html.match(/<\/b>/g) ?? []).length, `${t.id}: balanced b tags`);
 }
 const text = (id) => JSON.stringify(GUIDE.find((t) => t.id === id));
-// topics the tutorials must cover
+// topics the manual must cover
+for (const topic of ['controller area', 'show this manual', 'Right-click a button', 'Learn keyboard shortcut', 'Restore default']) assert.ok(text('interface').includes(topic), `interface: ${topic}`);
 for (const topic of ['Shift</kbd> + drag', 'Alt</kbd> + drag', 'Snap to Grid', 'F2', 'Save module', 'Input Module', 'Ctrl/Cmd</kbd> + <kbd>Z']) assert.ok(text('patcher').includes(topic), `patcher: ${topic}`);
 for (const topic of ['Double right-click', '<b>Clip</b> field', 'Grid', 'Free timing', 'Automation editor', 'Piano roll:', 'TimeLine:', 'Save Clip']) assert.ok(text('timeline').includes(topic), `timeline: ${topic}`);
-for (const topic of ['selection rectangle', 'end line', 'Velocity', '250 ms', 'Q</kbd>', 'Left</kbd>']) assert.ok(text('pianoroll').includes(topic), `pianoroll: ${topic}`);
+for (const topic of ['selection rectangle', 'end line', 'Velocity', 'Right-click empty space', 'hold the right mouse button', 'Q</kbd>', 'Left</kbd>']) assert.ok(text('pianoroll').includes(topic), `pianoroll: ${topic}`);
 const patcherKeys = GUIDE.find((t) => t.id === 'patcher').keys;
 assert.ok(patcherKeys.some(([keys, action]) => keys.includes('Shift</kbd> + drag empty canvas') && action === 'pan, zoom'), 'patcher: Shift-drag pans');
 assert.ok(patcherKeys.some(([keys, action]) => keys.startsWith('drag empty canvas') && action === 'selection rectangle'), 'patcher: plain drag selects');

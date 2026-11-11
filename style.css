@@ -688,9 +688,9 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 .select-rect {
   position: absolute;
   z-index: 20;
-  border: 1px solid rgba(255, 255, 255, 0.55);
+  border: 1px solid #607c69;
   border-radius: 2px;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(96, 124, 105, 0.14);
   pointer-events: none;
 }
 .sel-list { margin: 0 0 14px; padding: 0; list-style: none; }

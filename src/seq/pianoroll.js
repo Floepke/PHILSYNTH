@@ -34,10 +34,9 @@
 //                                deletes it, holding right opens the menu (Delete bend point, Reset bend).
 //   drag the thick end line      change the clip length (wheel-scroll or drag past the top / bottom edge to go further)
 //   Shift + drag / right drag    select notes with a rectangle (Shift: starting off a note's circle) (wheel-scroll or drag past the top / bottom edge to extend it across the clip)
-//   Shift + click a note         add it to / remove it from the selection
 //   Ctrl/Cmd + click a note      add it to / remove it from the selection without editing it
 //   Alt + drag a note           clone it (or the selection) and move the clones
-//   right click                 delete the note under the pointer on release
+//   right click                 empty space: menu; on a note: delete on release
 //   hold right button 250 ms    open the menu instead (release never deletes)
 //   Backspace / Delete          delete selected notes
 //   Left / Right                transpose selected notes by a semitone (Shift: an octave)
@@ -79,7 +78,7 @@ const VEL_MIN = 0; // the ruler drags the velocity strip between these widths; t
 const VEL_MAX_SHARE = 0.5; // of the roll width
 const BG = '#45464e';
 const PLAYHEAD = '#ff916e';
-const SELECT = '#65b4ff';
+const SELECT = '#607c69';
 const STAVE = '#111216';
 const BEAT = STAVE;
 const BAR_LINE = STAVE;
@@ -119,7 +118,7 @@ export function createPianoRoll(host, ctx) {
   let hbHover = false; // the same for the horizontal scrollbar (zoomed in)
   let hbActive = false;
   const presses = doublePress(); // double-click a note body = down-up-DOWN: the new bend point drags at once
-  const menu = (opts) => (ctx.menu ?? showMenu)({ shortcutScope: 'pianoroll', ...opts });
+  const menu = (opts) => (ctx.menu ?? showMenu)({ shortcutScope: 'pianoroll', consumeOutsideClick: true, ...opts });
 
   const s = createSurface(host, paint);
   const { cv } = s;
@@ -303,6 +302,13 @@ export function createPianoRoll(host, ctx) {
     g.lineWidth = Math.min(3, noteW() * 0.3);
     g.strokeStyle = STAVE;
     g.stroke();
+    if (!black) {
+      g.save();
+      g.clip();
+      g.lineWidth *= 1.6;
+      g.stroke();
+      g.restore();
+    }
     g.globalAlpha = 1;
   }
 
@@ -517,7 +523,7 @@ export function createPianoRoll(host, ctx) {
         if (y < -2 * headSize().height || y > bottom) continue;
         head(g, headX(n), y, isBlack(n.pitch), n.start >= 0 && n.start < clip.length ? 1 : 0.4);
       }
-      if (hover && !drag) head(g, xOf(hover.pitch) + kw / 2, yOf(hover.t), isBlack(hover.pitch), 0.55);
+      if (hover && !drag) head(g, xOf(hover.pitch) + kw / 2, yOf(hover.t), isBlack(hover.pitch));
       paintBends(g, clip);
       if (!isIdea(clip) && clipSilent(ctx.song(), clip)) mutedMark(g, gridX(), 0, w - gridX(), bottom);
       // play position
@@ -540,7 +546,7 @@ export function createPianoRoll(host, ctx) {
       const y = Math.min(drag.y0, drag.y1);
       const w = Math.abs(drag.x1 - drag.x0);
       const h = Math.abs(drag.y1 - drag.y0);
-      g.fillStyle = 'rgba(101, 180, 255, 0.14)';
+      g.fillStyle = 'rgba(96, 124, 105, 0.14)';
       g.fillRect(x, y, w, h);
       g.strokeStyle = SELECT;
       g.lineWidth = 1;
@@ -647,7 +653,7 @@ export function createPianoRoll(host, ctx) {
       const y = Math.max(0, Math.min(drag.y0, drag.y1));
       const w = Math.abs(drag.x1 - drag.x0);
       const height = Math.min(gridBottom(), Math.max(drag.y0, drag.y1)) - y;
-      g.fillStyle = 'rgba(101, 180, 255, 0.14)';
+      g.fillStyle = 'rgba(96, 124, 105, 0.14)';
       g.fillRect(x, y, w, height);
       g.strokeStyle = SELECT;
       g.lineWidth = 1;
@@ -704,8 +710,8 @@ export function createPianoRoll(host, ctx) {
     hoverPitch = x >= gridX() && x < rollRight() ? pitchAt(x) : null;
     hover = inside && !h && !hoverBend ? { pitch: pitchAt(x), t: Math.max(0, snapFloor(timeAt(y), step())) } : null;
     const keyboard = keysPlay() && inKeyboard(x, y);
-    cv.style.cursor = keyboard ? 'pointer' : h?.part === 'head' ? 'move' : h ? 'ns-resize' : inside ? 'crosshair' : 'default';
-    const menuTip = 'hold the right mouse button 250 ms for the menu';
+    cv.style.cursor = keyboard ? 'pointer' : h?.part === 'head' ? 'move' : h ? 'ns-resize' : 'default';
+    const menuTip = 'right-click empty space for the menu; on a note, hold the right mouse button for the menu';
     cv.title = keyboard ? `${noteName(pitchAt(x))} - click to audition`
       : hoverBend ? `Bend point: ${pitchLabel(hoverBend.note.pitch + hoverBend.note.bends[hoverBend.i].d)} (${bendLabel(hoverBend.note.bends[hoverBend.i].d)}) — drag to move it (Shift: whole semitones), wheel rounds it, right-click deletes, ${menuTip}`
       : h ? `${pitchLabel(h.note.pitch)}  start ${+h.note.start.toFixed(4)}  length ${+h.note.length.toFixed(4)} (quarters) — Shift + drag sideways tunes it (micropitch), double-click the body of a selected note to bend it, right-click deletes, ${menuTip}`
@@ -873,8 +879,7 @@ export function createPianoRoll(host, ctx) {
   }
 
   // Shift + drag a note's circle sideways: micropitch (the selection it is in tunes along, each
-  // note by the same number of cents, and stays on its key); Shift + click toggles it in the
-  // selection as before
+  // note by the same number of cents, and stays on its key).
   function tune(e, clip, note, x0) {
     const base = selected;
     const group = selected.has(note) && selected.size > 1 ? selectedNotes() : [note];
@@ -911,9 +916,6 @@ export function createPianoRoll(host, ctx) {
         selected = base;
       } else if (state.moved) {
         if (group.some((n, i) => n.pitch !== origs[i].pitch)) ctx.changed();
-      } else if (!cancelled) { // Shift + click: toggle the note in the selection
-        selected = new Set(base);
-        if (selected.has(note)) selected.delete(note); else selected.add(note);
       }
       const p = s.local(ev);
       updateHover(p.x, p.y);
@@ -1073,7 +1075,7 @@ export function createPianoRoll(host, ctx) {
     g.textBaseline = 'alphabetic';
     g.fillText(`${noteName(n.pitch)} ${centsLabel(cents)}`, cx, top + 13);
     // a thin line down to the note's circle
-    g.strokeStyle = 'rgba(101, 180, 255, 0.6)';
+    g.strokeStyle = 'rgba(96, 124, 105, 0.6)';
     g.lineWidth = 1;
     g.beginPath();
     g.moveTo(clamp(hx, left + 4, left + W - 4), below ? top : top + H);
@@ -1172,14 +1174,14 @@ export function createPianoRoll(host, ctx) {
           if (clip.notes.includes(bend.note)) deleteBend(bend.note, bend.i);
           return;
         }
-        if (!note) { // short right-click on empty space: deselect all
-          if (selected.size) { selected = new Set(); s.redraw(); }
+        if (!note) {
+          openMenu(x, y, e.clientX, e.clientY);
           return;
         }
         if (!clip.notes.includes(note)) return;
         remove(note);
         ctx.changed();
-      }, () => openMenu(x, y, e.clientX, e.clientY));
+      }, note || bend ? () => openMenu(x, y, e.clientX, e.clientY) : null);
       return;
     }
     if (e.button !== 0) return;
@@ -1205,14 +1207,9 @@ export function createPianoRoll(host, ctx) {
       }
     }
     if (e.shiftKey && hit(x, y)?.part === 'head') { tune(e, clip, hit(x, y).note, x); return; }
-    if (e.shiftKey) { // Shift + drag: rectangle; Shift + click: toggle a note in the selection
-      const base = selected;
+    if (e.shiftKey) { // Shift + drag: rectangle; a click alone leaves the selection unchanged
       selectRect(e, x, y, () => {
-        const h = hit(x, y);
-        selected = new Set(base);
-        if (h && selected.has(h.note)) selected.delete(h.note);
-        else if (h) selected.add(h.note);
-        else selected.clear();
+        s.redraw();
       });
       return;
     }

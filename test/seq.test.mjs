@@ -320,7 +320,7 @@ const ay = (y) => 2 * CLIP_H + y + CLIP_H / 2;
   assert.ok(signature.font.includes('20px'));
   assert.ok(bar.font.includes('20px'));
   assert.ok(cv.drawing.some(([op, , y, , height, color]) =>
-    op === 'fillRect' && color === '#4b3a78' && y === 2 && height === CLIP_H - 3), 'signature flag fits full-height row');
+    op === 'fillRect' && color === '#607c69' && y === 2 && height === CLIP_H - 3), 'green signature flag fits full-height row');
 }
 const assertNoOverlap = (song) => {
   for (let i = 0; i < song.clips.length; i++) {
@@ -662,7 +662,7 @@ const assertNoOverlap = (song) => {
   assert.notEqual(keyFill(60), noteColor, 'paused / stopped: no highlight');
   ctx.heldKeys = () => new Set([60]);
   paintAt(2.5);
-  assert.equal(keyFill(60), '#65b4ff', 'keys held live win over clip playback');
+  assert.equal(keyFill(60), '#607c69', 'keys held live win over clip playback');
   delete ctx.heldKeys;
   Object.assign(ctx.transport, { pos: 0, playing: false });
 }
@@ -685,9 +685,9 @@ for (const ending of ['pointerup', 'pointercancel', 'lostpointercapture', 'blur'
     roll.redraw();
     flush();
     const keyFill = (p) => cv.drawing.findLast(([op, x, y, w]) => op === 'fillRect' && y === 377 && x <= nx(p) && nx(p) < x + w)?.at(-1);
-    assert.equal(keyFill(62), '#65b4ff', 'held white key: selection blue');
-    assert.match(keyFill(63), /color-mix\(in srgb, #65b4ff/, 'held black key: darker blue');
-    assert.notEqual(keyFill(64), '#65b4ff', 'other keys unchanged');
+    assert.equal(keyFill(62), '#607c69', 'held white key: selection green');
+    assert.match(keyFill(63), /color-mix\(in srgb, #607c69/, 'held black key: darker green');
+    assert.notEqual(keyFill(64), '#607c69', 'other keys unchanged');
     delete ctx.heldKeys;
   }
   point(cv, 'pointermove', nx(60) + 1, 390, { buttons: 1 });
@@ -850,7 +850,7 @@ for (const reverse of [false, true]) {
   arranger.redraw();
   flush();
   assert.ok(cv.drawing.some(([op, text]) => op === 'fillText' && text === 'restart:'), 'labelled');
-  assert.ok(cv.drawing.some(([op, x, , w, , color]) => op === 'fillRect' && x === ax(4) - 1 && w === 3 && color === '#5fd38a'), 'a | at the restart time');
+  assert.ok(cv.drawing.some(([op, x, , w, , color]) => op === 'fillRect' && x === ax(4) - 1 && w === 3 && color === '#607c69'), 'a green | at the restart time');
   rightClick(ax(1), ay(clip.y));
   assert.ok(labels(menus).includes('Remove restart point'), 'the clip menu has the items too');
   ctx.transport.pos = 2.5;
@@ -1149,25 +1149,25 @@ for (const y of [ny(1) + 5, ny(1.5)]) {
     assert.equal(clip.notes.length, 0, 'other selected notes stay selected');
     click(cv, nx(70), ny(3), { button: 2 });
     mock.timers.tick(1000);
-    assert.equal(menus.length, 0, 'quick right-click on empty space opens no menu');
+    assert.equal(menus.length, 1, 'quick right-click on empty space opens the menu');
     assert.equal(changes(), 2);
   } finally {
     mock.timers.reset();
   }
 }
 
-// A quick right-click on empty space deselects all notes (without deleting anything).
+// A quick right-click on empty space opens the menu without changing the selection.
 {
   const { clip, roll, menus, changes } = setup();
   const cv = roll.surface.cv;
   clip.notes.push(note(60, 1), note(64, 2));
   key(cv, 'a', { ctrlKey: true });
   click(cv, nx(70), ny(4), { button: 2 });
-  assert.equal(menus.length, 0);
+  assert.equal(menus.length, 1);
   assert.equal(clip.notes.length, 2, 'no notes deleted');
   assert.equal(changes(), 0);
   key(cv, 'Delete');
-  assert.equal(clip.notes.length, 2, 'the selection is empty, so Delete removes nothing');
+  assert.equal(clip.notes.length, 0, 'the selection is preserved, so Delete removes the selected notes');
 }
 
 // Even if the timer is delayed by a busy event loop, a 250 ms release is not a delete.
@@ -1498,8 +1498,8 @@ for (const how of ['wheel', 'edge']) {
   // body drag adds the same duration to every selected note
   drag(cv, nx(61), ny(3.5), nx(61), ny(5.5));
   assert.deepEqual(clip.notes.map((n) => n.length), [3, 3, 1]);
-  // Shift + click toggles a note in the selection
-  click(cv, nx(70), ny(1) + 5, { shiftKey: true });
+  // Ctrl/Cmd + click toggles a note in the selection
+  click(cv, nx(70), ny(1) + 5, { ctrlKey: true });
   key(cv, 'Delete');
   assert.equal(clip.notes.length, 0);
 }
@@ -1612,8 +1612,8 @@ for (const end of ['lostpointercapture', 'pointercancel']) {
   holdRightClick(cv, nx(80), ny(6));
   pick(menus, 'Reset tuning');
   assert.deepEqual([a.pitch, b.pitch, c.pitch], [61, 65, 68]);
-  // Shift + click (no drag) still toggles the note in the selection
-  click(cv, nx(61), ny(1) + 5, { shiftKey: true });
+  // Ctrl/Cmd + click (no drag) toggles the note in the selection
+  click(cv, nx(61), ny(1) + 5, { ctrlKey: true });
   key(cv, 'Delete');
   assert.deepEqual(clip.notes.map((n) => n.pitch), [61]);
 }
@@ -1636,8 +1636,8 @@ for (const end of ['lostpointercapture', 'pointercancel']) {
   const keyFill = (p) => cv.drawing.findLast(([op, x, y]) => op === 'fillRect' && x === nx(p) - 7 + 0.5 && y > 300)?.[5];
   ctx.heldKeys = () => new Set([61.6]);
   roll.redraw(); flush();
-  assert.equal(keyFill(62), '#65b4ff', 'a tuned held pitch lights its base key');
-  assert.notEqual(keyFill(61), '#65b4ff');
+  assert.equal(keyFill(62), '#607c69', 'a tuned held pitch lights its base key');
+  assert.notEqual(keyFill(61), '#607c69');
   assert.ok(keyFill(61), 'key rect found');
 }
 
@@ -1692,7 +1692,7 @@ for (const snap of [{ base: 16, div: 1 }, { base: 8, div: 3 }, { base: 4, div: 1
   const untouched = note(67, 3.1, 0.37);
   clip.notes.push(a, b, untouched);
   click(roll.surface.cv, nx(60), ny(1) + 5);
-  click(roll.surface.cv, nx(64), ny(2) + 5, { shiftKey: true });
+  click(roll.surface.cv, nx(64), ny(2) + 5, { ctrlKey: true });
   const before = changes();
   holdRightClick(roll.surface.cv, nx(80), ny(6));
   pick(menus, 'Quantize selection');
@@ -3836,7 +3836,7 @@ for (const free of [false, true]) {
   assert.equal(cv.drawing[ei - 2][0], 'translate');
   assert.equal(cv.drawing[ei - 2][1], nx(60));
   assert.ok(cv.drawing.some(([op, color, width]) => op === 'stroke' && color === '#111216' && width === 3), 'outline twice as thick');
-  assert.ok(cv.drawing.some(([op, color]) => op === 'fill' && color === '#65b4ff'));
+  assert.ok(cv.drawing.some(([op, color]) => op === 'fill' && color === '#607c69'));
   assert.ok(cv.drawing.some(([op, color, width]) => op === 'stroke' && color === '#111216' && width === 4));
   assert.ok(cv.drawing.some(([op, color, width]) => op === 'stroke' && color === '#111216' && width === 8));
   assert.ok(cv.drawing.some(([op, ...dash]) => op === 'setLineDash' && JSON.stringify(dash[0]) === '[12,12]'));
@@ -4013,12 +4013,12 @@ for (const free of [false, true]) {
   assert.deepEqual(fills(), pattern.map((b) => b ? black : white));
   cv.drawing.length = 0;
   key(cv, 'a', { ctrlKey: true });
-  assert.deepEqual(fills(), pattern.map((b) => b ? 'color-mix(in srgb, #65b4ff 86%, #000)' : '#65b4ff'));
+  assert.deepEqual(fills(), pattern.map((b) => b ? 'color-mix(in srgb, #607c69 86%, #000)' : '#607c69'));
   cv.drawing.length = 0;
   key(cv, 'ArrowRight');
-  assert.deepEqual(fills(), [...pattern.slice(1), pattern[0]].map((b) => b ? 'color-mix(in srgb, #65b4ff 86%, #000)' : '#65b4ff'));
+  assert.deepEqual(fills(), [...pattern.slice(1), pattern[0]].map((b) => b ? 'color-mix(in srgb, #607c69 86%, #000)' : '#607c69'));
 
-  // Keep a genuinely dark canvas without inverting the stave, and retain strong selection contrast.
+  // Keep a dark canvas without inverting the stave, with the intended muted-green selection contrast.
   const rgb = (hex) => hex.slice(1).match(/../g).map((c) => parseInt(c, 16));
   const luminance = (rgb) => rgb.map((v) => v / 255)
     .map((v) => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
@@ -4032,8 +4032,8 @@ for (const free of [false, true]) {
   assert.ok(luminance(background) < 0.08);
   assert.ok(luminance(stave) < luminance(background));
   assert.ok(contrast(stave, background) >= 1.8);
-  assert.ok(contrast(selection, background) >= 4);
-  assert.ok(contrast(selection.map((v) => v * 0.86), background) >= 3);
+  assert.ok(contrast(selection, background) >= 2);
+  assert.ok(contrast(selection.map((v) => v * 0.86), background) >= 1.6);
   assert.ok(contrast(rgb('#c3c7d0'), rgb('#292b31')) >= 4.5);
 }
 

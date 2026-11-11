@@ -27,7 +27,7 @@ export const VEL_W = 84; // default width; the piano roll's ruler drags it wider
 const PAD = 7;
 const HIT = 7;
 const ROUND_STEP = 0.05;
-const SELECT = '#65b4ff';
+const SELECT = '#607c69';
 const VEL_SNAP = 16; // velocity snapping levels: 0, 1/16 .. 1
 
 // o: { cv, local(e), clip(), selected() -> Set, setSelected(Set), yOf(t), timeAt(y), bottom(), ppq(), song(),

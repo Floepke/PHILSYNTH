@@ -69,7 +69,7 @@ const IDEA_LABEL = 'Playback of clips in this area is ignored except if you loop
 const LABEL = 'TimeLine:';
 const EDGE = 6;
 const PLAYHEAD = '#ff5a36';
-const RESTART = '#5fd38a'; // restart point marker
+const RESTART = '#607c69'; // muted green matching the active play button's border
 const RESTART_LABEL = 'restart:';
 const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
@@ -510,9 +510,9 @@ export function createArranger(host, ctx) {
     if (rect?.shown) {
       const rx = Math.min(rect.x0, rect.x1);
       const ry = Math.min(rect.y0, rect.y1);
-      g.fillStyle = 'rgba(255, 255, 255, 0.06)';
+      g.fillStyle = 'rgba(96, 124, 105, 0.14)';
       g.fillRect(rx, ry, Math.abs(rect.x1 - rect.x0), Math.abs(rect.y1 - rect.y0));
-      g.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+      g.strokeStyle = RESTART;
       g.lineWidth = 1;
       g.strokeRect(rx + 0.5, ry + 0.5, Math.abs(rect.x1 - rect.x0), Math.abs(rect.y1 - rect.y0));
     }
@@ -629,9 +629,9 @@ export function createArranger(host, ctx) {
       const label = `${seg.num}/${seg.den}`;
       const tw = g.measureText(label).width + 8;
       if (x + tw < x0) continue;
-      g.fillStyle = '#4b3a78';
+      g.fillStyle = RESTART;
       g.fillRect(x, 2, tw, SIG_H - 3);
-      g.fillStyle = '#e4dcff';
+      g.fillStyle = '#d7e3da';
       g.fillText(label, x + 4, SIG_H / 2 + 0.5);
       sigBoxes.push({ at: seg.at, x0: x, x1: x + tw });
     }
@@ -649,7 +649,7 @@ export function createArranger(host, ctx) {
     if (Number.isFinite(song.restart)) { // the restart point continues faintly through the lanes
       const x = Math.round(xOf(song.restart)) + 0.5;
       if (x >= x0 && x <= w) {
-        g.strokeStyle = 'rgba(95, 211, 138, 0.35)';
+        g.strokeStyle = 'rgba(96, 124, 105, 0.35)';
         g.lineWidth = 1;
         g.setLineDash([4, 4]);
         g.beginPath(); g.moveTo(x, RULER); g.lineTo(x, h - SB); g.stroke();

@@ -1,4 +1,4 @@
-// The tutorials shown in the controller panel when nothing is selected: Patcher, TimeLine,
+// The manual shown in the controller panel when nothing is selected: Interface, Patcher, TimeLine,
 // Piano roll and Workspace. Each is { id, title, intro, steps: [{ title, items: [html] }],
 // keys: [[keys html, action html]] }. Static HTML strings only (rendered with innerHTML).
 // Keep them in step with the code when interactions or shortcuts change.
@@ -7,6 +7,30 @@ const k = (...keys) => keys.map((x) => `<kbd>${x}</kbd>`).join(' + ');
 const CMD = 'Ctrl/Cmd';
 
 export const GUIDE = [
+  {
+    id: 'interface',
+    title: 'Interface',
+    intro: 'This space is the controller area for modules selected in the patcher. Click empty space in the patcher to deselect them and show this manual. Open a heading below to read a section.',
+    steps: [
+      {
+        title: 'Find your way',
+        items: [
+          'The <b>piano roll</b> at the top edits notes, the <b>patcher</b> in the middle builds instruments, and the <b>TimeLine</b> at the bottom arranges clips. Keyboard shortcuts act on the area you last clicked: for example, Delete removes selected notes in the piano roll or selected modules in the patcher.',
+          'Select a module to replace this manual with its controllers, descriptions and usage notes. Click empty space in the patcher to return to the manual. Drag the dividers to resize or hide areas.',
+          'Click <b>PHILSYNTH</b> for project commands and <b>Preferences…</b>. Preferences are saved on this device, separately from your project.',
+        ],
+      },
+      {
+        title: 'Make your own shortcuts',
+        items: [
+          '<b>Right-click a button</b>, or open a right-click menu and <b>right-click an action inside it</b>, to open <b>Learn keyboard shortcut</b>. Press the key or key combination you want; an available combination is saved automatically.',
+          'If the combination is already in use, the dialog explains the conflict so you can choose another. <b>Cancel</b> or Escape leaves it unchanged.',
+          'Your custom shortcut replaces the default. Right-click the same action again and choose <b>Restore default</b> to reset it. Reset all mappings under <b>Preferences… > Keyboard > Custom shortcuts</b>. Shortcuts are remembered on this device.',
+        ],
+      },
+    ],
+    keys: [],
+  },
   {
     id: 'patcher',
     title: 'Patcher',
@@ -34,7 +58,7 @@ export const GUIDE = [
         title: 'Select',
         items: [
           'Click a module to select it: the controller panel shows its controllers, their descriptions and usage notes.',
-          `Drag on empty canvas or use the mouse <b>Forward</b> button + drag to draw a selection rectangle; ${k('Shift')} + drag on empty canvas pans the view (also on a trackpad). Forward-drag can also start over a module. ${k('Ctrl')} + drag adds to the selection, ${k('Ctrl')} + click toggles one module, ${k(CMD, 'A')} selects all.`,
+          `Drag on empty canvas or use the mouse <b>Forward</b> button + drag to draw a selection rectangle; ${k('Shift')} + drag on empty canvas pans the view (also on a trackpad). Forward-drag can also start over a module. ${k(CMD)} + drag adds to the selection, ${k(CMD)} + click toggles one module, ${k(CMD, 'A')} selects all.`,
         ],
       },
       {
@@ -147,7 +171,7 @@ export const GUIDE = [
           '<b>TimeLine:</b> inserting, moving, trimming and resizing clips and pasting snap to the grid step (the edges of neighbouring clips take priority). The restart marker instead snaps to barlines (whole measures), independently of the Input Grid.',
           '<b>Piano roll:</b> new notes start on the grid line at or before the pointer; dragging lengths and moving notes, pasting, the clip-end line, the velocity-curve point times, the arrow-key nudges and <b>Quantize</b> (Q) all use the grid step. The light / dark bands show it.',
           '<b>Automation editor:</b> the times of new and moved points snap to the grid step.',
-          '<b>Free timing</b> (the checkbox beside the Grid) frees piano-roll notes and velocity-curve times from the grid; the bands stay as a guide and Quantize still snaps. The TimeLine and the automation editor keep snapping.',
+          '<b>Free timing</b> (the checkbox beside the Grid) frees piano-roll notes and velocity-curve times from the grid; the bands stay as a guide and Quantize still snaps. Press <kbd>F</kbd> to toggle it, or right-click the checkbox or its label to assign a custom shortcut. The TimeLine and the automation editor keep snapping.',
           'The Grid and Free timing are saved per sequencer, so every Patch level has its own.',
         ],
       },
@@ -182,7 +206,7 @@ export const GUIDE = [
           'Drag the timeline measure ruler left/right to pan horizontally and up/down to zoom around the grabbed time; both axes act together without moving the playhead. Clicking it leaves the playhead unchanged. In Electron the cursor locks during the drag and returns to its press position on release; web browsers use ordinary cursor dragging without pointer lock. Escape cancels navigation. Restart markers still drag to change their position.',
           'Click the time signature row to set the play position; dragging there scrubs.',
           `${k('Double-click')} the time signature row to insert a time signature change at the nearest bar line (or edit it); right-click a change to remove it.`,
-          'Drag a purple signature flag left or right to move it by whole bars of the preceding meter. The initial signature stays at zero. Later changes snap to their nearest whole measure without reordering or overlapping; clips and notes do not move. The grid updates during the drag; Escape cancels, and release records one undo step.',
+          'Drag a green signature flag left or right to move it by whole bars of the preceding meter. The initial signature stays at zero. Later changes snap to their nearest whole measure without reordering or overlapping; clips and notes do not move. The grid updates during the drag; Escape cancels, and release records one undo step.',
           'Choose Insert/Edit time-Signature Change… from the timeline clip, empty-space or ruler context menu to open the same dialog at the nearest bar to the right-click position. Hold right-click on an existing signature or restart marker to open this menu without removing it.',
           'The time-signature dialog includes a two-octave stave preview with time running downward. The entire measure scales to fit the available editor height. Click a numbered beat row to show or hide its piano-roll line; beat 1 controls the barline. Editing either time-signature field resets all beats to enabled. These choices repeat each measure and do not change snapping, playback or ruler marks.',
           '<b>Restart point</b>: double-click the bar numbers on the ruler, or right-click the ruler (or a clip / empty space) → <i>Insert restart point at playhead</i>. Placement and dragging snap to the nearest barline (whole measures), following time-signature changes and ignoring the Input Grid. A green <b>restart:</b> | marks it in the bar number row; drag it to move it. Song playback continues there when it reaches the end of the song, and stopping it (Space, <kbd>\'</kbd> or the stop button) returns the playhead there; the <kbd>/</kbd> clip loop ignores it. Right-click the marker (or drag it to time zero) to remove it.',
@@ -219,7 +243,7 @@ export const GUIDE = [
   {
     id: 'pianoroll',
     title: 'Piano roll',
-    intro: 'The piano roll (top pane) edits the notes of the selected note clip. Time runs <b>down</b>, pitch runs left to right over all 128 MIDI notes with the keyboard at the bottom. The strip on the left shows the velocity of every note. Click the piano roll first so it has keyboard focus.',
+    intro: 'Our one-of-a-kind piano roll (top pane) combines a stave with a piano keyboard to edit the selected note clip. Time runs <b>down</b>, and pitch runs left to right across all 128 MIDI notes. The vertical stave lines connect to the <b>black keys</b> of the keyboard at the bottom. Each notehead reflects its key’s colour—black or white—so you can relate notes to the keyboard at a glance. The strip on the left shows note velocity. Click the piano roll to use its keyboard shortcuts.',
     steps: [
       {
         title: 'Write notes',
@@ -243,8 +267,8 @@ export const GUIDE = [
       {
         title: 'Select notes',
         items: [
-          `Click a note to select it, ${k('Shift')} + click toggles it. ${k('Shift')} + drag (starting off a note\'s circle) or ${k('right')} + drag draws a selection rectangle; while dragging, scroll the wheel or move past the top / bottom edge to extend it over the whole clip.`,
-          `${k(CMD, 'A')} selects all notes, ${k('Esc')} or a short right-click on empty space clears the selection. Selected notes are filled blue.`,
+          `Click a note to select it, ${k(CMD)} + click toggles it without moving or resizing it, just as for modules and clips. ${k('Shift')} + drag (starting off a note\'s circle) or ${k('right')} + drag draws a selection rectangle; while dragging, scroll the wheel or move past the top / bottom edge to extend it over the whole clip.`,
+          `${k(CMD, 'A')} selects all notes; ${k('Esc')} clears the selection. Selected notes are filled blue.`,
           'Dragging any selected note moves or resizes the whole selection.',
         ],
       },
@@ -268,7 +292,7 @@ export const GUIDE = [
       {
         title: 'Menu and clipboard',
         items: [
-          'Hold the right mouse button still for <b>250 ms</b> to open the menu (cut, copy, paste, delete, duplicate, quantize, octave, reset tuning, reset bend); releasing after it opened never deletes a note.',
+          'Right-click empty space to open the menu (cut, copy, paste, delete, duplicate, quantize, octave, reset tuning, reset bend). On an existing note, hold the right mouse button still to open it instead of deleting the note; releasing after the menu opened never deletes it. Left-click outside the menu to close it without editing notes; the next click works normally. Right-drag still draws a selection rectangle.',
           `${k(CMD)} + ${k('X')} / ${k('C')} / ${k('V')} cut, copy and paste notes at the pointer\'s snapped time (pitches and timing are kept); ${k(CMD, 'D')} duplicates the selection right after itself; ${k('Q')} quantizes note starts and ends to the Input Grid (the selection, else all), even with Free timing on. Notes keep at least one grid step of length.`,
         ],
       },
@@ -284,12 +308,12 @@ export const GUIDE = [
     keys: [
       ['click / drag', 'insert a note / set its duration'],
       [`${k('Shift')} + drag, ${k('right')} + drag`, 'selection rectangle'],
-      [`${k('Shift')} + click`, 'toggle a note in the selection'],
+      [`${k(CMD)} + click`, 'toggle a note in the selection'],
       [`${k('Shift')} + drag a circle sideways`, 'micropitch: tune the note in cents'],
       ['double-click a selected note\'s body', 'add a pitch bend point (drag it; wheel rounds it, right-click deletes it)'],
       [`${k('Alt')} + drag`, 'clone and move'],
       ['short right-click', 'delete the note (empty space: deselect)'],
-      ['hold right 250 ms', 'menu'],
+      ['right-click empty space / hold right on a note', 'menu'],
       [`${k('Left')} ${k('Right')} / ${k('Up')} ${k('Down')}`, 'transpose / move by a grid step (Shift: octave / bar)'],
       [`${k(CMD)} + ${k('X')} / ${k('C')} / ${k('V')}`, 'cut / copy / paste at the pointer'],
       [k(CMD, 'D'), 'duplicate the selection'],
@@ -362,7 +386,7 @@ export const GUIDE = [
   },
 ];
 
-// <section class="guide"> with one collapsible <details> per tutorial: folded until opened; what was
+// <section class="guide"> with one collapsible <details> per manual section: folded until opened; what was
 // opened stays open while the app runs (the panel is rebuilt on every selection change)
 const opened = new Set();
 export function renderGuide(doc = document) {

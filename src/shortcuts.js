@@ -137,6 +137,9 @@ export function initShortcuts({ preferences, root = document, win = window, clos
   const topDialog = () => [...root.querySelectorAll('dialog[open]')].at(-1);
   const defaultButtonKeys = new WeakMap();
   const buttonHints = new WeakMap();
+  const controlSelector = 'button, input[type="checkbox"][data-shortcut-control]';
+  const controlAt = (target) => target.closest?.(controlSelector)
+    ?? target.closest?.('label')?.querySelector('input[type="checkbox"][data-shortcut-control]');
   const visible = (el) => el.isConnected && !el.closest('[hidden]') && el.getClientRects().length > 0;
   const buttonAction = (button) => {
     if (button.closest('#shortcut-dialog, .ctx-menu') || button.dataset.shortcutIgnore !== undefined) return null;
@@ -162,7 +165,7 @@ export function initShortcuts({ preferences, root = document, win = window, clos
   };
   const unregister = shortcutRegistry.register('buttons', () => {
     const unique = new Map();
-    for (const button of root.querySelectorAll('button')) {
+    for (const button of root.querySelectorAll(controlSelector)) {
       const action = buttonAction(button);
       if (action && visible(button) && !unique.has(action.id)) unique.set(action.id, action);
     }
@@ -209,7 +212,7 @@ export function initShortcuts({ preferences, root = document, win = window, clos
   }
   const context = (e) => {
     if (e.type === 'pointerdown' && e.button !== 2) return;
-    const button = e.target.closest?.('button');
+    const button = controlAt(e.target);
     if (!button || button.closest('#shortcut-dialog')) return;
     let action;
     if (button.dataset.shortcutAction) action = shortcutRegistry.actions().find((a) => a.id === button.dataset.shortcutAction);
@@ -219,7 +222,7 @@ export function initShortcuts({ preferences, root = document, win = window, clos
     if (e.type === 'contextmenu') learn(action);
   };
   const hint = (e) => {
-    const button = e.target.closest?.('button');
+    const button = controlAt(e.target);
     if (!button) return;
     const action = buttonAction(button);
     const binding = action && shortcutRegistry.binding(action.id);

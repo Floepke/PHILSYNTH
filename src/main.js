@@ -1379,7 +1379,7 @@ function select(s) {
     return;
   }
   if (!s) {
-    panel.append(panelHeader('No selection', 'Guide'), renderGuide());
+    panel.append(panelHeader('No selection', 'Manual'), renderGuide());
     return;
   }
   if (s.kind === 'group') {
