@@ -812,6 +812,13 @@ compare('eq', {
   input: (b, i, ch) => (b < 60 ? signal(b, i, ch) : 0), blocks: 120,
   script: [[0, param('b3', 9)], [0, param('b8', -12)], [5, param('b12', 6)], [15, param('q', 0.7)], [20, param('level', -6)], [30, param('b8', 0)], [40, param('b0', 12)]],
 });
+// Both smooth shelves match during boost/cut automation, Q changes and a return to flat.
+compare('eq', {
+  input: signal, blocks: 180,
+  script: [[0, param('b0', 12)], [0, param('b15', -12)], [20, param('q', 8)],
+    [40, param('b0', -12)], [40, param('b15', 12)], [70, param('q', 0.5)],
+    [90, param('b0', 0)], [90, param('b15', 0)]],
+});
 { // input disconnected: rings out, then reports silence like the JS kernel
   let n = 0;
   compare('eq', { input: null, blocks: 3 });

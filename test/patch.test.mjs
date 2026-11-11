@@ -461,25 +461,30 @@ assert.equal((await c2.inst.patch.addModule('OSC')).id, 1, 'numbering is per pat
 
 // ---- EQ: 16 bands, Q, level ----
 {
-  const { BANDS, responseDb, peaking } = await import('../src/modules/eq.dsp.js');
+  const { BANDS, responseDb, peaking, bandCoefficients } = await import('../src/modules/eq.dsp.js');
   const r = await PatchRuntime.create(engine, dsp.destination);
   const eq = await r.addModule('EQ');
   assert.equal(BANDS.length, 16);
   assert.deepEqual(eq.def.params.map((p) => p.id), [...BANDS.map((_, i) => `b${i}`), 'q', 'level'], 'controllers 0..15 are the bands');
   assert.equal(eq.def.params[8].label, '800 Hz');
   assert.equal(eq.def.params[9].label, '1.25 kHz');
+  assert.equal(eq.def.params[0].label, 'Low shelf (30 Hz)');
+  assert.equal(eq.def.params[15].label, 'High shelf (16 kHz)');
   assert.equal(eq.def.params[0].format(3), '+3.0 dB');
   const k = kernel(eq.inst.node);
   // gain of a steady sine through the kernel (after the glide and the filter settle)
   const gainAt = (f) => {
     const out = [[new Float32Array(128), new Float32Array(128)]];
-    let pk = 0;
-    for (let b = 0; b < 200; b++) {
+    let energy = 0, samples = 0;
+    for (let b = 0; b < 450; b++) {
       const L = Float32Array.from({ length: 128 }, (_, i) => 0.25 * Math.sin((2 * Math.PI * f * (b * 128 + i)) / 48000));
       k.process([[L, L]], out);
-      if (b >= 150) pk = Math.max(pk, ...out[0][0].map(Math.abs), ...out[0][1].map(Math.abs));
+      if (b >= 150) for (const channel of out[0]) for (const value of channel) {
+        energy += value * value;
+        samples++;
+      }
     }
-    return 20 * Math.log10(pk / 0.25);
+    return 20 * Math.log10(Math.sqrt(energy / samples) / (0.25 / Math.sqrt(2)));
   };
   const near = (a, b, eps, msg) => assert.ok(Math.abs(a - b) < eps, `${msg}: ${a} vs ${b}`);
   near(gainAt(1000), 0, 0.01, 'flat EQ passes unchanged');
@@ -500,6 +505,43 @@ assert.equal((await c2.inst.patch.addModule('OSC')).id, 1, 'numbering is per pat
   const c = peaking(1000, 0, 2, 48000);
   near(c[0], 1, 1e-12, '0 dB is the identity'); near(c[1], c[3], 1e-12, '');
   assert.ok(peaking(20000, 6, 2, 44100).every(Number.isFinite), 'top band below Nyquist at 44.1 kHz');
+  for (const sr of [22050, 44100, 48000, 96000]) {
+    for (const band of [0, 15]) {
+      for (const gain of [-12, -6, 6, 12]) {
+        const gains = new Array(16).fill(0);
+        gains[band] = gain;
+        const transition = Math.min(BANDS[band], 0.45 * sr);
+        near(responseDb(gains, 2.1, 0, transition, sr), gain / 2, 1e-6, 'shelf midpoint is half gain in dB');
+        near(responseDb(gains, 2.1, 0, 0, sr), band === 0 ? gain : 0, 1e-6, 'shelf DC gain');
+        near(responseDb(gains, 2.1, 0, sr / 2, sr), band === 15 ? gain : 0, 1e-6, 'shelf Nyquist gain');
+        assert.deepEqual(bandCoefficients(band, gain, 0.5, sr), bandCoefficients(band, gain, 8, sr), 'shelf slope ignores bell Q');
+        let previous = band === 0 ? 1 : 0;
+        for (let i = 0; i <= 256; i++) {
+          const f = sr / 2 * (i / 256) ** 3;
+          const db = responseDb(gains, 8, 0, f, sr);
+          const fraction = db / gain;
+          assert.ok(Number.isFinite(db) && fraction >= -1e-6 && fraction <= 1 + 1e-6, 'smooth shelf has no overshoot');
+          assert.ok(band === 0 ? fraction <= previous + 1e-6 : fraction >= previous - 1e-6, 'shelf is monotonic');
+          previous = fraction;
+        }
+      }
+      const identity = bandCoefficients(band, 0, 2.1, sr);
+      near(identity[0], 1, 1e-12, 'flat shelf is identity');
+      near(identity[1], identity[3], 1e-12, '');
+      near(identity[2], identity[4], 1e-12, '');
+    }
+  }
+  r.setParam(eq.id, 'b4', 0);
+  r.setParam(eq.id, 'level', 0);
+  for (const [band, frequencies] of [[0, [10, 30, 200]], [15, [1000, 16000, 22000]]]) {
+    for (const gain of [-12, 12]) {
+      r.setParam(eq.id, `b${band}`, gain);
+      const gains = new Array(16).fill(0);
+      gains[band] = gain;
+      for (const f of frequencies) near(gainAt(f), responseDb(gains, 2.1, 0, f), 0.1, 'shelf audio agrees with response graph');
+    }
+    r.setParam(eq.id, `b${band}`, 0);
+  }
   // cable OSC -> EQ -> Output plays
   const osc = await r.addModule('OSC');
   assert.ok(r.connect(osc.id, eq.id) && r.connect(eq.id, 0));

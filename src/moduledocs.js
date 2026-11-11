@@ -261,14 +261,14 @@ export const DOCS = {
   },
 
   EQ: {
-    summary: '16-band graphic equalizer: boosts or cuts fixed frequency bands, 2/3 octave apart from 20 Hz to 20 kHz.',
+    summary: '16-band equalizer: a smooth 30 Hz low shelf, 14 bell bands from 32 Hz to 12.5 kHz, and a smooth 16 kHz high shelf.',
     params: Object.fromEntries([
-      ...['20 Hz', '32 Hz', '50 Hz', '80 Hz', '125 Hz', '200 Hz', '315 Hz', '500 Hz', '800 Hz', '1.25 kHz', '2 kHz', '3.15 kHz', '5 kHz', '8 kHz', '12.5 kHz', '20 kHz']
-        .map((f, i) => [`b${i}`, `Boost or cut around ${f}, ±12 dB.`]),
-      ['q', 'Bandwidth of all bands: low Q = wide, gentle bands; high Q = narrow, precise bands.'],
+      ...['30 Hz', '32 Hz', '50 Hz', '80 Hz', '125 Hz', '200 Hz', '315 Hz', '500 Hz', '800 Hz', '1.25 kHz', '2 kHz', '3.15 kHz', '5 kHz', '8 kHz', '12.5 kHz', '16 kHz']
+        .map((f, i) => [`b${i}`, i === 0 ? `Low shelf: boosts or cuts the bass below a ${f} transition, ±12 dB, with a smooth fixed slope.` : i === 15 ? `High shelf: boosts or cuts the treble above a ${f} transition, ±12 dB, with a smooth fixed slope.` : `Boost or cut around ${f}, ±12 dB.`]),
+      ['q', 'Bandwidth of the 14 bell bands: low Q = wide, gentle bands; high Q = narrow, precise bands. The shelves keep smooth fixed slopes without resonant overshoot.'],
       ['level', 'Output level after the equalizer, −24…+12 dB.'],
     ]),
-    notes: ['The graph below the controllers shows the frequency response: drag a band up or down (or sweep across several), double-click a band to reset it to 0 dB.'],
+    notes: ['The graph above the controllers shows the frequency response with evenly spaced gain handles: drag a band up or down (or sweep across several), double-click a band to reset it to 0 dB. Shelf transition frequencies are at half the selected gain in dB; the full boost or cut is reached towards the low or high end.', 'Earlier versions used bells at 20 Hz and 20 kHz. Existing patches with non-zero end-band gains now use shelves and sound different.'],
   },
 
   WAVESHAPER: {

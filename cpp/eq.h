@@ -9,7 +9,7 @@ struct Eq : Kernel {
   enum { Q = N, LEVEL, PARAMS };  // 0..15: band gains (dB)
   static constexpr double GLIDE_S = 0.02;
   static constexpr double SILENT = 1e-6;
-  static constexpr double BANDS[N] = {20, 32, 50, 80, 125, 200, 315, 500, 800, 1250, 2000, 3150, 5000, 8000, 12500, 20000};
+  static constexpr double BANDS[N] = {30, 32, 50, 80, 125, 200, 315, 500, 800, 1250, 2000, 3150, 5000, 8000, 12500, 16000};
 
   double t[N] = {}, g[N] = {}, c[N * 5] = {}, z[N * 4] = {};
   double q = 2.1, level = 0, lv = 0;
@@ -41,6 +41,20 @@ struct Eq : Kernel {
     out[4] = (1 - al / A) / a0;
   }
 
+  void shelving(double f, double db, bool high, double* out) const {
+    const double A = pow(10, db / 40);
+    const double w = 2 * PI * mind(f, 0.45 * sr) / sr;
+    const double cs = cos(w);
+    const double beta = sqrt(2 * A) * sin(w);
+    const double sign = high ? 1 : -1;
+    const double a0 = A + 1 - sign * (A - 1) * cs + beta;
+    out[0] = A * (A + 1 + sign * (A - 1) * cs + beta) / a0;
+    out[1] = -2 * sign * A * (A - 1 + sign * (A + 1) * cs) / a0;
+    out[2] = A * (A + 1 + sign * (A - 1) * cs - beta) / a0;
+    out[3] = 2 * sign * (A - 1 - sign * (A + 1) * cs) / a0;
+    out[4] = (A + 1 - sign * (A - 1) * cs - beta) / a0;
+  }
+
   void glide(int n) {
     const double k = 1 - exp(-n / (GLIDE_S * sr));
     for (int i = 0; i < N; i++) {
@@ -52,7 +66,10 @@ struct Eq : Kernel {
         if (fabs(ti - gi) < 0.01) gi = ti;
         g[i] = gi;
       }
-      if (moved || dirty) peaking(BANDS[i], gi, c + i * 5);
+      if (moved || dirty) {
+        if (i == 0 || i == N - 1) shelving(BANDS[i], gi, i != 0, c + i * 5);
+        else peaking(BANDS[i], gi, c + i * 5);
+      }
       if (gi == 0) for (int j = 0; j < 4; j++) z[i * 4 + j] = 0;
     }
     dirty = false;

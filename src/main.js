@@ -1473,7 +1473,10 @@ function select(s) {
       },
     }),
   }) ?? null;
-  if (view) panel.append(view.el);
+  if (view) {
+    if (entry.def.viewAboveControllers) panel.insertBefore(view.el, header.nextSibling);
+    else panel.append(view.el);
+  }
   // structured reference: summary, every controller, usage notes (src/moduledocs.js)
   const docs = moduleDocs(entry.def, paramsOf(entry));
   if (docs) panel.append(docs);

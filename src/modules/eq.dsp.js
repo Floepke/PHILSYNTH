@@ -1,12 +1,12 @@
-// EQ kernel: 16-band graphic equalizer. Each band is an RBJ peaking biquad (transposed direct
-// form II) at a fixed frequency, all with the same Q; bands at 0 dB are skipped. Gains glide per
+// EQ kernel: smooth low/high shelves around 14 RBJ peaking bands (transposed direct form II).
+// The bells share Q; shelves have fixed slope S = 1. Bands at 0 dB are skipped. Gains glide per
 // render quantum (no zipper noise); the output Level glides linearly inside the quantum.
 // After the input stops the filters ring out, then the kernel reports silence.
 // C++ twin: cpp/eq.h (same operations, same samples).
 import { Kernel } from '../dsp/kernel.js';
 
-// nominal centre frequencies, 2/3 octave apart
-export const BANDS = [20, 32, 50, 80, 125, 200, 315, 500, 800, 1250, 2000, 3150, 5000, 8000, 12500, 20000];
+// Shelf transition frequencies at the ends; bell centres approximately 2/3 octave apart.
+export const BANDS = [30, 32, 50, 80, 125, 200, 315, 500, 800, 1250, 2000, 3150, 5000, 8000, 12500, 16000];
 export const MAX_DB = 12;
 const GLIDE_S = 0.02; // gain glide time constant
 const SILENT = 1e-6; // ring-out ends below this
@@ -22,6 +22,29 @@ export function peaking(f, db, q, sr) {
   return [(1 + al * A) / a0, (-2 * cs) / a0, (1 - al * A) / a0, (-2 * cs) / a0, (1 - al / A) / a0];
 }
 
+// RBJ shelves with S = 1: monotonic transitions independent of the bell bandwidth.
+export function shelving(f, db, high, sr) {
+  const A = Math.pow(10, db / 40);
+  const w = (2 * Math.PI * Math.min(f, 0.45 * sr)) / sr;
+  const cs = Math.cos(w);
+  const beta = Math.sqrt(2 * A) * Math.sin(w);
+  const sign = high ? 1 : -1;
+  const a0 = A + 1 - sign * (A - 1) * cs + beta;
+  return [
+    A * (A + 1 + sign * (A - 1) * cs + beta) / a0,
+    -2 * sign * A * (A - 1 + sign * (A + 1) * cs) / a0,
+    A * (A + 1 + sign * (A - 1) * cs - beta) / a0,
+    2 * sign * (A - 1 - sign * (A + 1) * cs) / a0,
+    (A + 1 - sign * (A - 1) * cs - beta) / a0,
+  ];
+}
+
+export function bandCoefficients(i, db, q, sr) {
+  return i === 0 || i === BANDS.length - 1
+    ? shelving(BANDS[i], db, i !== 0, sr)
+    : peaking(BANDS[i], db, q, sr);
+}
+
 // Magnitude in dB of the whole EQ at frequency f (for the panel display).
 export function responseDb(gains, q, level, f, sr = 48000) {
   const w = (2 * Math.PI * f) / sr;
@@ -29,7 +52,7 @@ export function responseDb(gains, q, level, f, sr = 48000) {
   let db = level;
   for (let i = 0; i < BANDS.length; i++) {
     if (!gains[i]) continue;
-    const [b0, b1, b2, a1, a2] = peaking(BANDS[i], gains[i], q, sr);
+    const [b0, b1, b2, a1, a2] = bandCoefficients(i, gains[i], q, sr);
     const nr = b0 + b1 * c1 + b2 * c2, ni = -(b1 * s1 + b2 * s2);
     const dr = 1 + a1 * c1 + a2 * c2, di = -(a1 * s1 + a2 * s2);
     db += 10 * Math.log10((nr * nr + ni * ni) / (dr * dr + di * di));
@@ -75,7 +98,7 @@ export default class EqKernel extends Kernel {
         this.g[i] = g;
       }
       if (moved || this.dirty) {
-        const cf = peaking(BANDS[i], g, this.q, sampleRate);
+        const cf = bandCoefficients(i, g, this.q, sampleRate);
         for (let j = 0; j < 5; j++) this.c[i * 5 + j] = cf[j];
       }
       if (g === 0) this.z.fill(0, i * 4, i * 4 + 4); // skipped: start clean when it comes back
