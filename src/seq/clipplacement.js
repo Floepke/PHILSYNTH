@@ -1,5 +1,5 @@
 // Clip placement on the TimeLine: clips sit on lanes (y = lane * CLIP_H) and never overlap.
-// Times may be negative (clips parked before time zero). Ideas (y < 0, above the lanes, see
+// New placements start at time zero or later. Ideas (y < 0, above the lanes, see
 // song.js) are placed freely: they neither move out of overlaps nor block lane clips.
 import { clean, LANE_H, laneY } from '../song.js';
 
@@ -13,7 +13,7 @@ export const clipsOverlap = (a, b) => sameRow(a, b)
 // The nearest free position lies on the requested lane or a lane next to another clip.
 // At each such y, merge forbidden start-time intervals to find the closest free time.
 export function findClipPosition(clips, clip, { start = clip.start, y = clip.y } = {}, ppq = 16) {
-  const wanted = { start, y: laneY(y), length: clip.length };
+  const wanted = { start: Math.max(0, start), y: laneY(y), length: clip.length };
   const others = clips.filter((c) => c !== clip && c.y >= 0).sort((a, b) => a.start - b.start);
   if (!others.some((c) => clipsOverlap(wanted, c))) return { start: wanted.start, y: wanted.y };
 
@@ -40,7 +40,7 @@ export function findClipPosition(clips, clip, { start = clip.start, y = clip.y }
     const interval = blocked.find(([left, right]) => start > left + EPS && start < right - EPS);
     if (interval) {
       const [left, right] = interval;
-      start = start - left < right - start ? left : right;
+      start = left >= 0 && start - left < right - start ? left : right;
     }
     const d = ((start - wanted.start) * ppq) ** 2 + dy2;
     if (d < distance - EPS || (Math.abs(d - distance) <= EPS && y === wanted.y)) {
@@ -53,7 +53,7 @@ export function findClipPosition(clips, clip, { start = clip.start, y = clip.y }
 
 // Resizing keeps the other edge and vertical position fixed.
 export function clipResizeBounds(clips, clip) {
-  let start = -Infinity;
+  let start = 0;
   let end = Infinity;
   if (clip.y < 0) return { start, end };
   for (const c of clips) {

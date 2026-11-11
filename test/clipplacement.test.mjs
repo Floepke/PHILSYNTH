@@ -25,11 +25,17 @@ const free = (moving, others) => others.every((c) => !clipsOverlap(moving, c));
   const later = clip(5, 4);
   assert.deepEqual(findClipPosition([later, copy], copy, { start: 1.25 }, 16), { start: 1, y: 0 });
   assert.deepEqual(findClipPosition([later, copy], copy, { start: 1, y: 34 }, 16), { start: 1, y: 34 });
-  assert.deepEqual(findClipPosition([copy], copy, { start: -2, y: -10 }, 16), { start: -2, y: 0 }, 'clips may start before zero; lanes start at 0');
+  assert.deepEqual(findClipPosition([copy], copy, { start: -2, y: -10 }, 16), { start: 0, y: 0 }, 'clip placement and lanes start at zero');
   assert.deepEqual(findClipPosition([copy], copy, { start: 1, y: 50 }, 16), { start: 1, y: 34 }, 'y snaps to the nearest lane');
   assert.deepEqual(findClipPosition([copy], copy, { start: 1, y: 52 }, 16), { start: 1, y: 68 });
-  // a blocker at 0 pushes the clip left into negative time when that is closer
-  assert.deepEqual(findClipPosition([clip(0, 4), copy], copy, { start: -1 }, 4), { start: -4, y: 0 });
+  // A blocker at zero pushes the clip right rather than into negative time.
+  assert.deepEqual(findClipPosition([clip(0, 4), copy], copy, { start: -1 }, 4), { start: 4, y: 0 });
+  const legacy = clip(-2, 4);
+  const saved = structuredClone(legacy);
+  const position = findClipPosition([legacy], copy, { start: -1 }, 4);
+  assert.ok(position.start >= 0);
+  assert.ok(free({ ...copy, ...position }, [legacy]), 'legacy clips crossing zero still block overlaps');
+  assert.deepEqual(legacy, saved, 'placement does not rewrite legacy negative-time data');
 }
 
 // Find a diagonal gap between blockers instead of resolving against only the first collision.
@@ -68,7 +74,8 @@ const free = (moving, others) => others.every((c) => !clipsOverlap(moving, c));
   const moving = clip(4, 4, 34);
   const others = [moving, clip(1, 2, 0), clip(2, 2, 34), clip(10, 1, 34), clip(8, 2, 68)];
   assert.deepEqual(clipResizeBounds(others, moving), { start: 4, end: 10 });
-  assert.deepEqual(clipResizeBounds([moving], moving), { start: -Infinity, end: Infinity }, 'trimming may reach before zero');
+  assert.deepEqual(clipResizeBounds([moving], moving), { start: 0, end: Infinity }, 'trimming stops at zero');
+  assert.deepEqual(clipResizeBounds([], clip(2, 4, -CLIP_H)), { start: 0, end: Infinity }, 'idea trimming also stops at zero');
 }
 
 // Compare against an exhaustive independent search on integer geometry. Every optimum
@@ -85,10 +92,10 @@ const free = (moving, others) => others.every((c) => !clipsOverlap(moving, c));
     const ppq = 1 + random(20);
     const before = structuredClone(others);
     const result = findClipPosition([...others, moving], moving, {}, ppq);
-    assert.ok(result.y >= 0 && result.y % CLIP_H === 0, 'on a lane');
+    assert.ok(result.start >= 0 && result.y >= 0 && result.y % CLIP_H === 0, 'nonnegative time on a lane');
     assert.ok(free({ ...moving, ...result }, others));
     let nearest = Infinity;
-    for (let start = -20; start <= 20; start++) {
+    for (let start = 0; start <= 20; start++) {
       for (let y = 0; y <= 6 * CLIP_H; y += CLIP_H) {
         if (others.some((c) => start < c.start + c.length && start + moving.length > c.start
           && y < c.y + CLIP_H && y + CLIP_H > c.y)) continue;

@@ -1,7 +1,6 @@
 // TimeLine arranger: time runs left -> right (quarter notes), clips sit on numbered lanes (one clip
-// high, the numbers are in the column under "TimeLine:"). Time zero is the bright vertical line;
-// scroll left to park clips before it (they are not played by the song, / still auditions them,
-// together with the clips around them).
+// high, the numbers are in the column under "TimeLine:"). Horizontal scrolling starts at time zero;
+// unused clips can be parked in idea storage above the lanes.
 //   double-click empty space   insert a clip (one bar)
 //   double right-click empty   insert an automation clip (one bar, drives one controller; the second
 //                              press closes the menu the first one opened)
@@ -143,6 +142,7 @@ export function createArranger(host, ctx) {
 
   // ideas (y < 0) go exactly where asked, clips on lanes to the nearest free position
   function place(clip, position) {
+    position = { ...position, start: Math.max(0, position?.start ?? clip.start) };
     const y = position?.y ?? clip.y;
     if (y < 0) Object.assign(clip, position, { y: ideaY(y) });
     else Object.assign(clip, findClipPosition(ctx.song().clips, clip, position, view.ppq));
@@ -152,6 +152,8 @@ export function createArranger(host, ctx) {
   // placed in time order against the other clips and the members placed so far, so a group moved
   // into free space keeps its formation.
   function placeAll(members, targets) {
+    const shift = Math.max(0, -Math.min(...targets.map((t) => t.start)));
+    if (shift) targets = targets.map((t) => ({ ...t, start: clean(t.start + shift) }));
     if (members.length === 1) { place(members[0], targets[0]); return; }
     const moving = new Set(members);
     const placed = new Set();
@@ -207,7 +209,7 @@ export function createArranger(host, ctx) {
     const c = getClip(ctx.song(), id);
     if (!c) return;
     const x = xOf(c.start);
-    if (x < x0 || x > right() - 20) view.sx = c.start >= 0 ? Math.max(0, c.start * view.ppq - 20) : c.start * view.ppq - 20;
+    if (x < x0 || x > right() - 20) view.sx = Math.max(0, c.start * view.ppq - 20);
     const y = yOf(c.y);
     if (y < RULER || y + CLIP_H > bottom()) view.sy = c.y < 0 ? c.y - CLIP_H : Math.max(0, c.y - CLIP_H);
     if (s.h > 0) limitScroll();
@@ -226,11 +228,10 @@ export function createArranger(host, ctx) {
     const song = ctx.song();
     const vw = Math.max(1, right() - x0);
     const vh = Math.max(1, bottom() - RULER);
-    const first = Math.min(0, ...song.clips.map((c) => c.start)) * view.ppq;
     const last = Math.max(loopEnd(song), MIN_LANES * BAR, song.sigs.at(-1).at, song.restart ?? 0, ...song.clips.map((c) => c.start + c.length)) * view.ppq;
     const low = Math.max(MIN_LANES * CLIP_H, ...song.clips.map((c) => c.y + CLIP_H));
     return {
-      x: [Math.min(first - vw, view.sx), Math.max(last, view.sx)],
+      x: [0, Math.max(last, view.sx)],
       y: [minScrollY(), Math.max(low, view.sy)],
       vw, vh,
     };
@@ -239,7 +240,7 @@ export function createArranger(host, ctx) {
   // The label's bottom is six pixels above lane zero; keep it above the bottom scrollbar.
   const minScrollY = (height = s.h) => Math.min(0, RULER - (height - SB + 6));
   function limitScroll(height = s.h) {
-    view.sx = Number.isFinite(view.sx) ? clamp(view.sx, -FAR, FAR) : 0;
+    view.sx = Number.isFinite(view.sx) ? clamp(view.sx, 0, FAR) : 0;
     view.sy = Number.isFinite(view.sy) ? clamp(view.sy, minScrollY(height), FAR) : 0;
   }
 
@@ -655,13 +656,6 @@ export function createArranger(host, ctx) {
         g.beginPath(); g.moveTo(x, RULER); g.lineTo(x, h - SB); g.stroke();
         g.setLineDash([]);
       }
-    }
-    // time zero (directly after the colon unless scrolled)
-    if (zx >= x0 - 0.5 && zx <= w) {
-      const x = Math.max(x0, zx) + 0.75;
-      g.strokeStyle = '#e8e8ea';
-      g.lineWidth = 3;
-      g.beginPath(); g.moveTo(x, 2); g.lineTo(x, h); g.stroke();
     }
     paintScrollbars(g, w, h);
   }
@@ -1141,8 +1135,8 @@ export function createArranger(host, ctx) {
   // where pasted / inserted clips go: the snapped time and lane at local point p; in idea storage
   // exactly there (the clip's middle at the pointer)
   const dropAt = (p) => (worldY(p.y) < 0
-    ? { start: clean(timeAt(p.x)), y: ideaY(worldY(p.y) - CLIP_H / 2) }
-    : { start: snapFloor(timeAt(p.x), step()), y: laneAt(p.y) });
+    ? { start: Math.max(0, clean(timeAt(p.x))), y: ideaY(worldY(p.y) - CLIP_H / 2) }
+    : { start: Math.max(0, snapFloor(timeAt(p.x), step())), y: laneAt(p.y) });
   const inTimeArea = (p) => !!p && p.x >= x0 && p.x <= right() && p.y >= RULER && p.y <= bottom();
   // clips keep their formation from the drop point; dropped in idea storage they all stay there
   function dropTargets(at, clips) {
@@ -1408,6 +1402,7 @@ export function createArranger(host, ctx) {
       if (!v) return;
       for (const k of ['sx', 'sy', 'ppq']) if (Number.isFinite(v[k])) view[k] = v[k];
       view.ppq = clamp(view.ppq, 2, 200);
+      view.sx = clamp(view.sx, 0, FAR);
       if (host.clientHeight > 0) limitScroll(host.clientHeight);
       if (host.clientWidth > 0 && host.clientHeight > 0) {
         viewportWidth = host.clientWidth;

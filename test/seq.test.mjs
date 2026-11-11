@@ -283,7 +283,7 @@ const ay = (y) => 2 * CLIP_H + y + CLIP_H / 2;
   point(cv, 'pointerdown', x, y, { buttons: 1 });
   point(cv, 'pointermove', x + 32, y - 48, { buttons: 1 });
   assert.ok(Math.abs(arranger.getView().ppq - before.ppq * 1.15) < 1e-9);
-  assert.ok(Math.abs(arranger.getView().sx - (10 * arranger.getView().ppq - (x - 70) - 32)) < 1e-9);
+  assert.ok(Math.abs(arranger.getView().sx - Math.max(0, 10 * arranger.getView().ppq - (x - 70) - 32)) < 1e-9);
   point(cv, 'pointerup', x + 32, y - 48);
   assert.equal(changes, 1, 'combined ruler zoom and pan are saved on release');
   assert.equal(ctx.transport.pos, 2.5, 'ruler navigation leaves the playhead unchanged');
@@ -380,7 +380,7 @@ const assertNoOverlap = (song) => {
     for (const c of [clip, auto]) {
       const label = texts.find(t => t.text === `${c.name}  ${ctx.targetLabel(c)}`);
       assert.ok(label, 'both MIDI and automation names are drawn');
-      const x = ax(c.start) - sx;
+      const x = ax(c.start) - Math.max(0, sx);
       const iconEnd = x + 8 + 56 * (CLIP_H - 4) / 24;
       assert.equal(label.x, Math.max(iconEnd, 74), 'label is as far left as possible without overlapping the icon');
       assert.equal(label.align, 'left');
@@ -1973,7 +1973,7 @@ for (const snap of [{ base: 1, div: 1 }, { base: 16, div: 3 }]) {
   assert.ok(later > 0, 'clicking the track toward the end scrolls toward later time');
   assert.equal(arranger.getView().sy, 0, 'the time scrollbar leaves the lanes alone');
   drag(cv, 440, hy, 80, hy);
-  assert.ok(arranger.getView().sx < 0, 'dragging the thumb back scrolls before time zero');
+  assert.equal(arranger.getView().sx, 0, 'dragging the thumb back stops at time zero');
   const vx = 480 - 16; // right scrollbar
   click(cv, vx, 360);
   assert.ok(arranger.getView().sy > 0, 'the lane scrollbar scrolls down even without clips down there');
@@ -2012,7 +2012,7 @@ for (const snap of [{ base: 1, div: 1 }, { base: 16, div: 3 }]) {
   addClip(song, { start: 8, length: 4, y: 2 * 34 });
   for (const [sx, sy] of [[5000, 3000], [-4000, -200], [64 * 300, 34 * 200]]) {
     arranger.setView({ sx, sy }); flush();
-    assert.deepEqual([arranger.getView().sx, arranger.getView().sy], [sx, sy], `view remains at ${sx}, ${sy}`);
+    assert.deepEqual([arranger.getView().sx, arranger.getView().sy], [Math.max(0, sx), sy], `view respects time zero at ${sx}, ${sy}`);
   }
   // the scrollbars still work out there: the thumb sits at the far end, pressing the track
   // at the start brings the camera back toward the content
@@ -2677,7 +2677,7 @@ for (const snap of [{ base: 1, div: 1 }, { base: 16, div: 3 }]) {
   let viewChanges = 0;
   ctx.viewChanged = () => viewChanges++;
   drag(cv, ax(0.5), ay(60), ax(7), ay(0), { shiftKey: true });
-  assert.deepEqual([arranger.getView().sx, arranger.getView().sy], [view.sx - (ax(7) - ax(0.5)), view.sy + 60], 'Shift + drag pans');
+  assert.deepEqual([arranger.getView().sx, arranger.getView().sy], [Math.max(0, view.sx - (ax(7) - ax(0.5))), view.sy + 60], 'Shift + drag pans without going before zero');
   assert.equal(song.selected, clip.id, 'and keeps the selection');
   assert.ok(viewChanges > 0, 'panning saves the view');
   assert.equal(changes(), 0, 'panning does not edit the song');
@@ -2809,25 +2809,28 @@ for (const cancelled of [false, true]) {
   assert.notEqual(song.clips.at(-1).notes, clip.notes);
 }
 
-// Clips can be dragged before time zero and the view scrolls there; lanes are numbered in the gutter.
+// Clips and the viewport stop at time zero; lanes remain numbered in the gutter.
 {
   const { song, clip, arranger } = setup();
   const cv = arranger.surface.cv;
   clip.length = 4;
   drag(cv, ax(1), ay(0), ax(-3), ay(0)); // the pointer may leave the time area to the left
-  assert.equal(clip.start, -4);
+  assert.equal(clip.start, 0, 'dragging beyond the left edge stops at zero');
   arranger.setView({ sx: -12 * 16, sy: 0, ppq: 16 });
   flush();
-  assert.equal(arranger.getView().sx, -12 * 16, 'scrolling before zero is allowed');
+  assert.equal(arranger.getView().sx, 0, 'negative saved scrolling is clamped');
   arranger.setView({ sx: -100 * 16, sy: 0, ppq: 16 });
   flush();
-  assert.equal(arranger.getView().sx, -100 * 16, 'and on, far before the earliest clip (free camera)');
+  assert.equal(arranger.getView().sx, 0, 'far negative scrolling is also clamped');
   arranger.setView({ sx: -12 * 16, sy: 0, ppq: 16 });
+  cv.drawing.length = 0;
+  arranger.redraw();
   flush();
   const texts = cv.drawing.filter(([op]) => op === 'fillText').map(([, t]) => t);
   assert.ok(texts.includes('1') && texts.includes('2') && texts.includes('3'), 'lane numbers');
-  assert.ok(texts.includes('Idea Storage'));
-  assert.ok(texts.includes('-2') && texts.includes('0'), 'bars before zero are numbered 0, -1, -2, ...');
+  assert.ok(!texts.includes('Idea Storage'), 'no negative-time parking area');
+  assert.ok(!texts.includes('-2') && !texts.includes('0'), 'no bar numbers before the first measure');
+  assert.ok(!cv.drawing.some(([op, color, width]) => op === 'stroke' && color === '#e8e8ea' && width === 3), 'no thick white time-zero line');
   // double-click inserts on the lane under the pointer
   arranger.setView({ sx: 0, sy: 0, ppq: 16 });
   flush();
