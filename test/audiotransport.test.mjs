@@ -50,6 +50,44 @@ async function harness(options = {}) {
   return { root, dsp, graph, ctx, playback, song, events, update, start, run };
 }
 
+// Metronome commands reach the worklet without cancelling a pending asynchronous playback start.
+{
+  const h = await harness();
+  addClip(h.song, { length: 16 });
+  await h.update();
+  let ready;
+  const transport = new AudioTransport({
+    getScope: () => [], getSong: () => h.song, getBpm: () => 120, getTarget: () => null,
+    now: () => h.ctx.currentTime * 1000,
+  }, {
+    dsp: { post: ([, , data]) => h.playback.command(data) },
+    sync: () => new Promise(resolve => { ready = resolve; }),
+    onError: (error) => { throw error; }, audioTime: () => h.ctx.currentTime,
+  });
+  transport.play();
+  transport.setMetronome(true);
+  ready();
+  await Promise.resolve();
+  assert.equal(h.playback.transport.playing, true, 'toggle does not cancel pending start');
+  h.run(DT * 2);
+  assert.equal(h.playback.blip.hz, 440, 'first bar uses the count-in accent');
+  const left = new Float32Array(128), right = new Float32Array(128);
+  h.playback.renderCountIn(left, right, RATE);
+  assert.ok(left.some(v => v !== 0), 'metronome produces audible samples');
+  assert.deepEqual(left, right, 'click is centered in stereo');
+  h.run(0.5);
+  assert.equal(h.playback.blip.hz, 220, 'other beats use the count-in low pitch');
+  transport.setMetronome(false);
+  assert.equal(h.playback.blip, null, 'turning off immediately silences the click');
+  h.run(0.5);
+  assert.equal(h.playback.blip, null, 'no clicks while disabled');
+  transport.setMetronome(true);
+  transport.stop();
+  assert.equal(h.playback.blip, null, 'stop clears click audio');
+  assert.equal(transport.metronome, true, 'stop preserves toggle for next play');
+  h.root.destroy();
+}
+
 // Recording's continuous mode reaches the worklet even when its song snapshot still has
 // the old clip length; stopping finalizes the held note before parking the playhead.
 {

@@ -31,6 +31,56 @@ function setup() {
   return { song, selected, other, transport, events, tick, run, starts: () => starts, stops: () => stops };
 }
 
+// Metronome uses the musical meter, not grid-line visibility, and follows playback loops.
+{
+  const { song, transport, run } = setup();
+  song.clips.forEach(c => { c.start = 0; c.length = 5.5; });
+  song.sigs = [{ at: 0, num: 3, den: 8, gridBeats: [false, false, false] }, { at: 1.5, num: 2, den: 4 }];
+  const beats = [];
+  transport.onBeat = (bar, t) => beats.push([bar, t]);
+  transport.play({ fromStart: true });
+  run(100);
+  assert.deepEqual(beats, [], 'metronome is off by default');
+  transport.stop();
+  transport.setMetronome(true);
+  transport.play({ fromStart: true });
+  run(2510);
+  assert.deepEqual(beats, [[true, 0], [false, 0.5], [false, 1], [true, 1.5], [false, 2.5], [true, 3.5], [false, 4.5]],
+    'meter changes set beat spacing and bar accents, even with hidden grid beats');
+  transport.setMetronome(false);
+  const count = beats.length;
+  run(1000);
+  assert.equal(beats.length, count, 'disabling during playback stops clicks');
+  transport.stop();
+  assert.equal(transport.metronome, false);
+  transport.setMetronome(true);
+  const clip = song.clips[0];
+  clip.start = 1.5; clip.length = 2;
+  beats.length = 0;
+  transport.playClip(clip.id);
+  run(2010);
+  assert.deepEqual(beats, [[true, 1.5], [false, 2.5], [true, 1.5], [false, 2.5], [true, 1.5]],
+    'clip loops restart the beat grid without duplicate boundary clicks');
+  transport.stop();
+  assert.equal(transport.metronome, true, 'stopping retains the toggle');
+  beats.length = 0;
+  const countIn = [];
+  transport.onCountBeat = beat => countIn.push(beat);
+  transport.start(0, { countIn: { beats: 3, beat: 0.5 } });
+  run(760);
+  assert.deepEqual(countIn, [0, 1, 2]);
+  assert.deepEqual(beats, [[true, 0]], 'count-in does not also trigger metronome beats');
+  beats.length = 0;
+  transport.seek(2.25);
+  run(140);
+  assert.deepEqual(beats, [[false, 2.5]], 'seek resumes at the next actual beat, not immediately');
+  beats.length = 0;
+  transport.bpm = () => 60;
+  run(1000);
+  assert.deepEqual(beats, [[true, 3.5]], 'tempo changes keep clicks on the musical clock');
+  transport.stop();
+}
+
 // Slash playback starts at the clip's absolute start, loops its range and plays the other clips
 // sounding in that range along with it.
 {

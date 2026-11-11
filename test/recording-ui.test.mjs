@@ -73,6 +73,19 @@ app.whenReady().then(async () => {
       const receive = transport.receive.bind(transport);
       transport.receive = state => { window.playbackReports.push(state); receive(state); };
     })()`);
+    assert.deepEqual(await run(`(() => {
+      const button = document.getElementById('seq-metronome');
+      const record = document.getElementById('seq-record').getBoundingClientRect();
+      const box = button.getBoundingClientRect();
+      button.click();
+      return {
+        enabled: window.recordingTest.transport.metronome,
+        pressed: button.getAttribute('aria-pressed'),
+        active: button.classList.contains('playing'),
+        adjacent: Math.abs(box.top - record.top) < 1 && box.left >= record.right,
+        playing: window.recordingTest.transport.playing,
+      };
+    })()`), { enabled: true, pressed: 'true', active: true, adjacent: true, playing: false });
     await run(`document.getElementById('seq-record').click()`);
     assert.equal(await run("document.getElementById('seq-record').getAttribute('aria-pressed')"), 'true');
     await new Promise((resolve) => setTimeout(resolve, 30));
@@ -99,6 +112,10 @@ app.whenReady().then(async () => {
     assert.deepEqual(notes.map(({ pitch, vel }) => [pitch, vel]), [[60, 64 / 127], [64, 1]]);
     assert.ok(notes.every((n) => n.start >= 1 && n.start < 4 && n.length > 0 && n.length < 1));
     assert.equal(await run('window.recordingTest.seq.recordArmed()'), false, 'Stop releases recording');
+    assert.equal(await run('window.recordingTest.transport.metronome'), true, 'Stop retains metronome toggle');
+    await run("document.getElementById('seq-metronome').click()");
+    assert.equal(await run('window.recordingTest.transport.metronome'), false);
+    assert.equal(await run("document.getElementById('seq-metronome').getAttribute('aria-pressed')"), 'false');
     assert.equal(await run("document.getElementById('seq-record').getAttribute('aria-pressed')"), 'false');
     assert.equal(await run('window.recordingTest.engine.saveProject().song.clips[0].notes.length'), 2, 'recorded notes are in the saved project');
     const countIn = await run('window.playbackReports.filter(state => state.elapsed < 0)');
@@ -147,12 +164,15 @@ app.whenReady().then(async () => {
     })()`);
     await waitFor('window.recordingTest.transport.elapsed > 0.01', 'single-pass count-in completed');
     await run('window.testMidi(0x90, 76, 80)');
-    await waitFor('!window.recordingTest.transport.playing', 'recording stopped at clip end');
+    await waitFor('window.recordingTest.transport.elapsed > 0.8', 'recording continued past the original clip end');
+    assert.equal(await run('window.recordingTest.transport.playing'), true);
+    await run(`document.getElementById('seq-stop').click()`);
     assert.equal(await run('window.recordingTest.seq.recordArmed()'), false);
     const finalNote = await run('window.recordingClip().notes.at(-1)');
     assert.equal(finalNote.pitch, 76);
     assert.ok(finalNote.length > 0);
-    assert.ok(Math.abs(finalNote.start + finalNote.length - 1) < 1e-6, 'held note is truncated exactly at the clip end');
+    assert.ok(finalNote.start + finalNote.length > 1, 'held note continues past the original clip end');
+    assert.ok(await run('window.recordingClip().length > 1'), 'recording extends the clip to contain the held note');
     await run('window.recordingTest.engine.ctx.close()');
     console.log('MIDI recording UI tests passed (real AudioWorklet, mock MIDI controller)');
   } finally {

@@ -21,7 +21,10 @@ app.whenReady().then(async () => {
       <div class="splitter horizontal"></div>
       <div id="seq-bar"><select><option>A</option></select><input value="1"></div>
       <div id="seq-transport"><button class="seq-play playing">Play</button></div>
-      <dialog open><p>Text</p><menu><button>OK</button></menu></dialog>
+      <dialog open><p>Text</p><menu><button>OK</button></menu>
+        <fieldset><legend>Group</legend>Content</fieldset>
+        <fieldset class="sig-measure-box"><legend>Measure</legend>Content</fieldset>
+      </dialog>
       <div class="ctx-menu"><button class="ctx-item">Item</button></div>
       <div class="module" style="--mod-color: #ff0000"></div>`)}`);
     const results = await win.webContents.executeJavaScript(`(async () => {
@@ -85,6 +88,16 @@ app.whenReady().then(async () => {
         },
         moduleColor: getComputedStyle(document.querySelector('.module')).getPropertyValue('--mod-color').trim() };
     })()`);
+    const groupboxStyles = await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('fieldset'), el => {
+      const style = getComputedStyle(el);
+      return { border: style.borderTopWidth, top: style.borderTopColor, bottom: style.borderBottomColor,
+        shadow: style.boxShadow, radius: style.borderRadius, legend: getComputedStyle(el.querySelector('legend')).textShadow };
+    })`);
+    assert.deepEqual(groupboxStyles[0], groupboxStyles[1], 'plain and time-signature groupboxes share the raised-wood style');
+    assert.equal(groupboxStyles[0].border, '2px');
+    assert.notEqual(groupboxStyles[0].top, groupboxStyles[0].bottom, 'bevel has distinct highlight and shade');
+    assert.ok(groupboxStyles[0].shadow.includes('inset'), 'raised border has inner relief');
+    assert.notEqual(groupboxStyles[0].legend, 'none', 'legend has matching engraved shading');
     assert.ok(results.moduleSizing.width > results.moduleSizing.viewport, 'long module names can grow beyond the viewport');
     assert.ok(results.moduleSizing.width > results.moduleSizing.shortWidth, 'module width follows its name');
     assert.equal(results.moduleSizing.labelWidth, results.moduleSizing.textWidth, 'full module name fits without clipping');
@@ -186,15 +199,18 @@ app.whenReady().then(async () => {
     assert.equal(await tint(), defaultTint, 'existing default tint is preserved');
     await open();
     assert.equal(await run("document.activeElement.id"), 'preferences-categories', 'category list receives focus');
-    assert.deepEqual(await run("Array.from(document.getElementById('preferences-categories').options, o => o.text)"), ['Interface', 'Testing', 'Timeline', 'Pianoroll', 'Patcher', 'MIDI']);
+    assert.deepEqual(await run("Array.from(document.getElementById('preferences-categories').options, o => o.text)"), ['Interface', 'Testing', 'Timeline', 'Pianoroll', 'Spectrum Analyser', 'MIDI']);
     const groups = await run(`Array.from(document.querySelectorAll('#preferences-content fieldset'), group => ({
       label: group.querySelector('legend')?.textContent,
       border: getComputedStyle(group).borderTopWidth,
       padding: getComputedStyle(group).paddingTop
     }))`);
     assert.deepEqual(groups.map(g => g.label), ['Wood Tint', 'Launch in full screen', 'Controller Panel Divider Width']);
-    assert.ok(groups.every(g => g.border === '1px' && g.padding === '16px'), 'each setting has a visible padded groupbox');
+    assert.ok(groups.every(g => g.border === '2px' && g.padding === '16px'), 'each setting has a raised padded groupbox');
+    const borderBeforeTint = await run("getComputedStyle(document.querySelector('.preference')).borderTopColor");
     await change([64, 128, 192]);
+    assert.notEqual(await run("getComputedStyle(document.querySelector('.preference')).borderTopColor"), borderBeforeTint,
+      'groupbox bevel follows the wood tint preview');
     assert.equal(await tint(), '#4080c0', 'RGB input previews immediately');
     assert.equal(await run("localStorage.getItem('philsynth:preferences')"), null, 'preview does not save');
     const tintedGrain = await run(`(async () => {
@@ -364,14 +380,14 @@ app.whenReady().then(async () => {
     assert.equal(await run('window.pianorollSettings.snapVelocity'), false, 'piano-roll preferences survive reload');
     const patcherCategory = () => run(`(() => {
       const list = document.getElementById('preferences-categories');
-      list.value = 'Patcher'; list.dispatchEvent(new Event('change'));
+      list.value = 'Spectrum Analyser'; list.dispatchEvent(new Event('change'));
     })()`);
     const upward = () => run(`(() => {
       const input = document.getElementById('pref-patcher-spectrumFlowDirection');
       input.value = 'up'; input.dispatchEvent(new Event('change'));
     })()`);
     await open(); await patcherCategory();
-    assert.deepEqual(await run("Array.from(document.querySelectorAll('#preferences-content legend'), el => el.textContent)"), ['Spectrum Analyser flow direction', 'Spectrum Analyser FFT size']);
+    assert.deepEqual(await run("Array.from(document.querySelectorAll('#preferences-content legend'), el => el.textContent)"), ['Spectrum Analyser flow direction', 'Spectrum Analyser FFT size', 'Spectrum Analyser speed']);
     await run(`(() => {
       const input = document.getElementById('pref-patcher-spectrumSize');
       input.value = '8192'; input.dispatchEvent(new Event('change'));

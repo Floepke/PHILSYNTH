@@ -133,6 +133,7 @@ export class Playback {
       ticker: () => ({ start() {}, stop() {} }),
       events: this.events,
       onCountBeat: (beat) => { this.blip = { time: this.now(), hz: beat === 0 ? 440 : 220 }; },
+      onBeat: (bar) => { this.blip = { time: this.now(), hz: bar ? 440 : 220 }; },
     });
   }
   runtime(ids) { return this.root ? runtimesAt(this.root, ids)[0] : null; }
@@ -277,10 +278,15 @@ export class Playback {
       tr.clipId = data.clipId;
       tr.clipSong = data.clipId === null ? null : (this.scope.length ? this.runtime(this.scope)?.song : this.song);
       tr.chase = data.chase;
+      tr.setMetronome(data.metronome ?? false);
       tr.start(data.pos, { countIn: data.countIn, endAt: data.endAt ?? null, continuous: data.continuous ?? false });
     } else if (data.type === 'seek') tr.seek(data.pos);
     else if (data.type === 'stop') tr.stop({ to: data.pos });
     else if (data.type === 'continuous') tr.setContinuous(data.continuous);
+    else if (data.type === 'metronome') {
+      tr.setMetronome(data.metronome);
+      if (!tr.metronome && !tr.countingIn) this.blip = null;
+    }
     else if (data.type === 'panic') {
       tr.stop();
       for (const e of this.root?.modules.values() ?? []) e.inst.allOff?.();

@@ -1383,6 +1383,172 @@ for (const how of ['wheel', 'edge']) {
   }
 }
 
+// Automation points stay inside the clip; its end line shares the piano roll's resize behavior.
+{
+  const song = emptySong();
+  const clip = addAutoClip(song, { length: 4 });
+  let changes = 0, live = 0;
+  const lane = createAutomationLane(host(), {
+    song: () => song, clip: () => clip, color: () => '#e76f51', transport: { playing: false, pos: 0 },
+    changed() { changes++; }, live() { live++; }, autoParam: () => null,
+  });
+  lane.setView({ sy: 0 }); flush();
+  const cv = lane.surface.cv;
+  const x = v => 48 + v * (420 - ROLL_SB);
+  const y = t => t * lane.getView().ppq - lane.getView().sy;
+  const p = { t: 1, v: 0.5, r: 0 };
+  clip.points.push(p);
+  drag(cv, x(0.5), y(1), x(0.5), y(6));
+  assert.equal(p.t, 4, 'last point cannot move beyond clip end');
+  drag(cv, x(0.5), y(4), x(0.5), -50);
+  assert.equal(p.t, 0, 'first point cannot move before clip start');
+  clip.length = 3.9;
+  drag(cv, x(0.5), y(0), x(0.5), y(6));
+  assert.equal(p.t, 3.9, 'off-grid end still bounds snapped point movement');
+  clip.points.push({ t: 2, v: 0.7, r: 0 });
+  clip.points.sort((a, b) => a.t - b.t);
+  drag(cv, x(0.5), y(3.9), x(0.5), y(0.5));
+  assert.equal(p.t, 2, 'point stays after its preceding neighbour');
+  clip.points.length = 0;
+  dbl(cv, x(0.3), y(6));
+  assert.equal(clip.points.at(-1).t, 3.9, 'inserted points also stay inside the clip');
+  clip.points.length = 0;
+  clip.length = 4;
+  const before = changes;
+  point(cv, 'pointermove', x(0.9), y(4));
+  assert.equal(cv.style.cursor, 'row-resize');
+  drag(cv, x(0.9), y(4), x(0.9), y(2.1));
+  assert.equal(clip.length, 2);
+  assert.equal(changes, before + 1, 'one undo step per resize');
+  assert.ok(live > 0, 'resize notifies the TimeLine during dragging');
+  assert.equal(clip.points.length, 0, 'resize does not insert a point');
+  for (const end of ['Escape', 'pointercancel', 'blur', 'lostpointercapture']) {
+    point(cv, 'pointerdown', x(0.9), y(2), { buttons: 1 });
+    point(cv, 'pointermove', x(0.9), y(5), { buttons: 1 });
+    assert.equal(clip.length, 5);
+    if (end === 'Escape') key(cv, 'Escape');
+    else fire(cv, end);
+    point(cv, 'pointerup', x(0.9), y(5));
+    assert.equal(clip.length, end === 'lostpointercapture' ? 5 : 2, `${end}: resize ends correctly`);
+  }
+  clip.length = 2;
+  addClip(song, { start: 5.1, length: 4, y: clip.y });
+  drag(cv, x(0.9), y(2), x(0.9), y(7));
+  assert.equal(clip.length, 5.1, 'resize stops at an off-grid neighbouring clip');
+  clip.points.push({ t: 5.1, v: 0.5, r: 0 });
+  drag(cv, x(0.5), y(5.1), x(0.5), y(3));
+  assert.equal(clip.length, 5.1, 'a point on the end line keeps its own drag');
+  assert.equal(clip.points[0].t, 3);
+  const savedPoints = structuredClone(clip.points);
+  drag(cv, x(0.9), y(5.1), x(0.9), y(2));
+  assert.equal(clip.length, 2);
+  assert.deepEqual(clip.points, savedPoints, 'shortening preserves points, like piano-roll notes');
+  drag(cv, x(0.9), y(2), x(0.9), y(4));
+  assert.equal(clip.points[0].t, 3, 'lengthening reveals the original point again');
+  clip.length = 32;
+  lane.setView({ sy: 1e9 }); flush();
+  const sy = lane.getView().sy;
+  const endY = y(32);
+  point(cv, 'pointerdown', x(0.9), endY, { buttons: 1 });
+  for (let i = 1; i <= 4; i++) {
+    point(cv, 'pointermove', x(0.9), endY - i * 24, { buttons: 1 });
+    point(cv, 'pointermove', x(0.9), endY - i * 24, { buttons: 1 });
+    assert.equal(lane.getView().sy, sy, 'shortening does not shift the view under the pointer');
+    assert.equal(clip.length, 32 - i / 2);
+  }
+  point(cv, 'pointerup', x(0.9), endY - 96);
+  song.clips.splice(1);
+  clip.points.length = 0;
+  clip.length = 4;
+  lane.setView({ sy: 0 }); flush();
+  mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  try {
+    point(cv, 'pointerdown', x(0.9), y(4), { buttons: 1 });
+    point(cv, 'pointermove', x(0.9), 1000, { buttons: 1 });
+    mock.timers.tick(3000); flush();
+    point(cv, 'pointerup', x(0.9), 1000);
+    assert.ok(clip.length > 20, 'edge scrolling lengthens the clip');
+    lane.setView({ sy: 0 }); clip.length = 4; flush();
+    point(cv, 'pointerdown', x(0.9), y(4), { buttons: 1 });
+    point(cv, 'pointermove', x(0.9), 300, { buttons: 1 });
+    for (let i = 0; i < 40; i++) fire(cv, 'wheel', { clientX: x(0.9), clientY: 300, deltaY: 100, deltaMode: 0 });
+    point(cv, 'pointerup', x(0.9), 300);
+    assert.ok(clip.length > 20, 'wheel scrolling lengthens the clip');
+  } finally { mock.timers.reset(); }
+}
+
+// The automation ruler zooms time with the same anchored gesture and limits as the piano roll.
+{
+  const song = emptySong();
+  const clip = addAutoClip(song, { length: 32 });
+  clip.points.push({ t: 1, v: 0.5, r: 0 });
+  let views = 0, changes = 0;
+  const lane = createAutomationLane(host(), {
+    song: () => song, clip: () => clip, color: () => '#e76f51', transport: { playing: false, pos: 0 },
+    autoParam: () => null, changed() { changes++; }, viewChanged() { views++; },
+  });
+  lane.setView({ sy: 100, ppq: 48 }); flush();
+  const cv = lane.surface.cv;
+  const points = structuredClone(clip.points);
+  point(cv, 'pointermove', 18, 150);
+  assert.equal(cv.style.cursor, 'ns-resize');
+  point(cv, 'pointerdown', 18, 150, { buttons: 1 });
+  point(cv, 'pointermove', 18, 90, { buttons: 1 });
+  assert.ok(Math.abs(lane.getView().ppq - 48 * Math.pow(1.15, 60 / 48)) < 1e-9);
+  assert.ok(Math.abs((150 + lane.getView().sy) / lane.getView().ppq - 250 / 48) < 1e-9);
+  assert.equal(views, 0, 'view saved on release, not every move');
+  point(cv, 'pointerup', 18, 90);
+  assert.equal(views, 1);
+  const saved = lane.getView();
+  for (const end of ['pointercancel', 'Escape']) {
+    point(cv, 'pointerdown', 18, 150, { buttons: 1 });
+    point(cv, 'pointermove', 18, 220, { buttons: 1 });
+    if (end === 'Escape') key(cv, 'Escape');
+    else point(cv, end, 18, 220);
+    point(cv, 'pointerup', 18, 220);
+    assert.deepEqual(lane.getView(), saved, `${end} restores the view`);
+    assert.equal(views, 1, 'cancelled zoom is not saved');
+  }
+  drag(cv, 18, 150, 18, -10000);
+  assert.equal(lane.getView().ppq, 600);
+  drag(cv, 18, 150, 18, 10000);
+  assert.equal(lane.getView().ppq, 6);
+  assert.deepEqual(clip.points, points);
+  assert.equal(changes, 0, 'ruler zoom creates no undo steps');
+}
+
+// Automation and piano-roll time grids use identical strokes, bands, visibility and zoom thinning.
+{
+  const { song, clip, roll } = setup();
+  const auto = addAutoClip(song, { start: clip.start, length: clip.length });
+  const lane = createAutomationLane(host(), {
+    song: () => song, clip: () => auto, color: () => '#e76f51', transport: { playing: false, pos: 0 },
+    changed() {}, autoParam: () => null,
+  });
+  const strokes = cv => cv.drawing.flatMap(([op, color, width], i) => {
+    const from = cv.drawing[i - 2], to = cv.drawing[i - 1];
+    return op === 'stroke' && color === '#111216' && [4, 8].includes(width)
+      && from?.[0] === 'moveTo' && to?.[0] === 'lineTo' && from[2] === to[2] && from[1] >= 36
+      ? [[from[2], width, color]] : [];
+  });
+  for (const ppq of [96, 48, 12, 6]) {
+    for (const visible of [[0, 1, 2, 3, 4, 5, 6], [2, 4], []]) {
+      setSig(song, 0, 7, 8, visible);
+      for (const sy of [0, 72]) {
+        roll.setView({ ppq, sy }); lane.setView({ ppq, sy }); flush();
+        const pc = roll.surface.cv, ac = lane.surface.cv;
+        pc.drawing.length = ac.drawing.length = 0;
+        roll.redraw(); lane.redraw(); flush();
+        assert.deepEqual(strokes(ac), strokes(pc), `matching time strokes at ${ppq}px, sy=${sy}, beats=${visible}`);
+        const dashes = cv => cv.drawing.filter(([op, dash]) => op === 'setLineDash' && JSON.stringify(dash) === '[12,12]');
+        assert.deepEqual(dashes(ac), dashes(pc), 'same beat dash pattern and visibility');
+        assert.ok(ac.drawing.some(([op, , , , , color]) => op === 'fillRect' && color === 'rgba(0, 0, 0, 0.10)'),
+          'automation uses the piano-roll snap band colour');
+      }
+    }
+  }
+}
+
 // Dragging the thick clip end line changes the clip length instead of adding a note; the wheel and
 // dragging past the bottom edge scroll the view along, so the end can go anywhere in one drag.
 {
@@ -4489,7 +4655,7 @@ for (const notes of [
   }
   const elements = new Map();
   const inputIds = ['seq-name', 'seq-snap-div', 'seq-free-time'];
-  const transportIds = ['seq-restart', 'seq-play', 'seq-loop', 'seq-stop', 'seq-record'];
+  const transportIds = ['seq-restart', 'seq-play', 'seq-loop', 'seq-stop', 'seq-record', 'seq-metronome'];
   for (const id of ['seq', 'seq-bar', 'seq-bar-content', ...transportIds, 'seq-pos', 'seq-target', 'seq-snap-base', 'seq-ctl', 'seq-ctl-field', 'seq-target-field', ...inputIds,
     'workspace', 'patcher', 'roll', 'arranger', 'seq-split', 'seq-hsplit', 'panel', 'panel-split', 'status']) {
     elements.set(id, new Element(inputIds.includes(id) ? 'input' : transportIds.includes(id) ? 'button' : 'div'));
@@ -4518,6 +4684,15 @@ for (const notes of [
   });
   seq.reload();
   flush();
+  const metronome = elements.get('seq-metronome');
+  metronome.onclick();
+  assert.equal(transport.metronome, true);
+  assert.equal(metronome.attributes.get('aria-pressed'), 'true');
+  assert.equal(metronome.classes.has('playing'), true);
+  metronome.onclick();
+  assert.equal(transport.metronome, false);
+  assert.equal(metronome.attributes.get('aria-pressed'), 'false');
+  assert.equal(metronome.classes.has('playing'), false);
   const free = elements.get('seq-free-time');
   assert.equal(free.checked, false, 'Free timing defaults off');
   assert.equal('snapVelocity' in seq.viewState().roll, false);
@@ -4565,7 +4740,10 @@ for (const notes of [
     assert.equal(transport.pos, 0);
   }
   const button = elements.get('seq-play');
-  assert.equal(press(' ', {}, button).defaultPrevented, false);
+  assert.equal(press(' ', {}, button).defaultPrevented, true);
+  assert.equal(transport.playing, false, 'Space stops playback even with a button focused');
+  press('.', {}, button);
+  assert.equal(transport.playing, true, 'transport remains available with a button focused');
   assert.ok(press("'", {}, button).defaultPrevented);
   assert.equal(transport.playing, false);
   press('/');

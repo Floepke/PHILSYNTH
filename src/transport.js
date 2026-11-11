@@ -28,7 +28,7 @@
 // pitchOffset(scope): semitones added to every played note (that level's Output Global Transpose /
 // Cents Offset).
 import { newNoteId } from './modmidi.js';
-import { automationAt, barCeil, clipSilent, getClip, isIdea, loopEnd, notesSounding, notesStarting, notePitchAt, noteVelAt, songEnd } from './song.js';
+import { automationAt, barCeil, barLines, beatLines, meter, clipSilent, getClip, isIdea, loopEnd, notesSounding, notesStarting, notePitchAt, noteVelAt, songEnd } from './song.js';
 
 const TICK_MS = 5;
 
@@ -48,8 +48,9 @@ function createTicker(fn) {
 
 export class Transport {
   // getTarget(moduleNumber) -> instance with noteOn/noteOff, or null
-  constructor({ getSong, getBpm, getTarget, setAuto = null, getLayers = null, getScope = () => null, onState, onCountBeat, now = () => performance.now(), ticker = createTicker, pitchOffset = () => 0, events = { starting: notesStarting, sounding: notesSounding } }) {
-    Object.assign(this, { getTarget, setAuto, getScope, onState, onCountBeat, now, pitchOffset });
+  constructor({ getSong, getBpm, getTarget, setAuto = null, getLayers = null, getScope = () => null, onState, onCountBeat, onBeat, now = () => performance.now(), ticker = createTicker, pitchOffset = () => 0, events = { starting: notesStarting, sounding: notesSounding } }) {
+    Object.assign(this, { getTarget, setAuto, getScope, onState, onCountBeat, onBeat, now, pitchOffset });
+    this.metronome = false;
     this.scope = null; // the level playing (see getScope)
     this.song = () => getSong(this.scopeNow());
     this.bpm = () => getBpm(this.scopeNow());
@@ -126,6 +127,8 @@ export class Transport {
   recordingTime() { return this.elapsed; }
 
   setContinuous(value) { this.continuous = value; }
+
+  setMetronome(value) { this.metronome = !!value; }
 
   start(pos = this.pos, { countIn = null, endAt = null, continuous = false } = {}) {
     if (!Number.isFinite(pos)) pos = Number.isFinite(this.pos) ? this.pos : 0; // a NaN position would feed garbage to the engine
@@ -332,6 +335,15 @@ export class Transport {
   // applied at each onset before its notes, so a note never starts on a stale controller value
   // (e.g. an envelope or filter setting that jumps when an automation clip starts with the note).
   advance(from, to) {
+    if (this.metronome && this.onBeat && to > from) {
+      const song = this.getSong();
+      const m = meter(song);
+      const beats = [
+        ...barLines(song, from, to, m).map(({ t }) => ({ t, bar: true })),
+        ...beatLines(song, from, to, m).map((t) => ({ t, bar: false })),
+      ].sort((a, b) => a.t - b.t);
+      for (const { t, bar } of beats) if (t >= from && t < to) this.onBeat(bar, t);
+    }
     const layers = this.layers();
     const songs = new Set(layers.map((l) => l.song));
     this.active = this.active.filter((n) => {

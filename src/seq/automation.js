@@ -2,19 +2,23 @@
 // selected). Time runs down like the piano roll; the controller value runs left (min) -> right (max).
 //   double-click empty space     insert a point (time snaps to the snap grid); keep the second
 //                                press held to drag the new point right away
-//   drag a point                 move it (time snaps and stays between its neighbours); near / past
+//   drag a point                 move it (time snaps, within the clip and its neighbours); near / past
 //                                the top or bottom edge the lane scrolls along
+//   drag the thick end line      change the clip length (wheel / edge scrolling extends the view)
 //   Shift + drag a point         fine value adjustment
 //   mouse wheel on a point       round the corner (same as the WAVESHAPER curve editor)
 //   right click on a point       delete it
 //   Backspace / Delete           delete the selected point
 //   Space                        toggle song playback from the pointer's snapped time
 //   wheel / middle drag          scroll, Ctrl + wheel zooms time
-import { snapStep, snapRound, snapFloor, clean, clipSilent, isIdea, BAR, meter, barLines, beatLines, autoPolyline, pointIndex } from '../song.js';
-import { createSurface, capture, startPan, onWheel, clamp, snapBands, mutedMark, edgeScroll, SB, SB_TRACK, scrollThumb, scrollValue, paintThumb } from './surface.js';
+//   drag the bar ruler up/down   zoom time around the grab position
+import { snapStep, snapRound, snapFloor, clean, clipSilent, isIdea, BAR, meter, beatLines, gridBeatEnabled, autoPolyline, pointIndex } from '../song.js';
+import { createSurface, capture, rulerDrag, startPan, onWheel, clamp, snapBands, mutedMark, edgeScroll, SB, SB_TRACK, scrollThumb, scrollValue, paintThumb } from './surface.js';
 import { NEW_POINT_ROUND } from '../curve.js';
 import { doublePress } from '../doublepress.js';
 import { TOP_MARGIN } from './pianoroll.js';
+import { clipResizeBounds } from './clipplacement.js';
+import { TIME_GRID, beatsShown, spacedBars } from './timegrid.js';
 
 const GUTTER = 36;
 const VALUE_H = 24; // value scale strip at the bottom
@@ -24,9 +28,9 @@ const ROUND_STEP = 0.05;
 const BG = '#45464e';
 const PLAYHEAD = '#ff916e';
 const SELECT = '#65b4ff';
-const BEAT = '#5d606a';
-const BAR_LINE = '#797d88';
-const BOUNDARY = '#a1a7b3';
+const BEAT = TIME_GRID.color;
+const BAR_LINE = TIME_GRID.color;
+const BOUNDARY = TIME_GRID.color;
 
 // ctx: { song(), clip() (an automation clip or null), color(clip), transport, changed(),
 //        autoParam(clip) -> { p, format(v) } | null (the controller the clip drives) }
@@ -35,6 +39,7 @@ export function createAutomationLane(host, ctx) {
   let selected = null; // point object
   let selectionClip = null;
   let hover = null; // point under the pointer
+  let endHover = false;
   let pointer = null;
   let drag = null;
   let sbHover = false;
@@ -53,17 +58,19 @@ export function createAutomationLane(host, ctx) {
   const inLane = (x, y) => x >= GUTTER && x < laneRight() && y >= 0 && y < bottom();
   const onScrollbar = (x, y) => x >= laneRight() && y >= 0 && y < bottom();
   const step = () => snapStep(ctx.song().snap);
-  const minBeat = (m) => Math.min(...m.map((x) => x.beat));
 
   function syncSelection() {
     const clip = ctx.clip();
-    if (clip !== selectionClip) { selectionClip = clip; selected = null; hover = null; }
+    if (clip !== selectionClip) {
+      drag?.stop?.({ type: 'pointercancel' });
+      selectionClip = clip; selected = null; hover = null; endHover = false;
+    }
     if (selected && !clip?.points.includes(selected)) selected = null;
   }
 
   function scrollMax() {
     const clip = ctx.clip();
-    const end = clip ? Math.max(clip.length, ...clip.points.map((p) => p.t)) : BAR;
+    const end = clip ? Math.max(clip.length, ...clip.points.map((p) => p.t), drag?.kind === 'clipEnd' ? drag.extent : 0) : BAR;
     return Math.max(0, (end + BAR) * view.ppq - bottom());
   }
 
@@ -122,10 +129,10 @@ export function createAutomationLane(host, ctx) {
       }
       const t0 = Math.max(0, timeAt(0));
       const t1 = timeAt(bot);
-      g.fillStyle = 'rgba(0, 0, 0, 0.06)';
+      g.fillStyle = TIME_GRID.band;
       snapBands(step(), view.ppq, t0, t1, (a, b) => {
         const ya = Math.round(yOf(a));
-        g.fillRect(L, ya, R - L, Math.round(yOf(b)) - ya);
+        g.fillRect(GUTTER, ya, w - GUTTER, Math.round(yOf(b)) - ya);
       });
       // value guides at 0, 25, 50, 75 and 100 %
       g.strokeStyle = 'rgba(255, 255, 255, 0.07)';
@@ -137,19 +144,26 @@ export function createAutomationLane(host, ctx) {
       const line = (t, color, lw = 1) => {
         const y = Math.round(yOf(t)) + 0.5;
         g.strokeStyle = color;
-        g.lineWidth = lw * 2;
+        g.lineWidth = lw * TIME_GRID.width;
         g.beginPath(); g.moveTo(GUTTER, y); g.lineTo(w, y); g.stroke();
       };
       const m = meter(ctx.song());
       const off = clip.start;
-      if (minBeat(m) * view.ppq >= 5) {
-        g.setLineDash([3, 3]);
-        for (const t of beatLines(null, off + t0, off + t1, m)) line(t - off, BEAT);
+      if (beatsShown(m, view.ppq)) {
+        g.setLineDash(TIME_GRID.beatDash);
+        g.lineDashOffset = 0;
+        for (const t of beatLines(null, off + t0, off + t1, m)) {
+          const local = t - off;
+          if (!gridBeatEnabled(m, t) || Math.abs(local) < 1e-7 || Math.abs(local - clip.length) < 1e-7) continue;
+          line(local, BEAT);
+        }
         g.setLineDash([]);
       }
-      for (const b of barLines(null, off + t0, off + t1, m)) line(b.t - off, BAR_LINE);
-      line(0, BOUNDARY, 2);
-      line(clip.length, BOUNDARY, 2);
+      for (const b of spacedBars(m, off, off + t0, off + t1, view.ppq)) {
+        if (gridBeatEnabled(m, b.t)) line(b.t - off, BAR_LINE);
+      }
+      line(0, BOUNDARY);
+      line(clip.length, endHover || drag?.kind === 'clipEnd' ? '#607c69' : BOUNDARY, 2);
 
       const color = `color-mix(in srgb, ${ctx.color(clip)} 75%, #fff)`;
       const poly = autoPolyline(clip);
@@ -278,12 +292,12 @@ export function createAutomationLane(host, ctx) {
       g.strokeStyle = BEAT;
       g.lineWidth = 2;
       g.beginPath();
-      if (minBeat(m) * view.ppq >= 5) {
+      if (beatsShown(m, view.ppq)) {
         for (const t of beatLines(null, t0, t1, m)) { const y = Math.round(yOf(t - off)) + 0.5; g.moveTo(GUTTER - 6, y); g.lineTo(GUTTER, y); }
       }
       g.stroke();
       let lastY = -Infinity;
-      for (const b of barLines(null, t0, t1, m)) {
+      for (const b of spacedBars(m, off, t0, t1, view.ppq)) {
         const y = Math.round(yOf(b.t - off)) + 0.5;
         g.strokeStyle = BAR_LINE;
         g.beginPath(); g.moveTo(0, y); g.lineTo(GUTTER, y); g.stroke();
@@ -327,13 +341,62 @@ export function createAutomationLane(host, ctx) {
   function updateHover(x, y) {
     const clip = ctx.clip();
     hover = hit(x, y);
+    endHover = !hover && !!clip && inLane(x, y) && Math.abs(y - yOf(clip.length)) <= 6;
     sbHover = onScrollbar(x, y);
     cv.style.cursor = hover ? 'move' : clip && inLane(x, y) ? 'crosshair' : 'default';
     cv.title = hover
       ? `${valueText(clip, hover.v)}  at ${+hover.t.toFixed(4)} quarters${hover.r ? `  rounding ${Math.round(hover.r * 100)} %` : ''}`
       : '';
     if (sbHover) cv.title = 'Drag to scroll the clip, or click the track to jump there';
+    if (endHover) {
+      cv.style.cursor = 'row-resize';
+      cv.title = `Clip end at ${+clip.length.toFixed(4)} quarters — drag to lengthen or shorten the clip`;
+    }
+    if (x >= 0 && x < GUTTER && y >= 0 && y < bottom()) {
+      cv.style.cursor = 'ns-resize';
+      cv.title = 'Drag up / down to zoom time around this position';
+    }
     s.redraw();
+  }
+
+  function resizeClip(e, clip) {
+    const orig = clip.length;
+    const max = clean(clipResizeBounds(ctx.song().clips, clip).end - clip.start);
+    const state = drag = { kind: 'clipEnd', extent: orig };
+    let moved = false;
+    const apply = () => {
+      if (drag !== state || !pointer) return;
+      const st = step();
+      const length = clamp(clean(snapRound(timeAt(clamp(pointer.y, 0, bottom())), st)), Math.max(st, 1 / view.ppq), max);
+      if (length !== clip.length) { clip.length = length; moved = true; ctx.live?.(); }
+      state.extent = Math.max(state.extent, length);
+      s.redraw();
+    };
+    const auto = edgeScroll({
+      area: () => ({ left: -Infinity, right: Infinity, top: 0, bottom: bottom() }),
+      scroll: (_dx, dy) => { view.sy += dy; limitScroll(); ctx.viewChanged?.(); },
+      onScroll: apply,
+    });
+    state.refresh = () => { apply(); auto.update(pointer); };
+    hover = null;
+    endHover = false;
+    const stop = capture(cv, e, (ev) => {
+      pointer = s.local(ev);
+      state.refresh();
+    }, (ev) => {
+      auto.stop();
+      cv.removeEventListener('blur', stop);
+      window.removeEventListener('blur', stop);
+      if (ev.type !== 'pointerup' && !(moved && ev.type === 'lostpointercapture')) clip.length = orig;
+      drag = null;
+      if (clip.length !== orig) ctx.changed();
+      else if (moved) ctx.live?.();
+      if (pointer) updateHover(pointer.x, pointer.y);
+      s.redraw();
+    });
+    state.stop = stop;
+    cv.addEventListener('blur', stop);
+    window.addEventListener('blur', stop);
   }
 
   function remove(p) {
@@ -362,6 +425,25 @@ export function createAutomationLane(host, ctx) {
     }
     const clip = ctx.clip();
     const { x, y } = pointer;
+    if (e.button === 0 && x >= 0 && x < GUTTER && y >= 0 && y < bottom()) {
+      e.preventDefault();
+      presses.reset();
+      const { sy, ppq } = view;
+      const anchorTime = timeAt(y);
+      drag = { kind: 'ruler' };
+      drag.stop = rulerDrag(cv, e, (_dx, dy) => {
+        view.ppq = clamp(ppq * Math.pow(1.15, -dy / 48), 6, 600);
+        view.sy = anchorTime * view.ppq - y;
+        limitScroll();
+        s.redraw();
+      }, (ev) => {
+        if (ev.type === 'pointercancel') { view.sy = sy; view.ppq = ppq; }
+        drag = null;
+        s.redraw();
+        if (ev.type !== 'pointercancel' && (view.sy !== sy || view.ppq !== ppq)) ctx.viewChanged?.();
+      });
+      return;
+    }
     if (!clip || !inLane(x, y)) return;
     const p = hit(x, y);
     if (e.button === 2) {
@@ -371,9 +453,10 @@ export function createAutomationLane(host, ctx) {
     }
     if (e.button !== 0) return;
     e.preventDefault();
+    if (!p && Math.abs(y - yOf(clip.length)) <= 6) { presses.reset(); resizeClip(e, clip); return; }
     let p2 = p;
     if (presses.press(e) && !p2) { // down-up-DOWN on empty space: insert a point and drag it at once
-      p2 = { t: Math.max(0, snapRound(timeAt(y), step())), v: valueAt(x), r: NEW_POINT_ROUND };
+      p2 = { t: clamp(snapRound(timeAt(y), step()), 0, clip.length), v: valueAt(x), r: NEW_POINT_ROUND };
       clip.points.splice(pointIndex(clip.points, p2.t), 0, p2);
       ctx.changed();
     }
@@ -394,7 +477,8 @@ export function createAutomationLane(host, ctx) {
       const q = pointer;
       const fine = shift ? 0.1 : 1;
       point.v = clamp(drag.v0 + ((q.x - x) * fine) / (right() - left()), 0, 1);
-      point.t = clamp(snapRound(drag.t0 + timeAt(clamp(q.y, 0, bottom())) - tStart, st), Math.max(lo, drag.t0 < 0 ? -Infinity : 0), hi);
+      point.t = clamp(snapRound(drag.t0 + timeAt(clamp(q.y, 0, bottom())) - tStart, st),
+        clamp(lo, 0, clip.length), clamp(hi, 0, clip.length));
       s.redraw();
     };
     // near / past the top or bottom edge the lane scrolls along, so a point can travel the whole clip
@@ -429,14 +513,17 @@ export function createAutomationLane(host, ctx) {
     if (drag || e.buttons) return;
     updateHover(pointer.x, pointer.y);
   });
-  cv.addEventListener('pointerleave', () => { pointer = null; if (!drag) { hover = null; sbHover = false; s.redraw(); } });
+  cv.addEventListener('pointerleave', () => { pointer = null; if (!drag) { hover = null; endHover = false; sbHover = false; s.redraw(); } });
 
   cv.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();
     if (!['backspace', 'delete', 'escape'].includes(key)) return;
     e.preventDefault();
     e.stopPropagation();
-    if (drag) return;
+    if (drag) {
+      if (key === 'escape') drag.stop?.({ type: 'pointercancel' });
+      return;
+    }
     syncSelection();
     if (key === 'escape') selected = null;
     else if (selected) remove(selected);
@@ -448,7 +535,7 @@ export function createAutomationLane(host, ctx) {
     pointer = s.local(e);
     const { x, y } = pointer;
     const p = hit(x, y);
-    if (!p || e.ctrlKey || e.metaKey) return;
+    if (drag || !p || e.ctrlKey || e.metaKey) return;
     e.preventDefault();
     e.stopImmediatePropagation();
     p.r = clamp(Math.round((p.r + (e.deltaY < 0 ? ROUND_STEP : -ROUND_STEP)) * 100) / 100, 0, 1);

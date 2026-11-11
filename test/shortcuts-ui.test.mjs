@@ -64,6 +64,65 @@ app.whenReady().then(async () => {
     };
     await win.loadURL(`http://127.0.0.1:${server.address().port}/`);
     await setup();
+    await run("window.press('m')");
+    assert.equal(await run('window.shortcutTest.transport.metronome'), true, 'M enables the metronome');
+    await run("window.press('m')");
+    assert.equal(await run('window.shortcutTest.transport.metronome'), false, 'M disables the metronome');
+    await run(`(async () => {
+      const { addClip } = await import('/src/song.js');
+      const { engine, seq } = window.shortcutTest;
+      const clip = addClip(engine.song, { length: 4 });
+      engine.song.selected = clip.id;
+      seq.reload();
+      window.press('n');
+    })()`);
+    assert.equal(await run('window.shortcutTest.seq.recordArmed()'), true, 'N arms MIDI recording');
+    await run("window.press('n')");
+    assert.equal(await run('window.shortcutTest.seq.recordArmed()'), false, 'N disarms MIDI recording');
+    await run(`
+      const input = document.getElementById('seq-name');
+      input.focus();
+      window.press('m', {}, input);
+      window.press('n', {}, input);
+    `);
+    assert.equal(await run('window.shortcutTest.transport.metronome'), false, 'typing M does not toggle the metronome');
+    assert.equal(await run('window.shortcutTest.seq.recordArmed()'), false, 'typing N does not arm recording');
+    await run('document.activeElement.blur()');
+    await run(`(() => {
+      const { transport } = window.shortcutTest;
+      window.transportCalls = [];
+      window.transportMethods = { play: transport.play, playClip: transport.playClip, stop: transport.stop };
+      transport.play = options => { window.transportCalls.push(options?.fromStart ? 'restart' : 'play'); return true; };
+      transport.playClip = () => { window.transportCalls.push('loop'); return true; };
+      transport.stop = () => { window.transportCalls.push('stop'); };
+    })()`);
+    for (const selector of ['#patcher canvas', '#roll canvas', '#arranger canvas', '#spectrum-toggle', '#seq-record']) {
+      await run(`(() => {
+        const target = document.querySelector(${JSON.stringify(selector)});
+        target.focus();
+        window.transportCalls.length = 0;
+        for (const key of [',', '.', '/', "'", ' ']) window.press(key, {}, target);
+        window.press('m', {}, target);
+        window.press('n', {}, target);
+      })()`);
+      assert.deepEqual(await run('window.transportCalls'), ['restart', 'play', 'loop', 'stop', 'play'],
+        `transport shortcuts work from ${selector}`);
+      assert.equal(await run('window.shortcutTest.transport.metronome'), true, `M works from ${selector}`);
+      assert.equal(await run('window.shortcutTest.seq.recordArmed()'), true, `N works from ${selector}`);
+      await run(`window.press('m'); window.press('n')`);
+    }
+    await run(`(() => {
+      const dialog = document.getElementById('preferences-dialog');
+      dialog.showModal();
+      window.transportCalls.length = 0;
+      for (const key of [',', '.', '/', "'", ' ', 'm', 'n']) window.press(key, {}, dialog);
+    })()`);
+    assert.deepEqual(await run('window.transportCalls'), [], 'modal dialogs block transport shortcuts');
+    assert.equal(await run('window.shortcutTest.transport.metronome'), false);
+    assert.equal(await run('window.shortcutTest.seq.recordArmed()'), false);
+    await run(`document.getElementById('preferences-dialog').close('cancel');
+      Object.assign(window.shortcutTest.transport, window.transportMethods);
+      document.activeElement.blur();`);
     await run(`
       document.getElementById('brand').click();
       window.preferencesItem = [...document.querySelectorAll('.ctx-item')].find(b => b.textContent.includes('Preferences'));
@@ -122,6 +181,13 @@ app.whenReady().then(async () => {
     assert.equal(await run("document.querySelector('#shortcut-current strong').textContent"), 'Ctrl+Shift+B',
       'custom shortcut is shown in bold');
     assert.equal(await run("document.getElementById('shortcut-current').hidden"), false);
+    assert.deepEqual(await run(`(() => {
+      const box = getComputedStyle(document.getElementById('shortcut-current'));
+      const key = getComputedStyle(document.getElementById('shortcut-current-value'));
+      return { bordered: box.borderTopWidth === '1px', coloured: box.backgroundImage.includes('linear-gradient'),
+        separateLine: key.display === 'block', prominent: parseFloat(key.fontSize) >= 22 };
+    })()`), { bordered: true, coloured: true, separateLine: true, prominent: true },
+    'current mapping has a distinct coloured box and a large separate shortcut');
     await run("document.getElementById('shortcut-reset').click()");
     await wait("!document.getElementById('shortcut-dialog').open");
     assert.equal(await run("window.shortcutTest.preferencesManager.get('keyboard.shortcuts')['button/seq-stop']"), undefined);

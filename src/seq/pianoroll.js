@@ -62,6 +62,7 @@ import { registerShortcutMenu } from '../shortcuts.js';
 import { doublePress } from '../doublepress.js';
 import { NEW_NOTE_POINT_ROUND } from '../curve.js';
 import { wheelNotches } from '../params.js';
+import { TIME_GRID, beatsShown as gridBeatsShown, spacedBars as gridSpacedBars } from './timegrid.js';
 
 const CENTRAL = [61, 63]; // C#4 and D#4, the black keys next to middle C
 const GRID_LOW = 22; // A#0 (American notation)
@@ -79,7 +80,7 @@ const VEL_MAX_SHARE = 0.5; // of the roll width
 const BG = '#45464e';
 const PLAYHEAD = '#ff916e';
 const SELECT = '#607c69';
-const STAVE = '#111216';
+const STAVE = TIME_GRID.color;
 const BEAT = STAVE;
 const BAR_LINE = STAVE;
 const BOUNDARY = STAVE;
@@ -94,7 +95,7 @@ const NOTE_MAX_W = 48; // px, notes stop growing with the pitch zoom (unless unz
 const ROUND_STEP = 0.05; // rounding change per wheel step on a bend point
 // px, zooming out (time axis): grid lines closer together than this disappear. Beat lines go as a
 // whole, bar lines are thinned so the ones left stay at least this far apart (snap bands unaffected).
-export const GRID_MIN_PX = 30;
+export { GRID_MIN_PX } from './timegrid.js';
 
 // ctx: { song(), clip(), color(clip), preview: { on(clip, pitch) -> handle, key(pitch) -> handle,
 //        bend?(handle, pitch) (micropitch drag), off(handle) }, changed(), transport,
@@ -184,19 +185,11 @@ export function createPianoRoll(host, ctx) {
     selectRect: (e, x, y, onClick) => selectRect(e, x, y, onClick, null, true),
   });
 
-  const minBeat = (m) => Math.min(...m.map((x) => x.beat));
-  const beatsShown = (m) => minBeat(m) * view.ppq >= GRID_MIN_PX;
+  const beatsShown = (m) => gridBeatsShown(m, view.ppq);
   // the bar lines (song time) drawn between t0 and t1: zoomed out, a bar closer than GRID_MIN_PX to
   // the previous drawn one is skipped; counted from `from` (the clip start) so scrolling keeps the choice
   function spacedBars(m, from, t0, t1) {
-    const out = [];
-    let last = -Infinity;
-    for (const b of barLines(null, Math.min(from, t0), t1, m)) {
-      if ((b.t - last) * view.ppq < GRID_MIN_PX - 1e-9) continue;
-      last = b.t;
-      if (b.t >= t0 - TIME_EPSILON) out.push(b);
-    }
-    return out;
+    return gridSpacedBars(m, from, t0, t1, view.ppq);
   }
 
   function syncSelection() {
@@ -415,7 +408,7 @@ export function createPianoRoll(host, ctx) {
       const t0 = Math.max(0, timeAt(0));
       const t1 = timeAt(bottom);
       const st = gridStep();
-      g.fillStyle = 'rgba(0, 0, 0, 0.10)';
+      g.fillStyle = TIME_GRID.band;
       snapBands(st, view.ppq, t0, t1, (a, b) => {
         const ya = Math.round(yOf(a));
         g.fillRect(gridLeft, ya, gridRight - gridLeft, Math.round(yOf(b)) - ya);
@@ -423,7 +416,7 @@ export function createPianoRoll(host, ctx) {
       const line = (t, color, lw = 1, cutNotes = false) => {
         const y = Math.round(yOf(t)) + 0.5;
         g.strokeStyle = color;
-        g.lineWidth = lw * 4;
+        g.lineWidth = lw * TIME_GRID.width;
         g.beginPath();
         let left = gridLeft;
         if (cutNotes) {
@@ -446,7 +439,7 @@ export function createPianoRoll(host, ctx) {
       const bars = [...barLines(null, off + t0, off + t1, m)].map((b) => b.t - off);
       const drawnBars = spacedBars(m, off, off + t0, off + t1).map((b) => b.t - off);
       if (beatsShown(m)) {
-        g.setLineDash([12, 12]);
+        g.setLineDash(TIME_GRID.beatDash);
         g.lineDashOffset = 0; // dashes travel with their A#0 anchor
         for (const t of beatLines(null, off + t0, off + t1, m)) {
           if (!gridBeatEnabled(m, t)) continue;

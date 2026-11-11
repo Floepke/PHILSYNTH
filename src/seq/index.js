@@ -34,7 +34,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
   const seq = $('seq');
   const ui = {
     restart: $('seq-restart'), play: $('seq-play'), loop: $('seq-loop'), stop: $('seq-stop'), record: $('seq-record'),
-    pos: $('seq-pos'), name: $('seq-name'), target: $('seq-target'),
+    metronome: $('seq-metronome'), pos: $('seq-pos'), name: $('seq-name'), target: $('seq-target'),
     base: $('seq-snap-base'), div: $('seq-snap-div'), free: $('seq-free-time'),
     ctl: $('seq-ctl'), ctlField: $('seq-ctl-field'), targetField: $('seq-target-field'),
   };
@@ -227,7 +227,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
   });
   onHeldChange(() => roll.redraw());
   const lane = createAutomationLane($('roll'), {
-    ...ctx, clip: () => (isAuto(clip()) ? clip() : null),
+    ...ctx, clip: () => (isAuto(clip()) ? clip() : null), live: () => arranger.redraw(),
     viewChanged: () => {
       const c = clip();
       if (isAuto(c)) c.editorView = lane.getView();
@@ -420,6 +420,13 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
   $('seq-bar').addEventListener('keydown', onUndoKey);
 
   // ---- transport ----
+  ui.metronome.addEventListener('mousedown', (e) => e.preventDefault());
+  ui.metronome.onclick = () => {
+    engine.resume();
+    transport.setMetronome(!transport.metronome);
+    ui.metronome.classList.toggle('playing', transport.metronome);
+    ui.metronome.setAttribute('aria-pressed', String(transport.metronome));
+  };
   ui.record.addEventListener('mousedown', (e) => e.preventDefault());
   ui.record.onclick = () => {
     engine.resume();
@@ -476,13 +483,11 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
   window.addEventListener('keydown', (e) => {
     if (![' ', '/', "'", '.', ','].includes(e.key) || e.repeat || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target.closest?.('input, select, textarea, dialog, [contenteditable]:not([contenteditable="false"])')) return;
-    if (e.key === ' ' && e.target.closest?.('button')) return;
     e.preventDefault();
     transportAction(e.key);
   });
   registerShortcutAction({
     id: 'transport/toggle-play', label: 'Play / pause from pointer', keys: ['Space'],
-    active: () => !document.activeElement?.closest('button'),
     run: () => transportAction(' '),
   });
   let frame = 0;
