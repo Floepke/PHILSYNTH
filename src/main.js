@@ -39,6 +39,7 @@ import { exportMidi } from './midiexport.js';
 import { withSamples, importSamples } from './samples.js';
 import { createProjectFile, pickBackend } from './projectfile.js';
 import { initStatusTips } from './statustips.js';
+import { registerShortcutPreferences, initShortcuts, registerShortcutMenu, registerShortcutAction, parseShortcut } from './shortcuts.js';
 import { saveTextFile, openTextFile } from './filedialog.js';
 import { pickFile } from './filepicker.js';
 import { createModulePreview, parseSynthFile } from './modulepreview.js';
@@ -66,6 +67,7 @@ registerInterfacePreferences(preferencesManager);
 const timelineDisplay = registerTimelinePreferences(preferencesManager, () => seq?.redrawTimeline());
 const pianorollPreferences = registerPianorollPreferences(preferencesManager, () => seq?.redrawPianoroll());
 registerMidiPreferences(preferencesManager, () => midi);
+registerShortcutPreferences(preferencesManager);
 let preferencesLoadError = '';
 try {
   await preferencesManager.load();
@@ -77,6 +79,7 @@ try {
   $('status').textContent = preferencesLoadError;
 }
 const openPreferences = createPreferencesDialog(preferencesManager, { loadError: preferencesLoadError });
+initShortcuts({ preferences: preferencesManager, closeMenu, notify: (message) => { $('status').textContent = message; } });
 const canvas = $('canvas');
 const noiseBg = createNoiseBackground(canvas);
 const svg = $('cables');
@@ -520,6 +523,7 @@ function renderCrumbs() {
   path.forEach((lvl, i) => {
     if (i) nav.append('/');
     const b = document.createElement('button');
+    b.dataset.shortcutAction = `button/patch-level-${i}`;
     // a renamed Patch module shows its own name (looked up now, so renames show up right away)
     const entry = i ? path[i - 1].patch.modules.get(lvl.id) : null;
     b.textContent = entry?.name || lvl.name;
@@ -1154,24 +1158,51 @@ function openPatcherMenu(target, x, y) {
   const cableEl = target.closest('.cable');
   if (entry && !selectedEntries().includes(entry)) select({ kind: 'module', entry });
   else if (!entry && cableEl?.cable && sel?.cable !== cableEl.cable) select({ kind: 'cable', cable: cableEl.cable });
+  showMenu({ x, y, items: patcherMenuItems(entry, { x, y }), shortcutScope: 'patcher' });
+}
+function patcherMenuItems(entry, at, all = false) {
   const mods = selectedEntries();
   const onModule = !!entry;
   const copyable = onModule && mods.some((m) => !m.def.isOutput);
-  const at = { x, y };
   const items = [
     { label: 'Cut', shortcut: shortcut('X'), disabled: !copyable, action: cutSelection },
     { label: 'Copy', shortcut: shortcut('C'), disabled: !copyable, action: copySelection },
     { label: 'Paste', shortcut: shortcut('V'), disabled: !clipboard, action: () => paste(at) },
-    { label: 'Delete', shortcut: '⌫', disabled: !(onModule ? copyable : sel?.kind === 'cable'), action: deleteSelection },
+    { label: 'Delete', shortcut: '⌫', shortcuts: ['Backspace', 'Delete'], disabled: !(onModule ? copyable : sel?.kind === 'cable'), action: deleteSelection },
   ];
   if (onModule && entry.inst.patch) items.push('-', { label: 'Open patch', shortcut: '↵', disabled: mods.length > 1, action: () => openPatch(entry) });
-  if (onModule) items.push('-', { label: mods.length > 1 ? 'Save modules…' : 'Save module…', disabled: !copyable, action: saveModules });
-  else items.push('-', { label: 'Load module…', action: () => openInsertDialog(x, y) });
+  if (onModule) items.push('-', { id: 'save-modules', label: mods.length > 1 ? 'Save modules…' : 'Save module…', disabled: !copyable, action: saveModules });
+  if (!onModule || all) items.push('-', { label: 'Load module…', action: () => openInsertDialog(at?.x, at?.y) });
   if (onModule) items.push({ label: 'Rename…', shortcut: 'F2', disabled: mods.length > 1, action: () => startRename(entry) });
   if (onModule && entry.name) items.push({ label: 'Reset name', action: () => { current().rename(entry.id, ''); showName(entry); drawCables(); } });
   if (onModule) items.push({ label: 'Set Color…', action: () => setModuleColor(entry, mods) });
   items.push('-', { label: 'Snap to Grid', checked: snapGrid, action: () => setSnapGrid(!snapGrid) });
-  showMenu({ x, y, items });
+  return items;
+}
+const patcherShortcutActive = () => document.activeElement === document.body || canvas.contains(document.activeElement);
+registerShortcutMenu('patcher', () => patcherMenuItems(sel?.kind === 'module' ? sel.entry : null, lastPointer, true), { active: patcherShortcutActive });
+registerShortcutAction({
+  id: 'patcher/select-all', label: 'Select all modules', scope: 'patcher', keys: [parseShortcut(shortcut('A'))],
+  active: patcherShortcutActive, run: () => selectEntries([...current().modules.values()]),
+});
+for (const [direction, name, keys] of [
+  [-1, 'Undo', ['Ctrl+z', 'Meta+z']],
+  [1, 'Redo', ['Ctrl+Shift+z', 'Shift+Meta+z', 'Ctrl+y', 'Meta+y']],
+]) registerShortcutAction({
+  id: `history/${name.toLowerCase()}`, label: name, keys,
+  run: () => travelHistory(direction),
+});
+function travelHistory(direction) {
+  const label = direction > 0 ? 'Redo' : 'Undo';
+  if (!undoHistory) {
+    $('status').textContent = 'Nothing to undo / redo.';
+    return;
+  }
+  return undoHistory.travel(direction).then((ok) => {
+    $('status').textContent = ok ? label : 'Nothing to undo / redo.';
+  }).catch((err) => {
+    $('status').textContent = `${label} failed: ${err.message}`;
+  });
 }
 // Right-click a module, cable or the canvas: menu.
 canvas.addEventListener('pointerdown', (e) => {
@@ -1217,17 +1248,8 @@ window.addEventListener('keydown', (e) => {
     && !e.target.closest('input, select, textarea, dialog, [contenteditable]:not([contenteditable="false"])')) {
     e.preventDefault();
     e.stopPropagation();
-    if (!undoHistory) {
-      $('status').textContent = 'Nothing to undo / redo.';
-      return;
-    }
     const direction = k === 'y' || e.shiftKey ? 1 : -1;
-    const label = direction > 0 ? 'Redo' : 'Undo';
-    undoHistory.travel(direction).then((ok) => {
-      $('status').textContent = ok ? label : 'Nothing to undo / redo.';
-    }).catch((err) => {
-      $('status').textContent = `${label} failed: ${err.message}`;
-    });
+    travelHistory(direction);
     return;
   }
   if (e.target.closest('input, select, textarea, dialog, #seq')) return; // #seq handles its own keys; the TimeLine bubbles here
@@ -1383,6 +1405,7 @@ function select(s) {
   }
 
   const entry = s.entry;
+  panel.dataset.shortcutScope = `panel-${entry.def.type.toLowerCase()}`;
   const header = panelHeader(entry.def.label, `#${entry.id}`, colorOf(entry));
   panel.append(header);
   // custom editor of the module's state (e.g. the WAVESHAPER curve), below the controllers
@@ -1537,24 +1560,29 @@ function openMainMenu(focusFirst) {
       mainMenuOpen = false;
       brand.setAttribute('aria-expanded', 'false');
     },
-    items: [
-      { label: 'New', shortcut: shortcut('N'), action: newFile },
-      { label: 'Open…', shortcut: shortcut('O'), action: openFile },
-      { label: 'Save', shortcut: shortcut('S'), action: () => saveCommand(false) },
-      { label: 'Save As…', shortcut: shortcut('⇧S'), action: () => saveCommand(true) },
-      '-',
-      { label: 'Export…', children: [
-        { label: 'Export Audio…', shortcut: shortcut('E'), disabled: exporting, action: exportAudio },
-        { label: 'Export MIDI…', disabled: exportingMidi, action: exportMidiFile },
-      ] },
-      '-',
-      { label: 'Preferences…', action: openPreferences },
-      '-',
-      { label: 'Exit', shortcut: 'Esc', action: () => exitToOS(persist, (message) => { $('status').textContent = message; }) },
-    ],
+    shortcutScope: 'global',
+    items: mainMenuItems(),
   });
   if (focusFirst) document.querySelector('.main-menu .ctx-item')?.focus();
 }
+function mainMenuItems() {
+  return [
+    { label: 'New', shortcut: shortcut('N'), action: newFile },
+    { label: 'Open…', shortcut: shortcut('O'), action: openFile },
+    { label: 'Save', shortcut: shortcut('S'), action: () => saveCommand(false) },
+    { label: 'Save As…', shortcut: shortcut('⇧S'), action: () => saveCommand(true) },
+    '-',
+    { label: 'Export…', children: [
+      { label: 'Export Audio…', shortcut: shortcut('E'), disabled: exporting, action: exportAudio },
+      { label: 'Export MIDI…', disabled: exportingMidi, action: exportMidiFile },
+    ] },
+    '-',
+    { label: 'Preferences…', action: openPreferences },
+    '-',
+    { label: 'Exit', shortcut: 'Esc', action: () => exitToOS(persist, (message) => { $('status').textContent = message; }) },
+  ];
+}
+registerShortcutMenu('global', mainMenuItems, { allowTyping: true });
 brand.addEventListener('click', (e) => {
   if (brandClosesMenu) {
     brandClosesMenu = false;

@@ -59,6 +59,7 @@ import {
 import { createVelocityStrip, VEL_W } from './velocity.js';
 import { clipResizeBounds } from './clipplacement.js';
 import { showMenu, shortcut } from './menu.js';
+import { registerShortcutMenu } from '../shortcuts.js';
 import { doublePress } from '../doublepress.js';
 import { NEW_NOTE_POINT_ROUND } from '../curve.js';
 import { wheelNotches } from '../params.js';
@@ -118,7 +119,7 @@ export function createPianoRoll(host, ctx) {
   let hbHover = false; // the same for the horizontal scrollbar (zoomed in)
   let hbActive = false;
   const presses = doublePress(); // double-click a note body = down-up-DOWN: the new bend point drags at once
-  const menu = (opts) => (ctx.menu ?? showMenu)(opts);
+  const menu = (opts) => (ctx.menu ?? showMenu)({ shortcutScope: 'pianoroll', ...opts });
 
   const s = createSurface(host, paint);
   const { cv } = s;
@@ -1403,29 +1404,30 @@ export function createPianoRoll(host, ctx) {
     const h = bend ? { note: bend.note } : hit(x, y);
     if (h && !selected.has(h.note)) selected = new Set([h.note]);
     s.redraw();
+    menu({ x: cx, y: cy, items: pianoMenuItems({ x, y }) });
+  }
+  function pianoMenuItems(p, all = false) {
+    syncSelection();
+    const bend = p ? bendAt(p.x, p.y) : null;
     const has = selected.size > 0;
-    const p = { x, y };
-    menu({
-      x: cx,
-      y: cy,
-      items: [
+    return [
         { label: 'Cut', shortcut: shortcut('X'), disabled: !has, action: () => { if (copy()) deleteSelected(); } },
         { label: 'Copy', shortcut: shortcut('C'), disabled: !has, action: copy },
         { label: 'Paste', shortcut: shortcut('V'), disabled: !clipboard.length, action: () => paste(p) },
-        { label: 'Delete', shortcut: '⌫', disabled: !has, action: deleteSelected },
+        { label: 'Delete', shortcut: '⌫', shortcuts: ['Backspace', 'Delete'], disabled: !has, action: deleteSelected },
         '-',
         { label: 'Duplicate', shortcut: shortcut('D'), disabled: !has, action: duplicate },
-        { label: has ? 'Quantize selection' : 'Quantize all notes', shortcut: 'Q', disabled: !ctx.clip()?.notes.length, action: quantize },
+        { id: 'quantize', label: has ? 'Quantize selection' : 'Quantize all notes', shortcut: 'Q', disabled: !ctx.clip()?.notes.length, action: quantize },
         { label: 'Octave up', shortcut: '⇧→', disabled: !has, action: () => shift(12, 0) },
         { label: 'Octave down', shortcut: '⇧←', disabled: !has, action: () => shift(-12, 0) },
         { label: 'Reset tuning', disabled: !selectedNotes().some((n) => centsOf(n.pitch)), action: resetTuning },
         { label: 'Reset bend', disabled: !selectedNotes().some((n) => n.bends), action: resetBends },
-        ...(bend ? [{ label: 'Delete bend point', action: () => deleteBend(bend.note, bend.i) }] : []),
+        ...(bend || all ? [{ label: 'Delete bend point', disabled: !bend, action: () => deleteBend(bend.note, bend.i) }] : []),
         '-',
         { label: 'Select all', shortcut: shortcut('A'), disabled: !ctx.clip()?.notes.length, action: selectAll },
-      ],
-    });
+      ];
   }
+  registerShortcutMenu('pianoroll', () => pianoMenuItems(pointer, true), { active: () => document.activeElement === cv && !drag && cv.isConnected });
 
   cv.addEventListener('pointermove', (e) => {
     pointer = s.local(e);

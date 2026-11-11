@@ -14,6 +14,7 @@ import { paramsOf, fromNorm, controllerAt, controllerNumber } from '../params.js
 import { colorOf } from '../modcolor.js';
 import { openClipColorDialog } from '../colordialog.js';
 import { MidiRecorder } from './recording.js';
+import { registerShortcutAction } from '../shortcuts.js';
 
 // controller value as the panel shows it
 const formatValue = (e, p, v) => (p.format ? p.format(v, e.values) : p.options ? p.options[v] : String(+v.toFixed(3)));
@@ -478,6 +479,11 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     if (e.key === ' ' && e.target.closest?.('button')) return;
     e.preventDefault();
     transportAction(e.key);
+  });
+  registerShortcutAction({
+    id: 'transport/toggle-play', label: 'Play / pause from pointer', keys: ['Space'],
+    active: () => !document.activeElement?.closest('button'),
+    run: () => transportAction(' '),
   });
   let frame = 0;
   const loop = () => {

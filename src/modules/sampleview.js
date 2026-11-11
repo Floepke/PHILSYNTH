@@ -15,6 +15,7 @@ import { rightHold } from '../seq/surface.js';
 import { hasMediaDialog, openMediaFile } from '../filedialog.js';
 import { errorText } from '../filepicker.js';
 import { showMenu } from '../seq/menu.js';
+import { registerShortcutMenu } from '../shortcuts.js';
 
 const EDGE_PX = 6; // grab distance of a region edge
 
@@ -288,22 +289,20 @@ export function createSampleView(entry, api, { table = false } = {}) {
     api.endEdit?.();
   };
 
-  const openMenu = (x, y) => {
+  const sampleMenuItems = () => {
     const has = !!getSample(entry.state?.sampleId);
     const { a, b } = selection();
     const part = has && (a > 0 || b < 1);
-    showMenu({
-      x,
-      y,
-      items: [
-        { label: part ? 'Normalize selection' : 'Normalize', disabled: !has, action: () => apply(normalizeRegion, 'Normalize') },
-        { label: part ? 'Center selection' : 'Center', disabled: !has, action: () => apply(centerRegion, 'Center') },
+    return [
+        { id: 'normalize', label: part ? 'Normalize selection' : 'Normalize', disabled: !has, action: () => apply(normalizeRegion, 'Normalize') },
+        { id: 'center', label: part ? 'Center selection' : 'Center', disabled: !has, action: () => apply(centerRegion, 'Center') },
         '-',
-        { label: 'Delete region', shortcut: '⌫', disabled: !part, action: cut },
+        { label: 'Delete region', shortcut: '⌫', shortcuts: ['Backspace', 'Delete'], disabled: !part, action: cut },
         { label: 'Select all', disabled: !has, action: selectAll },
-      ],
-    });
+      ];
   };
+  const openMenu = (x, y) => showMenu({ x, y, items: sampleMenuItems(), shortcutScope: 'sample' });
+  registerShortcutMenu('sample', sampleMenuItems, { active: () => !table && cv.isConnected && document.activeElement === cv });
 
   if (!table) {
     cv.tabIndex = 0; // focus for Backspace (keeps it away from the patcher, which would delete the module)

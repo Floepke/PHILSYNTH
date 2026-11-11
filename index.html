@@ -66,6 +66,17 @@
     </div>
   </footer>
 
+  <dialog id="shortcut-dialog" tabindex="-1" aria-labelledby="shortcut-title" aria-describedby="shortcut-description">
+    <h3 id="shortcut-title">Learn keyboard shortcut</h3>
+    <p id="shortcut-description"></p>
+    <p id="shortcut-current" hidden>Current shortcut: <strong id="shortcut-current-value"></strong></p>
+    <p id="shortcut-message" role="status" aria-live="polite"></p>
+    <menu>
+      <button id="shortcut-reset" type="button" hidden>Restore default</button>
+      <button id="shortcut-cancel" type="button" autofocus>Cancel</button>
+    </menu>
+  </dialog>
+
   <dialog id="insert-dialog">
     <form method="dialog">
       <h3>Insert module</h3>

@@ -15,6 +15,7 @@
 // clipboard is shared between picker sessions, and deletion is permanent after confirmation.
 import { confirmDialog } from './dialogs.js';
 import { showMenu } from './seq/menu.js';
+import { registerShortcutMenu } from './shortcuts.js';
 
 let clipboard = null;
 
@@ -443,14 +444,9 @@ export async function pickFile(files, opts, doc = document) {
     }
   }
 
-  on(list, 'contextmenu', (e) => {
-    e.preventDefault();
-    if (busy || editing) return;
-    const row = e.target.closest('.fd-row[data-i]');
-    const entry = row ? entries[+row.dataset.i] : null;
-    if (entry) select(+row.dataset.i, { scroll: false });
+  function fileMenuItems(entry, row) {
     const destination = entry?.dir ? entry.path : dir;
-    const items = entry ? [
+    return entry ? [
       { label: 'Cut', action: () => { clipboard = { ...entry, cut: true }; } },
       { label: 'Copy', action: () => { clipboard = { ...entry, cut: false }; } },
       { label: 'Paste', disabled: !clipboard, action: () => paste(destination) },
@@ -458,7 +454,17 @@ export async function pickFile(files, opts, doc = document) {
       { label: 'Rename', action: () => renameEntry(entry, row) },
       { label: 'Delete', action: () => removeEntry(entry) },
     ] : [{ label: 'Paste', disabled: !clipboard, action: () => paste(destination) }];
-    menu = showMenu({ x: e.clientX, y: e.clientY, items, container: dlg, className: 'fd-context-menu', onClose: () => { menu = null; } });
+  }
+  const unregisterShortcuts = registerShortcutMenu('filepicker', () => fileMenuItems(
+    entries[sel], list.querySelector(`.fd-row[data-i="${sel}"]`),
+  ), { active: () => dlg.open && !busy && !editing && doc.activeElement === list, dialog: 'file-dialog' });
+  on(list, 'contextmenu', (e) => {
+    e.preventDefault();
+    if (busy || editing) return;
+    const row = e.target.closest('.fd-row[data-i]');
+    const entry = row ? entries[+row.dataset.i] : null;
+    if (entry) select(+row.dataset.i, { scroll: false });
+    menu = showMenu({ x: e.clientX, y: e.clientY, items: fileMenuItems(entry, row), shortcutScope: 'filepicker', container: dlg, className: 'fd-context-menu', onClose: () => { menu = null; } });
   });
 
   on(list, 'click', (e) => {
@@ -519,6 +525,7 @@ export async function pickFile(files, opts, doc = document) {
     on(dlg, 'close', () => {
       stopPreview();
       menu?.();
+      unregisterShortcuts();
       ac.abort();
       editing = null;
       resolve(result);

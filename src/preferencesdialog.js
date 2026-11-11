@@ -32,7 +32,12 @@ export function createPreferencesDialog(preferencesManager, { loadError = '' } =
       section.append(title);
       const id = `pref-${item.id.replaceAll('.', '-')}`;
       let set;
-      if (item.type === 'color') {
+      if (item.type === 'shortcuts') {
+        const summary = document.createElement('p');
+        summary.className = 'dialog-note';
+        set = (value) => { summary.textContent = `${Object.keys(value).length} custom shortcut(s). Right-click a button or menu action to change its shortcut.`; };
+        section.append(summary);
+      } else if (item.type === 'color') {
         const sliders = [];
         const outputs = [];
         const group = document.createElement('div');

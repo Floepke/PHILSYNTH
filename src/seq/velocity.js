@@ -21,6 +21,7 @@ import { pianoTimeStep, snapRound, clean, notePoints, noteVelAt, applyVelLine } 
 import { curvePolyline, NEW_NOTE_POINT_ROUND } from '../curve.js';
 import { doublePress } from '../doublepress.js';
 import { capture, clamp } from './surface.js';
+import { registerShortcutMenu } from '../shortcuts.js';
 
 export const VEL_W = 84; // default width; the piano roll's ruler drags it wider (o.width())
 const PAD = 7;
@@ -42,6 +43,28 @@ export function createVelocityStrip(o) {
   let selectedPoints = new Set();
   let selectionClip = null;
   const presses = doublePress(); // double-click = down-up-DOWN: the new point drags at once
+  const pointMenuItems = (p) => {
+    const target = group;
+    return [{
+      label: 'Delete point', disabled: !p || p.start === true,
+      action: () => {
+        if (sync() !== target) return;
+        const targets = p && !p.start ? targetsFor(p) : [];
+        for (const { note, point } of targets) {
+          note.vels = note.vels.filter((v) => v !== point);
+          if (!note.vels.length) delete note.vels;
+        }
+        if (!targets.length) return;
+        hover = null;
+        o.changed();
+        o.redraw();
+      },
+    }];
+  };
+  registerShortcutMenu('velocity', () => {
+    sync();
+    return pointMenuItems(hover?.kind === 'point' ? group?.points[hover.i] : null);
+  }, { active: () => o.cv.isConnected && document.activeElement === o.cv && !drag && !line, context: 'pianoroll' });
 
   const W = () => o.width?.() ?? VEL_W;
   const xv = (v) => PAD + v * (W() - 2 * PAD);
@@ -429,22 +452,11 @@ export function createVelocityStrip(o) {
         if (!o.clip()) return true;
         presses.reset();
         const i = pointAt(x, y);
-        const target = group;
         const p = group?.points[i];
-        const targets = p && !p.start ? targetsFor(p) : [];
-        const deletePoint = () => {
-          if (sync() !== target || !targets.length) return;
-          for (const { note, point } of targets) {
-            note.vels = note.vels.filter((p) => p !== point);
-            if (!note.vels.length) delete note.vels;
-          }
-          hover = null;
-          o.changed();
-          o.redraw();
-        };
+        const items = pointMenuItems(p);
         e.preventDefault();
         o.selectRect(e, x, y, () => {
-          if (i >= 0) o.menu({ x: e.clientX, y: e.clientY, items: [{ label: 'Delete point', disabled: p.start === true, action: deletePoint }] });
+          if (i >= 0) o.menu({ x: e.clientX, y: e.clientY, items, shortcutScope: 'velocity' });
           else {
             selectedPoints.clear();
             o.setSelected(new Set());

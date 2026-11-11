@@ -9,6 +9,7 @@
 // Right-click: Copy / Paste ADSR between the envelope editors of all modules (app-internal clipboard).
 import { attackLevel, decayLevel, releaseLevel } from './adsrcurve.js';
 import { showMenu } from '../seq/menu.js';
+import { registerShortcutMenu } from '../shortcuts.js';
 
 const T_MIN = 0.001;
 const T_MAX = 10; // default lane range (OSC)
@@ -255,13 +256,7 @@ export function createAdsrView({ color = '#db7c3d', values, params, setParam, be
     endEdit?.();
   });
 
-  cv.addEventListener('contextmenu', (ev) => {
-    ev.preventDefault();
-    ev.stopPropagation();
-    showMenu({
-      x: ev.clientX,
-      y: ev.clientY,
-      items: [
+  const envelopeMenuItems = () => [
         { label: 'Copy ADSR', action: () => { clipboard = copyAdsr(vals, params); } },
         {
           label: 'Paste ADSR',
@@ -274,8 +269,14 @@ export function createAdsrView({ color = '#db7c3d', values, params, setParam, be
             endEdit?.();
           },
         },
-      ],
-    });
+      ];
+  registerShortcutMenu('envelope', envelopeMenuItems, { active: () => cv.isConnected && document.activeElement === cv });
+  cv.tabIndex = 0;
+  cv.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    cv.focus();
+    showMenu({ x: ev.clientX, y: ev.clientY, items: envelopeMenuItems(), shortcutScope: 'envelope' });
   });
 
   new ResizeObserver(draw).observe(cv);

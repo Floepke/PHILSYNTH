@@ -33,8 +33,9 @@ export function createPreferencesManager({ storage = preferencesStorage() } = {}
     const valid = item.type === 'color' ? typeof value === 'string' && /^#[0-9a-f]{6}$/.test(value)
       : item.type === 'boolean' ? typeof value === 'boolean'
         : item.type === 'number' ? Number.isFinite(value) && value >= item.min && value <= item.max
-          : item.type === 'select' && typeof value === 'string' &&
-            (typeof item.options === 'function' ? item.options(value) : item.options).some((o) => o.value === value);
+          : item.type === 'shortcuts' ? !!value && typeof value === 'object' && !Array.isArray(value)
+            : item.type === 'select' && typeof value === 'string' &&
+              (typeof item.options === 'function' ? item.options(value) : item.options).some((o) => o.value === value);
     if (!valid || (item.validate && !item.validate(value))) throw new Error(`Invalid value for ${item.label}`);
   }
   const get = (id) => {
@@ -50,7 +51,7 @@ export function createPreferencesManager({ storage = preferencesStorage() } = {}
         throw new Error('A preference needs an id, category and label');
       }
       if (definitions.has(item.id)) throw new Error(`Preference "${item.id}" is already registered`);
-      if (!['color', 'boolean', 'number', 'select'].includes(item.type)) throw new Error(`Unsupported preference type "${item.type}"`);
+      if (!['color', 'boolean', 'number', 'select', 'shortcuts'].includes(item.type)) throw new Error(`Unsupported preference type "${item.type}"`);
       if (item.type === 'number' && (!Number.isFinite(item.min) || !Number.isFinite(item.max) || item.min > item.max)) {
         throw new Error('Number preferences need a valid min and max');
       }

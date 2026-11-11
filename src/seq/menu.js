@@ -1,6 +1,8 @@
 // Right-click menu for the sequencer views (DOM overlay, closes on any outside press, Escape,
 // outside scrolling or window blur). Nested children fold inline; menus grow to fit and scroll within the window.
-//   showMenu({ x, y (client px), items: [{ label, shortcut?, disabled?, checked?, action?, children? } | '-'], className?, onClose?, container? }) -> close()
+//   showMenu({ x, y (client px), items: [{ id?, label, shortcut?, shortcuts?, disabled?, checked?, action?, children? } | '-'], className?, onClose?, container?, shortcutScope? }) -> close()
+import { menuActionId, shortcutRegistry } from '../shortcuts.js';
+
 let current = null;
 
 const MAC = /Mac|iPhone|iPad/.test(globalThis.navigator?.platform ?? '');
@@ -11,14 +13,14 @@ export function closeMenu() {
   current?.();
 }
 
-export function showMenu({ x, y, items, className = '', onClose = null, container = document.body }) {
+export function showMenu({ x, y, items, className = '', onClose = null, container = document.body, shortcutScope = null }) {
   closeMenu();
   const el = document.createElement('div');
   el.className = className ? `ctx-menu ${className}` : 'ctx-menu';
   el.setAttribute('role', 'menu');
   el.tabIndex = -1;
   const entries = [];
-  function appendItems(items, parent, depth = 0, ancestors = []) {
+  function appendItems(items, parent, depth = 0, ancestors = [], path = []) {
     for (const item of items) {
       if (item === '-') {
         const sep = document.createElement('div');
@@ -59,7 +61,9 @@ export function showMenu({ x, y, items, className = '', onClose = null, containe
         label.prepend(check);
       }
       const key = document.createElement('kbd');
-      key.textContent = item.shortcut ?? '';
+      const actionId = shortcutScope ? menuActionId(shortcutScope, item, path) : null;
+      if (actionId && item.action && !item.children) b.setAttribute('data-shortcut-action', actionId);
+      key.textContent = actionId ? shortcutRegistry.label(actionId, item.shortcut ?? '') : item.shortcut ?? '';
       b.append(label, key);
       b.addEventListener('pointerdown', (e) => e.preventDefault()); // keep focus in the view
       b.addEventListener('click', () => {
@@ -72,7 +76,8 @@ export function showMenu({ x, y, items, className = '', onClose = null, containe
       parent.append(b);
       if (group) {
         parent.append(group);
-        appendItems(item.children, group, depth + 1, [...ancestors, entry]);
+        const childPath = shortcutScope ? menuActionId(shortcutScope, item, path).slice(shortcutScope.length + 1).split('/') : [];
+        appendItems(item.children, group, depth + 1, [...ancestors, entry], childPath);
       }
     }
   }

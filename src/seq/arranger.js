@@ -56,6 +56,7 @@ import {
 } from './surface.js';
 import { CLIP_H, clipsOverlap, findClipPosition, clipResizeBounds } from './clipplacement.js';
 import { showMenu, shortcut } from './menu.js';
+import { registerShortcutMenu } from '../shortcuts.js';
 
 const SIG_H = CLIP_H; // time signature row on top of the ruler
 const RULER = 2 * CLIP_H; // signature row and bar numbers
@@ -101,7 +102,7 @@ export function createArranger(host, ctx) {
   let lastRight = null; // { time, x, y } of the last right-button press on empty space
   let sel = new Set(); // selected clip ids; song.selected (the clip in the piano roll) is one of them
   let rect = null; // selection rectangle in progress: { x0, y0, x1, y1, ids }
-  const menu = (opts) => (ctx.menu ?? showMenu)(opts);
+  const menu = (opts) => (ctx.menu ?? showMenu)({ ...opts, shortcutScope: 'timeline' });
   let blinkTimer = null;
   let blinkDue = 0;
   // the border of selected clips pulses white / grey; repaint at each switch while any is shown
@@ -1261,17 +1262,25 @@ export function createArranger(host, ctx) {
   function openMenu(x, y, cx, cy) {
     const h = hit(x, y);
     if (h && !sel.has(h.clip.id)) setSelection([h.clip], h.clip);
+    menu({ x: cx, y: cy, items: timelineMenuItems({ x, y }, h) });
+  }
+  function timelineMenuItems(p, h, all = false) {
+    const { x, y } = p;
     const clips = h ? selectedClips() : [];
-    const p = { x, y };
+    const insertionItems = [
+      { label: 'Insert clip', disabled: !inTimeArea(p), action: () => insert(x, y, false) },
+      { label: 'Insert automation clip', disabled: !inTimeArea(p), action: () => insert(x, y, true) },
+      { label: 'Load Clip…', disabled: !ctx.openClips || !inTimeArea(p), action: () => loadClips(p) },
+    ];
     const items = h
       ? [
         { label: 'Cut', shortcut: shortcut('X'), action: () => { if (copy()) remove(); } },
         { label: 'Copy', shortcut: shortcut('C'), action: copy },
         { label: 'Paste', shortcut: shortcut('V'), disabled: !clipboard, action: () => paste(p) },
-        { label: 'Delete', shortcut: '⌫', action: remove },
+        { label: 'Delete', shortcut: '⌫', shortcuts: ['Backspace', 'Delete'], action: remove },
         { label: 'Set Clip Color', disabled: !ctx.setClipColor, action: () => ctx.setClipColor(clips, h.clip) },
         '-',
-        { label: 'Duplicate', action: () => repeat(false) },
+        { label: 'Duplicate', shortcuts: [shortcut('⇧D')], action: () => repeat(false) },
         { label: 'Clone (linked)', shortcut: shortcut('D'), action: () => repeat(true) },
         { label: 'Detach clone', disabled: !clips.some((c) => isLinked(ctx.song(), c)), action: detach },
         { label: 'Go to source', disabled: !(h && isClone(ctx.song(), h.clip)), action: () => goToSource(h.clip) },
@@ -1279,7 +1288,7 @@ export function createArranger(host, ctx) {
         { label: 'Consolidate', disabled: !canConsolidate(ctx.song(), clips), action: consolidate },
         { label: 'Split at playhead', shortcut: 'S', disabled: !splittable().length, action: split },
         '-',
-        { label: clips.length > 1 ? 'Save Clips…' : 'Save Clip…', disabled: !ctx.saveClips, action: () => ctx.saveClips(clips) },
+        { id: 'save-clips', label: clips.length > 1 ? 'Save Clips…' : 'Save Clip…', disabled: !ctx.saveClips, action: () => ctx.saveClips(clips) },
         { label: 'Import MIDI…', disabled: !ctx.openMidi || !inTimeArea(p), action: () => importMidi(p) },
         '-',
         signatureItem(x),
@@ -1290,9 +1299,7 @@ export function createArranger(host, ctx) {
       : [
         { label: 'Paste', shortcut: shortcut('V'), disabled: !clipboard, action: () => paste(p) },
         '-',
-        { label: 'Insert clip', action: () => insert(x, y, false) },
-        { label: 'Insert automation clip', action: () => insert(x, y, true) },
-        { label: 'Load Clip…', disabled: !ctx.openClips || !inTimeArea(p), action: () => loadClips(p) },
+        ...insertionItems,
         { label: 'Import MIDI…', disabled: !ctx.openMidi || !inTimeArea(p), action: () => importMidi(p) },
         '-',
         signatureItem(x),
@@ -1300,8 +1307,12 @@ export function createArranger(host, ctx) {
         '-',
         { label: 'Select all', shortcut: shortcut('A'), disabled: !ctx.song().clips.length, action: selectAll },
       ];
-    menu({ x: cx, y: cy, items });
+    return all && h ? [...items, ...insertionItems] : items;
   }
+  registerShortcutMenu('timeline', () => {
+    const selected = selectedClips()[0];
+    return timelineMenuItems(pointer ?? { x: x0, y: RULER + 1 }, selected ? { clip: selected } : null, true);
+  }, { active: () => document.activeElement === cv && !dragging && cv.isConnected });
 
   function sigAt(x, y) {
     if (y >= SIG_H || x < x0) return null;

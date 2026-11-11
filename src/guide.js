@@ -320,6 +320,16 @@ export const GUIDE = [
         ],
       },
       {
+        title: 'Custom keyboard shortcuts',
+        items: [
+          'Right-click a button or an action in a menu to open <b>Learn keyboard shortcut</b>. The current shortcut, if assigned, is shown in bold. Press a key or combination such as <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>A</kbd>; the first available combination is saved automatically. <b>Cancel</b> or Escape leaves the mapping unchanged.',
+          'Conflicting shortcuts are explained in the dialog; choose a different combination. Editor menu actions use the current selection and pointer in the focused editor, not the item originally right-clicked. Button shortcuts operate on the currently visible button. Shortcuts do not interfere with typing in text fields, except modified global menu commands.',
+          'TimeLine <b>Insert clip</b>, <b>Insert automation clip</b> and <b>Load Clip…</b> shortcuts remain available with a clip selected. Move the pointer to the desired position in the TimeLine before using them.',
+          'A custom shortcut replaces the action\'s default keys. Right-click the action again and choose <b>Restore default</b> to undo its mapping, or use <b>Preferences… > Keyboard > Custom shortcuts > Reset to default</b> and save to reset all mappings. Mappings are device preferences, not project data.',
+          'Escape, Tab and F11 remain reserved for navigation and full screen. Unmodified piano keys assigned to actions trigger those actions instead of playing notes. Some browser and operating-system combinations cannot be captured.',
+        ],
+      },
+      {
         title: 'Export audio',
         items: [
           'Renders the song offline from its start to the end of the last clip plus up to 10 s of tail. Choose WAV (24-bit stereo at the device sample rate), MP3 (maximum 320 kbps), or Ogg Vorbis (maximum quality 10) in the save picker, or type the corresponding extension. Browsers without a native save picker download WAV. Encoding is local and cancellable. The status bar warns when the mix clips. Export formats do not change sampler storage.',
