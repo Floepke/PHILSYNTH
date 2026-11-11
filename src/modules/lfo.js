@@ -7,7 +7,8 @@
 //   Amplitude: depth of the wave around its centre (100 % = full swing, 0 % = steady at the middle).
 //   Out Controller: controller number (0..) of the connected module(s) to modulate.
 //   Out Min / Out Max: modulation range in % of that controller's slider range (applied after Amplitude).
-//   LFO On/Off: pauses/resumes the wave at its remembered phase; MIDI notes still reset it while Off.
+//   LFO On/Off: Off leaves controllers untouched and bypasses audio; On resumes the remembered phase.
+//   MIDI notes still reset phase while Off.
 // Mode selects controller modulation, audio amplitude modulation, or stereo panning.
 import { modulatorParams, outParams, pct } from './modtarget.js';
 import { syncedPeriod, MIDI_UNIT, SYNCED_FREQS } from './lfo.dsp.js';

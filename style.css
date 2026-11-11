@@ -403,7 +403,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 44px;
+  height: 33px;
   margin-bottom: 6px;
   padding: 0 12px;
   overflow: hidden;
@@ -1409,7 +1409,7 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
 /* a route: its controller (narrow), then its own Min / Max controllers, which take the rest of
    the panel's width; all as tall as the other controllers */
 .mc-route { display: grid; grid-template-columns: 120px minmax(0, 1fr) minmax(0, 1fr); gap: 4px; align-items: center; }
-.mc-target .mc-select { height: 44px; }
+.mc-target .mc-select { height: 33px; }
 .ctl.mc-mini { margin: 0; padding: 0 8px; gap: 5px; }
 .ctl.mc-mini .ctl-label { flex: none; }
 .ctl.mc-mini .ctl-value { margin-left: auto; }
@@ -1606,8 +1606,16 @@ dialog .sig-ok { order: 1; }
   transform: rotate(45deg);
 }
 .ctx-item kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font: 11px var(--mono);
+  height: calc(1lh + 5px);
   color: var(--text-dim);
+}
+.ctx-item kbd .ctx-key-symbol {
+  font-size: 1.5em;
+  line-height: 0.5;
 }
 .ctx-item:disabled kbd {
   color: var(--text-faint);

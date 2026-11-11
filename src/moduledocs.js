@@ -281,7 +281,7 @@ export const DOCS = {
       level: 'Output level after shaping (0–2×).',
     },
     notes: [
-      '<b>Curve editor</b> (below the controllers): horizontal = input voltage after Drive; vertical = shaped output. These are normalized audio values (1 = max, not physical volts). Hover inside the graph to trace input → curve → output with dashed guides and a numeric readout. Rounded control points may lie away from the actual curve; the hover marker follows the rounded curve.',
+      '<b>Curve editor</b> (below the controllers): the shared WAVESHAPER / ENVELOPE editor uses a responsive 16:9 widescreen layout. Horizontal = input voltage after Drive; vertical = shaped output. These are normalized audio values (1 = max, not physical volts). Hover inside the graph to trace input → curve → output with dashed guides and a numeric readout. Rounded control points may lie away from the actual curve; the hover marker follows the rounded curve.',
       'The dashed diagonal is the identity mapping at the curve stage. Input beyond ±1 is clamped to the endpoints. The wet signal then passes through an 8 Hz DC-removal filter, is mixed with the dry input, and multiplied by Output level, so the graph is not the final output voltage. The curve is saved with the project.',
     ],
   },
@@ -427,7 +427,7 @@ export const DOCS = {
     summary: 'Low-frequency oscillator: MODE selects a repeating controller wave, audio amplitude modulation, or stereo panning.',
     params: {
       mode: 'Controller 10. Controller Modulation (default) drives Out Controller of connected modules and ignores incoming audio. Amp (audio modulation) multiplies incoming sound by the wave. Panning (audio modulation) balances incoming stereo sound: Out Min / Out Max set the pan range (0 % left, 50 % center, 100 % right). The center preserves both channels; toward either side the opposite channel is reduced linearly.',
-      enabled: 'On (default) runs the LFO. Off pauses it at its current phase and holds the wave level, including audio tremolo; output trimming remains live. On resumes from the remembered phase. Incoming MIDI notes still set Phase plus the note phase while paused; changing the Phase controller alone does not reset an already-running LFO.',
+      enabled: 'On (default) runs the LFO. Off pauses it at its current phase and stops changing controllers: you can choose Out Controller or adjust its range without altering connected controllers. In both audio modes, Off passes the original input sound through unchanged, ignoring amplitude and pan settings. On resumes from the remembered phase. Incoming MIDI notes still set Phase plus the note phase while paused; changing the Phase controller alone does not reset an already-running LFO.',
       freq: 'Speed of the wave: 0.01–50 Hz, or (with a synced Frequency Unit) a cycle length in note values, which the slider snaps to. Ignored with Frequency Unit MIDI Pitch.',
       unit: 'Hz runs freely; 1/4, 1/8 or 1/16 syncs the cycle to note lengths at the BPM of this patch level\'s Output. <i>MIDI Pitch</i> runs the wave at the frequency of the incoming note (A4 = 440 Hz), following pitch bends; Frequency is ignored. Notes come from a clip sent to the LFO or a MULTIMIDI (or other MIDI module) cabled into it. With no note held it keeps the last pitch; before the first note it stands still.',
       wave: 'Shape of the wave: Sine, Triangle, Saw, Square, Random (smooth step) (smoothstep ramps between random values), Random (steps) (holds a random value, choosing a new one each Frequency cycle), or Random (linear) (straight ramps between random values).',
@@ -469,12 +469,12 @@ export const DOCS = {
     params: {
       length: 'Duration of the whole curve, 0–10,000 ms (0 jumps straight to the end).',
       ...MOD_PARAMS,
-      mode: '<i>Note ON Trigger</i>: every note plays the curve once from the start and then holds the last value; note-off is ignored. <i>Notes ON/OFF Loop</i>: the first note starts it, it repeats while any note is held, and releasing the last note stops it where it is; the next note starts over. <i>Notes ON/OFF Loop Forward/Backwards</i>: the same, but the curve plays forwards and backwards in turn (ping-pong).',
+      mode: '<i>Note ON Trigger</i>: every note plays the curve once from the start, applies its end value, then stops modulation; note-off is ignored so a triggered curve always finishes. <i>Notes ON/OFF Loop</i>: the first note starts it, it repeats while any note is held, and releasing the last note stops modulation; the next note starts over. <i>Notes ON/OFF Loop Forward/Backwards</i>: the same, but the curve plays forwards and backwards in turn (ping-pong).',
     },
     notes: [
-      '<b>Curve editor</b> (below the controllers): left to right is time over Envelope Length, bottom = Out Min, top = Out Max. While the envelope plays, a white dot follows the curve.',
+      '<b>Curve editor</b> (below the controllers): the shared ENVELOPE / WAVESHAPER editor uses a responsive 16:9 widescreen layout. Left to right is time over Envelope Length, bottom = Out Min, top = Out Max. While the envelope plays, a white dot follows the curve.',
       '<b>Start phase</b>: a note starts the curve at its phase (from a MULTIMIDI\'s Phase / Random Phase): 0 % = the start of the curve, 50 % = halfway. Notes without a phase start at the beginning. In the loop modes only the note that starts the loop sets it.',
-      '<b>Before the first note</b> (after loading or a panic): in Note ON Trigger mode the envelope holds the curve\'s end, just like after a finished note, so the first note behaves exactly like every later one. In the loop modes it holds the curve\'s start.',
+      '<b>While idle</b> (before the first note, after playback finishes or stops, and after a panic): connected controllers are left untouched. Choosing Out Controller, editing the curve or adjusting the output range does not apply modulation until the next trigger. Controllers keep their last applied values and can be edited freely.',
       MOD_CABLE, NOTES_IN,
     ],
   },

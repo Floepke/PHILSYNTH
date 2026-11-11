@@ -249,6 +249,7 @@ export default {
         default: p.default ?? p.min,
         ...(p.step !== undefined ? { step: p.step } : {}),
         ...(p.wheelStep ? { wheelStep: p.wheelStep } : {}),
+        ...(p.wheelSingleStep ? { wheelSingleStep: p.wheelSingleStep } : {}),
         ...(p.scale ? { scale: p.scale } : {}),
         ...(p.options ? { options: p.options } : {}),
         ...(p.snapValues ? { snapValues: () => p.snapValues(t.values) } : {}),

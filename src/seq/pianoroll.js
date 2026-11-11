@@ -44,7 +44,7 @@
 //   Ctrl/Cmd + X / C / V        cut / copy / paste notes at the pointer's snapped time
 //   Ctrl/Cmd + D                duplicate the selection right after itself
 //   Ctrl/Cmd + A, Escape        select all / clear the selection
-//   Q                           quantize note starts and ends to the grid (selection, else all notes)
+//   Shift + Q                   quantize note starts and ends to the grid (selection, else all notes)
 //   Space                       toggle song playback from the pointer's snapped time
 // The velocity strip on the left edits the velocity (curves) of the selected notes, see velocity.js.
 // Drag the bar ruler sideways to resize the velocity strip, vertically to zoom time.
@@ -1422,7 +1422,7 @@ export function createPianoRoll(host, ctx) {
         { label: 'Delete', shortcut: '⌫', shortcuts: ['Backspace', 'Delete'], disabled: !has, action: deleteSelected },
         '-',
         { label: 'Duplicate', shortcut: shortcut('D'), disabled: !has, action: duplicate },
-        { id: 'quantize', label: has ? 'Quantize selection' : 'Quantize all notes', shortcut: 'Q', disabled: !ctx.clip()?.notes.length, action: quantize },
+        { id: 'quantize', label: has ? 'Quantize selection' : 'Quantize all notes', shortcut: '⇧Q', disabled: !ctx.clip()?.notes.length, action: quantize },
         { label: 'Octave up', shortcut: '⇧→', disabled: !has, action: () => shift(12, 0) },
         { label: 'Octave down', shortcut: '⇧←', disabled: !has, action: () => shift(-12, 0) },
         { label: 'Reset tuning', disabled: !selectedNotes().some((n) => centsOf(n.pitch)), action: resetTuning },
@@ -1448,7 +1448,7 @@ export function createPianoRoll(host, ctx) {
     const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
     const deleting = key === 'backspace' || key === 'delete';
     const arrow = plain && ['arrowleft', 'arrowright', 'arrowup', 'arrowdown'].includes(key);
-    const quant = plain && !e.shiftKey && key === 'q';
+    const quant = plain && e.shiftKey && key === 'q';
     if (!deleting && !arrow && !quant && !(command && ['a', 'x', 'c', 'v', 'd'].includes(key)) && key !== 'escape') return;
     if (key === 'escape' && !drag) {
       syncSelection();

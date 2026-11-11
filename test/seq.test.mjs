@@ -582,7 +582,7 @@ const assertNoOverlap = (song) => {
   drag(cv, nx(60), ny(1.37) + 5, nx(62), ny(1.37) + 5 + 7);
   assert.equal(clip.notes[0].pitch, 62);
   assert.ok(Math.abs(clip.notes[0].start - (1.37 + 7 / 48)) < 1e-6, 'head movement is unsnapped');
-  key(cv, 'q');
+  key(cv, 'q', { shiftKey: true });
   assert.equal(clip.notes[0].start, 1.5, 'explicit Quantize still uses the grid');
   assert.equal(normalizeSong(song).snap.free, true, 'Free timing survives project normalization');
   assert.equal(normalizeSong({ snap: { free: 'true' } }).snap.free, undefined, 'old or invalid settings remain snapped');
@@ -1641,7 +1641,7 @@ for (const end of ['lostpointercapture', 'pointercancel']) {
   assert.ok(keyFill(61), 'key rect found');
 }
 
-// Ctrl/Cmd + D duplicates the selection right after itself; Q quantizes; new notes get the last length.
+// Ctrl/Cmd + D duplicates the selection right after itself; Shift+Q quantizes; new notes get the last length.
 {
   const { clip, roll } = setup();
   const cv = roll.surface.cv;
@@ -1652,6 +1652,8 @@ for (const end of ['lostpointercapture', 'pointercancel']) {
   clip.notes.length = 0;
   clip.notes.push(note(60, 0.3), note(62, 1.8));
   key(cv, 'q');
+  assert.deepEqual(clip.notes.map((n) => n.start), [0.3, 1.8], 'plain Q leaves notes unchanged for the piano keyboard');
+  key(cv, 'Q', { shiftKey: true });
   assert.ok(clip.notes.every((n) => Number.isInteger(n.start * 4) && Number.isInteger((n.start + n.length) * 4)), JSON.stringify(clip.notes));
   clip.notes.length = 0;
   drag(cv, nx(60), ny(4), nx(60), ny(6));
@@ -1671,14 +1673,14 @@ for (const snap of [{ base: 16, div: 1 }, { base: 8, div: 3 }, { base: 4, div: 1
     note(64, st * 3.8, st * 0.1), // both edges round to the same point
     note(65, -st * 0.4, st * 0.5),
   );
-  key(roll.surface.cv, 'q');
+  key(roll.surface.cv, 'q', { shiftKey: true });
   const clean = v => Math.round(v * 1e9) / 1e9;
   assert.deepEqual(clip.notes.map(n => [n.start, n.length]), [
     [clean(st), clean(2 * st)], [clean(st), clean(2 * st)],
     [clean(4 * st), clean(st)], [0, clean(st)],
   ]);
   assert.equal(changes(), 1, 'quantizing all notes is one edit');
-  key(roll.surface.cv, 'q');
+  key(roll.surface.cv, 'q', { shiftKey: true });
   assert.equal(changes(), 1, 'already quantized notes do not create another edit');
 }
 

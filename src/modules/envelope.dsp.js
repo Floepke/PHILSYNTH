@@ -1,17 +1,15 @@
 // ENVELOPE kernel (see src/dsp/kernel.js), control rate: steps once per render quantum on the
 // audio clock. Every note (noteOn) plays the drawn curve (module state, { type: 'curve', curve })
-// once from its start, stretched over Envelope Length; afterwards it holds the curve's end value.
-// Its value (0..1) is mapped by the engine graph onto the controllers its cables point to. Until
-// the first note (and after a panic) it holds its idle value, so output trimming is live: in Note
-// ON Trigger mode the curve's end (what a finished note leaves, so the first note after loading
-// behaves exactly like every later one), in the loop modes the curve's start.
+// once from its start, stretched over Envelope Length; its final value is applied once.
+// Its value (0..1) is mapped by the engine graph onto the controllers its cables point to.
+// While idle it emits null, leaving controllers untouched, including before the first note and after panic.
 // A note starts the curve at its MODMIDI phase (0..1, e.g. a MULTIMIDI's Phase): 0 = the start,
 // 0.5 = halfway through (forward in ping-pong mode).
 // Mode (Graph param 'mode'):
-//   0 Note ON Trigger: every note restarts the curve; it plays once and holds the end value.
+//   0 Note ON Trigger: every note restarts the curve; it plays once, then stops modulation.
 //   1 Notes ON/OFF Loop: the first note (no other note held) starts the curve, which repeats
 //     from its start while any note is held; releasing the last note stops it right there (the
-//     value holds). The next note starts over from the beginning.
+//     controller is left untouched). The next note starts over from the beginning.
 //   2 Notes ON/OFF Loop Forward/Backwards: like 1, but the playhead runs forward, then back
 //     (ping-pong) instead of jumping to the start.
 // `meter` reports the playhead (0..1 through the curve, -1 when not playing) for the panel's dot.
@@ -31,20 +29,15 @@ export default class EnvelopeKernel extends Kernel {
     this.mode = 0;
     this.held = new Set(); // ids of the notes held (loop modes)
     this.running = false;
-    this.triggered = false;
-    this.value = this.idle();
+    this.value = null;
     this.meter = -1;
   }
-
-  // the value before the first note (see the top)
-  idle() { return this.at(this.mode === 0 ? 1 : 0); }
 
   param(id, v) {
     if (id === 'length') this.length = Math.max(0, v) / 1000;
     else if (id === 'mode') {
       this.mode = Math.min(2, Math.max(0, Math.round(v)));
-      if (this.mode !== 0 && this.running && !this.held.size) this.running = false;
-      if (!this.triggered) this.value = this.idle();
+      if (this.mode !== 0 && this.running && !this.held.size) this.stop();
     }
   }
 
@@ -54,7 +47,6 @@ export default class EnvelopeKernel extends Kernel {
     this.pos = p - Math.floor(p);
     this.dir = 1;
     this.running = true;
-    this.triggered = true;
   }
 
   message(m) {
@@ -62,7 +54,6 @@ export default class EnvelopeKernel extends Kernel {
       case 'param': this.param(m.id, m.value); break;
       case 'curve':
         this.table = curveSamples(m.curve);
-        if (!this.triggered) this.value = this.idle();
         break;
       case 'noteOn': {
         const first = this.held.size === 0;
@@ -82,19 +73,19 @@ export default class EnvelopeKernel extends Kernel {
     }
   }
 
-  // loop modes: the last note was released, the value holds where the playhead is
+  // Loop modes stop driving controllers as soon as the last note is released.
   stop() {
     this.running = false;
+    this.value = null;
     this.meter = -1;
   }
 
   panic() {
     this.held.clear();
     this.running = false;
-    this.triggered = false;
     this.pos = 0;
     this.dir = 1;
-    this.value = this.idle();
+    this.value = null;
     this.meter = -1;
   }
 
@@ -107,12 +98,15 @@ export default class EnvelopeKernel extends Kernel {
   }
 
   process(_inputs, outputs) {
-    if (!this.running) return false;
+    if (!this.running) {
+      this.value = null;
+      return false;
+    }
     const n = outputs[0]?.[0]?.length ?? 128;
     if (this.mode === 0) {
       if (this.length <= 0) this.pos = 1;
       this.value = this.at(this.pos);
-      if (this.pos >= 1) this.running = false; // holds the end value
+      if (this.pos >= 1) this.running = false; // apply the end once, then leave controllers untouched
       else this.pos = Math.min(1, this.pos + n / (sampleRate * this.length));
     } else {
       // loops while notes are held; Envelope Length 0 holds the curve's end (nothing to loop)

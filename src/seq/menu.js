@@ -1,11 +1,12 @@
 // Right-click menu for the sequencer views (DOM overlay, closes on any outside press, Escape,
 // outside scrolling or window blur). Nested children fold inline; menus grow to fit and scroll within the window.
-//   showMenu({ x, y (client px), items: [{ id?, label, shortcut?, shortcuts?, disabled?, checked?, action?, children? } | '-'], className?, onClose?, container?, shortcutScope?, consumeOutsideClick? }) -> close()
+//   showMenu({ x, y (client px), items: [{ id?, label, shortcut?, shortcuts?, disabled?, checked?, action?, children? } | '-'], className?, onClose?, container?, shortcutScope?, consumeOutsideClick?, anchor? }) -> close()
 import { menuActionId, shortcutRegistry } from '../shortcuts.js';
 
 let current = null;
 
 const MAC = /Mac|iPhone|iPad/.test(globalThis.navigator?.platform ?? '');
+const KEY_SYMBOL = /[⇧⌘⌫←↑→↓]/;
 // Shortcut label for Ctrl/Cmd + key ('⇧D' = with Shift).
 export const shortcut = (key) => (MAC ? `⌘${key}` : `Ctrl+${key.replace('⇧', 'Shift+')}`);
 
@@ -13,7 +14,7 @@ export function closeMenu() {
   current?.();
 }
 
-export function showMenu({ x, y, items, className = '', onClose = null, container = document.body, shortcutScope = null, consumeOutsideClick = false }) {
+export function showMenu({ x, y, items, className = '', onClose = null, container = document.body, shortcutScope = null, consumeOutsideClick = false, anchor = null }) {
   closeMenu();
   const el = document.createElement('div');
   el.className = className ? `ctx-menu ${className}` : 'ctx-menu';
@@ -63,7 +64,15 @@ export function showMenu({ x, y, items, className = '', onClose = null, containe
       const key = document.createElement('kbd');
       const actionId = shortcutScope ? menuActionId(shortcutScope, item, path) : null;
       if (actionId && item.action && !item.children) b.setAttribute('data-shortcut-action', actionId);
-      key.textContent = actionId ? shortcutRegistry.label(actionId, item.shortcut ?? '') : item.shortcut ?? '';
+      const shortcutLabel = actionId ? shortcutRegistry.label(actionId, item.shortcut ?? '') : item.shortcut ?? '';
+      if (KEY_SYMBOL.test(shortcutLabel)) {
+        for (const part of shortcutLabel.split(/([⇧⌘⌫←↑→↓])/).filter(Boolean)) {
+          const symbol = document.createElement('span');
+          if (KEY_SYMBOL.test(part)) symbol.className = 'ctx-key-symbol';
+          symbol.textContent = part;
+          key.append(symbol);
+        }
+      } else key.textContent = shortcutLabel;
       b.append(label, key);
       b.addEventListener('pointerdown', (e) => e.preventDefault()); // keep focus in the view
       b.addEventListener('click', () => {
@@ -99,9 +108,20 @@ export function showMenu({ x, y, items, className = '', onClose = null, containe
     el.style.width = 'max-content';
     const neededWidth = el.getBoundingClientRect().width;
     el.style.width = `${Math.min(area.right - area.left, Math.max(previousWidth, neededWidth))}px`;
-    const r = el.getBoundingClientRect();
+    let r = el.getBoundingClientRect();
     const left = Math.max(area.left, Math.min(area.right - r.width, x + 2 + r.width > area.right ? x - 2 - r.width : x + 2));
-    const top = Math.max(area.top, Math.min(area.bottom - r.height, y + 2));
+    let top = Math.max(area.top, Math.min(area.bottom - r.height, y + 2));
+    if (anchor) {
+      const button = anchor.getBoundingClientRect();
+      const below = button.bottom + 4;
+      if (below + r.height <= area.bottom) top = below;
+      else {
+        const bottom = button.top - 4;
+        el.style.maxHeight = `${Math.max(0, bottom - area.top)}px`;
+        r = el.getBoundingClientRect();
+        top = Math.max(area.top, bottom - r.height);
+      }
+    }
     el.style.left = `${left}px`;
     el.style.top = `${top}px`;
   }

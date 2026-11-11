@@ -150,7 +150,7 @@ app.whenReady().then(async () => {
       window.press('J', { ctrlKey: true, shiftKey: true });
     })()`);
     await wait("!document.getElementById('shortcut-dialog').open");
-    await run("window.press('q')");
+    await run("window.press('Q', { shiftKey: true })");
     assert.equal(await run("window.shortcutTest.engine.song.clips[0].notes[0].start"), 0.13, 'old quantize key no longer edits notes');
     await run("window.press('J', { ctrlKey: true, shiftKey: true })");
     assert.notEqual(await run("window.shortcutTest.engine.song.clips[0].notes[0].start"), 0.13, 'custom menu shortcut edits the focused piano roll');

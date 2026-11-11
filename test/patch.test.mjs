@@ -156,13 +156,14 @@ const engine = {
   r.connect(lfo.id, env.id);
   tick(94);
   const before = g.nodes.get(osc.ctl.h).values.duty;
+  assert.equal(before, 10.5, 'idle envelope leaves the saved duty untouched even while the LFO changes its trim');
   // the duty per block for a few blocks after a note (LFO and ENVELOPE both restart on it)
   const play = (id) => {
     lfo.inst.noteOn(id, 60, 1, 0);
     env.inst.noteOn(id, 60, 1, 0);
     const trace = [];
     for (let b = 0; b < 30; b++) { tick(1); trace.push(g.nodes.get(osc.ctl.h).values.duty); }
-    tick(Math.ceil(1.2 * 48000 / 128)); // the curve (1000 ms) finishes and holds its end
+    tick(Math.ceil(1.2 * 48000 / 128)); // the curve (1000 ms) finishes and stops modulation
     lfo.inst.noteOff(id);
     env.inst.noteOff(id);
     return trace;
@@ -170,10 +171,13 @@ const engine = {
   const first = play(101);
   assert.ok(Math.abs(first[1] - before) < first[29] - before, `the duty glides up with Out Smooth: ${before} -> ${first[1]} -> ${first[29]}`);
   const held = g.nodes.get(osc.ctl.h).values.duty;
-  // (the free-running LFO, smoothed too, moves Out Max a little between notes: a small tolerance;
-  // an ENVELOPE idling at its curve start instead would differ by ~70 % duty here)
-  assert.ok(Math.abs(before - held) < 1.5, `idle on load drives the duty a finished note leaves: ${before} vs ${held}`);
-  play(102).forEach((d, b) => assert.ok(Math.abs(d - first[b]) < 1.5, `block ${b}: the first note after loading drives duty like a later one: ${first[b]} vs ${d}`));
+  tick(94);
+  assert.equal(g.nodes.get(osc.ctl.h).values.duty, held, 'completed envelope leaves duty untouched while its trim keeps changing');
+  const second = play(102);
+  assert.ok(Math.abs(second[1] - held) < second[29] - held, `retrigger resumes smoothed modulation: ${held} -> ${second[1]} -> ${second[29]}`);
+  r.setParam(osc.id, 'duty', 37);
+  tick(94);
+  assert.equal(g.nodes.get(osc.ctl.h).values.duty, 37, 'manual duty edits remain intact after the envelope finishes');
   copy.destroy();
   r.destroy();
 }
@@ -1204,7 +1208,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   r.setParam(env.id, 'outMax', 60);
   r.setParam(env.id, 'length', 0);
   render(4);
-  assert.equal(osc.values.duty, 20, 'idle drives the loaded curve end (as after a note) through Out Min');
+  assert.equal(osc.values.duty, 50, 'idle leaves the OSC duty unchanged until a note triggers the envelope');
   mm.inst.noteOn(1, 60, 1);
   render(2);
   assert.equal(osc.values.duty, 20, 'length 0: the end of the curve = Out Min');

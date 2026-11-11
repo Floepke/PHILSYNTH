@@ -3,12 +3,11 @@
 // cable a MULTIMIDI into it). A note starts the curve at its MODMIDI phase (MULTIMIDI Phase /
 // Random Phase): phase 0..1 is the position on the curve.
 //   Envelope Length: duration of the whole curve (0..10000 ms; 0 jumps straight to the end).
-//   Mode: Note ON Trigger (every note plays the curve once from its start, then holds the end
-//     value), Notes ON/OFF Loop (repeats while notes are held, stops when all are released; the
+//   Mode: Note ON Trigger (every note plays the curve once from its start, then stops
+//     modulation), Notes ON/OFF Loop (repeats while notes are held, stops when all are released; the
 //     next note starts over) or Loop Forward/Backwards (the same, ping-pong). See envelope.dsp.js.
 //   Out Controller / Out Min / Out Max: see modtarget.js (curve bottom = Out Min, top = Out Max).
-// Before the first trigger and after a hard reset it drives its idle value: the curve's end in
-// Note ON Trigger mode (as after a finished note), its start in the loop modes.
+// While idle, including before the first trigger and after a hard reset, controllers stay untouched.
 // The curve is module state (saved with the project) edited like the WAVESHAPER curve
 // (src/curveeditor.js): x is time, y is the output level. While the envelope plays, a white dot
 // rides the curve as its playhead.

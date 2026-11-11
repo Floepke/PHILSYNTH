@@ -238,7 +238,7 @@ const n = k(t).set.length;
 render(2);
 assert.equal(k(t).set.length, n, 'value null = no modulation');
 
-// ENVELOPE drives its target before any MIDI trigger, including externally modulated trim.
+// ENVELOPE leaves targets untouched while idle, including externally modulated trim.
 {
   const { dsp, graph, kernel, render } = dspTestHost();
   const env = dsp.create('envelope');
@@ -252,25 +252,25 @@ assert.equal(k(t).set.length, n, 'value null = no modulation');
   trim.routes([{ to: env.h, id: 'outMin', min: 0, max: 100 }]);
   kernel(trim).value = 0.3;
   render(2);
-  assert.deepEqual(kernel(target).set.at(-1), ['x', 30], 'idle start follows modulated Out Min');
-  assert.deepEqual(got.at(-1), ['x', 30], 'idle modulation is reported to the controller UI');
+  assert.deepEqual(kernel(target).set, [], 'idle does not apply Out Min');
+  assert.deepEqual(got, [], 'idle reports no controller modulation');
   kernel(trim).value = 0.4;
   render(2);
-  assert.deepEqual(kernel(target).set.at(-1), ['x', 40], 'trim keeps updating without a note');
-  // idle in Note ON Trigger mode = the curve's end (as after a finished note)
+  assert.deepEqual(kernel(target).set, [], 'trim changes do not activate an idle envelope');
   env.send({ type: 'curve', curve: { points: [{ x: 0, y: 1, r: 0 }, { x: 1, y: 0.25, r: 0 }] } });
   render();
-  assert.deepEqual(kernel(target).set.at(-1), ['x', 50], 'loaded nonzero idle value maps between both trims');
+  assert.deepEqual(kernel(target).set, [], 'loading a curve does not activate modulation');
   trim.routes([{ to: env.h, id: 'outMax', min: 0, max: 100 }]);
   kernel(trim).value = 1;
   render(2);
-  assert.deepEqual(kernel(target).set.at(-1), ['x', 55], 'idle output also follows modulated Out Max');
+  assert.deepEqual(kernel(target).set, [], 'Out Max changes do not activate modulation');
   env.send({ type: 'noteOn', id: 1, phase: 0.5 });
   render();
   assert.ok(kernel(target).set.at(-1)[1] > 55, 'note triggers still advance the curve');
+  const beforePanic = kernel(target).set.length;
   graph.panic();
   render(2);
-  assert.deepEqual(kernel(target).set.at(-1), ['x', 55], 'panic resumes idle mapping instead of disabling routes');
+  assert.equal(kernel(target).set.length, beforePanic, 'panic stops modulation without changing the target');
   assert.equal(kernel(env).meter, -1);
 }
 

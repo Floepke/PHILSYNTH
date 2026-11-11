@@ -59,7 +59,7 @@ function notePlayer(getTarget, pitchOffset = () => 0) {
 // Computer keyboard as a piano, by physical key position (e.code, so it works on any layout):
 // Q W E R T Y U I O P are the white keys C4..E5, the number row above them the black keys
 // (2 3 . 5 6 7 . 9 0). Ignored while typing in a field, with Ctrl / Cmd / Alt held, or when
-// an earlier handler already used the key (e.g. Q = quantize in the focused piano roll).
+// an earlier handler already used the key (e.g. Shift + Q = quantize in the focused piano roll).
 export const KEYBOARD_BASE = 60;
 export const KEYBOARD_KEYS = {
   KeyQ: 0, Digit2: 1, KeyW: 2, Digit3: 3, KeyE: 4, KeyR: 5, Digit5: 6, KeyT: 7, Digit6: 8, KeyY: 9,

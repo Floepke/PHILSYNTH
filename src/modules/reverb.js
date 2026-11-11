@@ -21,7 +21,7 @@ export default {
     { id: 'lowCut', label: 'Low cut', min: 20, max: 1000, default: 60, scale: 'log', format: hz },
     { id: 'highCut', label: 'High cut', min: 1000, max: 20000, default: 14000, scale: 'log', format: hz },
     { id: 'mod', label: 'Modulation', min: 0, max: 1, default: 0.3, step: 0.01, format: pct },
-    { id: 'seed', label: 'Seed', min: 1, max: 999, default: 1, step: 1, wheelStep: 1, format: (v) => `#${Math.round(v)}` },
+    { id: 'seed', label: 'Seed', min: 1, max: 999, default: 1, step: 1, wheelStep: 1, wheelSingleStep: true, format: (v) => `#${Math.round(v)}` },
     { id: 'width', label: 'Stereo width', min: 0, max: 1, default: 1, step: 0.01, format: pct },
     { id: 'freeze', label: 'Freeze', min: 0, max: 1, default: 0, step: 1, options: ['Off', 'On'] },
     { id: 'mix', label: 'Dry / wet', min: 0, max: 1, default: 0.3, step: 0.01, format: pct },

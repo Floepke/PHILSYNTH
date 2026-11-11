@@ -7,12 +7,13 @@ const SR = 48000;
 const Proc = await loadKernel('lfo.dsp.js', SR);
 
 // On/Off pauses both control-rate and audio-rate LFOs without losing phase or random state.
-for (const audio of [false, true]) for (const wave of [0, 1, 2, 3, 4, 5, 6]) {
+for (const mode of [0, 1, 2]) for (const wave of [0, 1, 2, 3, 4, 5, 6]) {
   const k = new Proc();
-  k.param('mode', audio ? 1 : 0);
+  k.param('mode', mode);
   const m = (data) => k.port.onmessage({ data });
   const output = [[new Float32Array(128), new Float32Array(128)]];
-  const input = audio ? [[new Float32Array(128).fill(1), new Float32Array(128).fill(0.5)]] : [];
+  const input = mode ? [[Float32Array.from({ length: 128 }, (_, i) => Math.sin(i)),
+    Float32Array.from({ length: 128 }, (_, i) => Math.cos(i) * 0.5)]] : [];
   const run = () => k.process(input, output);
   assert.equal(k.enabled, true);
   m({ type: 'param', id: 'wave', value: wave });
@@ -24,19 +25,74 @@ for (const audio of [false, true]) for (const wave of [0, 1, 2, 3, 4, 5, 6]) {
   assert.equal(k.phase, phase);
   assert.equal(k.from, from);
   assert.equal(k.to, to, 'paused Random does not draw new targets');
-  assert.equal(k.value, k.at(), 'paused wave level remains available for live trimming');
-  if (audio) {
-    assert.ok(output[0][0].every(v => v === output[0][0][0]), 'paused tremolo holds its gain');
+  assert.equal(k.value, null, 'Off emits no controller modulation');
+  if (mode) {
+    assert.deepEqual(output[0], input[0], 'Off bypasses audio without changing either channel');
+    k.param('amp', 0);
+    k.param('outMin', 100);
+    k.param('outMax', 0);
+    run();
+    assert.deepEqual(output[0], input[0], 'Off ignores audio modulation settings');
+    k.process([[input[0][0]]], output);
+    assert.deepEqual(output[0][0], input[0][0]);
+    assert.deepEqual(output[0][1], input[0][0], 'Off duplicates mono input to stereo unchanged');
+    assert.equal(k.process([], output), false, 'Off with no audio input remains silent');
   }
   m({ type: 'param', id: 'phase', value: 0.2 });
   assert.equal(k.phase, phase, 'Phase controller does not discard remembered phase');
   m({ type: 'noteOn', id: 1, pitch: 60, phase: 0.3 });
   assert.equal(k.phase, 0.5, 'MIDI phase resets even while Off');
+  assert.equal(k.value, null, 'MIDI phase reset does not enable controller output');
   run();
   assert.equal(k.phase, 0.5);
   m({ type: 'param', id: 'enabled', value: 1 });
   run();
   assert.ok(Math.abs(k.phase - (0.5 + 128 / SR)) < 1e-9, 'On resumes from stored phase');
+}
+
+// Off never changes routed controllers, including when browsing targets or changing depth settings.
+{
+  const { dspTestHost } = await import('./dsphost.mjs');
+  const { PatchRuntime } = await import('../src/patch.js');
+  const { dsp, graph, render, kernel } = dspTestHost();
+  const engine = { ctx: { currentTime: 0 }, dsp };
+  const root = await PatchRuntime.create(engine, dsp.destination);
+  const source = await root.addModule('LFO', { values: { enabled: 0 } });
+  const target = await root.addModule('AMP', { values: { amp: 1.37, pan: 0.23, fine: 0.61 } });
+  root.connect(source.id, target.id);
+  const unchanged = { ...target.values };
+  const graphValues = () => ({ ...graph.nodes.get(target.inst.node.h).values });
+  const originalGraphValues = graphValues();
+  for (const controller of [0, 1, 2, 3]) {
+    root.setParam(source.id, 'outController', controller);
+    root.setParam(source.id, 'outMin', 100);
+    root.setParam(source.id, 'outMax', 100);
+    root.setParam(source.id, 'amp', 0);
+    root.setParam(source.id, 'outSmooth', 100);
+    source.inst.noteOn(1, 60, 1, 0.25);
+    render(10);
+    assert.deepEqual(target.values, unchanged, 'Off leaves every selected target controller untouched');
+    assert.deepEqual(graphValues(), originalGraphValues, 'Off leaves audio-thread controller values untouched too');
+    assert.equal(kernel(source.inst.node).value, null);
+  }
+  root.setParam(source.id, 'outController', 1);
+  root.setParam(source.id, 'outSmooth', 0);
+  root.setParam(source.id, 'enabled', 1);
+  render(10);
+  assert.equal(target.values.amp, 4, 'On resumes controller modulation');
+  root.setParam(source.id, 'enabled', 0);
+  root.setParam(target.id, 'amp', 1.37);
+  root.setParam(source.id, 'outMin', 0);
+  root.setParam(source.id, 'outMax', 0);
+  render(10);
+  assert.equal(target.values.amp, 1.37, 'Off allows manual controller edits without reapplying modulation');
+  root.setParam(source.id, 'outController', 2);
+  const copy = await PatchRuntime.create(engine, dsp.destination);
+  await copy.load(root.toJSON());
+  render(10);
+  assert.equal(copy.modules.get(target.id).values.pan, unchanged.pan, 'loading an Off LFO does not apply its routes');
+  root.destroy();
+  copy.destroy();
 }
 
 // VELOCITY2CTL can drive On/Off; the setting persists when the patch is saved/loaded.

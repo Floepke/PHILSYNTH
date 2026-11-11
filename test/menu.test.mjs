@@ -55,6 +55,46 @@ assert.equal(key('Escape').defaultPrevented, true);
 assert.equal(document.body.children.length, 0);
 closeMenu();
 {
+  for (const [top, bottom, expectedTop] of [[100, 130, 134], [500, 530, 416], [480, 516, 520]]) {
+    showMenu({
+      x: 10, y: bottom + 2,
+      anchor: { getBoundingClientRect: () => ({ top, bottom }) },
+      items: [{ label: 'New', action() {} }],
+    });
+    assert.equal(document.body.children[0].style.top, `${expectedTop}px`, 'anchored menu fits below or flips above its button');
+    closeMenu();
+  }
+  showMenu({
+    x: 10, y: 562,
+    anchor: { getBoundingClientRect: () => ({ top: 530, bottom: 560 }) },
+    items: [{ label: 'Export', children: [{ label: 'Audio', action() {} }] }],
+  });
+  const menu = document.body.children[0];
+  assert.equal(menu.style.top, '446px');
+  menu.getBoundingClientRect = () => ({ width: 220, height: 160 });
+  menu.children[0].click();
+  assert.equal(menu.style.top, '366px', 'expanding a group keeps an above-button menu anchored');
+  closeMenu();
+}
+{
+  showMenu({ x: 10, y: 20, items: [
+    { label: 'Duplicate', shortcut: '⌘⇧D', action() {} },
+    { label: 'Copy', shortcut: 'Ctrl+C', action() {} },
+    { label: 'Delete', shortcut: '⌫', action() {} },
+    { label: 'Move', shortcut: '←↑→↓', action() {} },
+  ] });
+  const [duplicate, copy, backspace, arrows] = document.body.children[0].children;
+  const shortcut = duplicate.children[1];
+  assert.deepEqual(shortcut.children.map((part) => part.textContent), ['⌘', '⇧', 'D'], 'shortcut text and order are preserved');
+  assert.deepEqual(shortcut.children.map((part) => part.className ?? ''), ['ctx-key-symbol', 'ctx-key-symbol', ''], 'only Cmd and Shift symbols get enlarged');
+  assert.equal(copy.children[1].textContent, 'Ctrl+C', 'text-only shortcuts remain unchanged');
+  for (const [button, symbols] of [[backspace, ['⌫']], [arrows, ['←', '↑', '→', '↓']]]) {
+    assert.deepEqual(button.children[1].children.map((part) => part.textContent), symbols);
+    assert.ok(button.children[1].children.every((part) => part.className === 'ctx-key-symbol'), 'backspace and arrows use the shared symbol scaling');
+  }
+  closeMenu();
+}
+{
   let chosen = false;
   showMenu({ x: 790, y: 590, items: [
     { label: 'Export', children: [

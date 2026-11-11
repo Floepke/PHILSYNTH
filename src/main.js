@@ -32,7 +32,7 @@ import { MAX_NAME, runtimesAt, songLayers } from './patch.js';
 import { showMenu, closeMenu, shortcut } from './seq/menu.js';
 import { snapToGrid } from './grid.js';
 import { createNoiseBackground } from './noisebg.js';
-import { renderGuide } from './guide.js';
+import { renderGuide, guideState } from './guide.js';
 import { createHistory } from './history.js';
 import { renderAudio, writeAudio } from './audioexport.js';
 import { AUDIO_FORMATS, audioFormat } from './audioformat.js';
@@ -97,6 +97,7 @@ let path = []; // stack of { patch, name, id, cam }: the patch levels we have en
 let sel = null; // { kind: 'module', entry } | { kind: 'group', entries } | { kind: 'cable', cable }
 let panelScrolls = {};
 let activePanelScrollKey = null;
+let guideVisible = false;
 const panelScrollKey = (entry) => JSON.stringify([...path.slice(1).map((level) => level.id), entry.id]);
 const selectedEntries = () => (sel?.kind === 'module' ? [sel.entry] : sel?.kind === 'group' ? sel.entries : []);
 // Selection from a list of modules: none, one (shows its controllers) or a group.
@@ -308,6 +309,10 @@ const persist = createPersistence({
   },
 });
 function rememberPanelScroll() {
+  if (guideVisible) {
+    guideState.setScrollTop(Math.max(0, panelScroller.scrollTop));
+    return;
+  }
   if (!activePanelScrollKey) return;
   const top = panelScroller.scrollTop;
   if (panelScrolls[activePanelScrollKey] === top) return;
@@ -1318,6 +1323,7 @@ function showMidiTarget() {
 
 function select(s) {
   rememberPanelScroll();
+  guideVisible = false;
   sel = s;
   activePanelScrollKey = s?.kind === 'module' ? panelScrollKey(s.entry) : null;
   if (s?.kind === 'module' && takesLiveMidi(s.entry.def)) setMidiTarget(s.entry);
@@ -1380,6 +1386,8 @@ function select(s) {
   }
   if (!s) {
     panel.append(panelHeader('No selection', 'Manual'), renderGuide());
+    panelScroller.scrollTop = guideState.scrollTop;
+    guideVisible = true;
     return;
   }
   if (s.kind === 'group') {
@@ -1561,6 +1569,7 @@ function openMainMenu(focusFirst) {
     x: r.left - 2,
     y: r.bottom + 2,
     className: 'main-menu',
+    anchor: brand,
     onClose: () => {
       mainMenuOpen = false;
       brand.setAttribute('aria-expanded', 'false');

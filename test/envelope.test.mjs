@@ -13,7 +13,7 @@ const close = (v, t, tol, m) => assert.ok(Math.abs(v - t) <= tol, `${m}: ${v} (w
 // ramp up then down: 0 -> 1 at half, back to 0.4 at the end
 msg({ type: 'curve', curve: { points: [{ x: 0, y: 0, r: 0 }, { x: 0.5, y: 1, r: 0 }, { x: 1, y: 0.4, r: 0 }] } });
 msg({ type: 'param', id: 'length', value: 1000 }); // ms
-close(run(0.1), 0.4, 1e-6, 'before the first note: drives the curve end (as after a note) without advancing');
+assert.equal(run(0.1), null, 'before the first note: leaves controllers untouched');
 assert.equal(e.meter, -1, 'idle: no playhead');
 assert.equal(Proc.Kernel.meter, true, 'the playhead is reported like a meter');
 msg({ type: 'noteOn', id: 1 });
@@ -21,16 +21,16 @@ close(run(0.25), 0.5, 0.01, 'a quarter in: half way up');
 close(e.meter, 0.25, 0.01, 'playhead a quarter through');
 close(run(0.25), 1, 0.01, 'half way: the peak');
 close(run(0.25), 0.7, 0.01, 'three quarters: half way down');
-close(run(0.3), 0.4, 1e-6, 'holds the end value');
+assert.equal(run(0.3), null, 'finished curve stops modulation');
 assert.equal(e.meter, -1, 'finished: the playhead is hidden');
-close(run(1), 0.4, 1e-6, 'still holds');
+assert.equal(run(1), null, 'idle stays inactive');
 
 // retrigger restarts from the beginning, length follows the controller
 msg({ type: 'param', id: 'length', value: 200 });
 msg({ type: 'noteOn', id: 2 });
 close(run(128 / SR), 0, 1e-3, 'restarts at the start');
 close(run(0.1), 1, 0.02, 'shorter length: the peak after 100 ms');
-close(run(0.2), 0.4, 1e-6, 'done after 200 ms');
+assert.equal(run(0.2), null, 'done after 200 ms');
 
 // length 0: straight to the end value
 msg({ type: 'curve', curve: { points: [{ x: 0, y: 1, r: 0 }, { x: 1, y: 0.25, r: 0 }] } });
@@ -43,40 +43,38 @@ msg({ type: 'param', id: 'length', value: 1000 });
 run(0.1);
 assert.ok(e.meter > 0, 'playing');
 msg({ type: 'reset' });
-assert.equal(e.value, 0.25, 'reset drives the current curve end (trigger mode idle)');
+assert.equal(e.value, null, 'reset stops modulation');
 assert.equal(e.meter, -1, 'reset hides the playhead');
 
-// Loading/editing a curve before triggering updates its idle value (trigger mode: the curve's end,
-// as after a finished note; loop modes: its start); reset restores that behavior.
+// Loading, editing and resetting a curve never drives controllers while idle.
 for (const mode of [0, 1, 2]) {
   const l = new Proc();
   const m = (data) => l.port.onmessage({ data });
   const go = () => { l.process([], [[new Float32Array(128)]]); return l.value; };
-  assert.equal(go(), 0, 'default envelope immediately drives Out Min');
+  assert.equal(go(), null, 'default envelope does not drive controllers');
   m({ type: 'param', id: 'mode', value: mode });
   m({ type: 'curve', curve: { points: [{ x: 0, y: 0.25, r: 0 }, { x: 1, y: 0.75, r: 0 }] } });
-  const idle = mode === 0 ? 0.75 : 0.25;
-  assert.equal(go(), idle, `mode ${mode}: loaded curve drives its idle value`);
+  assert.equal(go(), null, `mode ${mode}: loaded curve stays inactive`);
   assert.equal(l.pos, 0, 'idle does not advance');
   assert.equal(l.meter, -1, 'idle does not display a playhead');
   m({ type: 'noteOn', id: 1, phase: 0.5 });
   close(go(), 0.5, 1e-6, 'first trigger still starts at the requested phase');
   m({ type: 'reset' });
-  assert.equal(go(), idle, 'reset resumes driving the idle value');
+  assert.equal(go(), null, 'reset stops modulation');
   m({ type: 'curve', curve: { points: [{ x: 0, y: 0.6, r: 0 }, { x: 1, y: 0.9, r: 0 }] } });
-  close(go(), mode === 0 ? 0.9 : 0.6, 1e-6, 'curve edits after reset update idle output');
+  assert.equal(go(), null, 'curve edits after reset do not modulate');
 }
 {
   const l = new Proc();
   const m = (data) => l.port.onmessage({ data });
   m({ type: 'curve', curve: { points: [{ x: 0, y: 0.25, r: 0 }, { x: 1, y: 0.75, r: 0 }] } });
   m({ type: 'param', id: 'mode', value: 1 });
-  assert.equal(l.value, 0.25, 'switching to a loop mode before any note: idle at the start');
+  assert.equal(l.value, null, 'switching to a loop mode before any note stays inactive');
   m({ type: 'param', id: 'mode', value: 0 });
-  assert.equal(l.value, 0.75, 'back to trigger mode: idle at the end');
+  assert.equal(l.value, null, 'back to trigger mode stays inactive');
 }
 
-// Editing a completed/stopped curve does not replace its held output with the idle start.
+// Editing a completed/stopped curve does not restart modulation.
 for (const mode of [0, 1, 2]) {
   const l = new Proc();
   const m = (data) => l.port.onmessage({ data });
@@ -88,7 +86,7 @@ for (const mode of [0, 1, 2]) {
   assert.equal(go(), 0.75);
   m({ type: 'noteOff', id: 1 });
   m({ type: 'curve', curve: { points: [{ x: 0, y: 0, r: 0 }, { x: 1, y: 1, r: 0 }] } });
-  assert.equal(go(), 0.75, `mode ${mode}: post-trigger idle still holds its last output`);
+  assert.equal(go(), null, `mode ${mode}: post-trigger idle does not drive controllers`);
   assert.equal(l.meter, -1);
 }
 
@@ -109,14 +107,14 @@ for (const mode of [0, 1, 2]) {
   close(go(0.3), 0.5, 0.01, 'still looping while a note is held');
   assert.ok(l.meter >= 0, 'playhead shown while looping');
   m({ type: 'noteOff', id: 2 });
-  const held = go(128 / SR);
-  close(go(0.5), held, 1e-9, 'all released: stops and holds');
+  assert.equal(go(128 / SR), null, 'last note release disables modulation immediately');
+  assert.equal(go(0.5), null, 'all released: stays inactive');
   assert.equal(l.meter, -1, 'stopped: the playhead is hidden');
   m({ type: 'noteOn', id: 3 });
   close(go(0.1), 0.1, 0.01, 'the next note starts over from the beginning');
   m({ type: 'allOff' });
-  const h2 = go(128 / SR);
-  close(go(0.3), h2, 1e-9, 'allOff (stop/panic) stops the loop too');
+  assert.equal(go(128 / SR), null);
+  assert.equal(go(0.3), null, 'allOff (stop/panic) stops modulation too');
 }
 
 // ---- Mode 2: Notes ON/OFF Loop Forward/Backwards ----
@@ -133,8 +131,8 @@ for (const mode of [0, 1, 2]) {
   close(go(0.7), 0.1, 0.01, 'back towards the start');
   close(go(0.3), 0.2, 0.01, 'bounced at the start: forward again');
   m({ type: 'noteOff', id: 1 });
-  const held = go(128 / SR);
-  close(go(0.5), held, 1e-9, 'released: holds');
+  assert.equal(go(128 / SR), null);
+  assert.equal(go(0.5), null, 'released: stops modulation');
   m({ type: 'noteOn', id: 2 });
   close(go(0.3), 0.3, 0.01, 'restarts forward from the beginning');
 }
@@ -182,6 +180,41 @@ for (const mode of [0, 1, 2]) {
   close(go(), 0, 1e-6, 'invalid phase starts at the beginning');
   m({ type: 'noteOn', id: 3 });
   close(go(), 0, 1e-6, 'no phase starts at the beginning');
+}
+
+// Idle routes stay inactive before and after a trigger, even when browsing controllers.
+for (const mode of [0, 1, 2]) {
+  const { dspTestHost } = await import('./dsphost.mjs');
+  const { PatchRuntime } = await import('../src/patch.js');
+  const { dsp, render } = dspTestHost();
+  const engine = { ctx: { currentTime: 0 }, dsp };
+  const root = await PatchRuntime.create(engine, dsp.destination);
+  const env = await root.addModule('ENVELOPE', { values: { mode, length: 0 } });
+  const target = await root.addModule('AMP', { values: { amp: 1.37, pan: 0.23, fine: 0.61 } });
+  root.connect(env.id, target.id);
+  const before = { ...target.values };
+  for (const controller of [0, 1, 2, 3]) {
+    root.setParam(env.id, 'outController', controller);
+    root.setParam(env.id, 'outMin', 100);
+    root.setParam(env.id, 'outMax', 100);
+    render(10);
+    assert.deepEqual(target.values, before, `mode ${mode}: idle routing and trim leave controllers untouched`);
+  }
+  root.setParam(env.id, 'outController', 1);
+  env.inst.noteOn(1, 60, 1);
+  render(10);
+  assert.equal(target.values.amp, 4, 'trigger applies the envelope, including its endpoint at zero length');
+  env.inst.noteOff(1);
+  root.setParam(target.id, 'amp', 1.37);
+  root.setParam(env.id, 'outMin', 0);
+  root.setParam(env.id, 'outMax', 0);
+  root.setParam(env.id, 'outSmooth', 100);
+  render(10);
+  assert.equal(target.values.amp, 1.37, 'completed/stopped envelope does not reapply or smooth its old output');
+  root.setParam(env.id, 'outController', 2);
+  render(10);
+  assert.equal(target.values.pan, before.pan, 'browsing controllers after playback stays inactive');
+  root.destroy();
 }
 
 // ---- main-thread playhead extrapolation follows the mode ----

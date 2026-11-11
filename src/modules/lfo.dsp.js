@@ -1,7 +1,8 @@
 // LFO kernel (see src/dsp/kernel.js), control rate: steps once per render quantum on the audio
 // clock (keeps running in background tabs). Its unipolar value (0..1) is mapped by the engine
 // graph onto the controllers its cables point to.
-// Off pauses advancement (including tremolo), retaining phase and Random targets. MIDI still resets phase.
+// Off pauses advancement and controller output, and bypasses audio, retaining phase and Random targets.
+// MIDI still resets phase.
 // Frequency Unit MIDI Pitch (MIDI_UNIT): the rate is the frequency of the newest held note (its pitch
 // curve included, via noteMod); Frequency is ignored. When that note ends the previous held one
 // takes over; with none held the last pitch keeps running. Before the first note it stands still.
@@ -73,7 +74,10 @@ export default class LfoKernel extends Kernel {
   }
 
   param(id, v) {
-    if (id === 'enabled') this.enabled = v >= 0.5;
+    if (id === 'enabled') {
+      this.enabled = v >= 0.5;
+      this.value = this.enabled ? this.at() : null;
+    }
     else if (id === 'mode') this.mode = Math.max(0, Math.min(2, Math.round(v)));
     else if (id === 'freq' || id === 'unit') {
       this[id] = id === 'unit' ? v | 0 : v;
@@ -93,7 +97,7 @@ export default class LfoKernel extends Kernel {
   // jump to Phase + `offset` (cycles)
   restart(offset) {
     this.phase = wrap(this.startPhase + (Number(offset) || 0));
-    this.value = this.at();
+    this.value = this.enabled ? this.at() : null;
   }
 
   panic() { this.restart(0); }
@@ -170,8 +174,9 @@ export default class LfoKernel extends Kernel {
   process(inputs, outputs) {
     const n = outputs[0]?.[0]?.length ?? 128;
     this.ran = true;
-    this.value = this.at();
-    this.meter = tremoloGain(this.value, this.amp, this.outMin, this.outMax) * 100;
+    const wave = this.at();
+    this.value = this.enabled ? wave : null;
+    this.meter = tremoloGain(wave, this.amp, this.outMin, this.outMax) * 100;
     const i = inputs[0];
     if (!this.mode || !i || !i.length) {
       this.advance(n);
@@ -180,6 +185,11 @@ export default class LfoKernel extends Kernel {
     const [L, R] = outputs[0];
     const iL = i[0];
     const iR = i[1] ?? iL;
+    if (!this.enabled) {
+      L.set(iL);
+      R.set(iR);
+      return true;
+    }
     // tremoloGain, per sample: lo + span * x
     const depth = this.amp / 100;
     const span = ((this.outMax - this.outMin) / 100) * depth;

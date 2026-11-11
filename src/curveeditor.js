@@ -37,10 +37,11 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
   el.append(canvas, info, help);
   const g = canvas.getContext('2d');
 
-  let W = 0;
+  let W = 0, H = 0;
   const size = () => W - 2 * PAD;
-  const toPx = (p) => [PAD + p.x * size(), PAD + (1 - p.y) * size()];
-  const fromPx = (px, py) => ({ x: (px - PAD) / size(), y: 1 - (py - PAD) / size() });
+  const height = () => H - 2 * PAD;
+  const toPx = (p) => [PAD + p.x * size(), PAD + (1 - p.y) * height()];
+  const fromPx = (px, py) => ({ x: (px - PAD) / size(), y: 1 - (py - PAD) / height() });
   const local = (e) => { const b = canvas.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top]; };
   const hitTest = (px, py) => {
     let best = -1;
@@ -57,22 +58,24 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
   function draw() {
     if (!W) return;
     const s = size();
+    const h = height();
     g.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-    g.clearRect(0, 0, W, W);
+    g.clearRect(0, 0, W, H);
     g.fillStyle = '#121212';
-    g.fillRect(PAD, PAD, s, s);
+    g.fillRect(PAD, PAD, s, h);
     g.strokeStyle = '#2a2a2a';
     g.lineWidth = 1;
     for (let i = 1; i < 4; i++) {
       const v = Math.round(PAD + (s * i) / 4) + 0.5;
-      g.beginPath(); g.moveTo(v, PAD); g.lineTo(v, PAD + s); g.moveTo(PAD, v); g.lineTo(PAD + s, v); g.stroke();
+      const y = Math.round(PAD + (h * i) / 4) + 0.5;
+      g.beginPath(); g.moveTo(v, PAD); g.lineTo(v, PAD + h); g.moveTo(PAD, y); g.lineTo(PAD + s, y); g.stroke();
     }
     g.strokeStyle = '#3a3a3a';
-    g.strokeRect(PAD + 0.5, PAD + 0.5, s - 1, s - 1);
+    g.strokeRect(PAD + 0.5, PAD + 0.5, s - 1, h - 1);
     if (identity) { // identity line (no change)
       g.setLineDash([4, 4]);
       g.strokeStyle = '#555';
-      g.beginPath(); g.moveTo(PAD, PAD + s); g.lineTo(PAD + s, PAD); g.stroke();
+      g.beginPath(); g.moveTo(PAD, PAD + h); g.lineTo(PAD + s, PAD); g.stroke();
       g.setLineDash([]);
     }
     // axis labels
@@ -80,23 +83,23 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
     g.font = '10px system-ui, sans-serif';
     g.textBaseline = 'top';
     g.textAlign = 'left';
-    g.fillText(labels.x0 ?? '0', PAD + 3, PAD + s - 13);
+    g.fillText(labels.x0 ?? '0', PAD + 3, PAD + h - 13);
     g.textAlign = 'right';
-    g.fillText(labels.x1 ?? 'in →', PAD + s - 3, PAD + s - (labels.xTicks ? 27 : 13));
+    g.fillText(labels.x1 ?? 'in →', PAD + s - 3, PAD + h - (labels.xTicks ? 27 : 13));
     g.textAlign = labels.yTicks ? 'right' : 'left';
     g.fillText(labels.y1 ?? 'out ↑', labels.yTicks ? PAD + s - 3 : PAD + 3, PAD + 3);
     if (labels.xTicks) {
       g.textBaseline = 'bottom';
       labels.xTicks.forEach((text, i, ticks) => {
         g.textAlign = i === 0 ? 'left' : i === ticks.length - 1 ? 'right' : 'center';
-        g.fillText(text, PAD + s * i / (ticks.length - 1), PAD + s - 3);
+        g.fillText(text, PAD + s * i / (ticks.length - 1), PAD + h - 3);
       });
     }
     if (labels.yTicks) {
       g.textAlign = 'left';
       labels.yTicks.forEach((text, i, ticks) => {
         g.textBaseline = i === 0 ? 'bottom' : i === ticks.length - 1 ? 'top' : 'middle';
-        g.fillText(text, PAD + 3, PAD + s * (1 - i / (ticks.length - 1)));
+        g.fillText(text, PAD + 3, PAD + h * (1 - i / (ticks.length - 1)));
       });
     }
     // curve
@@ -131,7 +134,7 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
       g.lineWidth = 1;
       g.setLineDash([3, 3]);
       g.beginPath();
-      g.moveTo(x, PAD + s); g.lineTo(x, y); g.lineTo(PAD, y);
+      g.moveTo(x, PAD + h); g.lineTo(x, y); g.lineTo(PAD, y);
       g.stroke();
       g.setLineDash([]);
       g.beginPath();
@@ -206,16 +209,17 @@ export function createCurveEditor({ curve, color = '#c0a040', labels = {}, onCha
   const resize = () => {
     W = canvas.clientWidth;
     if (!W) return;
+    H = W * 9 / 16;
     canvas.width = Math.round(W * devicePixelRatio);
-    canvas.height = Math.round(W * devicePixelRatio);
-    canvas.style.height = `${W}px`;
+    canvas.height = Math.round(H * devicePixelRatio);
+    canvas.style.height = `${H}px`;
     draw();
   };
   let resizePending = false;
   new ResizeObserver(() => {
     if (resizePending) return;
     resizePending = true;
-    // Square sizing can change the panel's scrollbar and width; resize outside observer delivery.
+    // Sizing can change the panel's scrollbar and width; resize outside observer delivery.
     requestAnimationFrame(() => { resizePending = false; resize(); });
   }).observe(canvas);
 
