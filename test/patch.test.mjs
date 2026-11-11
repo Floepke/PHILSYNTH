@@ -991,6 +991,107 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.deepEqual(r.toJSON().modules.map((m) => m.type), ['OUT'], 'copies are never saved');
 }
 
+// ---- One multiple-instance PATCH per nesting path ----
+{
+  const { dsp: audio, graph: g } = dspTestHost();
+  const r = await PatchRuntime.create({ ctx, dsp: audio }, audio.destination);
+  const outer = await r.addModule('PATCH');
+  const middle = await outer.inst.patch.addModule('PATCH');
+  const inner = await middle.inst.patch.addModule('PATCH');
+  await inner.inst.patch.addModule('OSC');
+  const instances = (e) => paramsOf(e).find((p) => p.id === 'instances');
+  const outerSlider = instances(outer);
+  const innerSlider = instances(inner);
+  outer.inst.patch.setState(middle.id, { maps: [{ key: 'map1', module: inner.id, param: 'instances' }] });
+  const mappedSlider = paramsOf(middle).find((p) => p.id === 'map1');
+
+  middle.inst.patch.setParam(inner.id, 'instances', 3);
+  await inner.inst.sync();
+  assert.equal(inner.inst.clones.length, 2, 'single-instance folders allow deep polyphony');
+  assert.equal(outerSlider.max, 1, 'existing slider descriptors follow descendant changes');
+  assert.equal(outerSlider.disabled, true);
+  assert.match(outerSlider.format(1), /nested PATCH/);
+  assert.throws(() => r.setParam(outer.id, 'instances', 2), /nested PATCH/);
+  assert.equal(outer.values.instances, 1, 'rejected edits do not change saved values');
+  assert.throws(() => r.drive(outer, 'instances', 2), /nested PATCH/);
+  assert.equal(outer.values.instances, 1, 'automation cannot bypass the restriction');
+
+  const sibling = await outer.inst.patch.addModule('PATCH');
+  await sibling.inst.patch.addModule('OSC');
+  outer.inst.patch.setParam(sibling.id, 'instances', 2);
+  await sibling.inst.sync();
+  assert.equal(sibling.inst.clones.length, 1, 'siblings can each have multiple instances');
+  const copy = await outer.inst.patch.duplicate(middle.id);
+  await copy.inst.patch.modules.get(inner.id).inst.sync();
+  assert.equal(copy.inst.patch.modules.get(inner.id).values.instances, 3, 'valid duplication preserves nested polyphony');
+  outer.inst.patch.removeModule(copy.id);
+
+  middle.inst.patch.setParam(inner.id, 'instances', 1);
+  outer.inst.patch.setParam(sibling.id, 'instances', 1);
+  await Promise.all([inner.inst.sync(), sibling.inst.sync()]);
+  assert.equal(outerSlider.disabled, false);
+  assert.equal(outerSlider.max, 16, 'reducing descendants to one unlocks the parent');
+  const outerOsc = await outer.inst.patch.addModule('OSC');
+  r.setParam(outer.id, 'inputModule', outerOsc.id);
+  r.setParam(outer.id, 'instances', 2);
+  await outer.inst.sync();
+  assert.equal(outer.inst.clones.length, 1);
+  assert.equal(innerSlider.max, 1);
+  assert.equal(mappedSlider.max, 1, 'mapped Instances controllers follow the nesting limit');
+  assert.equal(mappedSlider.disabled, true);
+  assert.match(innerSlider.format(1), /parent PATCH/);
+  assert.throws(() => middle.inst.patch.setParam(inner.id, 'instances', 2), /parent PATCH/);
+  assert.throws(() => middle.inst.patch.drive(inner, 'instances', 2, true), /parent PATCH/);
+  assert.throws(() => outer.inst.patch.setParam(middle.id, 'map1', 2), /parent PATCH/);
+  assert.throws(() => outer.inst.patch.drive(middle, 'map1', 2), /parent PATCH/);
+  assert.equal(middle.values.map1, 1, 'rejected mapped edits leave the alias unchanged');
+  assert.equal(inner.values.instances, 1);
+  const clonedMiddle = outer.inst.clones[0].modules.get(middle.id);
+  const clonedInner = clonedMiddle.inst.patch.modules.get(inner.id);
+  assert.equal(instances(clonedInner).disabled, true, 'hidden copies inherit the same ancestor restriction');
+  assert.throws(() => clonedMiddle.inst.patch.setParam(inner.id, 'instances', 2), /parent PATCH/);
+
+  const invalid = { modules: [{ id: 1, type: 'PATCH', values: { instances: 16 } }], cables: [] };
+  const before = middle.inst.patch.toJSON();
+  const nodes = g.nodes.size;
+  await assert.rejects(middle.inst.patch.addModule('PATCH', { values: { instances: 16 } }), /nesting path/);
+  await assert.rejects(middle.inst.patch.pasteMany(invalid), /nesting path/);
+  await assert.rejects(middle.inst.patch.pasteMany(invalid), (error) => {
+    assert.match(error.message, /256 copies/);
+    assert.match(error.message, /memory use/);
+    assert.match(error.message, /audio dropouts/);
+    assert.match(error.message, /Keep Instances at 1/);
+    return true;
+  });
+  await assert.rejects(middle.inst.patch.load(invalid), /nesting path/);
+  assert.deepEqual(middle.inst.patch.toJSON(), before, 'invalid imports are rejected before modifying the patch');
+  assert.equal(g.nodes.size, nodes, 'invalid imports do not allocate DSP copies');
+
+  const invalidProject = r.toJSON();
+  const nested = invalidProject.modules.find((m) => m.id === outer.id).patch
+    .modules.find((m) => m.id === middle.id).patch.modules.find((m) => m.id === inner.id);
+  nested.values.instances = 16;
+  await assert.rejects(r.load(invalidProject), /nesting path/);
+  const { Engine } = await import('../src/engine.js');
+  const { PROJECT_FORMAT } = await import('../src/fileformat.js');
+  const live = new Engine();
+  live.root = r;
+  await assert.rejects(live.loadProject({ format: PROJECT_FORMAT, version: 1, patch: invalidProject }), /nesting path/);
+  assert.ok(!live.loadingProject, 'rejected projects do not leave playback synchronization suspended');
+  assert.equal(outer.inst.clones.length, 1, 'invalid project loads preserve the current project');
+
+  r.setParam(outer.id, 'instances', 1);
+  await outer.inst.sync();
+  assert.equal(innerSlider.disabled, false, 'reducing an ancestor to one unlocks descendants');
+  assert.equal(mappedSlider.disabled, false);
+  middle.inst.patch.setParam(inner.id, 'instances', 2);
+  await inner.inst.sync();
+  const saved = r.toJSON();
+  await r.load(saved);
+  assert.deepEqual(r.toJSON(), saved, 'valid nested projects round-trip');
+  r.destroy();
+}
+
 // ---- ADSR: notes (direct or through a MULTIMIDI cable) trigger an envelope that modulates a controller ----
 {
   const r = await PatchRuntime.create(engine, dsp.destination);

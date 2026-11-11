@@ -580,7 +580,7 @@ export const DOCS = {
     summary: 'A folder holding a complete sub-patch with its own Output: it groups modules into one reusable module. Audio and notes go in, its inner Output comes out. It can also run several copies (Instances) and pass notes and modulation out, to act as a custom MIDI or modulation module. Double-click to enter; the path appears on the bottom divider. Click on the <b>Main</b> button to return to the main project.',
     params: {
       inputModule: 'The number of the module inside that receives the audio/midi/modulation cabled into the Patch. Defaults to 1, so the first module you insert inside gets the input right away; 0 passes the input straight to the inner Output.',
-      instances: 'Number of copies of the contents (1–16). With more than one, and an OPERATOR or MIDI-only Input Module (OSC, MULTIMIDI), incoming notes go round-robin over the copies, free copies first. Every copy has its own random generators.',
+      instances: 'Number of copies of the contents (1–16). With more than one, and an OPERATOR or MIDI-only Input Module (OSC, MULTIMIDI), incoming notes go round-robin over the copies, free copies first. Every copy has its own random generators. Only one Patch along each nesting path may use multiple instances. Single-instance Patch modules can nest freely; Instances is locked at 1 when a parent or a nested Patch already uses multiple instances. Separate sibling Patches may each use multiple instances.',
     },
     mapped: 'Mapped controller: sets this controller inside the Patch (every instance follows). It can be modulated and automated from outside like any other controller.',
     notes: [

@@ -16,7 +16,7 @@ import { registerInterfacePreferences } from './interfacepreferences.js';
 import { registerTimelinePreferences } from './timelinepreferences.js';
 import { registerPianorollPreferences } from './pianorollpreferences.js';
 import { AudioTransport } from './audiotransport.js';
-import { unsavedDialog, exportLevelDialog } from './dialogs.js';
+import { unsavedDialog, exportLevelDialog, infoDialog } from './dialogs.js';
 import { exitToOS } from './exit.js';
 import { createSequencer } from './seq/index.js';
 import { defaultCam, validCam, toWorld, toScreen, wheelCam, fitBox, clampCam, resizeCam } from './camera.js';
@@ -313,7 +313,7 @@ panelScroller.addEventListener('scroll', rememberPanelScroll, { passive: true })
 engine.onChange = () => {
   persist.schedule();
   undoHistory?.record();
-  if (sel?.entry?.def.isOutput) panelRefresh?.();
+  if (sel?.entry?.def.isOutput || sel?.entry?.def.type === 'PATCH') panelRefresh?.();
 };
 engine.onRoutingChange = () => drawCables();
 
@@ -1054,6 +1054,7 @@ async function paste(at) {
     $('status').textContent = `Pasted ${added.length} module(s).`;
   } catch (err) {
     $('status').textContent = `Paste failed: ${err.message}`;
+    await infoDialog(err.message, { title: 'Cannot paste modules' });
   }
 }
 
@@ -1113,6 +1114,7 @@ async function insertSynthFile(file, pos) {
     $('status').textContent = `Loaded ${file.name}: ${added.length} module(s).`;
   } catch (err) {
     $('status').textContent = `Loading ${file.name} failed: ${err.message}`;
+    await infoDialog(err.message, { title: `Cannot insert ${file.name}` });
   }
 }
 
@@ -1463,7 +1465,7 @@ let driveFrame = 0;
 let driveSaveTimer = 0;
 const DRIVE_SAVE_MS = 3000;
 engine.onDrive = (entry) => {
-  if (sel?.entry === entry && !driveFrame) {
+  if ((sel?.entry === entry || (entry.def.type === 'PATCH' && sel?.entry?.def.type === 'PATCH')) && !driveFrame) {
     driveFrame = requestAnimationFrame(() => {
       driveFrame = 0;
       panelRefresh?.();

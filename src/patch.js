@@ -1,5 +1,6 @@
 import { getModule } from './modules/index.js';
 import { FEEDBACK_MIN_IN_LOOP } from './modules/feedback.js';
+import { INSTANCE_LIMIT_MESSAGE } from './modules/patch.js';
 import { fromNorm, paramsOf, controllerAt } from './params.js';
 import { normalizeSong } from './song.js';
 import { cleanColor } from './modcolor.js';
@@ -49,9 +50,15 @@ export class PatchRuntime {
     this.engine = engine;
     this.sink = sink;
     this.salt = salt;
+    this.parent = null;
+    this.parentEntry = null;
     this.watchers = new Set(); // called on any change inside (structure, controllers, nested patches)
     // what modules get as `host` in create(): nested patches inherit this runtime's salt
-    this.host = { salt, dsp: engine.dsp, mics: engine.mics ?? null, createPatch: (s, k = 0) => PatchRuntime.create(engine, s, instanceSalt(salt, k)) };
+    this.host = { salt, dsp: engine.dsp, mics: engine.mics ?? null, createPatch: async (s, k = 0) => {
+      const child = await PatchRuntime.create(engine, s, instanceSalt(salt, k));
+      child.parent = this;
+      return child;
+    } };
     this.modules = new Map(); // id -> { id, def, inst, x, y, values }
     this.cables = []; // { from, to } module ids
     this.midiTargets = new Map(); // cable -> stable MIDI delivery endpoint
@@ -90,6 +97,19 @@ export class PatchRuntime {
     return p;
   }
 
+  get hasMultipleInstances() {
+    return (this.parentEntry?.values.instances ?? 1) > 1 || !!this.parent?.hasMultipleInstances;
+  }
+
+  validateInstanceTree(data, multiple = this.hasMultipleInstances) {
+    for (const m of data.modules) {
+      if (m.type !== 'PATCH') continue;
+      const copies = (m.values?.instances ?? 1) > 1;
+      if (multiple && copies) throw new Error(`PATCH Instances: ${INSTANCE_LIMIT_MESSAGE}`);
+      if (m.patch) this.validateInstanceTree(m.patch, multiple || copies);
+    }
+  }
+
   emit() {
     this.listeners.forEach((fn) => fn());
     this.changed();
@@ -113,6 +133,7 @@ export class PatchRuntime {
   async addModule(type, { id, x = 0, y = 0, values, state, name, color } = {}) {
     const def = getModule(type);
     if (!def) throw new Error(`Unknown module type: ${type}`);
+    this.validateInstanceTree({ modules: [{ type, values }] });
     if (id === undefined) id = this.lowestFreeId();
     else if (this.modules.has(id) || this.reserved.has(id)) throw new Error(`Module number ${id} is already taken`);
     this.reserved.add(id); // claim before awaiting so concurrent inserts can't get the same number
@@ -150,6 +171,7 @@ export class PatchRuntime {
     for (const p of def.params) {
       const value = values?.[p.id] ?? p.default;
       entry.values[p.id] = p.normalize ? p.normalize(value) : value;
+      inst.validateParam?.(p.id, entry.values[p.id]);
       inst.setParam(p.id, entry.values[p.id]);
     }
     // module state that is not a controller (e.g. the WAVESHAPER curve); saved with the project
@@ -256,6 +278,7 @@ export class PatchRuntime {
   // Returns the new modules.
   async pasteMany(data, { x, y } = {}) {
     if (!data?.modules?.length) return [];
+    this.validateInstanceTree(data);
     const left = Math.min(...data.modules.map((m) => m.x));
     const top = Math.min(...data.modules.map((m) => m.y));
     const dx = x === undefined ? 30 : x - left;
@@ -291,6 +314,7 @@ export class PatchRuntime {
     if (normalize) value = normalize(value);
     // controllers that follow this one (e.g. OSC Decay <-> Release with Sustain at 0)
     const linked = e.def.linked?.(e.values, key, value, e.def.params) ?? {};
+    for (const [k, v] of [[key, value], ...Object.entries(linked)]) e.inst.validateParam?.(k, v);
     for (const [k, v] of [[key, value], ...Object.entries(linked)]) {
       e.values[k] = v;
       e.inst.setParam(k, v); // a modulated controller is re-applied (and reported) by the engine graph
@@ -491,6 +515,7 @@ export class PatchRuntime {
   // `applied`: the DSP already has the value (reported by the graph).
   drive(t, pid, v, applied = false) {
     if (t.dead || this.dead || t.values[pid] === v) return;
+    t.inst.validateParam?.(pid, v);
     t.values[pid] = v;
     if (applied) t.inst.onModulated?.(pid, v);
     else if (!t.inst.driveParam?.(pid, v)) t.inst.setParam(pid, v);
@@ -661,6 +686,7 @@ export class PatchRuntime {
   }
 
   async load(data) {
+    this.validateInstanceTree(data);
     [...this.modules.keys()].forEach((id) => this.removeModule(id));
     this.midiLock = Number.isInteger(data.midiLock) ? data.midiLock : null;
     this.song = data.song ?? null;

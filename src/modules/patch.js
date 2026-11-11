@@ -7,6 +7,7 @@
 // instances (a free instance first). Instance 1 is the one you edit; the others are hidden
 // copies kept in sync with it. Every instance runs its own random generators (drift, Random
 // LFO, ...) and seeded modules (REVERB) get a per-instance salt, so no two instances are alike.
+// Only one Patch along each nesting path may have Instances > 1.
 //
 // Mapped controllers (state.maps, edited in the Controllers dialog): any controller of any module
 // inside can be mapped to an extra controller of this module (numbered from 11, reserving room
@@ -24,6 +25,7 @@ const RELEASE_KEEP_MS = 10000;
 const MAX_INSTANCES = 16;
 const MAP_KEY = /^map\d+$/;
 export const FIRST_MAPPED_CONTROLLER = 11;
+export const INSTANCE_LIMIT_MESSAGE = 'Only one multiple-instance PATCH is allowed along each nesting path.\n\nEach instance copies the entire patch, including all nested modules. Nesting 16 instances inside 16 instances creates 256 copies of the inner patch. This multiplies memory use and can greatly increase DSP processing, slowing the app or causing audio dropouts.\n\nKeep Instances at 1 on either the containing PATCH or the nested PATCH. Single-instance folders can nest freely.';
 
 // state: { maps: [{ key: 'map1', module: inner module id, param: inner controller id, label }] }
 export function normalizeMaps(state) {
@@ -140,6 +142,11 @@ export default {
     let pending = false;
     let syncing = null;
     const runtimes = () => [patch, ...clones.map((c) => c.rt)];
+    const hasMultiple = (rt) => [...rt.modules.values()].some((e) => e.inst.patch
+      && (e.values.instances > 1 || hasMultiple(e.inst.patch)));
+    const instanceRestriction = () => owner?.hasMultipleInstances
+      ? 'Instances are managed by a parent PATCH'
+      : hasMultiple(patch) ? 'A nested PATCH already uses multiple instances' : '';
     route();
 
     async function syncNow() {
@@ -154,6 +161,7 @@ export default {
           const c = clones[k];
           if (c && c.sig === sig) { applyValues(c.rt, data); continue; }
           const rt = await host.createPatch(outGain, k + 1);
+          rt.parentEntry = entry;
           rt.outer = outer;
           await rt.load(data);
           if (destroyed || pending) { rt.destroy(); break; } // changed meanwhile: start over
@@ -205,6 +213,7 @@ export default {
     };
 
     const apply = (id, v) => {
+      inst.validateParam(id, v);
       if (id === 'inputModule') { target = v | 0; route(); sync(); }
       else if (id === 'instances') { instances = Math.max(1, Math.min(MAX_INSTANCES, v | 0)); sync(); }
     };
@@ -234,7 +243,9 @@ export default {
         id: m.key,
         label: m.label || p.label,
         min: p.min,
-        max: p.max,
+        get max() { return p.max; },
+        get disabled() { return p.disabled; },
+        get disabledReason() { return p.disabledReason; },
         default: p.default ?? p.min,
         ...(p.step !== undefined ? { step: p.step } : {}),
         ...(p.wheelStep ? { wheelStep: p.wheelStep } : {}),
@@ -283,16 +294,32 @@ export default {
       },
       get clones() { return clones.map((c) => c.rt); },
       sync,
+      validateParam(id, v) {
+        const m = mapOf(id);
+        if (m) {
+          patch.modules.get(m.module)?.inst.validateParam?.(m.param, v);
+        } else if (id === 'instances' && v > 1) {
+          const reason = instanceRestriction();
+          if (reason) throw new Error(`PATCH Instances: ${reason}.\n\n${INSTANCE_LIMIT_MESSAGE}`);
+        }
+      },
       // slider range follows the highest module id inside; mapped controllers follow
       params: () => [
         { ...def.params[0], max: Math.max(1, ...patch.modules.keys()) },
-        { ...def.params[1], format: (v) => (v <= 1 ? '1' : midiTarget() ? `${v} · round robin` : `${v} · off (Input Module is not a MIDI module)`) },
-        ...maps.map(mappedParam).filter(Boolean).map((p, i) => ({ ...p, number: FIRST_MAPPED_CONTROLLER + i })),
+        {
+          ...def.params[1],
+          get max() { return instanceRestriction() ? 1 : MAX_INSTANCES; },
+          get disabled() { return !!instanceRestriction(); },
+          get disabledReason() { return instanceRestriction(); },
+          format: (v) => instanceRestriction() ? `1 · ${instanceRestriction()}` : (v <= 1 ? '1' : midiTarget() ? `${v} · round robin` : `${v} · off (Input Module is not a MIDI module)`),
+        },
+        ...maps.map(mappedParam).filter(Boolean).map((p, i) => Object.assign(p, { number: FIRST_MAPPED_CONTROLLER + i })),
       ],
       ctl: outGain, // receives modulation of Input Module / Instances (applied by onModulated)
       attach(e, rt) {
         entry = e;
         owner = rt;
+        patch.parentEntry = e;
         mirror();
       },
       mirror,

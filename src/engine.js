@@ -113,6 +113,7 @@ export class Engine {
 
   async loadProject(data) {
     if (!isProject(data) || !Array.isArray(data.patch?.modules)) throw new Error('Not a PHILSYNTH project file');
+    this.root.validateInstanceTree(data.patch);
     this.loadingProject = true;
     try {
       importSamples(data.samples); // audio of SAMPLER / WAVETABLE modules (see src/samples.js)

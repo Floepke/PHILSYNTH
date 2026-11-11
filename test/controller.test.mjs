@@ -94,4 +94,33 @@ for (const type of ['LFO', 'VIBRATO']) {
   fire(ctl.el, 'wheel', { deltaY: -100, timeStamp: 4000 });
   assert.equal(value, p.max, 'Drift cannot scroll above 1200 cents');
 }
+{
+  let locked = true;
+  const got = [];
+  let begins = 0;
+  const p = {
+    label: 'Instances', min: 1, default: 1, step: 1,
+    get max() { return locked ? 1 : 16; },
+    get disabled() { return locked; },
+    disabledReason: 'Instances are managed by a parent PATCH',
+  };
+  const ctl = createController(p, {
+    index: 1, value: 1, format: String, onInput: (v) => got.push(v), onBegin: () => begins++,
+  });
+  assert.equal(ctl.el.attributes['aria-disabled'], true);
+  assert.match(ctl.el.title, /parent PATCH/);
+  fire(ctl.el, 'pointerdown', { clientX: 0 });
+  fire(ctl.el, 'pointermove', { clientX: 100 });
+  fire(ctl.el, 'pointerup');
+  fire(ctl.el, 'wheel', { deltaY: -100, timeStamp: 1000 });
+  fire(ctl.el, 'dblclick');
+  assert.deepEqual(got, [], 'locked sliders ignore drag, wheel and reset');
+  assert.equal(begins, 0, 'locked sliders do not start undo gestures');
+  locked = false;
+  ctl.show(1);
+  assert.equal(ctl.el.attributes['aria-disabled'], false);
+  assert.equal(ctl.el.attributes['aria-valuemax'], 16);
+  fire(ctl.el, 'wheel', { deltaY: -100, timeStamp: 2000 });
+  assert.deepEqual(got, [2], 'unlocked slider accepts input again');
+}
 console.log('controller tests passed');

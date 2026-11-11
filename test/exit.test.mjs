@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { confirmDialog } from '../src/dialogs.js';
+import { confirmDialog, infoDialog } from '../src/dialogs.js';
 import { exitToOS } from '../src/exit.js';
 import { createPersistence } from '../src/persist.js';
 
@@ -105,6 +105,22 @@ for (const cancel of ['cancel', '']) {
   assert.equal(elements.get('confirm-cancel').textContent, 'Cancel', 'existing dialogs retain their default labels');
   dialog.close('cancel');
   assert.equal(await done, false);
+}
+
+for (const result of ['ok', '']) {
+  const done = infoDialog('Only one multiple-instance PATCH is allowed along each nesting path.', { title: 'Cannot paste modules' });
+  assert.equal(dialog.open, true, 'information is presented in a modal dialog');
+  assert.equal(elements.get('confirm-title').textContent, 'Cannot paste modules');
+  assert.match(elements.get('confirm-text').textContent, /nesting path/);
+  assert.equal(elements.get('confirm-ok').textContent, 'OK');
+  assert.equal(elements.get('confirm-cancel').hidden, true, 'information dialog has only an OK button');
+  dialog.close(result);
+  await done;
+  assert.equal(elements.get('confirm-cancel').hidden, false, 'Cancel is restored after OK or Escape');
+  const confirmation = confirmDialog('Still a confirmation');
+  assert.equal(elements.get('confirm-cancel').hidden, false);
+  dialog.close('cancel');
+  assert.equal(await confirmation, false);
 }
 
 // The real persistence layer reports its save outcome without changing notifications.

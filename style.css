@@ -419,6 +419,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   --ctl-color: color-mix(in srgb, var(--mod-color, #8a8a92) 85%, #000);
 }
 .ctl[hidden] { display: none; }
+.ctl[aria-disabled='true'] { opacity: 0.6; cursor: not-allowed; }
 .ctl:hover { border-color: var(--border-strong); background: var(--surface-3); }
 .ctl.active, .ctl.wheel { border-color: color-mix(in srgb, var(--ctl-color) 70%, var(--border-strong)); }
 /* value fill: from the origin (0 or the zero point of a bipolar range) to the value */

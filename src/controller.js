@@ -55,6 +55,9 @@ export function createController(p, { index, value, onInput, format, onBegin, on
 
   let v = value;
   const show = (nv) => {
+    el.setAttribute('aria-disabled', !!p.disabled);
+    el.setAttribute('aria-valuemax', p.max);
+    el.title = p.disabled ? p.disabledReason : `${p.label} — drag sideways or scroll (Shift: fine), double-click: reset`;
     updateSnaps();
     v = nv;
     const x = Math.min(1, Math.max(0, toNorm(p, v)));
@@ -65,7 +68,7 @@ export function createController(p, { index, value, onInput, format, onBegin, on
     el.setAttribute('aria-valuetext', text);
   };
   const set = (nv) => {
-    if (nv === v || !Number.isFinite(nv)) return;
+    if (p.disabled || nv === v || !Number.isFinite(nv)) return;
     show(nv);
     onInput(nv);
   };
@@ -75,7 +78,7 @@ export function createController(p, { index, value, onInput, format, onBegin, on
   // Dragging across the controller's width covers the whole range.
   let drag = null;
   el.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || p.disabled) return;
     e.preventDefault(); // no text selection, no focus
     el.setPointerCapture(e.pointerId);
     el.classList.add('active');
@@ -116,6 +119,7 @@ export function createController(p, { index, value, onInput, format, onBegin, on
   el.addEventListener('wheel', (e) => {
     if (e.ctrlKey) return; // keep Ctrl + wheel for zoom
     e.preventDefault();
+    if (p.disabled) return;
     // Shift + wheel is horizontal scrolling on some systems: use whichever axis moved
     const { dx, dy } = wheelDelta(e);
     const delta = Math.abs(dy) >= Math.abs(dx) ? dy : dx;

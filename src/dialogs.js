@@ -23,6 +23,16 @@ export async function confirmDialog(text, { title = 'Are you sure?', ok = 'OK', 
   return (await result) === 'ok';
 }
 
+export async function infoDialog(text, { title = 'Information' } = {}) {
+  const cancel = $('confirm-cancel');
+  cancel.hidden = true;
+  try {
+    await confirmDialog(text, { title });
+  } finally {
+    cancel.hidden = false;
+  }
+}
+
 // Classic Yes / No / Cancel before the project is replaced. Resolves 'yes', 'no' or 'cancel' (also Escape).
 export async function unsavedDialog(name, { action = 'closing it' } = {}) {
   $('unsaved-title').textContent = `Save changes to "${name}"?`;
