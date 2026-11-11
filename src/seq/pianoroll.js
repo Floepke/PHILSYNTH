@@ -561,8 +561,9 @@ export function createPianoRoll(host, ctx) {
     g.beginPath();
     g.rect(gridX(), keysY, Math.max(0, w - gridX()), KEYBOARD);
     g.clip();
-    g.font = '600 8px system-ui, sans-serif';
+    g.font = '900 8px system-ui, sans-serif';
     g.textAlign = 'center';
+    g.textBaseline = 'bottom';
     const keyGap = Math.min(1, kw * 0.1);
     // keys held on the MIDI device / computer keyboard (a tuned pitch lights its base key)
     const live = new Set([...(ctx.heldKeys?.() ?? [])].map(basePitch));
@@ -583,7 +584,7 @@ export function createPianoRoll(host, ctx) {
       }
       if (p % 12 === 0 && kw * 12 >= 24) {
         g.fillStyle = inPiano(p) ? '#33343b' : '#c3c7d0';
-        g.fillText(noteName(p), x + kw / 2, h - 7);
+        g.fillText(String(Math.floor(p / 12) - 1), x + kw / 2, h - 2);
       }
     }
     g.restore();

@@ -23,7 +23,7 @@ import { registerPatcherPreferences, SPECTRUM_FLOW_ID, SPECTRUM_SIZE_ID } from '
   assert.equal(settings.spectrumSize, 8192);
   manager.restore();
   assert.equal(settings.spectrumSize, 4096);
-  assert.equal(manager.entries()[0].category, 'Patcher');
+  assert.equal(manager.entries()[0].category, 'Spectrum Analyser');
   const before = redraws;
   manager.preview(SPECTRUM_FLOW_ID, 'up');
   assert.equal(settings.spectrumFlowDirection, 'up');

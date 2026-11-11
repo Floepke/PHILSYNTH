@@ -245,7 +245,7 @@ export class PatchRuntime {
     if (!e) return false;
     const label = cleanName(name);
     if (label) e.name = label; else delete e.name;
-    this.changed();
+    this.emit();
     return true;
   }
 

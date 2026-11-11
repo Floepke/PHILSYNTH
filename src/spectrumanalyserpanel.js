@@ -23,12 +23,19 @@ export function createSpectrumAnalyserPanel({ host, panel, button, dsp, target, 
   let active = false;
   let frame = 0;
   let latest = null;
+  let lastData = null;
+  let waiting = false;
+  let nextRepeat = 0;
   let rate = 48000;
   let scrollRemainder = 0;
 
   function draw() {
     frame = 0;
     if (!active) return;
+    if (waiting && lastData && performance.now() < nextRepeat) {
+      redraw();
+      return;
+    }
     const box = cv.getBoundingClientRect();
     const w = Math.round(box.width), h = Math.round(box.height);
     if (w < 1 || h < 1) return;
@@ -50,6 +57,10 @@ export function createSpectrumAnalyserPanel({ host, panel, button, dsp, target, 
     if (right <= left || bottom <= top) return;
     const high = Math.min(20000, rate / 2);
     const xOf = hz => left + Math.log(hz / 20) / Math.log(high / 20) * (right - left);
+    if (waiting && lastData && performance.now() >= nextRepeat) {
+      latest = lastData;
+      nextRepeat = performance.now() + 1000 / 20;
+    }
     let rowHeight = 0;
     if (latest) {
       scrollRemainder += Math.max(1, Math.round(dpr)) * (preferences?.spectrumSpeed ?? 1);
@@ -100,6 +111,7 @@ export function createSpectrumAnalyserPanel({ host, panel, button, dsp, target, 
       const text = hz >= 1000 ? `${hz / 1000}k` : String(hz);
       g.fillText(text, clamp(x - 6, 2, Math.max(2, w - g.measureText(text).width - 2)), h - 4);
     }
+    if (waiting && lastData) redraw();
   }
 
   function redraw() {
@@ -113,18 +125,25 @@ export function createSpectrumAnalyserPanel({ host, panel, button, dsp, target, 
       spectrum = new Spectrum(nextSize);
       size = nextSize;
       latest = null;
+      lastData = null;
+      waiting = false;
     }
     const visible = enabled && panel.clientWidth > 0 && host.clientHeight > 0
       && !document.hidden && getComputedStyle(panel).visibility !== 'hidden';
     active = visible;
     const h = visible ? target() : null;
     if (h !== watched || (resized && h !== null)) {
+      waiting = h !== null && lastData !== null;
       watched = h;
       dsp.analyse(h, size);
       latest = null;
     }
     if (!active && frame) { cancelAnimationFrame(frame); frame = 0; }
-    if (!active) latest = null;
+    if (!active) {
+      latest = null;
+      lastData = null;
+      waiting = false;
+    }
     redraw();
   }
 
@@ -153,6 +172,9 @@ export function createSpectrumAnalyserPanel({ host, panel, button, dsp, target, 
   dsp.onAnalysis = data => {
     if (!active || watched === null || data.h !== watched || data.samples.length !== size * 2) return;
     latest = data;
+    lastData = data;
+    waiting = false;
+    nextRepeat = performance.now() + 1000 / 20;
     rate = data.sampleRate;
     redraw();
   };

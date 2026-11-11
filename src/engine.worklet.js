@@ -14,7 +14,7 @@ import { useAudioNoteIds } from './modmidi.js';
 const REPORT_BLOCKS = 2; // ~5 ms at 48 kHz
 const SCOPE_HZ = 60;
 const SCOPE_BLOCKS = Math.max(REPORT_BLOCKS, Math.round(sampleRate / 128 / SCOPE_HZ / REPORT_BLOCKS) * REPORT_BLOCKS);
-const ANALYSIS_BLOCKS = Math.max(REPORT_BLOCKS, Math.round(sampleRate / 128 / 30 / REPORT_BLOCKS) * REPORT_BLOCKS);
+const ANALYSIS_BLOCKS = Math.max(REPORT_BLOCKS, Math.round(sampleRate / 128 / 20 / REPORT_BLOCKS) * REPORT_BLOCKS);
 
 class EngineProcessor extends AudioWorkletProcessor {
   constructor(options) {
