@@ -144,7 +144,7 @@ function setup({ start = 4, length = 4 } = {}) {
   assert.equal(h.recorder.armed, false);
 }
 
-// A single pass ends exactly at the existing clip end, not at a song loop/restart point.
+// Normal recording continues past both the clip and song end, ignoring the restart point.
 {
   const h = setup({ length: 1 });
   h.transport.seek(4.5);
@@ -154,12 +154,68 @@ function setup({ start = 4, length = 4 } = {}) {
   h.run(2050);
   h.input('on');
   h.run(300);
-  assert.equal(h.transport.playing, false);
-  near(h.transport.pos, 5);
-  near(h.clip.length, 1);
+  assert.equal(h.transport.playing, true);
+  near(h.transport.pos, 5.2);
+  h.run(2200);
+  near(h.transport.pos, 9.6);
+  h.input('off');
+  h.run(2000);
+  h.transport.stop();
+  near(h.clip.length, 8, 'trailing silence is trimmed to the barline after the note');
   near(h.clip.notes[0].start, 0.6);
-  near(h.clip.notes[0].length, 0.4);
+  near(h.clip.notes[0].length, 5);
   assert.equal(h.recorder.armed, false);
+  assert.equal(h.commits(), 1);
+  assert.equal(h.transport.continuous, false);
+}
+
+// Empty extended takes restore their original length without adding an undo step.
+{
+  const h = setup({ length: 1 });
+  h.transport.seek(4);
+  h.recorder.arm();
+  h.recorder.start();
+  h.run(5000);
+  assert.equal(h.transport.playing, true);
+  assert.ok(h.clip.length > 1);
+  h.transport.stop();
+  near(h.clip.length, 1);
+  assert.equal(h.commits(), 0);
+}
+
+// Held notes end on stop, with bar rounding in song time and the current meter.
+{
+  const h = setup({ start: 5, length: 12 });
+  setSig(h.song, 4, 3, 4);
+  h.transport.seek(5);
+  h.recorder.arm();
+  h.recorder.start();
+  h.run(1600);
+  h.input('on');
+  h.run(1000);
+  h.transport.stop({ to: 5 });
+  near(h.clip.notes[0].start, 0.2);
+  near(h.clip.notes[0].length, 2);
+  near(h.clip.length, 5, 'absolute note end 7.2 rounds up to barline 10');
+}
+
+// Existing notes must not be trimmed away; disarming restores normal playback bounds.
+{
+  const h = setup({ length: 12 });
+  h.clip.notes.push({ pitch: 48, start: 8, length: 1, vel: 0.5 });
+  h.transport.seek(4);
+  h.recorder.arm();
+  h.recorder.start();
+  h.run(2010);
+  h.input('on');
+  h.run(100);
+  h.input('off');
+  h.recorder.finish();
+  near(h.clip.length, 12);
+  assert.equal(h.transport.playing, true);
+  assert.equal(h.transport.continuous, false);
+  assert.equal(h.commits(), 1);
+  h.transport.stop();
 }
 
 // Repeated pitches and different inputs/channels keep their independent starts and releases.

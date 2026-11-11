@@ -1,4 +1,4 @@
-import { clean, isAuto, isIdea, meter, segAt } from '../song.js';
+import { barCeil, clean, isAuto, isIdea, meter, segAt } from '../song.js';
 
 const EPS = 1e-7;
 
@@ -41,7 +41,7 @@ export class MidiRecorder {
     }
     this.finish({ disarm: false });
     const sig = segAt(meter(owner), from);
-    const options = { countIn: { beats: sig.num, beat: sig.beat }, endAt: loop ? null : clip.start + clip.length };
+    const options = { countIn: { beats: sig.num, beat: sig.beat }, continuous: !loop };
     const ok = loop
       ? this.transport.playClip(clip.id, owner, options)
       : this.transport.play({ ...options, fromStart });
@@ -49,7 +49,7 @@ export class MidiRecorder {
       this.onError('This clip cannot play here. Use / to record a clip stored above the TimeLine or before time zero.');
       return false;
     }
-    this.take = { owner, clip, loop, from, generation: this.transport.generation, changed: false, lastElapsed: 0 };
+    this.take = { owner, clip, loop, from, originalLength: clip.length, generation: this.transport.generation, changed: false, lastElapsed: 0 };
     this.onState();
     return true;
   }
@@ -60,7 +60,7 @@ export class MidiRecorder {
     if (this.transport.generation !== take.generation) return take.lastElapsed;
     const elapsed = this.transport.recordingTime(time);
     if (elapsed === null) return null;
-    const position = Math.max(0, Math.min(elapsed, take.loop ? Infinity : take.clip.length - (take.from - take.clip.start)));
+    const position = Math.max(0, elapsed);
     take.lastElapsed = Math.max(take.lastElapsed, position);
     return position;
   }
@@ -74,6 +74,13 @@ export class MidiRecorder {
 
   flush(note, elapsed, released) {
     const take = this.take;
+    if (!take.loop) {
+      if (released) {
+        this.append(note, take.from - take.clip.start + note.at, elapsed - note.at);
+        note.at = elapsed;
+      }
+      return;
+    }
     const length = take.clip.length;
     while (note.at < elapsed - EPS) {
       const offset = clean(take.from - take.clip.start + note.at);
@@ -103,8 +110,7 @@ export class MidiRecorder {
         this.held.delete(key);
       }
     }
-    if (event.type === 'on' && this.transport.playing && this.transport.recordingTime(event.time) >= 0
-      && (take.loop || elapsed < take.clip.length - (take.from - take.clip.start))) {
+    if (event.type === 'on' && this.transport.playing && this.transport.recordingTime(event.time) >= 0) {
       this.held.set(event.key, { pitch: event.pitch, velocity: event.velocity, at: elapsed });
     }
     if (take.clip.notes.length !== before) this.onNotes();
@@ -121,8 +127,12 @@ export class MidiRecorder {
     const elapsed = this.position(time);
     if (elapsed === null) return;
     const before = take.clip.notes.length;
+    const previousLength = take.clip.length;
+    if (!take.loop && take.from - take.clip.start + elapsed > take.clip.length) {
+      take.clip.length = clean(barCeil(take.owner, take.from + elapsed) - take.clip.start);
+    }
     for (const note of this.held.values()) this.flush(note, elapsed, false);
-    if (take.clip.notes.length !== before) this.onNotes();
+    if (take.clip.notes.length !== before || take.clip.length !== previousLength) this.onNotes();
   }
 
   finish({ disarm = true } = {}) {
@@ -130,10 +140,18 @@ export class MidiRecorder {
     if (take) {
       const elapsed = this.position();
       if (elapsed !== null) for (const note of this.held.values()) this.flush(note, elapsed, true);
+      if (!take.loop) {
+        const end = take.clip.notes.reduce((end, note) => Math.max(end, note.start + note.length), 0);
+        take.clip.length = take.changed
+          ? clean(barCeil(take.owner, take.clip.start + end) - take.clip.start)
+          : take.originalLength;
+        this.transport.setContinuous(false);
+      }
     }
     this.held.clear();
     this.take = null;
     if (disarm) this.armed = false;
+    if (take && !take.loop) this.onNotes();
     if (take?.changed) this.onCommit();
     this.onState();
   }

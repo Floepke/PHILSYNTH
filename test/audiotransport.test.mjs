@@ -4,6 +4,7 @@ import { PatchRuntime } from '../src/patch.js';
 import { playbackModel, playbackSong, preparePlayback } from '../src/playbackmodel.js';
 import { Playback } from '../src/dsp/playback.js';
 import { AudioTransport } from '../src/audiotransport.js';
+import { MidiRecorder } from '../src/seq/recording.js';
 import { emptySong, addClip, addAutoClip, notesStarting, notesSounding } from '../src/song.js';
 import { readFileSync } from 'node:fs';
 import { instantiateDsp, wasmKernels } from '../src/dsp/wasm.js';
@@ -47,6 +48,56 @@ async function harness(options = {}) {
     }
   };
   return { root, dsp, graph, ctx, playback, song, events, update, start, run };
+}
+
+// Recording's continuous mode reaches the worklet even when its song snapshot still has
+// the old clip length; stopping finalizes the held note before parking the playhead.
+{
+  const h = await harness();
+  const clip = addClip(h.song, { length: 1 });
+  h.song.selected = clip.id;
+  await h.update();
+  let commits = 0;
+  const transport = new AudioTransport({
+    getScope: () => [],
+    getSong: () => h.song, getBpm: () => 120, getTarget: () => null,
+    now: () => h.ctx.currentTime * 1000, onState: () => recorder.update(),
+  }, {
+    dsp: { post: ([, , data]) => h.playback.command(data) },
+    sync: async () => {}, onError: (error) => { throw error; },
+    audioTime: () => h.ctx.currentTime,
+  });
+  const recorder = new MidiRecorder({
+    transport, song: () => h.song, clip: () => clip,
+    onNotes() {}, onState() {}, onCommit: () => commits++,
+    onError: (message) => assert.fail(message),
+  });
+  recorder.arm();
+  recorder.start();
+  await Promise.resolve();
+  h.run(2.1);
+  transport.receive(h.playback.report());
+  recorder.input({ type: 'on', key: 'held', pitch: 60, velocity: 0.8 });
+  h.run(3);
+  transport.receive(h.playback.report());
+  recorder.update();
+  assert.ok(transport.pos > 6, 'audio playback does not wrap at the original song end');
+  assert.equal(transport.playing, true);
+  transport.stop({ to: 0 });
+  assert.equal(clip.notes.length, 1);
+  assert.ok(clip.notes[0].length > 5.9, 'held note continues past the old clip end');
+  assert.equal(clip.length, 8);
+  assert.equal(commits, 1);
+  assert.equal(h.playback.transport.playing, false);
+
+  // Disarming during the asynchronous start must not cancel that pending start.
+  recorder.arm();
+  recorder.start();
+  recorder.finish();
+  await Promise.resolve();
+  assert.equal(h.playback.transport.playing, true);
+  assert.equal(h.playback.transport.continuous, false);
+  transport.stop();
 }
 
 for (const native of [false, true]) {

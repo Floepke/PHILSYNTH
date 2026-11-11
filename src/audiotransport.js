@@ -12,18 +12,18 @@ export class AudioTransport extends Transport {
   }
   tick() {}
   send(type) {
-    const revision = ++this.revision;
+    const revision = type === 'continuous' ? this.revision : ++this.revision;
     const data = {
       type, revision, pos: this.pos, scope: this.scope,
       clipId: this.clipId, chase: this.chase,
-      countIn: this.countIn, endAt: this.endAt,
+      countIn: this.countIn, endAt: this.endAt, continuous: this.continuous,
     };
     if (type !== 'start') {
       this.dsp.post(['playback', 'command', data]);
       return;
     }
     this.sync().then(() => {
-      if (revision === this.revision) this.dsp.post(['playback', 'command', data]);
+      if (revision === this.revision) this.dsp.post(['playback', 'command', { ...data, continuous: this.continuous }]);
     }).catch((error) => {
       if (revision !== this.revision) return;
       this.stop();
@@ -35,6 +35,11 @@ export class AudioTransport extends Transport {
     const result = super.start(pos, options);
     this.send('start');
     return result;
+  }
+  setContinuous(value) {
+    if (this.continuous === value) return;
+    super.setContinuous(value);
+    this.send('continuous');
   }
   recordingTime(time) {
     if (!this.clock) return null;

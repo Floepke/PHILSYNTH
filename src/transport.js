@@ -62,6 +62,7 @@ export class Transport {
     this.elapsed = 0; // unwrapped quarters since playback began; negative during the count-in
     this.countIn = null;
     this.endAt = null;
+    this.continuous = false;
     this.generation = 0;
     this.active = []; // { id, inst, end, note, start, vel (last sent) } sounding notes
     this.chase = true; // trigger notes the playhead lands inside (see chaseAt)
@@ -100,7 +101,7 @@ export class Transport {
     return [0, end > 0 ? barCeil(song, end) : 0];
   }
 
-  play({ fromStart = false, countIn = null, endAt = null } = {}) {
+  play({ fromStart = false, countIn = null, endAt = null, continuous = false } = {}) {
     const [start, end] = this.songBounds();
     if (end <= start) {
       if (this.playing) this.stop();
@@ -109,7 +110,7 @@ export class Transport {
     const sameScope = JSON.stringify(this.scope) === JSON.stringify(this.getScope());
     if (this.playing && this.clipId === null && !fromStart && !countIn && sameScope) return true;
     this.clipId = null;
-    return this.start(fromStart || this.pos < start || this.pos >= end ? start : this.pos, { countIn, endAt });
+    return this.start(fromStart || this.pos < start || this.pos >= end ? start : this.pos, { countIn, endAt, continuous });
   }
 
   playClip(id, song = this.getSong(), options = {}) {
@@ -124,7 +125,9 @@ export class Transport {
 
   recordingTime() { return this.elapsed; }
 
-  start(pos = this.pos, { countIn = null, endAt = null } = {}) {
+  setContinuous(value) { this.continuous = value; }
+
+  start(pos = this.pos, { countIn = null, endAt = null, continuous = false } = {}) {
     if (!Number.isFinite(pos)) pos = Number.isFinite(this.pos) ? this.pos : 0; // a NaN position would feed garbage to the engine
     this.releaseAll();
     this.releaseAuto();
@@ -134,6 +137,7 @@ export class Transport {
     this.countIn = countIn;
     this.elapsed = countIn ? -countIn.beats * countIn.beat : 0;
     this.endAt = endAt;
+    this.continuous = continuous;
     this.nextCountBeat = 1;
     this.chasePending = true;
     this.playing = true;
@@ -150,6 +154,7 @@ export class Transport {
     this.releaseAll();
     this.releaseAuto();
     this.playing = false;
+    this.continuous = false;
     this.clipId = null;
     this.clipSong = null;
     if (to !== null) this.pos = this.from = Math.max(0, to);
@@ -169,6 +174,7 @@ export class Transport {
     this.elapsed = 0;
     this.countIn = null;
     this.endAt = null;
+    this.continuous = false;
     this.pos = this.from = this.clipId !== null ? q : Math.max(0, q); // a looped clip may sit before zero
     this.chasePending = true;
     this.last = this.now();
@@ -193,6 +199,7 @@ export class Transport {
     const clip = this.loopClip();
     if (this.clipId !== null && !clip) { this.stop(); return; }
     let [start, end] = clip ? [clip.start, clip.start + clip.length] : this.songBounds();
+    if (!clip && this.continuous) end = Infinity;
     if (end <= start) { this.stop(); return; }
     // song playback continues at the restart point at the end of the song
     const restart = clip ? null : this.getSong().restart;
