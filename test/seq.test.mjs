@@ -643,7 +643,10 @@ const assertNoOverlap = (song) => {
   const { clip, roll, ctx } = setup();
   const cv = roll.surface.cv;
   clip.notes.push(note(60, 1, 2), note(63, 2, 1), note(67, 5, 1), note(70, 20, 1));
-  const keyFill = (p) => cv.drawing.findLast(([op, x, y, w]) => op === 'fillRect' && y === 377 && x <= nx(p) && nx(p) < x + w)?.at(-1);
+  const keyFill = (p) => {
+    const i = cv.drawing.findLastIndex(([op, x, y, w]) => (op === 'fillRect' || op === 'roundRect') && y === 377 && x <= nx(p) && nx(p) < x + w);
+    return cv.drawing[i]?.[0] === 'roundRect' ? cv.drawing[i + 1]?.[1] : cv.drawing[i]?.at(-1); // black keys: the fill after the rounded rect
+  };
   const paintAt = (pos, playing = true) => {
     Object.assign(ctx.transport, { pos: clip.start + pos, playing });
     cv.drawing.length = 0;
@@ -684,7 +687,10 @@ for (const ending of ['pointerup', 'pointercancel', 'lostpointercapture', 'blur'
     ctx.heldKeys = () => held;
     roll.redraw();
     flush();
-    const keyFill = (p) => cv.drawing.findLast(([op, x, y, w]) => op === 'fillRect' && y === 377 && x <= nx(p) && nx(p) < x + w)?.at(-1);
+    const keyFill = (p) => {
+    const i = cv.drawing.findLastIndex(([op, x, y, w]) => (op === 'fillRect' || op === 'roundRect') && y === 377 && x <= nx(p) && nx(p) < x + w);
+    return cv.drawing[i]?.[0] === 'roundRect' ? cv.drawing[i + 1]?.[1] : cv.drawing[i]?.at(-1); // black keys: the fill after the rounded rect
+  };
     assert.equal(keyFill(62), '#607c69', 'held white key: selection green');
     assert.match(keyFill(63), /color-mix\(in srgb, #607c69/, 'held black key: darker green');
     assert.notEqual(keyFill(64), '#607c69', 'other keys unchanged');
@@ -1812,7 +1818,11 @@ for (const end of ['lostpointercapture', 'pointercancel']) {
   point(cv, 'pointermove', nx(59.49), ny(3.5));
   assert.match(cv.title, /^B3 /, '59.49 is B3');
   // held keys (MIDI) light their base key blue
-  const keyFill = (p) => cv.drawing.findLast(([op, x, y]) => op === 'fillRect' && x === nx(p) - 7 + 0.5 && y > 300)?.[5];
+  const keyFill = (p) => {
+    const i = cv.drawing.findLastIndex(([op, x, y, w]) => (op === 'fillRect' || op === 'roundRect') && x <= nx(p) && x + w >= nx(p) && y > 300);
+    const [op] = cv.drawing[i] ?? [];
+    return op === 'roundRect' ? cv.drawing[i + 1]?.[1] : cv.drawing[i]?.[5]; // black keys: the fill after the rounded rect
+  };
   ctx.heldKeys = () => new Set([61.6]);
   roll.redraw(); flush();
   assert.equal(keyFill(62), '#607c69', 'a tuned held pitch lights its base key');
@@ -4187,7 +4197,7 @@ for (const free of [false, true]) {
   const { clip, roll } = setup();
   const cv = roll.surface.cv;
   for (let pitch = 60; pitch < 72; pitch++) clip.notes.push(note(pitch, 1, 2));
-  const fills = () => cv.drawing.flatMap((op, i) => op[0] === 'roundRect' ? [cv.drawing[i + 1][1]] : []);
+  const fills = () => cv.drawing.flatMap((op, i) => op[0] === 'roundRect' && op[2] < 377 ? [cv.drawing[i + 1][1]] : []); // note bodies, not black keys
   cv.drawing.length = 0;
   roll.redraw();
   flush();
@@ -4246,7 +4256,7 @@ for (const width of [240, 480, 1000, 1912, 3000]) {
   });
   assert.ok(lines.length > 0);
   assert.ok(lines.every(([from, to]) => from[2] === to[2] && from[1] >= left && to[1] <= right));
-  const bodies = cv.drawing.filter(([op]) => op === 'roundRect');
+  const bodies = cv.drawing.filter(([op, , y]) => op === 'roundRect' && y < 377); // note bodies, not black keys
   assert.equal(bodies.length, 2, 'notes outside the grid bounds are still drawn');
   assert.ok(bodies[0][1] < left && bodies[1][1] > right);
 }
@@ -4266,9 +4276,13 @@ for (const width of [300, 480, 900, 1912]) {
   }
   assert.deepEqual(clip.notes.map((n) => n.pitch), Array.from({ length: 128 }, (_, i) => i), `all pitches at width ${width}`);
   assert.ok(clip.notes.every((n) => n.start === 1));
-  const keys = cv.drawing.filter(([op, , y, , h]) => op === 'fillRect' && y === 377 && h === 22).slice(-128);
+  const keys = cv.drawing.filter(([op, , y, , h]) => (op === 'fillRect' && y === 377 && h === 23) || (op === 'roundRect' && y === 377 && h === 15)).slice(-128);
   assert.equal(keys.length, 128);
-  assert.ok(keys[0][1] >= 120 && keys.at(-1)[1] + keys.at(-1)[3] <= width + 1e-9, 'whole keyboard fits');
+  assert.ok(keys[0][1] >= 120 - kw / 14 && keys.at(-1)[1] + keys.at(-1)[3] <= width + 1e-9, 'whole keyboard fits');
+  const fronts = cv.drawing.filter(([op, , y, , h]) => op === 'fillRect' && y === 377 && h === 23).slice(-75); // 75 white keys
+  assert.equal(fronts.length, 75);
+  assert.ok(fronts.every(([, , , w]) => Math.abs(w - fronts[0][3]) < 1e-9), 'white key fronts are equally wide, like a real piano');
+  assert.ok(Math.abs(fronts[7][1] - fronts[0][1] - 12 * kw) < 1e-9, 'seven fronts per octave');
   const head = cv.drawing.find(([op, x]) => op === 'translate' && Math.abs(x - center(1)) < 1e-9); // notehead centre
   assert.ok(head);
   click(cv, center(0), ny(1) + 10, { button: 2 });
@@ -4282,7 +4296,29 @@ for (const width of [300, 480, 900, 1912]) {
   click(cv, center(0), 390);
   click(cv, center(127), 390);
   assert.deepEqual(played, [0, 127], 'keys outside the 88-key range also audition');
+  played.length = 0;
+  click(cv, center(61), 385); // on the black key
+  click(cv, center(61) - kw / 4, 396); // below it: the white keys on either side
+  click(cv, center(61) + kw / 4, 396);
+  assert.deepEqual(played, [61, 60, 62], 'black keys cover the back 2/3; the front belongs to the white keys');
   assert.equal(clip.notes.length, 126, 'audition never inserts notes');
+  if (width === 480) {
+    const stored = new Map();
+    const saved = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (k) => stored.get(k) ?? null, setItem: (k, v) => stored.set(k, v) } });
+    try {
+      drag(cv, width - 5, 395, width - 5, 355); // the cell right of the keys: 40px up
+      assert.equal(stored.get('modsynth.pianoroll.keyboard'), '64', 'the height is kept locally');
+      played.length = 0;
+      click(cv, center(61), 345); // the taller keys start higher
+      assert.deepEqual(played, [61]);
+      drag(cv, 10, 345, 10, 385); // the cell left of the keys: back down
+      assert.equal(stored.get('modsynth.pianoroll.keyboard'), '24');
+      assert.equal(clip.notes.length, 126, 'resizing never inserts notes');
+    } finally {
+      if (saved) Object.defineProperty(globalThis, 'localStorage', saved); else delete globalThis.localStorage;
+    }
+  }
 }
 
 // A vertical scrollbar (the TimeLine's look) right of the note grid scrolls the clip.
@@ -4304,7 +4340,7 @@ for (const width of [300, 480, 900, 1912]) {
   click(cv, x, bottom + 10); // the dead corner beside the keyboard
   assert.equal(clip.notes.length, 0, 'the scrollbar never inserts notes');
   assert.equal(changes(), 0, 'scrolling is no undo step');
-  const keys = cv.drawing.filter(([op, , y, , h]) => op === 'fillRect' && y === 377 && h === 22);
+  const keys = cv.drawing.filter(([op, , y, , h]) => op === 'roundRect' && y === 377 && h === 15);
   assert.ok(keys.every(([, kx, , kw]) => kx + kw <= ROLL_WIDTH - ROLL_SB), 'the keyboard ends at the scrollbar');
 }
 
@@ -4403,7 +4439,7 @@ for (const width of [300, 480, 900, 1912]) {
   assert.equal(roll.getView().sy, 0, 'Shift + wheel does not scroll time');
   const sbY = 400 - 24 - ROLL_SB;
   assert.ok(track(sbY), 'the horizontal scrollbar shows just above the keyboard');
-  const bodies = cv.drawing.filter(([op]) => op === 'roundRect');
+  const bodies = cv.drawing.filter(([op, , y]) => op === 'roundRect' && y < 377); // note bodies, not black keys
   assert.ok(bodies.length === 2 && bodies.every((r) => r[3] <= 48 + 1), 'notes stop growing at 48 px');
   // keys and stave stay aligned: click the keyboard and the stave under the same key
   click(cv, b1, 390);

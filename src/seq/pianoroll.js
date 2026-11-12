@@ -68,7 +68,21 @@ const CENTRAL = [61, 63]; // C#4 and D#4, the black keys next to middle C
 const GRID_LOW = 22; // A#0 (American notation)
 const GRID_HIGH = 106; // A#7
 
+// keyboard height: dragged on the cells left / right of the keys, kept on this computer (not in the project)
 const KEYBOARD = 24;
+const WHITE_PITCH = [0, 2, 4, 5, 7, 9, 11]; // pitch class of each white key in an octave
+const WHITE_INDEX = [0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6]; // pitch class -> white key (black: the one below)
+const WHITE_SHIFT = 60 / 7 - 8.5; // columns; the equal 12/7-wide white keys put G|A at 60/7, G# is centred at 8.5
+const KEYBOARD_MIN = 16;
+const KEYBOARD_MAX = 80;
+const KEYBOARD_KEY = 'modsynth.pianoroll.keyboard';
+const storedKeyboard = () => {
+  try {
+    const v = Number(globalThis.localStorage?.getItem(KEYBOARD_KEY));
+    return v ? clamp(Math.round(v), KEYBOARD_MIN, KEYBOARD_MAX) : KEYBOARD;
+  } catch { return KEYBOARD; } // storage blocked
+};
+const storeKeyboard = (h) => { try { globalThis.localStorage?.setItem(KEYBOARD_KEY, String(h)); } catch { /* storage blocked */ } };
 // free space above time 0 (keeps the first notes clear of the PHILSYNTH menu button); the
 // automation lane uses the same
 export const TOP_MARGIN = 128;
@@ -142,11 +156,27 @@ export function createPianoRoll(host, ctx) {
   const headX = (n) => centerX(n.pitch); // leans by the tuning
   const bodyX = (n, t) => centerX(notePitchAt(n, t)); // middle of the note body t quarters after its start
   const pitchAt = (x) => keyWidth() > 0 ? clamp(Math.floor((x - gridX() + view.hx) / keyWidth()), 0, PITCH_MAX) : 0;
+  // white key fronts (below the black keys) share each octave's 12 columns equally, 7 per octave
+  // shifted left by WHITE_SHIFT so the G|A line runs through the middle of G#
+  const whiteFrontX = (p) => xOf(p - p % 12) + (WHITE_INDEX[p % 12] * 12 / 7 - WHITE_SHIFT) * keyWidth();
+  // the key under the pointer on the keyboard: a black key, else the (equally wide) white key
+  const keyAt = (x, y) => {
+    const p = pitchAt(x);
+    if ((isBlack(p) && y < keyTop() + blackKey()) || keyWidth() <= 0) return p;
+    const col = clamp((x - gridX() + view.hx) / keyWidth() + WHITE_SHIFT, 0, PITCH_MAX + 1);
+    const octave = Math.floor(col / 12);
+    const white = Math.min(6, Math.floor((col - octave * 12) * 7 / 12));
+    return clamp(octave * 12 + WHITE_PITCH[white], 0, PITCH_MAX);
+  };
   const pitchFromX = (x) => keyWidth() > 0 ? clamp((x - gridX() + view.hx) / keyWidth() - 0.5, 0, PITCH_MAX) : 0; // continuous
   const clampX = (x) => clamp(x, gridX(), Math.max(gridX(), rollRight() - 1)); // drags past the side edges stay at the edge
   const bendXY = (n, b) => ({ x: centerX(clamp(n.pitch + b.d, 0, PITCH_MAX)), y: yOf(n.start + b.t) });
   const timeAt = (y) => (y + view.sy) / view.ppq;
-  const keyTop = () => Math.max(0, s.h - KEYBOARD);
+  let keyboardH = storedKeyboard();
+  const keyboardHeight = () => Math.min(keyboardH, Math.max(KEYBOARD_MIN, s.h / 4)); // a small roll keeps room for notes
+  const blackKey = () => Math.round(keyboardHeight() * 2 / 3); // black keys cover the back 2/3, like a real piano
+  const keyTop = () => Math.max(0, s.h - keyboardHeight());
+  const onKeyboardCell = (x, y) => y >= keyTop() && y < s.h && (x < gridX() || x >= rollRight()); // the height handles
   const gridBottom = () => Math.max(0, keyTop() - (zoomedX() ? SB : 0)); // zoomed: the horizontal scrollbar sits above the keys
   const inGrid = (x, y) => x >= gridX() && x < rollRight() && y >= 0 && y < gridBottom();
   const inKeyboard = (x, y) => x >= gridX() && x < rollRight() && y >= keyTop() && y < s.h;
@@ -549,10 +579,12 @@ export function createPianoRoll(host, ctx) {
 
     // keyboard strip
     g.fillStyle = '#292b31';
-    g.fillRect(0, keysY, fullW, KEYBOARD);
+    const KEYS_H = keyboardHeight();
+    const BLACK_KEY = blackKey();
+    g.fillRect(0, keysY, fullW, KEYS_H);
     g.save();
     g.beginPath();
-    g.rect(gridX(), keysY, Math.max(0, w - gridX()), KEYBOARD);
+    g.rect(gridX(), keysY, Math.max(0, w - gridX()), KEYS_H);
     g.clip();
     g.font = '900 8px system-ui, sans-serif';
     g.textAlign = 'center';
@@ -564,20 +596,39 @@ export function createPianoRoll(host, ctx) {
     const sounding = soundingPitches(clip); // notes of this clip under the playhead while it plays
     const noteColor = clip ? `color-mix(in srgb, ${ctx.color(clip)} 75%, #fff)` : null;
     const blackNote = `color-mix(in srgb, ${noteColor} 70%, #000)`;
+    const keyColor = (p) => (drag?.kind === 'keyboard' && drag.pitch === p ? PLAYHEAD
+      : live.has(p) ? (isBlack(p) ? blackLive : SELECT)
+      : sounding.has(p) ? (isBlack(p) ? blackNote : noteColor)
+      : inPiano(p) ? (isBlack(p) ? '#191a20' : '#bfc1c7') : (isBlack(p) ? '#24262c' : '#777a84'));
+    const blackY = keysY + BLACK_KEY;
+    // white keys: equally wide like a real piano (an octave's 12 columns shared by 7), full height;
+    // the gaps between them are the key indicator lines, the black keys are drawn on top
     for (let p = 0; p <= PITCH_MAX; p++) {
-      const x = xOf(p);
-      g.fillStyle = drag?.kind === 'keyboard' && drag.pitch === p ? PLAYHEAD
-        : live.has(p) ? (isBlack(p) ? blackLive : SELECT)
-        : sounding.has(p) ? (isBlack(p) ? blackNote : noteColor)
-        : inPiano(p) ? (isBlack(p) ? '#191a20' : '#bfc1c7') : (isBlack(p) ? '#24262c' : '#777a84');
-      g.fillRect(x + keyGap / 2, keysY + 1, kw - keyGap, KEYBOARD - 2);
+      if (isBlack(p)) continue;
+      const fx = whiteFrontX(p);
+      const fw = kw * 12 / 7;
+      g.fillStyle = keyColor(p);
+      g.fillRect(fx + keyGap / 2, keysY + 1, fw - keyGap, KEYS_H - 1);
       if (p === hoverPitch) {
         g.fillStyle = PLAYHEAD;
-        g.fillRect(x + keyGap / 2, h - 5, kw - keyGap, 4);
+        g.fillRect(fx + keyGap / 2, h - 5, fw - keyGap, 4);
       }
       if (p % 12 === 0 && kw * 12 >= 24) {
         g.fillStyle = inPiano(p) ? '#33343b' : '#c3c7d0';
-        g.fillText(String(Math.floor(p / 12) - 1), x + kw / 2, h - 2);
+        g.fillText(String(Math.floor(p / 12) - 1), fx + fw / 2, h - 2);
+      }
+    }
+    for (let p = 0; p <= PITCH_MAX; p++) {
+      if (!isBlack(p)) continue;
+      const x = xOf(p);
+      const corner = Math.min(2, (kw - keyGap) / 3); // slightly rounded bottom corners, like a real black key
+      g.fillStyle = keyColor(p);
+      g.beginPath();
+      g.roundRect(x + keyGap / 2, keysY + 1, kw - keyGap, BLACK_KEY - 1, [0, 0, corner, corner]);
+      g.fill();
+      if (p === hoverPitch) {
+        g.fillStyle = PLAYHEAD;
+        g.fillRect(x + keyGap / 2 + corner / 2, blackY - 4, kw - keyGap - corner, 3);
       }
     }
     g.restore();
@@ -701,7 +752,7 @@ export function createPianoRoll(host, ctx) {
     hoverBend = ctx.clip() ? bendAt(x, y) : null;
     const h = inside && !hoverBend ? hit(x, y) : null;
     endHover = !h && onClipEnd(x, y);
-    hoverPitch = x >= gridX() && x < rollRight() ? pitchAt(x) : null;
+    hoverPitch = x >= gridX() && x < rollRight() ? (inKeyboard(x, y) ? keyAt(x, y) : pitchAt(x)) : null;
     hover = inside && !h && !hoverBend ? { pitch: pitchAt(x), t: Math.max(0, snapFloor(timeAt(y), step())) } : null;
     const keyboard = keysPlay() && inKeyboard(x, y);
     cv.style.cursor = keyboard ? 'pointer' : h?.part === 'head' ? 'move' : h ? 'ns-resize' : 'default';
@@ -719,7 +770,8 @@ export function createPianoRoll(host, ctx) {
     hbHover = onHScrollbar(x, y);
     if (bar) { cv.style.cursor = 'default'; cv.title = 'Drag to scroll the clip, or click the track to jump there'; }
     if (hbHover) { cv.style.cursor = 'default'; cv.title = 'Drag to scroll the zoomed keys sideways, or click the track to jump there (Shift + wheel zooms)'; }
-    if (inRuler(x, y)) { cv.style.cursor = 'move'; cv.title = 'Drag sideways to resize the velocity editor, up to zoom time in, down to zoom out — double-click resets width'; }
+    if (onKeyboardCell(x, y)) { cv.style.cursor = 'ns-resize'; cv.title = 'Drag up or down to set the keyboard height — double-click resets it'; }
+    else if (inRuler(x, y)) { cv.style.cursor = 'move'; cv.title = 'Drag sideways to resize the velocity editor, up to zoom time in, down to zoom out — double-click resets width'; }
     s.redraw();
   }
 
@@ -1090,6 +1142,24 @@ export function createPianoRoll(host, ctx) {
     }
     const clip = ctx.clip();
     const { x, y } = s.local(e);
+    if (e.button === 0 && onKeyboardCell(x, y)) {
+      e.preventDefault();
+      if (e.detail >= 2) { keyboardH = KEYBOARD; storeKeyboard(keyboardH); limitScroll(); s.redraw(); return; }
+      const h0 = keyboardHeight();
+      drag = { kind: 'keyboardHeight' };
+      drag.stop = capture(cv, e, (ev) => {
+        keyboardH = clamp(Math.round(h0 - (s.local(ev).y - y)), KEYBOARD_MIN, Math.min(KEYBOARD_MAX, Math.max(KEYBOARD_MIN, s.h / 4)));
+        limitScroll();
+        s.redraw();
+      }, (ev) => {
+        if (ev.type === 'pointercancel') keyboardH = h0;
+        else storeKeyboard(keyboardH);
+        drag = null;
+        limitScroll();
+        s.redraw();
+      });
+      return;
+    }
     if (onScrollbar(x, y) || (x >= rollRight() && y >= gridBottom())) { // the scrollbar, and the dead corner below it
       e.preventDefault();
       if (e.button === 0 && y < gridBottom()) scrollbarDrag(e, { x, y });
@@ -1134,7 +1204,7 @@ export function createPianoRoll(host, ctx) {
       const play = (ev) => {
         const p = s.local(ev);
         pointer = p;
-        const pitch = inKeyboard(p.x, p.y) ? pitchAt(p.x) : null;
+        const pitch = inKeyboard(p.x, p.y) ? keyAt(p.x, p.y) : null;
         if (pitch === drag.pitch) return;
         ctx.preview.off(pv);
         pv = pitch === null ? null : ctx.preview.key ? ctx.preview.key(pitch) : ctx.preview.on(clip, pitch);

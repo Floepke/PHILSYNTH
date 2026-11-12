@@ -220,6 +220,7 @@ export const GUIDE = [
         items: [
           'Click empty space to insert a note at that pitch, starting on the grid line at or before the pointer, with the last used length; move more than 10 pixels while holding to start setting its duration.',
           'Click / drag the keyboard at the bottom to audition pitches on the live MIDI module without writing notes. Keys held on your MIDI controller or the computer keyboard light up blue there, so you can read what you play. During playback the notes under the playhead light up their keys in the clip colour, so you can read the harmony.',
+          'Drag the empty cell to the left or right of the keyboard up or down to make the keyboard taller or shorter; double-click a cell to reset it. The height is remembered on this computer, not saved in the project.',
         ],
       },
       {
@@ -474,8 +475,8 @@ export const GUIDE = [
 const GUIDE_STATE_KEY = 'philsynth:guide';
 
 export function createGuideState({
-  load = () => globalThis.localStorage?.getItem(GUIDE_STATE_KEY),
-  save = (text) => globalThis.localStorage?.setItem(GUIDE_STATE_KEY, text),
+  load = () => globalThis.localStorage?.getItem?.(GUIDE_STATE_KEY), // Node 25 has a method-less localStorage without --localstorage-file
+  save = (text) => globalThis.localStorage?.setItem?.(GUIDE_STATE_KEY, text),
   onError = (error) => console.error('Manual reading position:', error),
 } = {}) {
   let opened = new Set();
