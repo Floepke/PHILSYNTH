@@ -5,7 +5,7 @@
 //   Chromium browsers     showSaveFilePicker / showOpenFilePicker with `id: kind`: the browser
 //                         remembers the folder per id (per site, across restarts)
 //   other browsers        a download / a file input (the browser decides where)
-import { CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS, AUDIO_OPEN_EXTS, WAVETABLE_OPEN_EXTS, IMAGE_OPEN_EXTS, MIDI_OPEN_EXTS, MAX_MIDI_BYTES } from './fileformat.js';
+import { fileAccept, CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS, AUDIO_OPEN_EXTS, WAVETABLE_OPEN_EXTS, IMAGE_OPEN_EXTS, MIDI_OPEN_EXTS, MAX_MIDI_BYTES } from './fileformat.js';
 import { pickFile } from './filepicker.js';
 
 // ext: saved files; open: extensions the open dialog offers (older ones included)
@@ -64,7 +64,7 @@ export async function openTextFile(kind, win = window, pick = pickFile) {
     return { name: file.name, text: await file.text() };
   }
   return new Promise((resolve, reject) => {
-    const input = Object.assign(win.document.createElement('input'), { type: 'file', accept: open.join(',') });
+    const input = Object.assign(win.document.createElement('input'), { type: 'file', accept: fileAccept(open, win.navigator) });
     input.addEventListener('change', async () => {
       const file = input.files[0];
       if (!file) return resolve(null);

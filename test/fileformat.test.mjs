@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { PROJECT_FORMAT, MODULE_FORMAT, CLIP_FORMAT, isFormat, isProject, jsonFileText, PROJECT_EXT, MODULE_EXT, PROJECT_OPEN_EXTS, MODULE_OPEN_EXTS } from '../src/fileformat.js';
+import { PROJECT_FORMAT, MODULE_FORMAT, CLIP_FORMAT, isFormat, isProject, jsonFileText, PROJECT_EXT, MODULE_EXT, PROJECT_OPEN_EXTS, MODULE_OPEN_EXTS, fileAccept } from '../src/fileformat.js';
 import { KINDS } from '../src/filedialog.js';
 
 assert.equal(PROJECT_FORMAT, 'philsynth');
@@ -28,6 +28,18 @@ for (const format of [PROJECT_FORMAT, MODULE_FORMAT, CLIP_FORMAT]) {
   assert.ok(!text.includes('\n'), `${format}: one physical line`);
   assert.deepEqual(JSON.parse(text), data, `${format}: content round-trips`);
   assert.ok(Buffer.byteLength(text) < Buffer.byteLength(JSON.stringify(data, null, 2)), `${format}: less disk space`);
+}
+
+// iOS greys out unknown extensions (.phproject) in a filtered file input: there the input lists all files.
+{
+  const exts = ['.phproject', '.mds'];
+  const iphone = { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15', platform: 'iPhone', maxTouchPoints: 5 };
+  const ipad = { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15', platform: 'MacIntel', maxTouchPoints: 5 };
+  const mac = { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15', platform: 'MacIntel', maxTouchPoints: 0 };
+  assert.equal(fileAccept(exts, iphone), '');
+  assert.equal(fileAccept(exts, ipad), '', 'iPadOS reports a Mac with touch');
+  assert.equal(fileAccept(exts, mac), '.phproject,.mds');
+  assert.equal(fileAccept(exts, undefined), '.phproject,.mds');
 }
 
 console.log('file format tests passed');

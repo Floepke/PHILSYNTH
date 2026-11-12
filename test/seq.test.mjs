@@ -4304,8 +4304,7 @@ for (const width of [300, 480, 900, 1912]) {
   assert.equal(clip.notes.length, 126, 'audition never inserts notes');
   if (width === 480) {
     const stored = new Map();
-    const saved = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
-    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: (k) => stored.get(k) ?? null, setItem: (k, v) => stored.set(k, v) } });
+    window.localStorage = { getItem: (k) => stored.get(k) ?? null, setItem: (k, v) => stored.set(k, v) };
     try {
       drag(cv, width - 5, 395, width - 5, 355); // the cell right of the keys: 40px up
       assert.equal(stored.get('modsynth.pianoroll.keyboard'), '64', 'the height is kept locally');
@@ -4316,7 +4315,7 @@ for (const width of [300, 480, 900, 1912]) {
       assert.equal(stored.get('modsynth.pianoroll.keyboard'), '24');
       assert.equal(clip.notes.length, 126, 'resizing never inserts notes');
     } finally {
-      if (saved) Object.defineProperty(globalThis, 'localStorage', saved); else delete globalThis.localStorage;
+      delete window.localStorage;
     }
   }
 }

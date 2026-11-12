@@ -475,8 +475,8 @@ export const GUIDE = [
 const GUIDE_STATE_KEY = 'philsynth:guide';
 
 export function createGuideState({
-  load = () => globalThis.localStorage?.getItem?.(GUIDE_STATE_KEY), // Node 25 has a method-less localStorage without --localstorage-file
-  save = (text) => globalThis.localStorage?.setItem?.(GUIDE_STATE_KEY, text),
+  load = () => globalThis.window?.localStorage?.getItem(GUIDE_STATE_KEY), // via window: Node 25 warns on its own global localStorage
+  save = (text) => globalThis.window?.localStorage?.setItem(GUIDE_STATE_KEY, text),
   onError = (error) => console.error('Manual reading position:', error),
 } = {}) {
   let opened = new Set();

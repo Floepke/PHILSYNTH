@@ -13,6 +13,12 @@ export const isProject = (data) => isFormat(data?.format, PROJECT_FORMAT);
 export const jsonFileText = (data) => JSON.stringify(data);
 
 export const PROJECT_EXT = '.phproject';
+// File input `accept` for our own extensions. iOS greys out every file whose extension it doesn't know
+// (.phproject, .clip, .phmod, .scl) when a filter is set, so there the input lists all files; the
+// loaders check the contents anyway. iPadOS reports itself as a Mac with touch.
+export const isIOS = (nav = globalThis.navigator) => !!nav
+  && (/iPhone|iPad|iPod/.test(nav.userAgent ?? '') || (nav.platform === 'MacIntel' && nav.maxTouchPoints > 1));
+export const fileAccept = (exts, nav = globalThis.navigator) => isIOS(nav) ? '' : exts.join(',');
 export const MODULE_EXT = '.phmod';
 export const CLIP_EXT = '.clip';
 // older extensions that still open (a project opened from one is saved as a new .phproject)

@@ -12,6 +12,7 @@ import { createMidiScheduler } from '../midischedule.js';
 import { parseScala, TWELVE_TET, ROOT_KEY, scaleMap, equalMap, normalizePitchMap, mapPitch, roundPitch, PITCH_MAX } from '../scala.js';
 import { LIBRARY, libraryGroups } from '../scalalib.js';
 import { openTextFile } from '../filedialog.js';
+import { fileAccept } from '../fileformat.js';
 import { errorText } from '../filepicker.js';
 import { createKeyMapView, keyLabel } from './pitch2ctlview.js';
 
@@ -174,7 +175,7 @@ export default {
     button.className = 'sample-load';
     button.textContent = 'Load Tuning';
     button.title = 'Open a Scala (.scl) file: it goes into the text box and into the editor';
-    const input = Object.assign(document.createElement('input'), { type: 'file', hidden: true, accept: '.scl,.scala,.txt' });
+    const input = Object.assign(document.createElement('input'), { type: 'file', hidden: true, accept: fileAccept(['.scl', '.scala', '.txt']) });
     const libButton = document.createElement('button');
     libButton.type = 'button';
     libButton.className = 'sample-load tuning-lib-button';

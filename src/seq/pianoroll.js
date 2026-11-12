@@ -78,11 +78,11 @@ const KEYBOARD_MAX = 80;
 const KEYBOARD_KEY = 'modsynth.pianoroll.keyboard';
 const storedKeyboard = () => {
   try {
-    const v = Number(globalThis.localStorage?.getItem(KEYBOARD_KEY));
+    const v = Number(globalThis.window?.localStorage?.getItem(KEYBOARD_KEY));
     return v ? clamp(Math.round(v), KEYBOARD_MIN, KEYBOARD_MAX) : KEYBOARD;
   } catch { return KEYBOARD; } // storage blocked
 };
-const storeKeyboard = (h) => { try { globalThis.localStorage?.setItem(KEYBOARD_KEY, String(h)); } catch { /* storage blocked */ } };
+const storeKeyboard = (h) => { try { globalThis.window?.localStorage?.setItem(KEYBOARD_KEY, String(h)); } catch { /* storage blocked */ } };
 // free space above time 0 (keeps the first notes clear of the PHILSYNTH menu button); the
 // automation lane uses the same
 export const TOP_MARGIN = 128;

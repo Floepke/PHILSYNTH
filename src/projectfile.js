@@ -7,7 +7,7 @@
 //              save(ref, text) -> { name, ref } | null (null: no longer writable, use Save As) }
 // `ref` identifies the file for later saves (a string, so it survives in the autosave).
 
-import { PROJECT_EXT, PROJECT_OPEN_EXTS } from './fileformat.js';
+import { PROJECT_EXT, PROJECT_OPEN_EXTS, fileAccept } from './fileformat.js';
 import { pickFile } from './filepicker.js';
 
 export const UNTITLED = 'Untitled';
@@ -243,5 +243,6 @@ export function pickBackend(win = window, fileInput = null) {
   if (typeof win.showSaveFilePicker === 'function' && typeof win.showOpenFilePicker === 'function' && win.indexedDB) {
     return fsaBackend(win);
   }
+  if (fileInput) fileInput.accept = fileAccept(PROJECT_OPEN_EXTS, win.navigator);
   return downloadBackend(fileInput);
 }
