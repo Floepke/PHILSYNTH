@@ -1170,12 +1170,12 @@ function openPatcherMenu(target, x, y) {
 function patcherMenuItems(entry, at, all = false) {
   const mods = selectedEntries();
   const onModule = !!entry;
-  const copyable = onModule && mods.some((m) => !m.def.isOutput);
+  const copyable = mods.some((m) => !m.def.isOutput); // also from empty canvas: the selection counts
   const items = [
     { label: 'Cut', shortcut: shortcut('X'), disabled: !copyable, action: cutSelection },
     { label: 'Copy', shortcut: shortcut('C'), disabled: !copyable, action: copySelection },
     { label: 'Paste', shortcut: shortcut('V'), disabled: !clipboard, action: () => paste(at) },
-    { label: 'Delete', shortcut: '⌫', shortcuts: ['Backspace', 'Delete'], disabled: !(onModule ? copyable : sel?.kind === 'cable'), action: deleteSelection },
+    { label: 'Delete', shortcut: '⌫', shortcuts: ['Backspace', 'Delete'], disabled: !(copyable || sel?.kind === 'cable'), action: deleteSelection },
   ];
   if (onModule && entry.inst.patch) items.push('-', { label: 'Open patch', shortcut: '↵', disabled: mods.length > 1, action: () => openPatch(entry) });
   if (onModule) items.push('-', { id: 'save-modules', label: mods.length > 1 ? 'Save modules…' : 'Save module…', disabled: !copyable, action: saveModules });

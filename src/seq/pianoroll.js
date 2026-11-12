@@ -310,7 +310,7 @@ export function createPianoRoll(host, ctx) {
     const { playing, pos, clipId } = ctx.transport;
     const t = pos - clip.start;
     const onClip = clipId == null || (ctx.transport.loopClip ? ctx.transport.loopClip() === clip : clipId === clip.id);
-    return (playing || pos > 0) && ctx.transport.plays?.(ctx.song()) !== false && onClip && t >= 0 && t <= clip.length ? t : null;
+    return playing && ctx.transport.plays?.(ctx.song()) !== false && onClip && t >= 0 && t <= clip.length ? t : null;
   }
 
   // pitches of the clip's notes sounding at the playhead during playback (keyboard highlight)

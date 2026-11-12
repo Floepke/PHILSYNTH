@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {
   notePitchAt, bendPoints, BEND_MAX,
   snapStep, snapRound, snapFloor, normalizeSong, emptySong, addClip, duplicateClip, removeClip, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource, LANE_H,
-  trimClipStart, loopEnd, notesStarting, isBlack, inPiano, formatPos, noteName, clean,
+  trimClipStart, stretchClip, loopEnd, notesStarting, isBlack, inPiano, formatPos, noteName, clean,
   meter, barLines, beatLines, barRound, barCeil, barLength, setSig, moveSig, removeSig, normalizeSigs, gridBeatEnabled,
   addAutoClip, isAuto, autoValue, automationAt, pointIndex,
   notePoints, noteVelAt, groupVelCurve, applyVelCurve, applyVelLine, withVelEnd, velsForLength, canConsolidate, consolidateClips, splitClip,
@@ -174,6 +174,17 @@ assert.equal(a.length, 3.5);
 assert.equal(a.start + a.notes[0].start, 5);
 assert.ok(removeClip(s, b.id));
 assert.equal(s.clips.length, 1);
+
+// time stretch scales note times, lengths and their curves; the original is untouched
+{
+  const c = { notes: [{ pitch: 60, start: 1, length: 0.5, vel: 1, vels: [{ t: 0.25, v: 0.5, r: 0 }], bends: [{ t: 0.5, d: 2, r: 0 }] }], points: [{ t: 3, v: 1, r: 0 }] };
+  const o = structuredClone(c);
+  stretchClip(c, o, 2);
+  assert.deepEqual([c.notes[0].start, c.notes[0].length, c.notes[0].vels[0].t, c.notes[0].bends[0].t, c.points[0].t], [2, 1, 0.5, 1, 6]);
+  stretchClip(c, o, 0.5); // always from the original: no accumulated rounding
+  assert.deepEqual([c.notes[0].start, c.notes[0].length, c.notes[0].vels[0].t], [0.5, 0.25, 0.125]);
+  assert.equal(o.notes[0].vels[0].t, 0.25, 'curves are replaced, not edited in place');
+}
 
 // ---- events ----
 const song = emptySong();

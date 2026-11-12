@@ -15,6 +15,8 @@
 // overlaps allowed); they are never played by the song (see song.js). Drag an idea onto a lane to
 // play it there (it snaps like any clip); drag a clip above the first lane to store it.
 //   drag a clip's left/right edge  trim the start / set the length (snaps)
+//   Ctrl/Cmd + drag an edge    time stretch: the notes (or automation) inside scale with the clip;
+//                              the other edge stays (linked clones stretch along)
 //   click M / S left of a lane number  mute / solo the lane (toggle); drag over a column of buttons to set many
 //                              lanes alike. While any lane is soloed only soloed lanes play; mute wins over solo.
 //   (while dragging, holding the pointer near an edge of the time area auto-scrolls the view)
@@ -45,7 +47,7 @@
 // Trimming the start of a linked clone trims all its clones (they share the notes).
 import { MOUSE_FORWARD } from '../mousebuttons.js';
 import {
-  snapStep, snapFloor, snapRound, loopEnd, getClip, addClip, addAutoClip, isAuto, autoPolyline, duplicateClip, removeClip, trimClipStart, BAR, clean,
+  snapStep, snapFloor, snapRound, loopEnd, getClip, addClip, addAutoClip, isAuto, autoPolyline, duplicateClip, removeClip, trimClipStart, stretchClip, BAR, clean,
   meter, barLines, barRound, barLength, removeSig, moveSig, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource,
   canConsolidate, consolidateClips, splitClip, setRestart, laneMuted, laneSoloed, laneSilent, clipSilent, setLaneFlag, laneY, isIdea, ideaY,
 } from '../song.js';
@@ -521,7 +523,7 @@ export function createArranger(host, ctx) {
 
     // playhead
     const { playing, pos } = ctx.transport;
-    if ((playing || pos > 0) && ctx.transport.plays?.(song) !== false) { // not while another level plays
+    if (playing && ctx.transport.plays?.(song) !== false) { // only during playback, not while another level plays
       const x = Math.round(xOf(pos)) + 0.5;
       g.strokeStyle = PLAYHEAD;
       g.lineWidth = 1.5;
@@ -1009,12 +1011,14 @@ export function createArranger(host, ctx) {
     }
     e.preventDefault();
     const source = h.clip;
-    if (additive && !e.altKey && !e.shiftKey) { // Ctrl/Cmd + click: toggle the clip in the selection
+    const toggle = () => { // Ctrl/Cmd + click: toggle the clip in the selection
       const clips = selectedClips();
       if (sel.has(source.id)) { if (clips.length > 1) setSelection(clips.filter((c) => c !== source)); } // the last one stays
       else setSelection([...clips, source], source);
-      return;
-    }
+    };
+    // Ctrl/Cmd + drag an edge: time stretch (a click without dragging still toggles the selection)
+    const stretching = additive && !e.altKey && !e.shiftKey && h.part !== 'body';
+    if (additive && !e.altKey && !e.shiftKey && !stretching) { toggle(); return; }
     const copying = e.altKey ? 'dup' : e.shiftKey ? 'clone' : null;
     const part = copying ? 'body' : h.part;
     const inSelection = sel.has(source.id) && selectedClips().length > 1;
@@ -1027,11 +1031,15 @@ export function createArranger(host, ctx) {
       moveGroup(members, origs, anchor, 0, 0); // copies start clear of their sources
     }
     const clip = members[anchor];
-    if (copying || !inSelection) setSelection(members, clip);
-    else if (song.selected !== clip.id) ctx.select(clip.id, { scroll: false });
+    const select = () => {
+      if (copying || !inSelection) setSelection(members, clip);
+      else if (song.selected !== clip.id) ctx.select(clip.id, { scroll: false });
+    };
+    if (!stretching) select();
     const orig = structuredClone(clip);
-    // trimming a linked clone's start trims every clone of it by the same amount
-    const linked = part === 'left' ? linkedClips(song, clip).map((c) => ({ c, start: c.start, length: c.length, bounds: clipResizeBounds(song.clips, c) })) : [];
+    // trimming a linked clone's start trims every clone of it by the same amount; stretching one
+    // stretches every clone (they share the notes)
+    const linked = part === 'left' || stretching ? linkedClips(song, clip).map((c) => ({ c, start: c.start, length: c.length, bounds: clipResizeBounds(song.clips, c) })) : [];
     const tStart = timeAt(x);
     const yStart = y + view.sy;
     const snapT = (t) => (isIdea(clip) ? clean(t) : snapRound(t, st)); // ideas resize freely
@@ -1045,7 +1053,10 @@ export function createArranger(host, ctx) {
       const p = s.local(ev);
       if (!moved && Math.hypot(p.x - x, p.y - y) < 3) return; // a click is not a move
       const dt = timeAt(p.x) - tStart;
-      if (part === 'body') {
+      if (stretching) {
+        if (!moved) select();
+        stretch(dt);
+      } else if (part === 'body') {
         moveGroup(members, origs, anchor, dt, p.y + view.sy - yStart);
       } else if (part === 'right') {
         setLength(clip, Math.max(st, clean(snapT(orig.start + orig.length + dt) - clip.start)));
@@ -1061,6 +1072,22 @@ export function createArranger(host, ctx) {
       s.redraw();
       ctx.live?.();
     };
+    // the dragged edge snaps; the other edge stays. Every linked clone is scaled by the same factor
+    // around its own fixed edge, within its neighbours.
+    const stretch = (dt) => {
+      const left = part === 'left';
+      const end = orig.start + orig.length;
+      const wanted = left ? end - snapT(orig.start + dt) : snapT(end + dt) - orig.start;
+      const room = (l) => (left ? l.start + l.length - l.bounds.start : l.bounds.end - l.start) / l.length;
+      const factor = clamp(Math.max(st, wanted) / orig.length, Math.min(st / orig.length, 1), Math.min(...linked.map(room)));
+      stretchClip(clip, orig, factor);
+      for (const l of linked) {
+        const length = clean(l.length * factor);
+        if (left) l.c.start = clean(l.start + l.length - length);
+        l.c.length = length;
+        place(l.c);
+      }
+    };
     capture(cv, e, (ev) => {
       last = ev;
       apply(ev);
@@ -1068,7 +1095,8 @@ export function createArranger(host, ctx) {
     }, (ev) => {
       auto.stop();
       dragging = false;
-      if (copying && (!moved || ev.type === 'pointercancel')) { // Alt/Shift + click or cancel: no copy
+      if (stretching && !moved) toggle();
+      else if (copying && (!moved || ev.type === 'pointercancel')) { // Alt/Shift + click or cancel: no copy
         for (const c of members) removeClip(song, c.id);
         setSelection(group, source);
       } else if (moved) { park(clip); ctx.changed(); }

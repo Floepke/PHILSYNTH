@@ -595,6 +595,22 @@ export function trimClipStart(clip, newStart, original = clip) {
   clip.points?.forEach((p, i) => (p.t = clean(original.points[i].t - delta)));
 }
 
+// Time stretch: the clip's content (notes with their velocity / bend curves, automation points)
+// scaled by `factor` from `original` (a copy of the clip before the stretch). Positions and lengths
+// of the clips themselves are up to the caller.
+export function stretchClip(clip, original, factor) {
+  const k = (t) => clean(t * factor);
+  const curve = (list) => list?.map((p) => ({ ...p, t: k(p.t) }));
+  clip.notes.forEach((n, i) => {
+    const o = original.notes[i];
+    n.start = k(o.start);
+    n.length = k(o.length);
+    if (o.vels) n.vels = curve(o.vels);
+    if (o.bends) n.bends = curve(o.bends);
+  });
+  clip.points?.forEach((p, i) => (p.t = k(original.points[i].t)));
+}
+
 // Consolidation combines MIDI clips only, regardless of lane or destination.
 export function canConsolidate(song, clips) {
   return clips.length >= 2 && clips.every((c) => song.clips.includes(c) && !isAuto(c));

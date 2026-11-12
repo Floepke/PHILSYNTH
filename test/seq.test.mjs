@@ -833,6 +833,19 @@ for (const reverse of [false, true]) {
   assert.equal(ctx.clip(), clip);
 }
 
+// Ctrl/Cmd + drag a clip edge time-stretches it: the notes scale along, the other edge stays.
+{
+  const { clip, arranger } = setup();
+  const cv = arranger.surface.cv;
+  clip.notes.push({ pitch: 60, start: 4, length: 2, vel: 1 });
+  drag(cv, ax(16) - 1, ay(0), ax(20) - 1, ay(0), { ctrlKey: true });
+  assert.deepEqual([clip.start, clip.length, clip.notes[0].start, clip.notes[0].length], [0, 20, 5, 2.5], 'right edge: 1.25 × as long');
+  drag(cv, ax(0) + 1, ay(0), ax(10) + 1, ay(0), { ctrlKey: true });
+  assert.deepEqual([clip.start, clip.length, clip.notes[0].start, clip.notes[0].length], [10, 10, 2.5, 1.25], 'left edge: the end stays');
+  drag(cv, ax(20) - 1, ay(0), ax(18) - 1, ay(0));
+  assert.deepEqual([clip.length, clip.notes[0].start, clip.notes[0].length], [8, 2.5, 1.25], 'without Ctrl/Cmd the edge only resizes');
+}
+
 // Restart point: inserted at the playhead from the ruler / clip / empty-space menu, drawn as 'restart:' and a |
 // in the bar number row; right-clicking the marker removes it.
 {
