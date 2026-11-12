@@ -9,6 +9,7 @@
 // A bar under the octave names shows the visible part of the 128 keys.
 // The defaults edit PITCH2CTL's 0..1 map; the hooks of createKeyMapView let TUNING show its
 // pitches (or their cents away from equal temperament) on a range that follows the keys shown.
+import { FONT, WEIGHT } from '../font.js';
 import { isBlack, noteName } from '../song.js';
 import { KEYS, KEY_MAX, defaultMap, mapAt } from './pitch2ctl.dsp.js';
 
@@ -256,7 +257,7 @@ export function createKeyMapView({
     }
     // octave names under every C
     g.fillStyle = '#8a8c96';
-    g.font = '500 9px system-ui, sans-serif';
+    g.font = `${WEIGHT} 9px ${FONT}`;
     g.textBaseline = 'top';
     for (let p = 0; p < KEYS; p += 12) {
       const x = Math.round(L(p));

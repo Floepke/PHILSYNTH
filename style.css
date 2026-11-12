@@ -1,3 +1,29 @@
+/* Fira Code (SIL OFL 1.1, src/fonts/OFL.txt) is bundled so the app looks the same on every system. */
+@font-face {
+  font-family: 'Fira Code';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300 700;
+  src: url('src/fonts/fira-code-latin-wght-normal.woff2') format('woff2-variations'), url('src/fonts/fira-code-latin-wght-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Fira Code';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300 700;
+  src: url('src/fonts/fira-code-latin-ext-wght-normal.woff2') format('woff2-variations'), url('src/fonts/fira-code-latin-ext-wght-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Fira Code';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300 700;
+  src: url('src/fonts/fira-code-symbols2-wght-normal.woff2') format('woff2-variations'), url('src/fonts/fira-code-symbols2-wght-normal.woff2') format('woff2');
+  unicode-range: U+2000-2001, U+2004-2008, U+200A, U+23B8-23BD, U+2500-259F;
+}
+
 :root {
   --bg: #050505;
   --surface-1: #0d0d0e;
@@ -25,8 +51,9 @@
   --wood-panel: linear-gradient(to bottom, rgba(224, 224, 224, 0.1), rgba(7, 7, 7, 0.45)), var(--wood-h);
   --wood-shadow: inset 1px 1px 0 rgba(224, 224, 224, 0.3), inset -1px -1px 0 rgba(7, 7, 7, 0.8), 0 24px 64px rgba(0, 0, 0, 0.7);
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.55), 0 1px 0 rgba(255, 255, 255, 0.04) inset;
-  --font: system-ui, sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-weight: 600; /* one weight for all text, canvas included (WEIGHT in src/font.js) */
+  --font: 'Fira Code', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --mono: var(--font);
   color-scheme: dark;
 }
 
@@ -44,7 +71,7 @@ body {
   background-repeat: no-repeat;
   box-shadow: inset 1px 1px 0 rgba(224, 224, 224, 0.22), inset -1px -1px 0 rgba(7, 7, 7, 0.9);
   color: var(--text);
-  font: 13px/1.4 var(--font);
+  font: var(--font-weight) 13px/1.4 var(--font);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -82,6 +109,9 @@ body {
 }
 
 /* ---------- buttons ---------- */
+/* bold defaults (b, strong, th, headings) also use the one weight */
+*, *::before, *::after { font-weight: var(--font-weight); }
+
 button {
   height: 30px;
   padding: 0 14px;
@@ -89,7 +119,7 @@ button {
   border-radius: var(--radius-sm);
   background: var(--surface-3);
   color: var(--text);
-  font: 500 12px var(--font);
+  font: var(--font-weight) 12px var(--font);
   letter-spacing: 0.02em;
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s, color 0.12s, transform 0.06s;
@@ -123,7 +153,7 @@ kbd {
   border-radius: 4px;
   background: var(--surface-3);
   color: var(--text);
-  font: 500 11px var(--mono);
+  font: var(--font-weight) 11px var(--mono);
   text-align: center;
 }
 
@@ -143,7 +173,7 @@ kbd {
   background: color-mix(in srgb, var(--surface-2) 90%, transparent);
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
   color: var(--text);
-  font-weight: 600;
+  font-weight: var(--font-weight);
   font-size: 14px;
   letter-spacing: 0.04em;
   cursor: default;
@@ -211,15 +241,15 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   background: linear-gradient(90deg, color-mix(in srgb, var(--mod-color) 38%, var(--surface-2)), var(--surface-2));
   box-shadow: inset 3px 0 0 var(--mod-color);
 }
-.panel-header h2 { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.02em; }
-.panel-header span { flex-shrink: 0; white-space: nowrap; color: var(--text-faint); font: 500 12px var(--mono); }
+.panel-header h2 { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; margin: 0; font-size: 13px; font-weight: var(--font-weight); letter-spacing: 0.02em; }
+.panel-header span { flex-shrink: 0; white-space: nowrap; color: var(--text-faint); font: var(--font-weight) 12px var(--mono); }
 .panel-editor-title {
   margin: 14px 0 8px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: var(--font-weight);
   line-height: 1.4;
   color: var(--text-dim);
 }
@@ -234,7 +264,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   padding: 10px 0 4px;
   color: var(--text);
   font-size: 15px;
-  font-weight: 600;
+  font-weight: var(--font-weight);
   cursor: pointer;
 }
 .guide-intro { margin: 4px 0 6px; color: var(--text); }
@@ -245,7 +275,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   margin: 14px 0 4px;
   color: var(--text);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: var(--font-weight);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -253,7 +283,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 .guide-steps li { margin-bottom: 6px; }
 .guide-keys { width: 100%; border-collapse: collapse; font-size: 12px; }
 .guide-keys th, .guide-keys td { padding: 4px 6px; border-bottom: 1px solid var(--border); vertical-align: top; text-align: left; }
-.guide-keys th { width: 45%; font-weight: 500; white-space: normal; }
+.guide-keys th { width: 45%; font-weight: var(--font-weight); white-space: normal; }
 .guide kbd { font-size: 11px; }
 
 /* module reference below the controllers (src/moduledocs.js) */
@@ -268,7 +298,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 .module-docs h3 {
   margin: 14px 0 6px;
   color: var(--text-faint);
-  font: 600 10px var(--font);
+  font: var(--font-weight) 10px var(--font);
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -280,7 +310,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   gap: 6px;
   margin-top: 8px;
   color: var(--text);
-  font-weight: 600;
+  font-weight: var(--font-weight);
 }
 .md-params dt:first-child { margin-top: 0; }
 .md-params dd { margin: 2px 0 0 26px; }
@@ -291,7 +321,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 /* curve editor (WAVESHAPER, ENVELOPE) */
 .curve-editor { margin: 4px 0 14px; }
 .curve-editor canvas { display: block; width: 100%; border-radius: 6px; background: var(--surface-2); touch-action: none; cursor: crosshair; }
-.curve-info { margin-top: 4px; min-height: 16px; color: var(--text-faint); font: 500 11px var(--mono); }
+.curve-info { margin-top: 4px; min-height: 16px; color: var(--text-faint); font: var(--font-weight) 11px var(--mono); }
 .wave-view { margin-top: 10px; height: 96px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); overflow: hidden; }
 .wave-view canvas { display: block; width: 100%; height: 100%; }
 .eq-view { height: 192px; margin-bottom: 10px; }
@@ -302,7 +332,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 /* PITCH2CTL: key map editor, one column per MIDI key */
 .p2c-view { margin-top: 10px; }
 .p2c-view canvas { display: block; width: 100%; height: 200px; touch-action: none; cursor: crosshair; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
-.p2c-info { margin-top: 4px; font: 500 11px var(--mono); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p2c-info { margin-top: 4px; font: var(--font-weight) 11px var(--mono); color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .p2c-tools { display: flex; gap: 6px; margin-top: 6px; }
 .p2c-tools button { flex: 1; }
 .p2c-tools button.p2c-zoom { flex: 0 0 34px; }
@@ -321,7 +351,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   margin-top: 8px;
   resize: vertical;
   padding: 8px;
-  font: 12px/1.4 ui-monospace, monospace;
+  font: var(--font-weight) 12px/1.4 var(--mono);
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -334,13 +364,13 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 .tuning-view .p2c-view { margin-top: 6px; }
 .tuning-view .p2c-tools button.tuning-cents[aria-pressed="true"] { background: color-mix(in srgb, #7fa7d9 45%, var(--surface-3)); border-color: #7fa7d9; color: #fff; }
 .tuning-view .tuning-key { display: flex; align-items: center; gap: 8px; margin: 8px 0 10px; font-size: 11px; color: var(--text-dim); }
-.tuning-view .tuning-key-name { flex: 0 0 64px; font: 500 11px var(--mono); color: var(--text); }
+.tuning-view .tuning-key-name { flex: 0 0 64px; font: var(--font-weight) 11px var(--mono); color: var(--text); }
 .tuning-view .tuning-key label { display: flex; align-items: center; gap: 4px; flex: 1 1 0; min-width: 0; }
 .tuning-view .tuning-key input {
   flex: 1 1 0;
   min-width: 0;
   padding: 3px 5px;
-  font: 11px var(--mono);
+  font: var(--font-weight) 11px var(--mono);
   color: var(--text);
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -361,7 +391,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 .tuning-view .tuning-lib-group {
   padding: 6px 10px 2px;
   font-size: 10px;
-  font-weight: 600;
+  font-weight: var(--font-weight);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-dim);
@@ -375,7 +405,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 .meter { display: grid; grid-template-columns: auto 1fr 64px; align-items: center; gap: 8px; margin-top: 10px; font-size: 11px; color: var(--text-dim); }
 .meter-bar { height: 8px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; }
 .meter-fill { display: block; height: 100%; transform-origin: left; transform: scaleX(0); transition: transform 60ms linear; }
-.meter-value { font: 500 11px var(--mono); text-align: right; }
+.meter-value { font: var(--font-weight) 11px var(--mono); text-align: right; }
 .input-status { margin: 6px 0 0; }
 .input-status.error { color: #e06666; }
 .comp-curve { height: 140px; }
@@ -489,7 +519,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   overflow: hidden;
   color: var(--text-dim);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: var(--font-weight);
   letter-spacing: 0.08em;
   text-overflow: ellipsis;
   text-transform: uppercase;
@@ -500,7 +530,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 .ctl:hover .ctl-label, .ctl.active .ctl-label { color: var(--text); }
 .ctl-value {
   color: var(--text);
-  font: 600 12px var(--mono);
+  font: var(--font-weight) 12px var(--mono);
   white-space: nowrap;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
@@ -511,7 +541,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.55);
   color: var(--text-faint);
-  font: 500 10px var(--mono);
+  font: var(--font-weight) 10px var(--mono);
   text-align: center;
   letter-spacing: 0;
 }
@@ -545,7 +575,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   padding: 5px;
   background: color-mix(in srgb, var(--surface-2) 85%, transparent);
   color: var(--text-dim);
-  font: 500 11px var(--mono);
+  font: var(--font-weight) 11px var(--mono);
   backdrop-filter: blur(4px);
 }
 #spectrum-toggle:hover { color: var(--text); }
@@ -644,14 +674,14 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 }
 .module:hover { border-color: #4a4a52; }
 .module:active { cursor: grabbing; }
-.module-name { flex: 1; font-weight: 600; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+.module-name { flex: 1; font-weight: var(--font-weight); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
 .module-name.custom { text-transform: none; letter-spacing: 0.02em; }
 .module-rename {
   flex: 1;
   min-width: 0;
   width: 110px;
   padding: 1px 4px;
-  font-weight: 600;
+  font-weight: var(--font-weight);
   font-size: 12px;
   font-family: inherit;
   color: var(--text);
@@ -665,11 +695,11 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   border-radius: 4px;
   background: var(--bg);
   color: var(--text-dim);
-  font: 500 11px var(--mono);
+  font: var(--font-weight) 11px var(--mono);
 }
 .module.patch {
   background:
-    repeating-linear-gradient(135deg, transparent 0 6px, rgba(255, 255, 255, 0.025) 6px 12px),
+    repeating-linear-gradient(135deg, transparent 0 7px, rgba(255, 255, 255, 0.09) 7px 9px),
     linear-gradient(180deg, var(--surface-4), var(--surface-3));
   border-style: dashed;
 }
@@ -690,7 +720,9 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 .module.patch[style*='--mod-color'] {
   border-style: dashed;
   background:
-    repeating-linear-gradient(135deg, transparent 0 6px, rgba(255, 255, 255, 0.035) 6px 12px),
+    /* thin stripes in a lighter tint of the module colour mark a PATCH (folder) */
+    repeating-linear-gradient(135deg, transparent 0 7px,
+      color-mix(in srgb, color-mix(in srgb, var(--mod-color) 60%, #fff) 30%, transparent) 7px 9px),
     linear-gradient(180deg,
       color-mix(in srgb, var(--mod-color) 46%, var(--surface-2)),
       color-mix(in srgb, var(--mod-color) 30%, var(--surface-1)));
@@ -739,7 +771,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   border-radius: 3px;
   background: #000;
   color: var(--text-dim, #9a9aa0);
-  font: 700 11px/9px var(--mono);
+  font: var(--font-weight) 11px/9px var(--mono);
   letter-spacing: 0.08em;
   white-space: nowrap;
   cursor: pointer;
@@ -824,12 +856,12 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 .seq-pos {
   min-width: 7ch;
   color: var(--beam-ink);
-  font: 500 12px var(--mono);
+  font: var(--font-weight) 12px var(--mono);
 }
 .seq-sep { width: 1px; height: 20px; background: rgba(7, 7, 7, 0.7); box-shadow: 1px 0 0 rgba(224, 224, 224, 0.2); }
 .seq-field { display: inline-flex; align-items: center; gap: 5px; }
 .seq-field[hidden] { display: none; }
-.seq-field > span { color: var(--beam-ink); font-size: 11px; font-weight: 600; letter-spacing: 0.03em; }
+.seq-field > span { color: var(--beam-ink); font-size: 11px; font-weight: var(--font-weight); letter-spacing: 0.03em; }
 /* field names on the upper divider are part of the rod: they drag it */
 .seq-field > .seq-grab { cursor: move; }
 #seq-bar input, #seq-bar select, #sig-dialog .sig-fields input, #sig-dialog .sig-fields select {
@@ -839,7 +871,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   border-radius: var(--radius-sm);
   background: var(--surface-3);
   color: var(--text);
-  font: 12px var(--font);
+  font: var(--font-weight) 12px var(--font);
 }
 #seq-bar input:disabled, #seq-bar select:disabled { opacity: 0.4; }
 #seq-bar input[type="checkbox"] {
@@ -872,7 +904,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 .sig-beat[aria-pressed='true']::before { content: ''; position: absolute; top: 0; left: 0; right: 0; border-top: 4px dashed #111216; }
 .sig-beat.bar[aria-pressed='true']::before { border-top-style: solid; }
 #sig-measure .sig-beat:hover { background: rgba(255, 255, 255, 0.14); filter: none; }
-.sig-beat-label { position: absolute; left: 4px; top: 50%; transform: translateY(-50%); padding: 0 4px; color: #fff; background: #111b; font: 11px var(--mono); z-index: 2; }
+.sig-beat-label { position: absolute; left: 4px; top: 50%; transform: translateY(-50%); padding: 0 4px; color: #fff; background: #111b; font: var(--font-weight) 11px var(--mono); z-index: 2; }
 #seq-bar .spinbox input { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
 #seq-bar .spin-buttons button, #sig-dialog .spin-buttons button { min-height: calc(var(--control-height) / 2); }
 #seq-name { width: 92px; }
@@ -990,7 +1022,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   border-color: transparent;
   background: transparent;
   color: var(--beam-ink);
-  font-weight: 600;
+  font-weight: var(--font-weight);
   cursor: default;
 }
 #crumbs button:hover { background: var(--surface-3); color: var(--text); }
@@ -1001,7 +1033,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   margin-left: 10px;
   padding: 0 6px;
   color: var(--beam-ink);
-  font: 600 12px var(--mono);
+  font: var(--font-weight) 12px var(--mono);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.85);
@@ -1038,7 +1070,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   background: var(--surface-1);
   border-top: 1px solid var(--border);
   color: var(--text-dim);
-  font: 11px var(--mono);
+  font: var(--font-weight) 11px var(--mono);
   min-width: 0;
 }
 #status, #tip {
@@ -1105,7 +1137,7 @@ dialog::backdrop { background: transparent; }
   display: block;
   margin-top: 8px;
   color: #f0fff4;
-  font: 700 22px/1.4 var(--mono);
+  font: var(--font-weight) 22px/1.4 var(--mono);
   overflow-wrap: anywhere;
 }
 fieldset {
@@ -1126,10 +1158,10 @@ legend {
   padding: 0 8px;
   color: var(--wood-ink);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: var(--font-weight);
   text-shadow: 0 1px 1px rgba(7, 7, 7, 0.8);
 }
-dialog h3 { margin: 0 0 14px; font-size: 14px; font-weight: 600; }
+dialog h3 { margin: 0 0 14px; font-size: 14px; font-weight: var(--font-weight); }
 dialog select {
   width: 100%;
   height: 36px;
@@ -1138,7 +1170,7 @@ dialog select {
   border-radius: var(--radius-sm);
   background: var(--surface-1);
   color: var(--text);
-  font: 13px var(--font);
+  font: var(--font-weight) 13px var(--font);
 }
 dialog menu { display: flex; gap: 8px; justify-content: flex-end; padding: 0; margin: 18px 0 0; }
 #preferences-dialog { width: min(700px, calc(100vw - 48px)); max-height: calc(100vh - 48px); }
@@ -1184,7 +1216,7 @@ dialog menu { display: flex; gap: 8px; justify-content: flex-end; padding: 0; ma
   padding: 8px 10px 4px;
   color: var(--text-dim, #a0a0a8);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: var(--font-weight);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -1200,7 +1232,7 @@ dialog menu { display: flex; gap: 8px; justify-content: flex-end; padding: 0; ma
   font-size: 13px;
 }
 .listbox-item .swatch { width: 12px; height: 12px; border-radius: 3px; background: var(--c); }
-.listbox-item b { font-weight: 600; letter-spacing: 0.04em; }
+.listbox-item b { font-weight: var(--font-weight); letter-spacing: 0.04em; }
 .listbox-item .desc { color: var(--text-dim, #a0a0a8); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .listbox-item:hover { background: rgba(255, 255, 255, 0.05); }
 .listbox-item[aria-selected='true'] {
@@ -1229,7 +1261,7 @@ dialog menu button.primary:hover {
 }
 dialog menu button.primary {
   border-color: var(--dialog-ink);
-  font-weight: 600;
+  font-weight: var(--font-weight);
 }
 dialog menu button:hover { filter: brightness(1.15); }
 dialog button:focus-visible {
@@ -1251,12 +1283,12 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
   background-image: linear-gradient(to bottom, rgba(224, 224, 224, 0.12), rgba(7, 7, 7, 0.4)), var(--wood-h);
   color: var(--wood-ink);
   box-shadow: inset 1px 1px 0 rgba(224, 224, 224, 0.25), inset -1px -1px 0 rgba(7, 7, 7, 0.7);
-  font: 13px var(--font);
+  font: var(--font-weight) 13px var(--font);
   cursor: pointer;
 }
 #file-dialog button:hover:not(:disabled) { filter: brightness(1.15); }
 #file-dialog menu button { min-width: 72px; }
-#file-dialog menu button.primary { border-color: var(--wood-ink); font-weight: 600; }
+#file-dialog menu button.primary { border-color: var(--wood-ink); font-weight: var(--font-weight); }
 #file-dialog button:disabled { opacity: 0.45; cursor: default; }
 #file-dialog .fd-context-menu .ctx-item {
   display: flex;
@@ -1291,7 +1323,7 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
   background: none;
   box-shadow: none;
 }
-#file-dialog .fd-crumb:last-child { border-color: var(--wood-border); background-color: rgba(7, 7, 7, 0.35); font-weight: 600; }
+#file-dialog .fd-crumb:last-child { border-color: var(--wood-border); background-color: rgba(7, 7, 7, 0.35); font-weight: var(--font-weight); }
 #file-dialog .fd-crumb:hover { background-color: rgba(224, 224, 224, 0.12); }
 .fd-sep { opacity: 0.55; }
 .fd-main { display: flex; gap: 10px; flex: 1 1 auto; min-height: 0; }
@@ -1303,7 +1335,7 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-#file-dialog .fd-place[aria-current='true'] { border-color: var(--wood-ink); font-weight: 600; }
+#file-dialog .fd-place[aria-current='true'] { border-color: var(--wood-ink); font-weight: var(--font-weight); }
 .fd-pane { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; }
 .fd-head, .fd-row {
   display: grid;
@@ -1319,7 +1351,7 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
 .fd-row[aria-selected='true'] { background: rgba(224, 224, 224, 0.22); box-shadow: inset 3px 0 0 var(--wood-ink); }
 .fd-list:focus-visible .fd-row[aria-selected='true'] { outline: 1px dashed var(--wood-ink); outline-offset: -1px; }
 .fd-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fd-dir .fd-file { font-weight: 600; }
+.fd-dir .fd-file { font-weight: var(--font-weight); }
 .fd-size { text-align: right; font-family: var(--mono); font-size: 12px; opacity: 0.8; }
 .fd-date { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; opacity: 0.8; }
 /* file: a sheet with a folded corner; folder: a tab and body */
@@ -1337,7 +1369,7 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
   border-radius: 2px 2px 0 0;
 }
 .fd-empty { padding: 18px 10px; text-align: center; font-size: 13px; opacity: 0.7; }
-:root dialog .fd-new-name { height: 24px; padding: 0 6px; border: 1px solid var(--wood-ink); border-radius: 4px; font: 13px var(--font); }
+:root dialog .fd-new-name { height: 24px; padding: 0 6px; border: 1px solid var(--wood-ink); border-radius: 4px; font: var(--font-weight) 13px var(--font); }
 .fd-name-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 13px; }
 .fd-name-row[hidden] { display: none; }
 :root dialog .fd-name-row input {
@@ -1346,7 +1378,7 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
   padding: 0 10px;
   border: 1px solid var(--wood-border);
   border-radius: var(--radius-sm);
-  font: 13px var(--font);
+  font: var(--font-weight) 13px var(--font);
 }
 #file-dialog .fd-error { color: #ffb3a6; min-height: 0; }
 #file-dialog .fd-error:empty { display: none; }
@@ -1374,11 +1406,11 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
   grid-template-columns: 16px 1fr 34px;
   align-items: center;
   gap: 10px;
-  font: 600 12px var(--font);
+  font: var(--font-weight) 12px var(--font);
   color: var(--wood-ink);
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7);
 }
-.color-row output { font: 500 12px var(--mono); text-align: right; }
+.color-row output { font: var(--font-weight) 12px var(--mono); text-align: right; }
 /* the track is a groove carved into the wood showing the channel's colours; the thumb a raised wood knob */
 :root .color-row input[type='range'] {
   -webkit-appearance: none;
@@ -1434,19 +1466,19 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
 /* ---------- Patch module: mapped controllers ---------- */
 /* MULTICTL routes (below its controllers): one card per connected module */
 .mc-view { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
-.mc-title { margin: 0; color: var(--text-dim); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.mc-title { margin: 0; color: var(--text-dim); font-size: 11px; font-weight: var(--font-weight); letter-spacing: 0.06em; text-transform: uppercase; }
 .mc-target {
   display: flex; flex-direction: column; gap: 5px; padding: 7px 8px;
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--mod-color, #6e6e76) 14%, var(--surface-2));
   box-shadow: inset 3px 0 0 var(--mod-color, #6e6e76);
 }
-.mc-head { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 12px; letter-spacing: 0.04em; }
+.mc-head { display: flex; align-items: center; gap: 7px; font-weight: var(--font-weight); font-size: 12px; letter-spacing: 0.04em; }
 .mc-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mc-select {
   width: 100%; min-width: 0; height: 30px; padding: 0 6px;
   border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
-  background: var(--surface-3); color: var(--text); font: 12px var(--font);
+  background: var(--surface-3); color: var(--text); font: var(--font-weight) 12px var(--font);
 }
 .mc-select.mc-add { color: var(--text-dim); }
 /* a route: its controller (narrow), then its own Min / Max controllers, which take the rest of
@@ -1468,7 +1500,7 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
 #map-dialog .map-note { margin-bottom: 14px; font-size: 12px; }
 .map-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .map-col { display: flex; flex-direction: column; min-width: 0; }
-.map-col h4 { margin: 0 0 8px; color: var(--text-dim); font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.map-col h4 { margin: 0 0 8px; color: var(--text-dim); font-size: 11px; font-weight: var(--font-weight); letter-spacing: 0.06em; text-transform: uppercase; }
 .map-search {
   height: 32px;
   margin-bottom: 8px;
@@ -1477,7 +1509,7 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
   border-radius: var(--radius-sm);
   background: var(--surface-1);
   color: var(--text);
-  font: 13px var(--font);
+  font: var(--font-weight) 13px var(--font);
 }
 .map-list {
   height: min(420px, 56vh);
@@ -1564,7 +1596,7 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
   border-radius: 5px;
   background: none;
   color: var(--text);
-  font: 13px var(--font);
+  font: var(--font-weight) 13px var(--font);
 }
 .map-name:hover, .map-name:focus { border-color: var(--border-strong); background: var(--surface-1); }
 .map-src { padding: 0 7px; color: var(--text-dim); font-size: 11px; }
@@ -1595,7 +1627,7 @@ dialog .sig-ok { order: 1; }
   border: 2px solid var(--wood-border);
   border-radius: 8px;
   box-shadow: var(--wood-shadow);
-  font: 12px var(--font);
+  font: var(--font-weight) 12px var(--font);
   color: var(--wood-ink);
   user-select: none;
 }
@@ -1652,7 +1684,7 @@ dialog .sig-ok { order: 1; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font: 11px var(--mono);
+  font: var(--font-weight) 11px var(--mono);
   height: calc(1lh + 5px);
   color: var(--text-dim);
 }

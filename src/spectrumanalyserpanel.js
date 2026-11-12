@@ -1,3 +1,4 @@
+import { FONT, WEIGHT } from './font.js';
 import { clamp } from './seq/surface.js';
 import { ANALYSIS_SIZE } from './dsp/analysis.js';
 import { Spectrum } from './spectrum.js';
@@ -100,7 +101,7 @@ export function createSpectrumAnalyserPanel({ host, panel, button, dsp, target, 
       ink.globalAlpha = 1;
     }
     g.drawImage(history, 0, 0, w, h);
-    g.font = '10px monospace';
+    g.font = `${WEIGHT} 10px ${FONT}`;
     g.lineWidth = 1;
     for (const hz of [32, 64, 128, 256, 512, 1000, 2000, 4000, 8000, 16000]) {
       if (hz > high) continue;

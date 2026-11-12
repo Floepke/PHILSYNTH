@@ -12,6 +12,7 @@ export default {
     { id: 'type', label: 'Modulation Type', min: 0, max: TYPES.length - 1, default: 0, step: 1, options: TYPES },
     { id: 'carrier', label: 'Carrier', min: 0, max: 0, default: 0, step: 1 },
     { id: 'interpolation', label: 'Phase Modulation Interpolation', min: 0, max: 2, default: 1, step: 1, options: ['Off', 'Linear', 'Spline'] },
+    { id: 'oversample', label: 'Oversampling', min: 0, max: 2, default: 0, step: 1, options: ['Off', '2x', '4x'] },
   ],
   create(_ctx, def, host) {
     const node = host.dsp.create('modulator');

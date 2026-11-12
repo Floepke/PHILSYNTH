@@ -398,8 +398,9 @@ export const DOCS = {
       type: 'How carrier and modulator are combined: Amp modulation (multiply; no modulator = silence), Phase modulation (modulator −1…+1 delays the carrier 0…40 ms), Phase modulation absolute (uses the modulator\'s magnitude, 0…40 ms), Add, Subtract, Min, Max, Bitwise AND / XOR (on 16-bit samples), Min abs / Max abs (chosen by magnitude, keeping the sign).',
       carrier: 'Which audio input is the carrier. Inputs are numbered in cable connection order; changing cables can renumber them.',
       interpolation: 'Read quality of the phase-modulation delay: Off = nearest sample, Linear, Spline = smooth cubic.',
+      oversample: 'Processes at 2x or 4x the sample rate and filters back down, so frequencies above the Nyquist limit (half the sample rate) are removed instead of folding back as inharmonic tones that wobble against the pitch on high notes. 2x removes this completely for Amp modulation; Phase modulation and Min / Max / Bitwise produce higher overtones and benefit from 4x. Costs 2-4x CPU and delays the output by a few samples.',
     },
-    notes: ['Left and right are processed separately.'],
+    notes: ['Left and right are processed separately.', 'Oversampling cannot remove aliasing that is already in the inputs (for example an LFO used as an audio signal).'],
   },
 
   REVERB: {

@@ -305,9 +305,8 @@ try {
   await wait(async () => await previewNodes() === 4);
   assert.equal(await run("document.querySelector('#fd-error').textContent"), '');
   await selectFile('Preview instruments');
-  assert.equal(await previewNodes(), 1, 'selecting a folder stops instrument preview');
-  await selectFile('Preview instruments', 'dblclick');
   await wait(() => run("!!document.querySelector('.fd-empty')"));
+  assert.equal(await previewNodes(), 1, 'a single click opens a folder and stops instrument preview');
   await run("document.querySelector('#fd-up').click()");
   await wait(() => visible('lead.phmod'));
   await run("document.querySelector('#fd-list').dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))");

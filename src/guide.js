@@ -315,7 +315,7 @@ export const GUIDE = [
       {
         title: 'Play and record',
         items: [
-          `${k('Space')} plays / stops (over the piano-roll grid or automation lane: from the pointer's time). Stopping parks the playhead at the restart point (when set), else at the start of the selected clip. The playhead line is only drawn during playback; when stopped it is hidden, but its parked position still sets where play resumes.`,
+          `${k('Space')} plays / stops (over the piano-roll grid or automation lane: from the pointer's time). Stopping parks the playhead at the restart point (when set), else at the start of the selected clip. The TimeLine always shows the playhead; the piano roll and automation lanes only draw it during playback.`,
           `${k('.')} plays / resumes the song, ${k(',')} restarts it at zero, ${k('/')} loops the time range of the selected clip with everything else that plays there, ${k("'")} stops (pressed again: panic, all notes and tails off).`,
           'The lower divider, left of the clock, has matching buttons: bar + play starts from the beginning, play resumes from the playhead, play + c loops the selected clip, and the square stops playback (press again for panic).',
           'While looping a clip, select another clip to switch to it when the current clip finishes. The selection at the loop boundary is the one that plays next.',

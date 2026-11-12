@@ -9,7 +9,7 @@
 //   types: label of the listed file types; exts: listed extensions; saveExt: added when saving
 //   preview(entry | null): optional instrument preview, stopped on deselection / close
 //
-// Mouse: click selects, double-click opens a folder / picks a file. Keys in the list: arrows,
+// Mouse: click opens a folder or selects a file, double-click picks a file. Keys in the list: arrows,
 // Home / End, PageUp / PageDown, Enter, Backspace (up a folder), letters jump to a name.
 // Saving over an existing file asks first. Right-click manages the listed entries; the in-app
 // clipboard is shared between picker sessions, and deletion is permanent after confirmation.
@@ -470,12 +470,14 @@ export async function pickFile(files, opts, doc = document) {
   on(list, 'click', (e) => {
     if (busy) return;
     const row = e.target.closest('.fd-row[data-i]');
-    if (row) select(+row.dataset.i, { scroll: false });
+    if (!row) return;
+    if (entries[+row.dataset.i]?.dir) go(entries[+row.dataset.i].path);
+    else select(+row.dataset.i, { scroll: false });
   });
   on(list, 'dblclick', (e) => {
     if (busy) return;
     const row = e.target.closest('.fd-row[data-i]');
-    if (row) activate(+row.dataset.i);
+    if (row && !entries[+row.dataset.i]?.dir) activate(+row.dataset.i);
   });
   on(list, 'keydown', (e) => {
     if (busy) return;

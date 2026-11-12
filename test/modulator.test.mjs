@@ -114,10 +114,10 @@ for (const K of [ModulatorKernel, native.kernels.modulator]) {
 }
 
 // Stress and sample parity with rapidly varying PM, multiple wraps, and live mode changes.
-for (const interpolation of [0, 1, 2]) {
+for (const oversample of [0, 1, 2]) for (const interpolation of [0, 1, 2]) {
   const js = new ModulatorKernel();
   const wa = new native.kernels.modulator();
-  for (const k of [js, wa]) k.param('interpolation', interpolation);
+  for (const k of [js, wa]) { k.param('interpolation', interpolation); k.param('oversample', oversample); }
   const jo = [stereo()], wo = [stereo()];
   for (let block = 0; block < 200; block++) {
     for (const k of [js, wa]) k.param('type', Math.floor(block / 16) % 11);
@@ -133,6 +133,56 @@ for (const interpolation of [0, 1, 2]) {
     }
   }
   wa.destroy();
+}
+
+// Oversampling: sum frequencies above Nyquist are filtered out instead of folding back. 10 kHz × 17 kHz
+// amp modulation makes 7 kHz (wanted) and 27 kHz, which aliases to 21 kHz without oversampling.
+for (const K of [ModulatorKernel, native.kernels.modulator]) {
+  const level = (signal, hz) => {
+    let re = 0, im = 0;
+    for (let n = 0; n < signal.length; n++) {
+      re += signal[n] * Math.cos(2 * Math.PI * hz * n / sampleRate);
+      im += signal[n] * Math.sin(2 * Math.PI * hz * n / sampleRate);
+    }
+    return 2 * Math.hypot(re, im) / signal.length;
+  };
+  const results = [0, 1, 2].map((oversample) => {
+    const k = new K();
+    k.param('oversample', oversample);
+    const out = [stereo()];
+    const rendered = [];
+    for (let block = 0; block < 40; block++) {
+      const c = stereo(), m = stereo();
+      for (let ch = 0; ch < 2; ch++) for (let i = 0; i < N; i++) {
+        const n = block * N + i;
+        c[ch][i] = Math.sin(2 * Math.PI * 10000 * n / sampleRate);
+        m[ch][i] = Math.sin(2 * Math.PI * 17000 * n / sampleRate);
+      }
+      k.process([c, m], out);
+      if (block >= 8) rendered.push(...out[0][0]);
+    }
+    k.destroy?.();
+    return { wanted: level(rendered, 7000), alias: level(rendered, 21000) };
+  });
+  assert.ok(results[0].alias > 0.4, `without oversampling the alias is loud (${results[0].alias})`);
+  for (const r of results.slice(1)) {
+    assert.ok(r.alias < 0.5e-3, `oversampled alias below -66 dB (${r.alias})`);
+    assert.ok(Math.abs(r.wanted - 0.5) < 0.01, `the difference tone is kept (${r.wanted})`);
+  }
+}
+
+// Oversampled filters ring out to exact silence, after which the kernel reports silent blocks again.
+for (const K of [ModulatorKernel, native.kernels.modulator]) for (const type of [0, 1]) {
+  const k = new K();
+  k.param('oversample', 2);
+  k.param('type', type);
+  const out = [stereo()];
+  const mod = type ? stereo(-1) : stereo(0.5); // PM: no delay
+  assert.equal(k.process([stereo(0.5), mod], out), true);
+  let silent = false;
+  for (let block = 0; block < 100 && !silent; block++) silent = !k.process([[], type ? mod : []], out);
+  assert.ok(silent, `type ${type}: silent again after the carrier stops`);
+  k.destroy?.();
 }
 
 // Empty histories skip delay reads, but never discard old samples still reachable by modulation.
@@ -316,6 +366,7 @@ for (const type of [1, 2]) for (const interpolation of [0, 1, 2]) {
   root.setParam(m.id, 'carrier', 1);
   root.setParam(m.id, 'type', 2);
   root.setParam(m.id, 'interpolation', 2);
+  root.setParam(m.id, 'oversample', 2);
   const saved = JSON.parse(JSON.stringify(root.toJSON()));
   const restored = await PatchRuntime.create(engine, h.dsp.destination);
   await restored.load(saved);

@@ -1,6 +1,7 @@
 // DISTORTION panel chart: every Type on its own row, fed by a sine that gets louder from left to
 // right (MIN_GAIN … MAX_GAIN, one cycle per band). Drawn with the kernel's own transfer function
 // and the current Bit Depth; the current Power is marked. Click a row to pick that Type.
+import { FONT, WEIGHT } from '../font.js';
 import { distortionShape } from './distortion.dsp.js';
 
 export const BANDS = 8;
@@ -100,7 +101,7 @@ export function createDistortionView({ color = '#ad643b', values, options, setPa
       g.stroke();
       g.restore();
       g.fillStyle = selected ? '#f2f2f4' : '#9a9aa2';
-      g.font = `${selected ? 600 : 500} 9px system-ui, sans-serif`;
+      g.font = `${WEIGHT} 9px ${FONT}`;
       g.textBaseline = 'top';
       g.fillText(name, 4, top + 1);
     });

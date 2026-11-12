@@ -20,6 +20,7 @@
 // photo at Propellor Speed (this picture's own clock: same speed, not the voices' exact angle).
 // Modulated controllers (LFO, ADSR, automation) move the scanner live. Dropping a picture on the
 // photo loads it too.
+import { FONT, WEIGHT } from '../font.js';
 import { addImage, getImage, onSample, MAX_IMAGE } from '../samples.js';
 import { stockImageId, STOCK_NAME } from './imagestock.js';
 import { createAdsrView, stepValue } from './adsrview.js';
@@ -405,7 +406,7 @@ export function createImageView(entry, api) {
     outline(T.corners, 2, '#fff');
     points(T.at, T.span);
     loopArrow(T.at);
-    g.font = 'bold 9px sans-serif';
+    g.font = `${WEIGHT} 9px ${FONT}`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     T.corners.forEach((q, i) => {

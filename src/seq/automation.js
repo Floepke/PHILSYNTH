@@ -12,6 +12,7 @@
 //   Space                        toggle song playback from the pointer's snapped time
 //   wheel / middle drag          scroll, Ctrl + wheel zooms time
 //   drag the bar ruler up/down   zoom time around the grab position
+import { FONT, WEIGHT } from '../font.js';
 import { snapStep, snapRound, snapFloor, clean, clipSilent, isIdea, BAR, meter, beatLines, gridBeatEnabled, autoPolyline, pointIndex } from '../song.js';
 import { createSurface, capture, rulerDrag, startPan, onWheel, clamp, snapBands, mutedMark, edgeScroll, SB, SB_TRACK, scrollThumb, scrollValue, paintThumb } from './surface.js';
 import { NEW_POINT_ROUND } from '../curve.js';
@@ -224,7 +225,7 @@ export function createAutomationLane(host, ctx) {
         }
       } else {
         g.fillStyle = '#c3c7d0';
-        g.font = '500 12px system-ui, sans-serif';
+        g.font = `${WEIGHT} 12px ${FONT}`;
         g.textAlign = 'center';
         g.fillText('Double-click to insert automation points.', GUTTER + (w - GUTTER) / 2, Math.max(40, yOf(0) + 40));
       }
@@ -239,7 +240,7 @@ export function createAutomationLane(host, ctx) {
       }
     } else {
       g.fillStyle = '#c3c7d0';
-      g.font = '500 12px system-ui, sans-serif';
+      g.font = `${WEIGHT} 12px ${FONT}`;
       g.textAlign = 'center';
       g.fillText('No clip selected.', GUTTER + (w - GUTTER) / 2, 40);
     }
@@ -249,7 +250,7 @@ export function createAutomationLane(host, ctx) {
     g.fillStyle = '#292b31';
     g.fillRect(0, bot, w, VALUE_H);
     if (clip) {
-      g.font = '600 9px ui-monospace, monospace';
+      g.font = `${WEIGHT} 9px ${FONT}`;
       g.textBaseline = 'middle';
       const ym = bot + VALUE_H / 2;
       g.textAlign = 'left';
@@ -305,11 +306,11 @@ export function createAutomationLane(host, ctx) {
         if (y - lastY < (change ? 24 : 13)) continue;
         lastY = y;
         g.fillStyle = '#c3c7d0';
-        g.font = '600 10px ui-monospace, monospace';
+        g.font = `${WEIGHT} 10px ${FONT}`;
         g.fillText(String(b.bar + 1), GUTTER - 4, y + 2);
         if (change) {
           g.fillStyle = '#c4b5f2';
-          g.font = '600 9px ui-monospace, monospace';
+          g.font = `${WEIGHT} 9px ${FONT}`;
           g.fillText(`${b.seg.num}/${b.seg.den}`, GUTTER - 4, y + 13);
         }
       }

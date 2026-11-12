@@ -45,6 +45,7 @@
 //   right-click the marker     remove it; elsewhere on the ruler: menu insert at the playhead / remove
 //                              (the clip and empty-space menus have these items too)
 // Trimming the start of a linked clone trims all its clones (they share the notes).
+import { FONT, WEIGHT } from '../font.js';
 import { MOUSE_FORWARD } from '../mousebuttons.js';
 import {
   snapStep, snapFloor, snapRound, loopEnd, getClip, addClip, addAutoClip, isAuto, autoPolyline, duplicateClip, removeClip, trimClipStart, stretchClip, BAR, clean,
@@ -70,9 +71,9 @@ const IDEA_LABEL = 'Playback of clips in this area is ignored except if you loop
 const LABEL = 'TimeLine:';
 const EDGE = 6;
 const PLAYHEAD = '#ff5a36';
+const CLONE_HATCH = 'rgba(132, 132, 140, 0.45)'; // stripes in linked clones: neutral grey on any clip colour
 const RESTART = '#607c69'; // muted green matching the active play button's border
 const RESTART_LABEL = 'restart:';
-const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 
 // lane buttons in the lane number column: mute (M) and solo (S)
 const LANE_BTN_W = 18;
@@ -335,7 +336,7 @@ export function createArranger(host, ctx) {
 
   function paint(g, w, h) {
     if (!w || !h) return;
-    g.font = `600 11px ${FONT}`;
+    g.font = `${WEIGHT} 11px ${FONT}`;
     x0 = Math.round(10 + g.measureText(LABEL).width + 4);
     limitScroll();
     const song = ctx.song();
@@ -398,7 +399,7 @@ export function createArranger(host, ctx) {
       g.fillRect(x0, RULER, zx - x0, h - RULER);
       if (zx - x0 > 130) {
         g.fillStyle = '#4a4a52';
-        g.font = `500 10px ${FONT}`;
+        g.font = `${WEIGHT} 10px ${FONT}`;
         g.textBaseline = 'bottom';
         g.textAlign = 'right';
         g.fillText('Idea Storage', zx - 8, h - SB - 6);
@@ -412,7 +413,7 @@ export function createArranger(host, ctx) {
       g.beginPath(); g.moveTo(x0, iy - 1); g.lineTo(w, iy - 1); g.stroke();
       if (iy - RULER > 18) {
         g.fillStyle = IDEA_TEXT;
-        g.font = `600 10px ${FONT}`;
+        g.font = `${WEIGHT} 10px ${FONT}`;
         g.textBaseline = 'bottom';
         g.fillText(IDEA_LABEL, x0 + 8, iy - 6);
       }
@@ -484,14 +485,14 @@ export function createArranger(host, ctx) {
       g.fillStyle = '#fff';
       const icon = isAuto(clip) ? '∿' : '♫';
       const iconHeight = CLIP_H - 4;
-      g.font = `600 ${iconHeight}px ${FONT}`;
+      g.font = `${WEIGHT} ${iconHeight}px ${FONT}`;
       g.textBaseline = 'alphabetic';
       const metrics = g.measureText(icon);
       // Fit the visible glyph, not its font's line height (especially for the wave).
       const iconScale = iconHeight / (metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent);
-      g.font = `600 ${iconHeight * iconScale}px ${FONT}`;
+      g.font = `${WEIGHT} ${iconHeight * iconScale}px ${FONT}`;
       g.fillText(icon, x + 4, y + 2 + metrics.actualBoundingBoxAscent * iconScale);
-      g.font = `600 10.5px ${FONT}`;
+      g.font = `${WEIGHT} 10.5px ${FONT}`;
       g.textBaseline = 'middle';
       g.textAlign = 'left';
       const label = `${linked && !clone ? '⧉ ' : ''}${clip.name}  ${ctx.targetLabel(clip)}`;
@@ -522,8 +523,8 @@ export function createArranger(host, ctx) {
     g.restore();
 
     // playhead
-    const { playing, pos } = ctx.transport;
-    if (playing && ctx.transport.plays?.(song) !== false) { // only during playback, not while another level plays
+    const { pos } = ctx.transport;
+    if (ctx.transport.plays?.(song) !== false) { // always shown, also when stopped; not while another level plays
       const x = Math.round(xOf(pos)) + 0.5;
       g.strokeStyle = PLAYHEAD;
       g.lineWidth = 1.5;
@@ -537,7 +538,7 @@ export function createArranger(host, ctx) {
     g.fillStyle = '#0e0e10';
     g.fillRect(0, RULER, x0, h - RULER);
     const busy = new Set(song.clips.filter((c) => shown.has(c.id)).map((c) => Math.round(c.y / CLIP_H)));
-    g.font = `500 10px ui-monospace, monospace`;
+    g.font = `${WEIGHT} 10px ${FONT}`;
     g.textBaseline = 'middle';
     g.textAlign = 'right';
     for (let l = lane0; l <= lane1; l++) {
@@ -547,7 +548,7 @@ export function createArranger(host, ctx) {
       // mute / solo toggles
       const by = Math.round(y + (CLIP_H - LANE_BTN_H) / 2);
       g.textAlign = 'center';
-      g.font = `700 10px ${FONT}`;
+      g.font = `${WEIGHT} 10px ${FONT}`;
       g.lineWidth = 1;
       for (const b of LANE_BTNS) {
         const on = b.is(song, l);
@@ -559,7 +560,7 @@ export function createArranger(host, ctx) {
         g.fillStyle = on ? '#121212' : '#6a6a72';
         g.fillText(b.label, b.x + LANE_BTN_W / 2, by + LANE_BTN_H / 2 + 0.5);
       }
-      g.font = `500 10px ui-monospace, monospace`;
+      g.font = `${WEIGHT} 10px ${FONT}`;
       g.textAlign = 'right';
     }
     g.textAlign = 'left';
@@ -576,7 +577,7 @@ export function createArranger(host, ctx) {
       g.fillRect(0, iy - 2, x0, 2);
       if (iy - RULER > 18 && iy < h) {
         g.fillStyle = IDEA_TEXT;
-        g.font = `600 10px ${FONT}`;
+        g.font = `${WEIGHT} 10px ${FONT}`;
         g.textBaseline = 'bottom';
         g.fillText('Ideas', 10, iy - 6);
       }
@@ -589,7 +590,7 @@ export function createArranger(host, ctx) {
     g.beginPath();
     g.rect(x0, 0, w - x0, RULER);
     g.clip();
-    g.font = `500 20px ui-monospace, monospace`;
+    g.font = `${WEIGHT} 20px ${FONT}`;
     g.textBaseline = 'middle';
     const barY = SIG_H + (RULER - SIG_H) / 2;
     g.lineWidth = 2;
@@ -608,7 +609,7 @@ export function createArranger(host, ctx) {
     restartBox = null;
     if (Number.isFinite(song.restart)) {
       const x = Math.round(xOf(song.restart));
-      g.font = `600 20px ui-monospace, monospace`;
+      g.font = `${WEIGHT} 20px ${FONT}`;
       const tw = g.measureText(RESTART_LABEL).width;
       const left = x - tw - 6 >= x0;
       const lx = left ? x - tw - 5 : x + 5;
@@ -624,7 +625,7 @@ export function createArranger(host, ctx) {
     // signature row
     g.fillStyle = 'rgba(255, 255, 255, 0.025)';
     g.fillRect(x0, 0, w - x0, SIG_H);
-    g.font = `600 20px ui-monospace, monospace`;
+    g.font = `${WEIGHT} 20px ${FONT}`;
     sigBoxes = [];
     for (const seg of m) {
       const x = Math.round(xOf(seg.at));
@@ -640,11 +641,11 @@ export function createArranger(host, ctx) {
     }
     g.restore();
     g.fillStyle = '#e8e8ea';
-    g.font = `600 11px ${FONT}`;
+    g.font = `${WEIGHT} 11px ${FONT}`;
     g.textBaseline = 'middle';
     g.fillText(LABEL, 10, barY);
     g.fillStyle = '#6e6e76';
-    g.font = `500 9.5px ${FONT}`;
+    g.font = `${WEIGHT} 9.5px ${FONT}`;
     g.fillText('Time Sig.', 10, SIG_H / 2 + 0.5);
     g.strokeStyle = '#26262a';
     g.lineWidth = 2;
@@ -667,7 +668,7 @@ export function createArranger(host, ctx) {
     g.save();
     roundRect(g, x + 0.5, y + 0.5, Math.max(2, cw - 1), CLIP_H - 1, 4);
     g.clip();
-    g.strokeStyle = 'rgba(0, 0, 0, 0.2)';
+    g.strokeStyle = CLONE_HATCH;
     g.lineWidth = 4;
     g.beginPath();
     const from = Math.max(-CLIP_H, Math.floor((x0 - x - CLIP_H) / 10) * 10);

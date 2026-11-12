@@ -50,6 +50,7 @@
 // Drag the bar ruler sideways to resize the velocity strip, vertically to zoom time.
 // Both axes act together; double-click resets the width.
 // Free timing bypasses time snapping; the visual grid (base note ÷ divider) stays visible.
+import { FONT, WEIGHT } from '../font.js';
 import { basePitch, centsOf, bendPolyline, notePitchAt, BEND_MAX, withCents, centsLabel, isBlack, inPiano, clipSilent, isIdea, snapStep, pianoTimeStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, withVelEnd, velsForLength, clean, meter, barLines, beatLines, barLength, gridBeatEnabled } from '../song.js';
 import {
   createSurface, capture, rulerDrag, startPan, onWheel, clamp, snapBands, mutedMark, edgeScroll, RIGHT_HOLD_MS, RIGHT_HOLD_SLOP,
@@ -559,7 +560,7 @@ export function createPianoRoll(host, ctx) {
       }
     } else {
       g.fillStyle = '#c3c7d0';
-      g.font = '500 12px system-ui, sans-serif';
+      g.font = `${WEIGHT} 12px ${FONT}`;
       g.textAlign = 'center';
       g.fillText('No clip selected. Double-click in the TimeLine below to create one.', gridX() + (w - gridX()) / 2, 40);
     }
@@ -586,7 +587,7 @@ export function createPianoRoll(host, ctx) {
     g.beginPath();
     g.rect(gridX(), keysY, Math.max(0, w - gridX()), KEYS_H);
     g.clip();
-    g.font = '900 8px system-ui, sans-serif';
+    g.font = `${WEIGHT} 8px ${FONT}`;
     g.textAlign = 'center';
     g.textBaseline = 'bottom';
     const keyGap = Math.min(1, kw * 0.1);
@@ -641,7 +642,7 @@ export function createPianoRoll(host, ctx) {
       g.beginPath();
       g.rect(velW(), 0, GUTTER, bottom);
       g.clip();
-      g.font = '600 10px ui-monospace, monospace';
+      g.font = `${WEIGHT} 10px ${FONT}`;
       g.textAlign = 'right';
       g.textBaseline = 'top';
       const m = meter(ctx.song());
@@ -664,11 +665,11 @@ export function createPianoRoll(host, ctx) {
         if (y - lastY < (change ? 24 : 13)) continue; // no overlapping labels when zoomed out
         lastY = y;
         g.fillStyle = '#c3c7d0';
-        g.font = '600 10px ui-monospace, monospace';
+        g.font = `${WEIGHT} 10px ${FONT}`;
         g.fillText(String(b.bar + 1), gridX() - 4, y + 2);
         if (change) { // time signature starts here
           g.fillStyle = '#c4b5f2';
-          g.font = '600 9px ui-monospace, monospace';
+          g.font = `${WEIGHT} 9px ${FONT}`;
           g.fillText(`${b.seg.num}/${b.seg.den}`, gridX() - 4, y + 13);
         }
       }
@@ -1116,7 +1117,7 @@ export function createPianoRoll(host, ctx) {
     g.stroke();
     // label: key + cents
     g.fillStyle = '#e8e9ee';
-    g.font = '600 11px ui-monospace, monospace';
+    g.font = `${WEIGHT} 11px ${FONT}`;
     g.textAlign = 'center';
     g.textBaseline = 'alphabetic';
     g.fillText(`${noteName(n.pitch)} ${centsLabel(cents)}`, cx, top + 13);

@@ -51,6 +51,9 @@ import { songFacts } from './songfacts.js';
 import { initMouseNavigation, MOUSE_FORWARD } from './mousebuttons.js';
 import { initPanelScroll } from './panelscroll.js';
 import { createSpectrumAnalyserPanel, analysisHandle } from './spectrumanalyserpanel.js';
+import { loadFont } from './font.js';
+
+await loadFont(); // canvases draw text right away; draw it in Fira Code from the first frame
 
 const engine = new Engine();
 let transport = null; // song playback (created after the engine)

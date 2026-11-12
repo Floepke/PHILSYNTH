@@ -30,6 +30,7 @@ const MIME = {
   '.ico': 'image/x-icon',
   '.wav': 'audio/wav',
   '.wasm': 'application/wasm',
+  '.woff2': 'font/woff2',
 };
 
 const liveClients = new Set();

@@ -40,7 +40,7 @@ export const SPECS = {
   eq: { kind: 9, params: [...Array.from({ length: 16 }, (_, i) => `b${i}`), 'q', 'level'] },
   delay: { kind: 10, params: ['left', 'right', 'unit', 'tune', 'loop'] },
   echo: { kind: 11, params: ['dry', 'wet', 'feedback', 'delay', 'unit', 'mode', 'filter', 'cutoff'] },
-  modulator: { kind: 12, params: ['type', 'carrier', 'interpolation'], carrierInput: true },
+  modulator: { kind: 12, params: ['type', 'carrier', 'interpolation', 'oversample'], carrierInput: true },
   operator: { kind: 13, params: ['modulation', 'feedback', 'attack', 'decay', 'sustain', 'release', 'atkCurve', 'decCurve', 'relCurve', 'velocity', 'gain'] },
   imagesampler: { kind: 14, params: [
     'polyphony', 'scanType', 'x', 'y', 'length', 'rotation', 'speed', 'ovalWidth', 'ovalHeight', 'ovalRotation', 'resolution',

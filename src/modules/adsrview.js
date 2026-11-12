@@ -7,6 +7,7 @@
 // e.g. 10 s, in a fixed lane), the sustain plateau has a fixed width. The ranges come from the
 // module's params, so OSC (Sustain 0..1) and ADSR (Sustain 0..100 %, Release up to 20 s) share it.
 // Right-click: Copy / Paste ADSR between the envelope editors of all modules (app-internal clipboard).
+import { FONT, WEIGHT } from '../font.js';
 import { attackLevel, decayLevel, releaseLevel } from './adsrcurve.js';
 import { showMenu } from '../seq/menu.js';
 import { registerShortcutMenu } from '../shortcuts.js';
@@ -201,7 +202,7 @@ export function createAdsrView({ color = '#db7c3d', values, params, setParam, be
     const k = drag?.h ?? hover;
     if (k) {
       const text = RESET[k].map((id) => handleText(params.find((q) => q.id === id), vals)).join('  ');
-      g.font = '500 10px ui-monospace, monospace';
+      g.font = `${WEIGHT} 10px ${FONT}`;
       g.fillStyle = '#ddd';
       g.textAlign = 'right';
       g.textBaseline = 'top';

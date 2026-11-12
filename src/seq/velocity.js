@@ -17,6 +17,7 @@
 //                                       every note of the clip when nothing is selected)
 //   right-drag                         rectangle-select note starts and individual curve points
 //   right-click a curve point           menu: Delete point (not the first)
+import { FONT, WEIGHT } from '../font.js';
 import { pianoTimeStep, snapRound, clean, notePoints, noteVelAt, applyVelLine } from '../song.js';
 import { curvePolyline, NEW_NOTE_POINT_ROUND } from '../curve.js';
 import { doublePress } from '../doublepress.js';
@@ -245,7 +246,7 @@ export function createVelocityStrip(o) {
     g.fillStyle = '#292b31';
     g.fillRect(0, labelTop, W(), h - labelTop);
     g.fillStyle = '#9a9ea8';
-    g.font = '600 9px ui-monospace, monospace';
+    g.font = `${WEIGHT} 9px ${FONT}`;
     g.textBaseline = 'middle';
     g.textAlign = 'center';
     const p = drag?.point ?? (hover?.kind === 'point' ? group?.points[hover.i] : null);

@@ -2049,6 +2049,19 @@ for (const modifier of ['ctrlKey', 'metaKey']) {
   assert.equal(ctx.transport.pos, 5.25);
 }
 
+// When stopped the TimeLine still shows the playhead; the piano roll only draws it during playback.
+{
+  const { arranger, roll, ctx } = setup();
+  ctx.transport.playing = false;
+  ctx.transport.pos = 0;
+  const heads = (cv, color) => cv.drawing.filter(([op, c]) => op === 'stroke' && c === color).length;
+  arranger.surface.cv.drawing.length = 0;
+  roll.surface.cv.drawing.length = 0;
+  arranger.redraw(); roll.redraw(); flush();
+  assert.equal(heads(arranger.surface.cv, '#ff5a36'), 1, 'stopped: the TimeLine playhead stays visible');
+  assert.equal(heads(roll.surface.cv, '#ff916e'), 0, 'stopped: no piano-roll playhead');
+}
+
 // Selecting a clip while stopped parks the playhead at its start; while playing it is left alone.
 {
   const { song, clip, arranger, ctx, menus } = setup();

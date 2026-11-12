@@ -8,6 +8,7 @@
 //   identity: draw the dashed no-change diagonal; formatX / formatY: point readout in the info line.
 //   mapping: probe the curve at the pointer's x, with guides and an in-graph readout.
 //   setPlayhead(x): a white dot riding the curve at x (0..1), null hides it (ENVELOPE playback).
+import { FONT, WEIGHT } from './font.js';
 import { MIN_GAP, NEW_POINT_ROUND, curvePolyline, normalizeCurve, sampleAt } from './curve.js';
 import { doublePress } from './doublepress.js';
 
@@ -81,7 +82,7 @@ export function createCurveEditor({ curve, color = '#c0a040', title = 'Shaping c
     }
     // axis labels
     g.fillStyle = '#777';
-    g.font = '10px system-ui, sans-serif';
+    g.font = `${WEIGHT} 10px ${FONT}`;
     g.textBaseline = 'top';
     g.textAlign = 'left';
     g.fillText(labels.x0 ?? '0', PAD + 3, PAD + h - 13);
@@ -143,7 +144,7 @@ export function createCurveEditor({ curve, color = '#c0a040', title = 'Shaping c
       g.fillStyle = '#fff';
       g.fill();
       const text = `${formatX(p.x)} → ${formatY(p.y)}`;
-      g.font = '11px system-ui, sans-serif';
+      g.font = `${WEIGHT} 11px ${FONT}`;
       const width = g.measureText(text).width + 12;
       const left = Math.max(PAD, Math.min(PAD + s - width, x + 10));
       const top = y > PAD + 30 ? y - 26 : y + 10;
