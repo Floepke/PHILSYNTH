@@ -349,7 +349,7 @@ for (const action of ['selection', 'seek']) {
 {
   let time = 0;
   const playback = new Playback({}, () => time);
-  for (const [beat, hz] of [[0, 440], [1, 220]]) {
+  for (const [beat, hz] of [[0, 880], [1, 440]]) {
     playback.transport.onCountBeat(beat);
     const l = new Float32Array(4800), r = new Float32Array(4800);
     playback.renderCountIn(l, r, 48000);

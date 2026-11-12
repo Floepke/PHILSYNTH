@@ -17,7 +17,7 @@ export class AudioTransport extends Transport {
       type, revision, pos: this.pos, scope: this.scope,
       clipId: this.clipId, chase: this.chase,
       countIn: this.countIn, endAt: this.endAt, continuous: this.continuous,
-      metronome: this.metronome,
+      metronome: this.metronome, fromStart: type === 'start' && this.fromStart,
     };
     if (type !== 'start') {
       this.dsp.post(['playback', 'command', data]);

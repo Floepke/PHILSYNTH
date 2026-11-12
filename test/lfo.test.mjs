@@ -390,4 +390,18 @@ assert.ok(new Set(ends.map((v) => v.toFixed(3))).size > 30, 'keeps moving to new
   assert.equal(k.process([], output), false, 'audio mode with no input is silent');
 }
 
+// play from start: periodic waves restart at Phase, Random waves keep running
+for (const wave of [0, 1, 2, 3, 4, 5, 6]) {
+  const k = new Proc();
+  const m = (data) => k.port.onmessage({ data });
+  m({ type: 'param', id: 'wave', value: wave });
+  m({ type: 'param', id: 'phase', value: 0.25 });
+  const output = [[new Float32Array(128), new Float32Array(128)]];
+  for (let i = 0; i < 100; i++) k.process([], output);
+  const before = k.phase;
+  k.songStart();
+  if (wave < 4) assert.equal(k.phase, 0.25, `wave ${wave} restarts at Phase`);
+  else assert.equal(k.phase, before, `Random wave ${wave} is not reset`);
+}
+
 console.log('lfo tests passed');

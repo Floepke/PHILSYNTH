@@ -237,6 +237,12 @@ export class Graph {
     }
   }
 
+  // play from start: kernels that follow the song clock restart (LFO phase), so every playback
+  // from the start sounds the same
+  songStart() {
+    for (const n of this.nodes.values()) n.k.songStart?.();
+  }
+
   setRoutes(h, list) {
     const node = this.nodes.get(h);
     if (!node) return;

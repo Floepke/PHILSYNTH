@@ -433,7 +433,7 @@ export const DOCS = {
       wave: 'Shape of the wave: Sine, Triangle, Saw, Square, Random (smooth step) (smoothstep ramps between random values), Random (steps) (holds a random value, choosing a new one each Frequency cycle), or Random (linear) (straight ramps between random values).',
       ...MOD_PARAMS,
       amp: 'Depth of the wave around its centre: 100 % = full swing between Out Min and Out Max, 0 % = steady in the middle.',
-      phase: 'Where in its cycle the wave starts (0–100 % = 0–360°). The LFO jumps there when the project loads, after a panic (<kbd>\'</kbd> twice: stop, then panic) and on every incoming note; a note\'s own phase (from a MULTIMIDI\'s Phase / Random Phase) is added to it. Turning it while running does not make the wave jump.',
+      phase: 'Where in its cycle the wave starts (0–100 % = 0–360°). The LFO jumps there when the project loads, after a panic (<kbd>\'</kbd> twice: stop, then panic), on play from start (<kbd>,</kbd>; not for the Random waveforms, also inside Patches) and on every incoming note; a note\'s own phase (from a MULTIMIDI\'s Phase / Random Phase) is added to it. Turning it while running does not make the wave jump.',
     },
     notes: [
       MOD_CABLE,

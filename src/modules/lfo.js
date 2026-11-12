@@ -3,7 +3,7 @@
 //   or MIDI Pitch: runs at the frequency of the incoming note (Frequency ignored). Notes come from a
 //   clip sent to it or a MULTIMIDI cabled into it, never from the MIDI keyboard (liveMidi: false).
 //   Phase: where in its cycle the wave starts, on project load, after a panic (' twice: stop, then
-//   panic) and on every incoming note (plus that note's MODMIDI phase, e.g. a MULTIMIDI's Phase).
+//   panic), on play from start (, ; not the Random waves) and on every incoming note (plus that note's MODMIDI phase, e.g. a MULTIMIDI's Phase).
 //   Amplitude: depth of the wave around its centre (100 % = full swing, 0 % = steady at the middle).
 //   Out Controller: controller number (0..) of the connected module(s) to modulate.
 //   Out Min / Out Max: modulation range in % of that controller's slider range (applied after Amplitude).

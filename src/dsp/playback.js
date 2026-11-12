@@ -132,8 +132,8 @@ export class Playback {
       now: () => this.now() * 1000,
       ticker: () => ({ start() {}, stop() {} }),
       events: this.events,
-      onCountBeat: (beat) => { this.blip = { time: this.now(), hz: beat === 0 ? 440 : 220 }; },
-      onBeat: (bar) => { this.blip = { time: this.now(), hz: bar ? 440 : 220 }; },
+      onCountBeat: (beat) => { this.blip = { time: this.now(), hz: beat === 0 ? 880 : 440 }; },
+      onBeat: (bar) => { this.blip = { time: this.now(), hz: bar ? 880 : 440 }; },
     });
   }
   runtime(ids) { return this.root ? runtimesAt(this.root, ids)[0] : null; }
@@ -279,6 +279,7 @@ export class Playback {
       tr.clipSong = data.clipId === null ? null : (this.scope.length ? this.runtime(this.scope)?.song : this.song);
       tr.chase = data.chase;
       tr.setMetronome(data.metronome ?? false);
+      if (data.fromStart) this.graph.songStart();
       tr.start(data.pos, { countIn: data.countIn, endAt: data.endAt ?? null, continuous: data.continuous ?? false });
     } else if (data.type === 'seek') tr.seek(data.pos);
     else if (data.type === 'stop') tr.stop({ to: data.pos });

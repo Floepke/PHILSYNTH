@@ -111,7 +111,7 @@ export class Transport {
     const sameScope = JSON.stringify(this.scope) === JSON.stringify(this.getScope());
     if (this.playing && this.clipId === null && !fromStart && !countIn && sameScope) return true;
     this.clipId = null;
-    return this.start(fromStart || this.pos < start || this.pos >= end ? start : this.pos, { countIn, endAt, continuous });
+    return this.start(fromStart || this.pos < start || this.pos >= end ? start : this.pos, { countIn, endAt, continuous, fromStart });
   }
 
   playClip(id, song = this.getSong(), options = {}) {
@@ -130,7 +130,8 @@ export class Transport {
 
   setMetronome(value) { this.metronome = !!value; }
 
-  start(pos = this.pos, { countIn = null, endAt = null, continuous = false } = {}) {
+  // fromStart: play from start (the , shortcut): LFOs restart at their Phase (see Graph.songStart)
+  start(pos = this.pos, { countIn = null, endAt = null, continuous = false, fromStart = false } = {}) {
     if (!Number.isFinite(pos)) pos = Number.isFinite(this.pos) ? this.pos : 0; // a NaN position would feed garbage to the engine
     this.releaseAll();
     this.releaseAuto();
@@ -141,6 +142,7 @@ export class Transport {
     this.elapsed = countIn ? -countIn.beats * countIn.beat : 0;
     this.endAt = endAt;
     this.continuous = continuous;
+    this.fromStart = fromStart;
     this.nextCountBeat = 1;
     this.chasePending = true;
     this.playing = true;
@@ -174,6 +176,7 @@ export class Transport {
     }
     this.releaseAll();
     this.generation++;
+    this.fromStart = false;
     this.elapsed = 0;
     this.countIn = null;
     this.endAt = null;

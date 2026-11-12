@@ -70,13 +70,13 @@ async function harness(options = {}) {
   await Promise.resolve();
   assert.equal(h.playback.transport.playing, true, 'toggle does not cancel pending start');
   h.run(DT * 2);
-  assert.equal(h.playback.blip.hz, 440, 'first bar uses the count-in accent');
+  assert.equal(h.playback.blip.hz, 880, 'first bar uses the count-in accent');
   const left = new Float32Array(128), right = new Float32Array(128);
   h.playback.renderCountIn(left, right, RATE);
   assert.ok(left.some(v => v !== 0), 'metronome produces audible samples');
   assert.deepEqual(left, right, 'click is centered in stereo');
   h.run(0.5);
-  assert.equal(h.playback.blip.hz, 220, 'other beats use the count-in low pitch');
+  assert.equal(h.playback.blip.hz, 440, 'other beats use the count-in low pitch');
   transport.setMetronome(false);
   assert.equal(h.playback.blip, null, 'turning off immediately silences the click');
   h.run(0.5);
@@ -455,6 +455,7 @@ for (const type of ['DELAY', 'STRUM', 'TRILL']) {
   await pending;
   await Promise.resolve();
   assert.deepEqual(ops.map((op) => [op[2].type, op[2].pos]), [['start', 1.5]], 'seek supersedes a pending start');
+  assert.equal(ops[0][2].fromStart, false, 'a seek is not a play from start');
   tr.receive({ revision: tr.revision - 1, playing: true, pos: 0.1, clipId: null });
   assert.equal(tr.pos, 1.5);
   tr.receive({ revision: tr.revision, playing: true, pos: 1.6, clipId: null });
@@ -466,6 +467,31 @@ for (const type of ['DELAY', 'STRUM', 'TRILL']) {
   await Promise.resolve();
   assert.equal(tr.playing, false, 'failed synchronization stops the UI facade');
   assert.match(errors[0].message, /test synchronization failure/);
+}
+
+// play from start (,) tells the worklet to restart the LFOs; other starts do not
+{
+  const song = emptySong();
+  addClip(song, { length: 4 });
+  const ops = [];
+  const tr = new AudioTransport({
+    getScope: () => [], getSong: () => song, getBpm: () => 120, getTarget: () => null,
+  }, { dsp: { post: (op) => ops.push(op) }, sync: async () => {}, audioTime: () => 0, onError: () => {} });
+  tr.seek(2);
+  tr.play();
+  await Promise.resolve(); await Promise.resolve();
+  tr.play({ fromStart: true });
+  await Promise.resolve(); await Promise.resolve();
+  assert.deepEqual(ops.filter((op) => op[2].type === 'start').map((op) => [op[2].pos, op[2].fromStart]), [[2, false], [0, true]]);
+  const { graph } = dspTestHost();
+  const playback = new Playback(graph, () => 0);
+  let resets = 0;
+  graph.songStart = () => resets++;
+  playback.root = { modules: new Map() };
+  for (const fromStart of [false, true]) {
+    playback.command({ type: 'start', revision: 1, scope: [], clipId: null, pos: 0, chase: true, fromStart });
+  }
+  assert.equal(resets, 1, 'the worklet resets only for play from start');
 }
 
 useAudioNoteIds();

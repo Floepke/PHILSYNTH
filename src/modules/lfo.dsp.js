@@ -102,6 +102,9 @@ export default class LfoKernel extends Kernel {
 
   panic() { this.restart(0); }
 
+  // play from start: back to Phase, except the Random waves (they would not repeat anyway)
+  songStart() { if (this.wave < 4) this.restart(0); }
+
   message(m) {
     if (m.type === 'param') this.param(m.id, m.value);
     else if (m.type === 'bpm') { this.bpm = m.value; this.updateRate(); }
