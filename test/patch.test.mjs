@@ -721,6 +721,11 @@ const set = (e, x) => { hold(e, x); render(1); };
     const il = capture(io);
     p.inst.noteOn(8000, 60, 1, 0.4);
     assert.equal(il.find((m) => m.type === 'noteOn').phase, 0.4, 'Patch forwards the phase');
+    // only the Input Module gets the notes: an uncabled LFO inside does not restart its phase
+    const innerLfo = await p.inst.patch.addModule('LFO');
+    const lfoLog = capture(innerLfo);
+    p.inst.noteOn(8001, 60, 1, 0);
+    assert.ok(!lfoLog.some((m) => m.type === 'noteOn'), 'LFO without a MIDI cable gets no notes');
     const mm2 = await pr.addModule('MULTIMIDI');
     pr.connect(mm2.id, mm.id);
     ol.length = 0;
@@ -937,7 +942,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   r.removeModule(mmA.id);
   assert.ok(log.some((m) => m.type === 'noteOff' && m.id === ons[0].id), 'deleting a MULTIMIDI releases its notes');
 
-  // patch: notes go to inner MIDI modules without an incoming MIDI cable; off/mod follow the noteOn
+  // patch: notes go to the Input Module only; off/mod follow the noteOn
   const pm = await r.addModule('PATCH');
   const ip = pm.inst.patch;
   const iosc = await ip.addModule('OSC');
@@ -946,6 +951,7 @@ const set = (e, x) => { hold(e, x); render(1); };
   pm.inst.noteOn(50, 60, 1);
   assert.deepEqual(ilog.at(-1), { type: 'noteOn', id: 50, pitch: 60, velocity: 1, phase: 0 });
   ip.connect(imm.id, iosc.id);
+  r.setParam(pm.id, 'inputModule', imm.id);
   pm.inst.noteOff(50);
   assert.deepEqual(ilog.at(-1), { type: 'noteOff', id: 50 }, 'off reaches the module that got the note, despite the new cable');
   pm.inst.noteOn(51, 61.5, 0.7);

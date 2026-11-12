@@ -192,11 +192,13 @@ export default {
     };
     patch.watchers.add(sync);
 
-    // MIDI goes to every MIDI module inside (of one instance), except those fed by an inner MIDI
-    // cable (they get the notes through their MULTIMIDI instead, so they are not played twice)
-    // (MODMIDI note ids are unique, so every inner module can use the same id for its voice)
+    // MIDI goes only to the Input Module (of one instance); other modules inside get notes only
+    // through inner MIDI cables. Input Module 0 passes the notes straight on to the inner Output.
     const notes = new Map(); // note id -> { rt, insts, off }
-    const midiOf = (rt) => [...rt.modules.values()].filter((e) => e.def.acceptsMidi && !rt.hasMidiInput(e.id)).map((e) => e.inst);
+    const midiOf = (rt) => {
+      const t = rt.modules.get(target);
+      return t && (target === 0 || t.def.acceptsMidi) ? [t.inst] : [];
+    };
     let next = 0;
     const pickRuntime = () => {
       const all = runtimes().slice(0, wanted());
