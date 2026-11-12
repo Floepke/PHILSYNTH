@@ -1,6 +1,6 @@
 {
   "name": "modsynth",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "Modular synthesizer in the browser / Electron",
@@ -11,6 +11,7 @@
     "serve": "node server.mjs",
     "build:wasm": "node build-wasm.mjs",
     "build:linux": "node build-linux.mjs",
+    "build:win": "node build-win.mjs",
     "build:mac": "node build-mac.mjs",
     "build:mac:zip": "node build-mac.mjs --zip",
     "build:icon": "node build-icon.mjs",

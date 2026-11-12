@@ -573,6 +573,23 @@ Every module's panel ends with a reference (About, Controllers, Usage) from
 `npm test` checks that every controller is documented.
 macOS packaging uses `npm run build:mac` on macOS.
 
+## Windows executables
+
+```sh
+npm run build:win              # x64
+npm run build:win -- --arch=arm64
+```
+
+This writes `release/PHILSYNTH-<version>-win-<arch>-setup.exe` (installer with
+Start menu shortcut and uninstaller) and `release/PHILSYNTH-<version>-win-<arch>-portable.exe`
+(runs without installing). It runs on Windows, or on Linux/macOS with Wine installed
+(on headless Linux: `xvfb-run -a npm run build:win`). The executables are not
+code-signed, so SmartScreen asks for confirmation on first launch (More info → Run anyway).
+Projects autosave to `%APPDATA%\PHILSYNTH\projects`.
+
+For a GitHub release, upload the two `.exe` files, `PHILSYNTH.AppImage` from
+`npm run build:linux`, and the zip from `npm run build:mac:zip` (macOS only).
+
 ## GitHub Pages
 
 `.github/workflows/pages.yml` installs runtime dependencies, tests, and publishes
