@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { GUIDE, renderGuide, createGuideState } from '../src/guide.js';
 
-assert.deepEqual(GUIDE.map((t) => t.id), ['about', 'interface', 'patcher', 'timeline', 'automation', 'workspace'], 'Author introduction, interface, patcher, combined pianoroll and timeline, automation, then workspace');
+assert.deepEqual(GUIDE.map((t) => t.id), ['about', 'interface', 'patcher', 'pianoroll-concept', 'timeline', 'automation', 'workspace'], 'Author introduction, interface, patcher, the pianoroll concept, combined pianoroll and timeline, automation, then workspace');
 assert.equal(GUIDE.find((t) => t.id === 'timeline').title, 'Pianoroll and Timeline');
 assert.equal(GUIDE.find((t) => t.id === 'automation').title, 'Automation');
 for (const t of GUIDE) {

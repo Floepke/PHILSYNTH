@@ -52,7 +52,7 @@
 // Both axes act together; double-click resets the width.
 // Free timing bypasses time snapping; the visual grid (base note ÷ divider) stays visible.
 import { FONT, WEIGHT } from '../font.js';
-import { basePitch, centsOf, bendPolyline, notePitchAt, BEND_MAX, withCents, centsLabel, isBlack, inPiano, clipSilent, isIdea, snapStep, pianoTimeStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, withVelEnd, velsForLength, clean, meter, barLines, beatLines, barLength, gridBeatEnabled } from '../song.js';
+import { basePitch, centsOf, bendPolyline, notePitchAt, BEND_MAX, withCents, centsLabel, isBlack, inPiano, clipSilent, isIdea, snapStep, pianoTimeStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, withVelEnd, velsForLength, clean, meter, segAt, barLines, beatLines, barLength, gridBeatEnabled } from '../song.js';
 import {
   createSurface, capture, rulerDrag, startPan, onWheel, clamp, snapBands, mutedMark, edgeScroll, RIGHT_HOLD_MS, RIGHT_HOLD_SLOP,
   SB, SB_TRACK, scrollThumb, scrollValue, paintThumb,
@@ -90,6 +90,8 @@ const storeKeyboard = (h) => { try { globalThis.window?.localStorage?.setItem(KE
 export const TOP_MARGIN = 128;
 const TILT = -Math.PI / 6;
 const HEAD_STRETCH = 1.25; // noteheads are stretched along the time (y) axis
+const SIG_SIZE = 56; // px, time signature digits next to the stave
+const SIG_SLANT = Math.PI / 18; // 10°, tilt of the time signature divider
 const GUTTER = 36; // bar / beat ruler (right of the velocity strip)
 const VEL_MIN = 0; // the ruler drags the velocity strip between these widths; the grid scales
 const VEL_MAX_SHARE = 0.5; // of the roll width
@@ -186,7 +188,7 @@ export function createPianoRoll(host, ctx) {
   const onHScrollbar = (x, y) => zoomedX() && x >= gridX() && x < rollRight() && y >= gridBottom() && y < keyTop();
   // the keys play the live MIDI module (preview.key) even without a clip; else the clip's target
   const keysPlay = () => !!(ctx.preview.key || ctx.clip());
-  const staveWidth = () => Math.min(keyWidth(), noteW()) * 0.22; // C# D# lines; F# G# A# twice as thick
+  const staveWidth = () => Math.min(keyWidth(), noteW()) * 0.22; // C# D# lines; F# G# A# 1.6x as thick
   const headLine = () => Math.min(3, noteW() * 0.3); // notehead outline
   // Black noteheads keep one size. A white one grows towards each neighbouring black key until its
   // outer edge touches the middle of that stave line (C, F: right; E, B: left); D, G, A get the
@@ -451,6 +453,42 @@ export function createPianoRoll(host, ctx) {
     }
   }
 
+  // time signatures as a large fraction left of the stave, centred on their bar line: the one in
+  // effect at the clip start and every change inside the clip
+  function paintSignatures(g, clip, staveLeft, bottom) {
+    const m = meter(ctx.song());
+    const off = clip.start;
+    const sigs = [{ t: 0, seg: segAt(m, off) }, ...m
+      .filter((seg) => seg.at > off + TIME_EPSILON && seg.at < off + clip.length - TIME_EPSILON)
+      .map((seg) => ({ t: seg.at - off, seg }))];
+    const size = SIG_SIZE;
+    const gap = Math.round(size * 0.18);
+    const digitH = size * 0.75;
+    g.font = `${WEIGHT} ${size}px ${FONT}`;
+    g.fillStyle = g.strokeStyle = STAVE;
+    g.textAlign = 'center';
+    g.textBaseline = 'alphabetic';
+    g.lineWidth = size / 14;
+    g.lineCap = 'round';
+    let lastY = -Infinity;
+    for (const { t, seg } of sigs) {
+      const y = Math.round(yOf(t));
+      if (y - lastY < 2 * (digitH + gap) + 8) continue; // zoomed out: no overlapping fractions
+      if (y + digitH + gap < 0 || y - digitH - gap > bottom) continue;
+      lastY = y;
+      const num = String(seg.num);
+      const den = String(seg.den);
+      const half = Math.max(g.measureText(num).width, g.measureText(den).width) / 2 + size * 0.15;
+      // centred in the margin left of the stave; pinned to the grid edge when the stave scrolls out on the left
+      const cx = Math.max(gridX() + half + 6, (gridX() + staveLeft) / 2);
+      const rise = half * Math.tan(SIG_SLANT); // the divider rises to the right, like a flattened slash
+      g.beginPath(); g.moveTo(cx - half, y + rise); g.lineTo(cx + half, y - rise); g.stroke();
+      g.fillText(num, cx, y - gap);
+      g.fillText(den, cx, y + gap + digitH);
+    }
+    g.lineCap = 'butt';
+  }
+
   function paint(g, w, h) {
     if (!w || !h) return;
     limitScroll();
@@ -533,8 +571,8 @@ export function createPianoRoll(host, ctx) {
       // note bodies
       // Lift the module hue off the charcoal background without changing its identity.
       const color = `color-mix(in srgb, ${ctx.color(clip)} 75%, #fff)`;
-      const blackColor = `color-mix(in srgb, ${color} 86%, #000)`;
-      const blackSelected = `color-mix(in srgb, ${SELECT} 86%, #000)`;
+      const blackColor = `color-mix(in srgb, ${color} 76%, #000)`;
+      const blackSelected = `color-mix(in srgb, ${SELECT} 76%, #000)`;
       for (const n of clip.notes) {
         const y = yOf(n.start);
         const hh = n.length * view.ppq;
@@ -561,12 +599,13 @@ export function createPianoRoll(host, ctx) {
     // stave lines (black keys of the 88-key piano), on top of the note bodies; none without a clip
     if (clip) {
       g.strokeStyle = STAVE;
+      g.lineCap = 'round';
       const thin = staveWidth();
       const staveTop = Math.min(bottom, Math.max(0, yOf(0)));
-      // the group of three (F# G# A#) is twice as thick as the group of two (C# D#)
+      // the group of three (F# G# A#) is thicker than the group of two (C# D#)
       const isThree = (p) => [6, 8, 10].includes(p % 12);
       const stave = (dashed, three) => {
-        g.lineWidth = three ? thin * 2 : thin;
+        g.lineWidth = three ? thin * 1.6 : thin;
         g.beginPath();
         for (let p = PIANO_LOW; p <= PIANO_HIGH; p++) {
           if (!isBlack(p) || CENTRAL.includes(p) !== dashed || isThree(p) !== three) continue;
@@ -583,6 +622,8 @@ export function createPianoRoll(host, ctx) {
       stave(true, false);
       g.setLineDash([]);
       g.lineDashOffset = 0;
+      g.lineCap = 'butt';
+      paintSignatures(g, clip, gridLeft, bottom);
     }
 
     if (clip) {
@@ -714,17 +755,11 @@ export function createPianoRoll(host, ctx) {
         const y = Math.round(yOf(b.t - off)) + 0.5;
         g.strokeStyle = BAR_LINE;
         g.beginPath(); g.moveTo(velW(), y); g.lineTo(gridX(), y); g.stroke();
-        const change = Math.abs(b.t - b.seg.at) < 1e-9;
-        if (y - lastY < (change ? 24 : 13)) continue; // no overlapping labels when zoomed out
+        if (y - lastY < 13) continue; // no overlapping labels when zoomed out
         lastY = y;
         g.fillStyle = '#c3c7d0';
         g.font = `${WEIGHT} 10px ${FONT}`;
         g.fillText(String(b.bar + 1), gridX() - 4, y + 2);
-        if (change) { // time signature starts here
-          g.fillStyle = '#c4b5f2';
-          g.font = `${WEIGHT} 9px ${FONT}`;
-          g.fillText(`${b.seg.num}/${b.seg.den}`, gridX() - 4, y + 13);
-        }
       }
       g.restore();
     }

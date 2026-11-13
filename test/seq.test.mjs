@@ -4114,7 +4114,8 @@ for (const free of [false, true]) {
   assert.ok(selected.includes(1) && selected.includes(2));
   assert.ok(!selected.includes(0.5) && !selected.includes(3.5), 'disabled beat zero hides repeating barlines');
   assert.deepEqual(lines([]), [], 'all musical lines may be hidden');
-  assert.ok(cv.drawing.some(([op, text]) => op === 'fillText' && text === '7/8'), 'ruler signatures remain visible');
+  const texts = cv.drawing.filter(([op]) => op === 'fillText').map(([, text]) => text);
+  assert.ok(texts.includes('7') && texts.includes('8') && !texts.includes('7/8'), 'the signature shows as a fraction beside the stave, not in the ruler');
 }
 
 // Zoomed out in time, grid lines closer than GRID_MIN_PX disappear: beat lines as a whole, bar
@@ -4237,15 +4238,15 @@ for (const free of [false, true]) {
   roll.redraw();
   flush();
   const white = 'color-mix(in srgb, #e76f51 75%, #fff)';
-  const black = `color-mix(in srgb, ${white} 86%, #000)`;
+  const black = `color-mix(in srgb, ${white} 76%, #000)`;
   const pattern = [false, true, false, true, false, false, true, false, true, false, true, false];
   assert.deepEqual(fills(), pattern.map((b) => b ? black : white));
   cv.drawing.length = 0;
   key(cv, 'a', { ctrlKey: true });
-  assert.deepEqual(fills(), pattern.map((b) => b ? 'color-mix(in srgb, #607c69 86%, #000)' : '#607c69'));
+  assert.deepEqual(fills(), pattern.map((b) => b ? 'color-mix(in srgb, #607c69 76%, #000)' : '#607c69'));
   cv.drawing.length = 0;
   key(cv, 'ArrowRight');
-  assert.deepEqual(fills(), [...pattern.slice(1), pattern[0]].map((b) => b ? 'color-mix(in srgb, #607c69 86%, #000)' : '#607c69'));
+  assert.deepEqual(fills(), [...pattern.slice(1), pattern[0]].map((b) => b ? 'color-mix(in srgb, #607c69 76%, #000)' : '#607c69'));
 
   // Keep a dark canvas without inverting the stave, with the intended muted-green selection contrast.
   const rgb = (hex) => hex.slice(1).match(/../g).map((c) => parseInt(c, 16));

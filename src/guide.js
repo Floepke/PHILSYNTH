@@ -179,6 +179,75 @@ export const GUIDE = [
     ],
   },
   {
+    id: 'pianoroll-concept',
+    title: 'Pianoroll — The Concept',
+    intro: 'The PHILSYNTH pianoroll is not a grid of coloured bars. It is a notation: a stave built from the piano keyboard itself, with noteheads designed so that you can read pitch the way a musician reads a score. This chapter explains the ideas behind it; the next chapter explains how to edit.',
+    steps: [
+      {
+        title: 'The problem with the traditional pianoroll',
+        items: [
+          'A traditional pianoroll gives its rows meaning through a background pattern: darker rows for the black keys, lighter rows for the white keys. That pattern is the only thing that tells you which pitch a row represents.',
+          'The moment you write music, the notes are drawn <b>on top of</b> that background. Each note covers exactly the part of the pattern that would identify it, so the denser the music, the less of its meaning remains visible. You end up reading pitch by following a note back to the keyboard rather than by reading the note itself.',
+          'The PHILSYNTH pianoroll is designed to solve this problem: the information that identifies a pitch must never be hidden by the notes written on it.',
+        ],
+      },
+      {
+        title: 'The keyboard is the stave',
+        items: [
+          'At the bottom of the editor lies a traditional piano keyboard. Every <b>vertical line</b> above it starts at one of its <b>black keys</b> and continues upward through the whole clip. The stave lines are, quite literally, the black keys stretched out in time.',
+          'Because the stave grows out of the keyboard, there is nothing to translate: a line is a black key, and the space next to a line is a white key. Whatever you know about the keyboard, you already know about the stave.',
+          'This idea is inspired by <b>Klavarskribo</b>, a notation that has related written pitches directly to the piano keyboard since the 1930s.',
+        ],
+      },
+      {
+        title: 'Groups of two and groups of three',
+        items: [
+          'The black keys of a piano form a repeating pattern: a group of <b>two</b> (C♯ and D♯) followed by a group of <b>three</b> (F♯, G♯ and A♯). The stave repeats exactly that pattern. The lines of the group of two are <b>thin</b>; the lines of the group of three are <b>slightly thicker</b>.',
+          'The difference in weight lets the eye find its place immediately. The group of two marks C, D and E; the group of three marks F, G, A and B. As on the piano, you never count lines, you recognise the groups.',
+          'The two lines of the <b>central octave</b> (C♯4 and D♯4) are <b>dashed</b>, a landmark around middle C. Lines are drawn across the range of an 88-key piano (A0 to C8); outside it, the keys and notes remain available without stave lines.',
+        ],
+      },
+      {
+        title: 'Reading from top to bottom',
+        items: [
+          'Time runs <b>downward</b>, towards the keyboard. A pianist looks down onto the keys, and the pianoroll keeps that orientation: the music flows from the top of the editor down into the keyboard where it sounds.',
+          'Pitch runs from left to right, low to high, exactly as on the keyboard. A melody becomes a line that moves left and right as it descends, and a chord is simply a row of notes sharing the same height.',
+        ],
+      },
+      {
+        title: 'Noteheads with a fine-tuned design',
+        items: [
+          'Every note begins with a <b>notehead</b>. Notes on black keys have <b>filled</b> heads; notes on white keys have <b>open</b> heads. The colour of a key is therefore visible at a glance, just as it is on the keyboard below.',
+          'Beyond colour, <b>every note of the octave has its own notehead shape</b>. Heads lean in one direction, lean in the other, or stand upright, so neighbouring notes are easy to tell apart:',
+          '<b>Leaning one way:</b> C, C♯, F and F♯. <b>Leaning the other way:</b> D♯, E, A♯ and B. <b>Upright ovals:</b> D, G, G♯ and A.',
+          'All noteheads share the same height. Black heads keep a compact size, because their filled surface already gives them visual weight. White heads widen until they meet the neighbouring stave lines: C and F grow towards the black key on their right, E and B towards the black key on their left, and D, G and A are centred between their two black keys. White heads are drawn beneath black ones, so in a minor second a black head may overlap its white neighbour slightly.',
+        ],
+      },
+      {
+        title: 'Notes beneath the stave',
+        items: [
+          'After its notehead, each note continues as a rectangle that shows its duration, like the bars of a traditional pianoroll. These rectangles are drawn <b>beneath</b> the stave lines, so the notes never cover the stave.',
+          'As a result, a note reveals its key along its whole length, even where the notehead is out of view: a note on a <b>black key</b> has a stave line running over it, and a note on a <b>white key</b> does not. This is how the stave solves the problem of the traditional pianoroll: the notes no longer hide the pattern that gives them their meaning.',
+        ],
+      },
+      {
+        title: 'Try it: a keyboard made of notes',
+        items: [
+          'Write all twelve notes of one octave at the <b>same time position</b>, from C up to B. The noteheads join into a small drawing of a piano keyboard: open white heads filling the spaces, filled black heads sitting on the lines between them.',
+          'This is the design at work: the shapes are chosen so that notes sounding together form the familiar image of the keys being played.',
+        ],
+      },
+      {
+        title: 'Reading the pianoroll as music notation',
+        items: [
+          'Together, the stave and the noteheads let you <b>read pitch like notation</b>. The groups of lines tell you where you are, the colour of a head tells you black or white key, and its shape helps you to identify which note it is.',
+          'With a little practice, intervals and chords become recognisable shapes rather than positions to be counted. A pianist sees which keys to press; any musician sees how the harmony is built, without consulting the keyboard for every note.',
+        ],
+      },
+    ],
+    keys: [],
+  },
+  {
     id: 'timeline',
     title: 'Pianoroll and Timeline',
     intro: 'The <b>TimeLine</b> (bottom pane) arranges the song: time runs left to right, and clips sit on numbered lanes. Select a <b>note clip</b> to edit its notes in the <b>pianoroll</b> above the patcher, where time runs down. These are two views of the same clip: edit its notes above, then arrange it in the song below. Automation clips (marked ∿) use the same TimeLine but open a controller-curve editor instead; see the Automation chapter.',
@@ -211,7 +280,7 @@ export const GUIDE = [
       {
         title: 'Read the pianoroll',
         items: [
-          'Our one-of-a-kind pianoroll combines a stave with a piano keyboard. Time runs <b>down</b>, and pitch runs left to right across all 128 MIDI notes. The vertical stave lines connect to the <b>black keys</b> of the keyboard at the bottom. Each notehead reflects its key’s colour—black or white—so you can relate notes to the keyboard at a glance. The strip on the left shows note velocity.',
+          'Our one-of-a-kind pianoroll combines a stave with a piano keyboard. Time runs <b>down</b>, and pitch runs left to right across all 128 MIDI notes. The vertical stave lines connect to the <b>black keys</b> of the keyboard at the bottom. Each notehead reflects its key’s colour—black or white—so you can relate notes to the keyboard at a glance. The strip on the left shows note velocity. The chapter <b>Pianoroll — The Concept</b> explains the stave and the noteheads in detail.',
           'Selecting a note also makes the pianoroll the active editor: Delete then removes selected notes, and the arrow keys move them, rather than editing modules or clips in another pane.',
         ],
       },
