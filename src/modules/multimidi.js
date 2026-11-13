@@ -25,6 +25,8 @@
 // its own copy); Round Robin = one cable per note, the next one in cable order each time;
 // Random = one random cable per note; Random (no repeat) = random, but never the same cable
 // twice in a row. A note's noteMod / noteOff follow the cable its noteOn took.
+import { phaseLabel } from './lfo.js';
+import { pctNum } from '../params.js';
 import { createMidiScheduler } from '../midischedule.js';
 import { MidiQueue } from '../midiqueue.js';
 import { KEYS, mapAt, normalizeMap } from './pitch2ctl.dsp.js';
@@ -155,11 +157,11 @@ export default {
     { id: 'drift', label: 'Drift', min: 0, max: 12, default: 0, step: 0.01, wheelStep: 0.01, format: (v) => `±${Math.round(v * 100)} ct` },
     { id: 'driftFreq', label: 'Drift Frequency', min: 0, max: 20, default: 1, step: 0.01, format: hz },
     { id: 'velSense', label: 'Velocity Sense', min: 0, max: 1, default: 1, step: 1, options: VEL_SENSE },
-    { id: 'velocity', label: 'Velocity', min: 0, max: 1, default: 1, step: 0.01, format: (v) => `${Math.round(v * 100)} %` },
-    { id: 'velDrift', label: 'Velocity Drift', min: 0, max: 1, default: 0, step: 0.01, format: (v) => `-${Math.round(v * 100)} %` },
+    { id: 'velocity', label: 'Velocity', min: 0, max: 1, default: 1, step: 0.0001, format: (v) => `${pctNum(v * 100)} %` },
+    { id: 'velDrift', label: 'Velocity Drift', min: 0, max: 1, default: 0, step: 0.0001, format: (v) => `-${pctNum(v * 100)} %` },
     { id: 'velDriftFreq', label: 'Velocity Drift Frequency', min: 0, max: 20, default: 1, step: 0.01, format: hz },
-    { id: 'phase', label: 'Phase', min: 0, max: 1, default: 0, step: 0.01, format: (p) => `${Math.round(p * 100)} % (${Math.round(p * 360)}°)` },
-    { id: 'randomPhase', label: 'Random Phase', min: 0, max: 1, default: 0, step: 0.01, format: (v) => `${Math.round(v * 100)} %` },
+    { id: 'phase', label: 'Phase', min: 0, max: 1, default: 0, step: 0.0001, format: phaseLabel },
+    { id: 'randomPhase', label: 'Random Phase', min: 0, max: 1, default: 0, step: 0.0001, format: (v) => `${pctNum(v * 100)} %` },
     { id: 'randomDelay', label: 'Random Delay', min: 0, max: 5000, default: 0, step: 1, format: (v) => `${Math.round(v)} ms` },
   ],
   create(ctx, _def, host, { rand = Math.random } = {}) {

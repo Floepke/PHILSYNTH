@@ -4,6 +4,7 @@
 // Block Size Auto uses the frame size stored in the file (Serum 'clm ' / Surge 'srge' chunk,
 // Surge .wt header) or guesses it (2048 is the common standard, WaveEdit uses 256); pick a size
 // to override it for raw WAV files. Without a file the built-in table plays.
+import { pctNum } from '../params.js';
 import { linkDecayRelease } from './envlink.js';
 import { INTERP_NAMES } from './interp.js';
 import { BLOCK_NAMES } from './wavetable.dsp.js';
@@ -22,7 +23,7 @@ export default {
   params: [
     { id: 'polyphony', label: 'Polyphony', min: 1, max: 32, default: 8, step: 1 },
     { id: 'block', label: 'Block Size', min: 0, max: BLOCK_NAMES.length - 1, default: 0, step: 1, options: BLOCK_NAMES },
-    { id: 'position', label: 'Wave Select', min: 0, max: 100, default: 0, step: 0.1, format: (v) => `${v.toFixed(1)} %` },
+    { id: 'position', label: 'Wave Select', min: 0, max: 100, default: 0, step: 0.01, format: (v) => `${pctNum(v)} %` },
     { id: 'interpolation', label: 'Interpolation', min: 0, max: 2, default: 2, step: 1, options: INTERP_NAMES },
     { id: 'attack', label: 'Attack (s)', min: 0.001, max: 10, default: 0.01, step: 0.001 },
     { id: 'decay', label: 'Decay (s)', min: 0.001, max: 10, default: 0.2, step: 0.001 },

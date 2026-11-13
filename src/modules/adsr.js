@@ -27,10 +27,10 @@ export default {
     { id: 'trigger', label: 'Trigger', min: 0, max: 1, default: 0, step: 1, options: ['Every note', 'Legato'] },
     { id: 'attack', label: 'Attack', min: 0.001, max: 10, default: 0.01, scale: 'log', format: secs },
     { id: 'decay', label: 'Decay', min: 0.001, max: 10, default: 0.3, scale: 'log', format: secs },
-    { id: 'sustain', label: 'Sustain', min: 0, max: 100, default: 50, step: 1, format: pct },
+    { id: 'sustain', label: 'Sustain', min: 0, max: 100, default: 50, step: 0.01, format: pct },
     { id: 'release', label: 'Release', min: 0.001, max: 20, default: 0.5, scale: 'log', format: secs },
     ...curveParams(),
-    { id: 'velocity', label: 'Velocity', min: 0, max: 100, default: 0, step: 1, format: pct },
+    { id: 'velocity', label: 'Velocity', min: 0, max: 100, default: 0, step: 0.01, format: pct },
     ...outParams(),
   ],
   linked: linkDecayRelease, // Sustain at 0: Decay and Release (and their Curves) move together

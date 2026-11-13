@@ -465,7 +465,7 @@ console.log('osc tests passed');
   const P = (id) => osc.params.find((p) => p.id === id);
   for (const id of ['atkCurve', 'decCurve', 'relCurve']) {
     const p = P(id);
-    assert.deepEqual([p.min, p.max, p.default, p.step], [-100, 100, 100, 1], `${id} range, analog by default`);
+    assert.deepEqual([p.min, p.max, p.default, p.step], [-100, 100, 100, 0.01], `${id} range, analog by default`);
   }
   assert.equal(formatCurve(0), 'Linear');
   assert.equal(formatCurve(35), '+35 %');

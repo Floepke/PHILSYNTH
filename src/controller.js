@@ -1,6 +1,8 @@
 // Panel controller: a tall rectangle whose fill shows the value.
-//   drag sideways     move the value (relative, a click does not jump; Shift while dragging = fine)
-//   mouse wheel       ±1 % per notch, Shift + wheel ±0.1 %; stepped controllers move one step
+//   drag sideways     move the value (relative, a click does not jump; Shift while dragging = fine,
+//                     Alt/Option = extra fine)
+//   mouse wheel       ±1 % per notch, Shift + wheel ±0.1 %, Alt/Option + wheel ±0.01 %; stepped
+//                     controllers move one step
 // Controllers with p.snapValues(values) (fixed values depending on the other controllers, e.g. a
 // synced LFO Frequency) snap drags to them, move one per wheel click and show a tick at each.
 //   double-click      reset to the default
@@ -9,6 +11,8 @@
 import { toNorm, fromNorm, nudge, snapNearest, snapStep, wheelAccumulator, wheelDelta } from './params.js';
 
 const FINE_DRAG = 0.1; // Shift-drag speed relative to normal
+const EXTRA_FINE_DRAG = 0.01; // Alt/Option-drag
+export const ctlTitle = (p) => `${p.label} — drag sideways or scroll (Shift: fine, Alt/Option: extra fine), double-click: reset`;
 
 export function createController(p, { index, value, onInput, format, onBegin, onEnd, values }) {
   const el = document.createElement('div');
@@ -17,7 +21,7 @@ export function createController(p, { index, value, onInput, format, onBegin, on
   el.setAttribute('aria-label', p.label);
   el.setAttribute('aria-valuemin', p.min);
   el.setAttribute('aria-valuemax', p.max);
-  el.title = `${p.label} — drag sideways or scroll (Shift: fine), double-click: reset`;
+  el.title = ctlTitle(p);
 
   const fill = document.createElement('span');
   fill.className = 'ctl-fill';
@@ -66,7 +70,7 @@ export function createController(p, { index, value, onInput, format, onBegin, on
   const show = (nv) => {
     el.setAttribute('aria-disabled', !!p.disabled);
     el.setAttribute('aria-valuemax', p.max);
-    el.title = p.disabled ? p.disabledReason : `${p.label} — drag sideways or scroll (Shift: fine), double-click: reset`;
+    el.title = p.disabled ? p.disabledReason : ctlTitle(p);
     updateSnaps();
     v = nv;
     const x = Math.min(1, Math.max(0, toNorm(p, v)));
@@ -83,7 +87,7 @@ export function createController(p, { index, value, onInput, format, onBegin, on
   };
   show(value);
 
-  // ---- pointer: relative drag (no jump on click); Shift = fine ----
+  // ---- pointer: relative drag (no jump on click); Shift = fine, Alt/Option = extra fine ----
   // Dragging across the controller's width covers the whole range.
   let drag = null;
   el.addEventListener('pointerdown', (e) => {
@@ -102,7 +106,7 @@ export function createController(p, { index, value, onInput, format, onBegin, on
     // the release can get lost (e.g. outside the window): no button held = the drag is over
     if (e.pointerType === 'mouse' && !(e.buttons & 1)) { end(); return; }
     const width = el.getBoundingClientRect().width || 1;
-    drag.norm = Math.min(1, Math.max(0, drag.norm + ((e.clientX - drag.x) / width) * (e.shiftKey ? FINE_DRAG : 1)));
+    drag.norm = Math.min(1, Math.max(0, drag.norm + ((e.clientX - drag.x) / width) * (e.altKey ? EXTRA_FINE_DRAG : e.shiftKey ? FINE_DRAG : 1)));
     drag.x = e.clientX;
     const nv = fromNorm(p, drag.norm);
     set(snaps ? snapNearest(p, snaps, nv) : nv);
@@ -135,7 +139,7 @@ export function createController(p, { index, value, onInput, format, onBegin, on
     updateSnaps();
     const n = (snaps ? takeWhole : takeAny)(e, delta);
     if (!n) return;
-    set(snaps ? snapStep(snaps, v, n) : nudge(p, v, n, e.shiftKey));
+    set(snaps ? snapStep(snaps, v, n) : nudge(p, v, n, e.altKey ? 'extra' : e.shiftKey));
     el.classList.add('wheel');
     clearTimeout(el._wheelTimer);
     el._wheelTimer = setTimeout(() => el.classList.remove('wheel'), 400);

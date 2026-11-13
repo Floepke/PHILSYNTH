@@ -1,5 +1,6 @@
 // Multi-mode filter: SVF (LP/HP/BP/Notch/Peak/All-pass, 12-48 dB), EQ (bell, shelves),
 // Moog-style ladder, comb (+/-) and vowel formant. Built-in LFO modulates the cutoff.
+import { pctNum } from '../params.js';
 const TYPES = [
   'Low-pass', 'High-pass', 'Band-pass', 'Notch', 'Peak', 'All-pass',
   'Bell (EQ)', 'Low shelf', 'High shelf', 'Ladder LP 24dB', 'Comb +', 'Comb −', 'Formant',
@@ -36,7 +37,7 @@ export default {
     { id: 'lfoShape', label: 'LFO shape', min: 0, max: 5, default: 0, step: 1, options: ['Sine', 'Triangle', 'Saw', 'Square', 'Sample & hold', 'Random'] },
     { id: 'lfoRate', label: 'LFO rate', min: 0.02, max: 20, default: 1, scale: 'log', format: (v) => `${v.toFixed(v < 1 ? 2 : 1)} Hz` },
     { id: 'lfoDepth', label: 'LFO depth', min: 0, max: 4, default: 0, step: 0.01, format: (v) => `${v.toFixed(2)} oct` },
-    { id: 'mix', label: 'Dry / wet', min: 0, max: 1, default: 1, step: 0.01, format: (v) => `${Math.round(v * 100)}%` },
+    { id: 'mix', label: 'Dry / wet', min: 0, max: 1, default: 1, step: 0.0001, format: (v) => `${pctNum(v * 100)}%` },
     { id: 'level', label: 'Output level', min: 0, max: 2, default: 1, step: 0.01 },
   ],
   create(_ctx, _def, host) {

@@ -247,7 +247,7 @@ for (const mode of [0, 1, 2]) {
           { x: 1, y: 0.5000558761378413, r: 0 },
         ] },
       },
-      { id: 2, type: 'OSC', x: 0, y: 0, values: { wave: 0, duty: 50, polyphony: 1 }, color: null },
+      { id: 2, type: 'OSC', x: 0, y: 0, values: { wave: 0, duty: 50.01, polyphony: 1 }, color: null }, // duty: where a finished note leaves it
     ],
     cables: [{ from: 1, to: 2 }, { from: 2, to: 0 }],
   });
@@ -266,11 +266,11 @@ for (const mode of [0, 1, 2]) {
     return trace;
   };
   render(50);
-  close(osc.p.duty, 50, 0.01, 'loaded: the Duty Cycle sits where a finished note leaves it');
-  close(osc.duty, 0.5, 1e-4, 'loaded: the OSC smoothed duty has settled there too');
+  close(osc.p.duty, 50.01, 1e-9, 'loaded: the Duty Cycle sits where a finished note leaves it');
+  close(osc.duty, 0.5001, 1e-6, 'loaded: the OSC smoothed duty has settled there too');
   const first = playNote(1);
-  close(first[0][1], 24.5, 1e-9, 'the note starts the curve at its start (Duty Cycle step 0.1)');
-  close(osc.p.duty, 50, 0.01, 'after a note: holds the curve end');
+  close(first[0][1], 24.48, 1e-9, 'the note starts the curve at its start (Duty Cycle step 0.01)');
+  close(osc.p.duty, 50.01, 1e-9, 'after a note: holds the curve end');
   const second = playNote(2);
   for (let b = 0; b < first.length; b++) {
     const [ev1, d1, s1, out1] = first[b];

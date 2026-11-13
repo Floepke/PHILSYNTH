@@ -12,12 +12,12 @@
 // have none yet, so "all Decays" takes one pick.
 // DSP: multictl.dsp.js (the engine graph applies the value, like for the LFO).
 import { outParams } from './modtarget.js';
-import { fromNorm, paramsOf, toNorm, controllerNumber } from '../params.js';
+import { fromNorm, paramsOf, toNorm, controllerNumber, pctNum } from '../params.js';
 import { colorOf } from '../modcolor.js';
 import { moduleName as labelOf } from '../modname.js';
 import { createController } from '../controller.js';
 
-const pct1 = (v) => `${(+v).toFixed(1)} %`;
+const pct1 = (v) => `${pctNum(+v)} %`;
 const OUT = outParams().filter((p) => p.id === 'outMin' || p.id === 'outMax'); // preserve dynamic route controller numbers
 
 const RANGE_ID = /^r(\d+)(Min|Max)$/;
@@ -225,7 +225,7 @@ function routesView(entry, api) {
             onInput: (v) => api.setParam(id, v),
           });
           ctl.el.classList.add('mc-mini');
-          ctl.el.title = `${p.label} (controller ${index}) — this route's part of its controller's range; drag sideways or scroll (Shift: fine), double-click: reset`;
+          ctl.el.title = `${p.label} (controller ${index}) — this route's part of its controller's range; drag sideways or scroll (Shift: fine, Alt/Option: extra fine), double-click: reset`;
           if (colorOf(t)) ctl.el.style.setProperty('--mod-color', colorOf(t));
           minis.push({ id, show: ctl.show });
           row.append(ctl.el);

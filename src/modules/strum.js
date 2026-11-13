@@ -1,3 +1,4 @@
+import { pctNum } from '../params.js';
 import { createMidiScheduler } from '../midischedule.js';
 
 export default {
@@ -12,7 +13,7 @@ export default {
     { id: 'strumType', label: 'Strum Type', min: 0, max: 2, default: 0, step: 1,
       options: ['strum upwards', 'strum downwards', 'strum random order'] },
     { id: 'duration', label: 'Strum Duration', min: 0, max: 5000, default: 100, step: 1, format: (v) => `${Math.round(v)} ms` },
-    { id: 'humanize', label: 'Timing Humanize', min: 0, max: 1, default: 0, step: 0.01, format: (v) => `${Math.round(v * 100)} %` },
+    { id: 'humanize', label: 'Timing Humanize', min: 0, max: 1, default: 0, step: 0.0001, format: (v) => `${pctNum(v * 100)} %` },
   ],
   create(ctx, _def, host, { rand = Math.random } = {}) {
     const ctl = host.dsp.create('none');

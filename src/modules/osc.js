@@ -39,6 +39,7 @@
 //   linked(values, id, v, params)  optional: other controllers that follow a changed one,
 //                       { id: value } or null (e.g. Decay <-> Release here, see envlink.js)
 //   system / isOutput  reserved for the Output module
+import { pctNum } from '../params.js';
 import { createWaveView } from './oscview.js';
 import { createAdsrView } from './adsrview.js';
 import { curveParams } from './adsrcurve.js';
@@ -60,7 +61,7 @@ export default {
     { id: 'wave', label: 'Waveform', min: 0, max: WAVE_NAMES.length - 1, default: 2, step: 1, options: WAVE_NAMES },
     // shapes every waveform (see oscshape.js shape()); half sine uses duty as its bow length;
     // the noise colours are unpitched and have no duty cycle
-    { id: 'duty', label: 'Duty Cycle', min: 0, max: 100, default: 50, step: 0.1, format: (v) => `${v.toFixed(1)} %`, visible: (v) => !isNoise(v.wave) },
+    { id: 'duty', label: 'Duty Cycle', min: 0, max: 100, default: 50, step: 0.01, format: (v) => `${pctNum(v)} %`, visible: (v) => !isNoise(v.wave) },
     { id: 'attack', label: 'Attack (s)', min: 0.001, max: 10, default: 0.001, step: 0.001 },
     { id: 'decay', label: 'Decay (s)', min: 0.001, max: 10, default: 0.001, step: 0.001 },
     { id: 'sustain', label: 'Sustain', min: 0, max: 1, default: 1, step: 0.01 },

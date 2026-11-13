@@ -6,6 +6,7 @@
 // toward 1.5 (Kmax = ln 3, the classic analog attack overshoot target), decay and release fall
 // exponentially to -60 dB of their distance at the stage end (Kmax = ln 1000). Negative amounts
 // mirror the shape (slow start, fast end).
+import { pctNum } from '../params.js';
 export const ATTACK_KMAX = Math.log(3);
 export const FALL_KMAX = Math.log(1000);
 export const CURVE_EPS = 1e-9;
@@ -28,9 +29,9 @@ export function curveInv(y, k) {
 }
 
 // The Attack/Decay/Release Curve controllers (OSC, ADSR, IMAGESAMPLER); `def` = their default (OSC: +100 analog)
-export const formatCurve = (v) => (v === 0 ? 'Linear' : `${v > 0 ? '+' : ''}${v} %${Math.abs(v) === 100 ? (v > 0 ? ' (analog)' : ' (inverse)') : ''}`);
+export const formatCurve = (v) => (v === 0 ? 'Linear' : `${v > 0 ? '+' : ''}${pctNum(v)} %${Math.abs(v) === 100 ? (v > 0 ? ' (analog)' : ' (inverse)') : ''}`);
 export const curveParams = (def = 0) => [
-  { id: 'atkCurve', label: 'Attack Curve', min: -100, max: 100, default: def, step: 1, format: formatCurve },
-  { id: 'decCurve', label: 'Decay Curve', min: -100, max: 100, default: def, step: 1, format: formatCurve },
-  { id: 'relCurve', label: 'Release Curve', min: -100, max: 100, default: def, step: 1, format: formatCurve },
+  { id: 'atkCurve', label: 'Attack Curve', min: -100, max: 100, default: def, step: 0.01, format: formatCurve },
+  { id: 'decCurve', label: 'Decay Curve', min: -100, max: 100, default: def, step: 0.01, format: formatCurve },
+  { id: 'relCurve', label: 'Release Curve', min: -100, max: 100, default: def, step: 0.01, format: formatCurve },
 ];

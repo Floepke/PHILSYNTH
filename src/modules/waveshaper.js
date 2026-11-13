@@ -5,6 +5,7 @@
 //          halves can be shaped differently (adds even harmonics; DC is filtered out).
 //   Drive: input gain before the curve (pushes more of the wave into the top of the graph).
 // The curve is module state (saved with the project), not a controller.
+import { pctNum } from '../params.js';
 import { defaultCurve, normalizeCurve } from '../curve.js';
 import { createCurveEditor } from '../curveeditor.js';
 
@@ -21,7 +22,7 @@ export default {
     { id: 'range', label: 'Range', min: 0, max: 1, default: 0, step: 1, options: ['Symmetric', 'Full −/+'] },
     { id: 'drive', label: 'Drive', min: -12, max: 36, default: 0, step: 0.1, format: db },
     { id: 'oversample', label: 'Oversample', min: 0, max: 2, default: 1, step: 1, options: ['Off', '2×', '4×'] },
-    { id: 'mix', label: 'Dry/Wet', min: 0, max: 100, default: 100, step: 1, format: (v) => `${Math.round(v)} % wet` },
+    { id: 'mix', label: 'Dry/Wet', min: 0, max: 100, default: 100, step: 0.01, format: (v) => `${pctNum(v)} % wet` },
     { id: 'level', label: 'Output level', min: 0, max: 2, default: 1, step: 0.01, format: (v) => `${v.toFixed(2)} ×` },
   ],
   defaultState: defaultCurve,

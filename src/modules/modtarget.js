@@ -1,14 +1,14 @@
 // Shared by modulator modules (LFO, ADSR, ENVELOPE, VELOCITY2CTL, PITCH2CTL, SOUND2CTL): their control cables drive controller number
 // `outController` of every module they connect to, inside Out Min..Out Max (% of its range).
 // The engine graph maps the value, then smooths each route in normalized controller space.
-import { controllerAt, controllerNumber, paramsOf } from '../params.js';
+import { controllerAt, controllerNumber, paramsOf, pctNum } from '../params.js';
 
-export const pct = (v) => `${Math.round(v)} %`;
+export const pct = (v) => `${pctNum(v)} %`;
 
 export const outParams = () => [
   { id: 'outController', label: 'Out Controller', min: 0, max: 127, default: 0, step: 1 },
-  { id: 'outMin', label: 'Out Min', min: 0, max: 100, default: 0, step: 1, format: pct },
-  { id: 'outMax', label: 'Out Max', min: 0, max: 100, default: 100, step: 1, format: pct },
+  { id: 'outMin', label: 'Out Min', min: 0, max: 100, default: 0, step: 0.01, format: pct },
+  { id: 'outMax', label: 'Out Max', min: 0, max: 100, default: 100, step: 0.01, format: pct },
   { id: 'outSmooth', label: 'Out Smooth', min: 0, max: 5000, default: 0, step: 1,
     format: (v) => v < 0.5 ? 'Off (jump)' : v < 1000 ? `${Math.round(v)} ms` : `${(v / 1000).toFixed(2)} s` },
 ];

@@ -3,6 +3,7 @@
 //   Audio Rate: how many times a second a new value is taken from the audio (max = audio rate:
 //     the last sample of every 128-sample block, the original behaviour).
 //   Smooth: glide time to each new value, in % of the time between two values (0 = jump).
+import { pctNum } from '../params.js';
 import { modulatorParams, outParams } from './modtarget.js';
 import { RATE_MAX } from './sound2ctl.dsp.js';
 
@@ -19,7 +20,7 @@ export default {
   modulator: true,
   params: [
     { id: 'rate', label: 'Audio Rate (Hz)', min: 0.01, max: RATE_MAX, default: RATE_MAX, scale: 'log', format: rateLabel },
-    { id: 'smooth', label: 'Smooth', min: 0, max: 100, default: 0, step: 1, format: (v) => `${Math.round(v)} %` },
+    { id: 'smooth', label: 'Smooth', min: 0, max: 100, default: 0, step: 0.01, format: (v) => `${pctNum(v)} %` },
     ...outParams(),
   ],
   create(_ctx, def, host) {

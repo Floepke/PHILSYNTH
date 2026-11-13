@@ -19,7 +19,7 @@ export default {
     { id: 'wave', label: 'Waveform', min: 0, max: 1, default: 0, step: 1, options: ['Sine', 'Triangle'] },
     { id: 'unit', label: 'Frequency Unit', min: 0, max: UNITS.length - 1, default: 0, step: 1, options: UNITS },
     { id: 'freq', label: 'Frequency', min: 0.01, max: 50, default: 5, scale: 'log', format: formatFreq, snapValues: freqSnaps },
-    { id: 'phase', label: 'Set Phase', min: 0, max: 1, default: 0, step: 0.01, format: phaseLabel },
+    { id: 'phase', label: 'Set Phase', min: 0, max: 1, default: 0, step: 0.0001, format: phaseLabel },
     { id: 'amp', label: 'Amp', min: 0, max: 200, default: 25, step: 1, format: (v) => `±${Math.round(v)} cents` },
   ],
   create(_ctx, _def, host) {

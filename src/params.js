@@ -22,18 +22,27 @@ export const paramsOf = (entry) => entry.inst.params?.() ?? entry.def.params;
 export const controllerNumber = (p, index) => p.number ?? index;
 export const controllerAt = (params, number) => params.find((p, i) => controllerNumber(p, i) === number);
 
+// Percent number for labels (v in %): whole values as ever (73), otherwise up to two decimals
+// (73.5, 73.45), since % controllers move in 0.01 % steps.
+export const pctNum = (v) => {
+  const r = Math.round(v * 100) / 100;
+  return String(r === 0 ? 0 : r);
+};
+
 // Mouse-wheel / nudge step: `notches` wheel clicks (fractional for trackpads, + = up).
-// One notch moves 1 % of the slider (0.1 % with `fine`); stepped controllers always move at
-// least one step so option lists and integers advance one entry per click. A controller with
-// p.wheelStep moves exactly that much per notch instead (e.g. BPM: 1 per click), `fine` too.
-// p.wheelSingleStep caps accelerated scrolling at one notch per update.
+// One notch moves 1 % of the slider (0.1 % with `fine`, 0.01 % with fine = 'extra'); stepped
+// controllers always move at least one step so option lists and integers advance one entry per
+// click. A controller with p.wheelStep moves exactly that much per notch instead (e.g. BPM: 1 per
+// click), fine too. p.wheelSingleStep caps accelerated scrolling at one notch per update.
 export const WHEEL_COARSE = 0.01;
 export const WHEEL_FINE = 0.001;
+export const WHEEL_EXTRA_FINE = 0.0001;
 export function nudge(p, v, notches, fine = false) {
   if (!notches) return v;
   if (p.wheelSingleStep) notches = Math.sign(Math.round(notches));
   if (p.wheelStep) return Math.min(p.max, Math.max(p.min, +(v + Math.round(notches) * p.wheelStep).toFixed(6)));
-  const next = fromNorm(p, toNorm(p, v) + notches * (fine ? WHEEL_FINE : WHEEL_COARSE));
+  const per = fine === 'extra' ? WHEEL_EXTRA_FINE : fine ? WHEEL_FINE : WHEEL_COARSE;
+  const next = fromNorm(p, toNorm(p, v) + notches * per);
   if (p.step && next === v) return Math.min(p.max, Math.max(p.min, +(v + Math.sign(notches) * p.step).toFixed(6)));
   return next;
 }

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { dspTestHost } from './dsphost.mjs';
 import { patchControllersView } from '../src/mapdialog.js';
 import { createPatchMonitor } from '../src/patchmonitor.js';
-import { paramsOf, controllerAt, controllerNumber } from '../src/params.js';
+import { paramsOf, controllerAt, controllerNumber, fromNorm } from '../src/params.js';
 
 {
   const previousDocument = globalThis.document;
@@ -87,6 +87,39 @@ const engine = {
   describe(r);
   copy.destroy();
   r.destroy();
+}
+
+// % controllers move in 0.01 % steps: old projects (1 % / 0.1 % values) load unchanged, and finer
+// values survive saving and reloading.
+{
+  const { dsp: audio } = dspTestHost();
+  const e = { ctx, dsp: audio };
+  const old = {
+    MULTIMIDI: { velocity: 0.73, velDrift: 0.12, phase: 0.25 },
+    REVERB: { mix: 0.3, damp: 0.57, size: 0.123 },
+    ADSR: { sustain: 42, outMax: 87 },
+    OSC: { duty: 33.3, atkCurve: -37 },
+    IMAGESAMPLER: { redLeft: -64, x: 12.5 },
+  };
+  const r = await PatchRuntime.create(e, audio.destination);
+  for (const type of Object.keys(old)) await r.addModule(type);
+  const saved = r.toJSON();
+  for (const m of saved.modules) Object.assign(m.values, old[m.type] ?? {});
+  const copy = await PatchRuntime.create(e, audio.destination);
+  await copy.load(saved);
+  for (const m of copy.modules.values()) {
+    for (const [id, v] of Object.entries(old[m.def.type] ?? {})) assert.equal(m.values[id], v, `${m.def.type}.${id} loads unchanged`);
+  }
+  const multi = [...copy.modules.values()].find((m) => m.def.type === 'MULTIMIDI');
+  const velocity = paramsOf(multi).find((p) => p.id === 'velocity');
+  assert.equal(velocity.format(0.73), '73 %', 'whole percentages read as before');
+  assert.equal(velocity.format(0.7345), '73.45 %');
+  assert.equal(fromNorm(velocity, 0.73456), 0.7346, '0.01 % steps');
+  copy.setParam(multi.id, 'velocity', 0.7345);
+  const again = await PatchRuntime.create(e, audio.destination);
+  await again.load(copy.toJSON());
+  assert.equal([...again.modules.values()].find((m) => m.def.type === 'MULTIMIDI').values.velocity, 0.7345, 'fine value survives reload');
+  for (const x of [r, copy, again]) x.destroy();
 }
 
 // Target metadata still includes dynamic controllers on MULTICTL and nested Patches.

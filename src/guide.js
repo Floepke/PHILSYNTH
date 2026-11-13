@@ -137,7 +137,7 @@ export const GUIDE = [
       {
         title: 'Set controllers',
         items: [
-          `Drag a controller, scroll it, or ${k('Double-click')} the number to type a value (${k('Tab')} moves on). Scroll a dropdown to change it one option at a time, even with accelerated scrolling. The keyboard focus stays where it was, so ${k('Space')} still plays.`,
+          `Drag a controller sideways or scroll it: one wheel notch moves 1 %, ${k('Shift')} 0.1 % and ${k('Alt')} / ${k('Option')} 0.01 %, and the same keys slow a drag down. % controllers go down to 0.01 % steps. ${k('Double-click')} a controller to reset it. Scroll a dropdown to change it one option at a time, even with accelerated scrolling. The keyboard focus stays where it was, so ${k('Space')} still plays.`,
           'Modulators (LFO, ADSR, ENVELOPE, VELOCITY2CTL, PHASE2CTL, PITCH2CTL, SOUND2CTL) drive a controller of the modules they are cabled to: pick it with <b>Out Controller</b>, trim the range with <b>Out Min</b> / <b>Out Max</b>. PHASE2CTL uses the newest note\'s start phase, with the same smoothing and note-off actions as VELOCITY2CTL. A MULTICTL picks its controllers under <b>Routes</b>.',
           'OSC / OPERATOR / ADSR: with <b>Sustain</b> at 0, <b>Decay</b> and <b>Release</b> are linked (their Curves too).',
           'OSC / OPERATOR / ADSR: <b>Attack/Decay/Release Curve</b> bend each stage (0 = linear, +100 % = analog). Or drag the handles of the ADSR graph in the panel: the peak, the decay corner, the release end and the round curve dots. Right-click the graph to <b>Copy ADSR</b> and <b>Paste ADSR</b> it into another module.',

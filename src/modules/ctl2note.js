@@ -1,5 +1,6 @@
 // CTL2NOTE: one controller-generated MODMIDI note. Pitch/velocity update without retriggering;
 // Phase is captured only at note-on. Modulated controllers settle together at the audio clock.
+import { pctNum } from '../params.js';
 import { newNoteId } from '../modmidi.js';
 import { noteName } from '../song.js';
 import { phaseLabel } from './lfo.js';
@@ -21,9 +22,9 @@ export default {
       normalize: (v) => clamp(Math.round(v), 0, 1) },
     { id: 'finetune', label: 'Finetune', min: -1, max: 1, default: 0, step: 0.01,
       normalize: (v) => clamp(v, -1, 1), format: (v) => `${v > 0 ? '+' : ''}${Math.round(v * 100)} ct` },
-    { id: 'velocity', label: 'Velocity', min: 0, max: 1, default: 0.8, step: 0.01,
-      normalize: (v) => clamp(v, 0, 1), format: (v) => `${Math.round(v * 100)} %` },
-    { id: 'phase', label: 'Phase', min: 0, max: 1, default: 0, step: 0.01,
+    { id: 'velocity', label: 'Velocity', min: 0, max: 1, default: 0.8, step: 0.0001,
+      normalize: (v) => clamp(v, 0, 1), format: (v) => `${pctNum(v * 100)} %` },
+    { id: 'phase', label: 'Phase', min: 0, max: 1, default: 0, step: 0.0001,
       normalize: (v) => clamp(v, 0, 1), format: phaseLabel },
   ],
   create(ctx, def, host) {

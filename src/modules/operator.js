@@ -1,3 +1,4 @@
+import { pctNum } from '../params.js';
 import { createAdsrView } from './adsrview.js';
 import { curveParams } from './adsrcurve.js';
 import { linkDecayRelease } from './envlink.js';
@@ -10,14 +11,14 @@ export default {
   hasInput: true,
   hasOutput: true,
   params: [
-    { id: 'modulation', label: 'Modulation Amount', min: 0, max: 1000, default: 100, step: 0.1, format: (v) => `${v.toFixed(1)} %` },
-    { id: 'feedback', label: 'Feedback', min: 0, max: 100, default: 0, step: 0.1, format: (v) => `${v.toFixed(1)} %` },
+    { id: 'modulation', label: 'Modulation Amount', min: 0, max: 1000, default: 100, step: 0.01, format: (v) => `${pctNum(v)} %` },
+    { id: 'feedback', label: 'Feedback', min: 0, max: 100, default: 0, step: 0.01, format: (v) => `${pctNum(v)} %` },
     { id: 'attack', label: 'Attack (s)', min: 0.001, max: 10, default: 0.001, step: 0.001 },
     { id: 'decay', label: 'Decay (s)', min: 0.001, max: 10, default: 0.001, step: 0.001 },
     { id: 'sustain', label: 'Sustain', min: 0, max: 1, default: 1, step: 0.01 },
     { id: 'release', label: 'Release (s)', min: 0.001, max: 10, default: 0.001, step: 0.001 },
     ...curveParams(100),
-    { id: 'velocity', label: 'Velocity Sensitivity', min: 0, max: 100, default: 100, step: 0.1, format: (v) => `${v.toFixed(1)} %` },
+    { id: 'velocity', label: 'Velocity Sensitivity', min: 0, max: 100, default: 100, step: 0.01, format: (v) => `${pctNum(v)} %` },
     { id: 'gain', label: 'Level', min: 0, max: 1, default: 0.5, step: 0.01 },
   ],
   linked: linkDecayRelease,

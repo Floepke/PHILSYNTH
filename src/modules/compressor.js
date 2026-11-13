@@ -1,6 +1,7 @@
 // COMPRESSOR: stereo-linked feed-forward compressor with side chain. DSP: compressor.dsp.js.
 // The view draws the static curve (input level -> output level, with Threshold, Slope, Knee and
 // Makeup) and a live gain reduction meter.
+import { pctNum } from '../params.js';
 import { MODES, HPF_OFF, ratioText, gainReduction } from './compressor.dsp.js';
 import { createMeter } from './meter.js';
 
@@ -26,7 +27,7 @@ export default {
     { id: 'attack', label: 'Attack', min: 0.05, max: 200, default: 10, scale: 'log', format: ms },
     { id: 'release', label: 'Release', min: 5, max: 3000, default: 150, scale: 'log', format: ms },
     { id: 'makeup', label: 'Makeup Gain', min: -12, max: 36, default: 0, step: 0.1, format: db },
-    { id: 'mix', label: 'Mix', min: 0, max: 100, default: 100, step: 1, format: (v) => `${v} % wet` },
+    { id: 'mix', label: 'Mix', min: 0, max: 100, default: 100, step: 0.01, format: (v) => `${pctNum(v)} % wet` },
   ],
   view(entry, api) {
     const el = document.createElement('div');

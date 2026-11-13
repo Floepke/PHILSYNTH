@@ -10,6 +10,7 @@
 //   LFO On/Off: Off leaves controllers untouched and bypasses audio; On resumes the remembered phase.
 //   MIDI notes still reset phase while Off.
 // Mode selects controller modulation, audio amplitude modulation, or stereo panning.
+import { pctNum } from '../params.js';
 import { modulatorParams, outParams, pct } from './modtarget.js';
 import { syncedPeriod, MIDI_UNIT, SYNCED_FREQS } from './lfo.dsp.js';
 
@@ -18,7 +19,7 @@ export { lfoRateHz, syncedPeriod, pitchHz, MIDI_UNIT } from './lfo.dsp.js';
 // appended last: saved Frequency Unit values keep their meaning
 const UNITS = ['Hz', '1/4', '1/8', '1/16', 'MIDI Pitch (use incoming MIDI pitch)'];
 const FRACTIONS = { 0.75: '3/4', 0.667: '2/3', 0.5: '1/2', 0.333: '1/3', 0.25: '1/4' };
-export const phaseLabel = (v) => `${Math.round(v * 100)} % (${Math.round(v * 360)}°)`;
+export const phaseLabel = (v) => `${pctNum(v * 100)} % (${pctNum(v * 360)}°)`;
 
 // Frequency with a synced Frequency Unit snaps to the note-value periods (Hz and MIDI Pitch: continuous)
 export const freqSnaps = (values) => {
@@ -49,8 +50,8 @@ export default {
     { id: 'wave', label: 'Waveform', min: 0, max: 6, default: 0, step: 1, options: ['Sine', 'Triangle', 'Saw', 'Square', 'Random (smooth step)', 'Random (steps)', 'Random (linear)'] },
     { id: 'unit', label: 'Frequency Unit', min: 0, max: UNITS.length - 1, default: 0, step: 1, options: UNITS },
     { id: 'freq', label: 'Frequency', min: 0.01, max: 50, default: 1, scale: 'log', format: formatFreq, snapValues: freqSnaps },
-    { id: 'phase', label: 'Phase', min: 0, max: 1, default: 0, step: 0.01, format: phaseLabel },
-    { id: 'amp', label: 'Amplitude', min: 0, max: 100, default: 100, step: 1, format: pct },
+    { id: 'phase', label: 'Phase', min: 0, max: 1, default: 0, step: 0.0001, format: phaseLabel },
+    { id: 'amp', label: 'Amplitude', min: 0, max: 100, default: 100, step: 0.01, format: pct },
     ...outParams(),
     { id: 'enabled', label: 'LFO On/Off', min: 0, max: 1, default: 1, step: 1, options: ['Off', 'On'] },
     { id: 'mode', label: 'MODE', min: 0, max: 2, default: 0, step: 1,

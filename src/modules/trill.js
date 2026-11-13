@@ -4,6 +4,7 @@
 // triplet). Onsets stay on a nominal grid (no drift); HUMANIZE adds per-note timing (up to ±40 % of
 // the separation), length (±30 %) and velocity (±20 %) variation. Generated notes go out through its
 // MIDI cables with their own ids; the trill runs on the audio clock (about every 5 ms).
+import { pctNum } from '../params.js';
 import { newNoteId, captureMidiTrace, withMidiTrace } from '../modmidi.js';
 
 export const ORDERS = ['random', 'up', 'down', 'up-down'];
@@ -43,7 +44,7 @@ export default {
     { id: 'order', label: 'Order', min: 0, max: 3, default: 0, step: 1, options: ORDERS },
     { id: 'separation', label: 'Note Separation', min: 1, max: 100, default: 32, step: 1, format: (v) => `1/${Math.round(v)}` },
     { id: 'length', label: 'Note Length', min: 1, max: 100, default: 32, step: 1, format: (v) => `1/${Math.round(v)}` },
-    { id: 'humanize', label: 'Humanize', min: 0, max: 1, default: 0.2, step: 0.01, format: (v) => `${Math.round(v * 100)} %` },
+    { id: 'humanize', label: 'Humanize', min: 0, max: 1, default: 0.2, step: 0.0001, format: (v) => `${pctNum(v * 100)} %` },
   ],
   create(ctx, _def, host, { rand = Math.random } = {}) {
     const ctl = host.dsp.create('none');

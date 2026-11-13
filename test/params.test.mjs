@@ -1,6 +1,6 @@
 // Run: node test/params.test.mjs   (controller value math: wheel nudging)
 import assert from 'node:assert/strict';
-import { nudge, wheelNotches, toNorm, wheelAccumulator, wheelDelta, snapNearest, snapStep, controllerAt, controllerNumber } from '../src/params.js';
+import { nudge, wheelNotches, toNorm, wheelAccumulator, wheelDelta, snapNearest, snapStep, controllerAt, controllerNumber, pctNum } from '../src/params.js';
 
 const numbered = [{ id: 'native' }, { id: 'mapped', number: 11 }, { id: 'second', number: 12 }];
 assert.deepEqual(numbered.map(controllerNumber), [0, 11, 12]);
@@ -32,6 +32,14 @@ assert.equal(nudge(opts, 1, -1), 0);
 assert.equal(nudge(opts, 1, 1, true), 2);
 assert.equal(nudge(seed, 1, 1), 11, '1 % of 1..999');
 assert.equal(nudge(seed, 500, 1, true), 501, 'fine: one step');
+
+// Alt/Option = extra fine: 0.01 % of the slider per notch (0.01 % steps of a 0..1 controller)
+const pct = { min: 0, max: 1, step: 0.0001 };
+assert.equal(nudge(pct, 0.5, 1), 0.51);
+assert.equal(nudge(pct, 0.5, 1, true), 0.501);
+assert.equal(nudge(pct, 0.5, 1, 'extra'), 0.5001);
+assert.equal(nudge(pct, 0.5, -3, 'extra'), 0.4997);
+assert.deepEqual([0, 73, 73.5, 73.45, 73.456, -0.001, 99.999].map(pctNum), ['0', '73', '73.5', '73.45', '73.46', '0', '100']);
 
 // clamped at the ends
 assert.equal(nudge(opts, 3, 1), 3);
