@@ -39,6 +39,15 @@ export function initWidgets(root, { numberStep = () => 1 } = {}) {
     } catch { /* no popover API */ }
   };
 
+  // The list may use the larger of the window space below and above the dropdown before it
+  // scrolls. Set before it opens: with max-height: stretch Chromium lays the list out once with a
+  // scrollbar and then without, so it opened wider and shrank.
+  const setPickerRoom = (select) => {
+    if (typeof select.getBoundingClientRect !== 'function' || typeof innerHeight !== 'number') return;
+    const r = select.getBoundingClientRect();
+    select.style.setProperty('--picker-room', `${Math.max(0, Math.floor(Math.max(innerHeight - r.bottom, r.top)))}px`);
+  };
+
   // A dropdown is as wide as its widest choice, so it does not change width with the choice.
   // Content-sized selects only: those that are as wide for every choice (width: 100% …) are left.
   const fitted = new WeakMap(); // select -> option labels it was fitted to
@@ -119,6 +128,7 @@ export function initWidgets(root, { numberStep = () => 1 } = {}) {
       // showPicker opens the native, scrollable list without focusing the closed control.
       if (select.showPicker) {
         e.preventDefault();
+        setPickerRoom(select);
         select.showPicker();
         if (isOpen(select) !== null && typeof requestAnimationFrame === 'function') {
           shown = true;
@@ -126,7 +136,7 @@ export function initWidgets(root, { numberStep = () => 1 } = {}) {
         }
       }
     });
-    select.addEventListener('keydown', () => { mouse = false; });
+    select.addEventListener('keydown', () => { mouse = false; setPickerRoom(select); });
     select.addEventListener('change', () => { if (mouse) select.blur(); });
     if (scroll) wheel(select, (steps) => {
       const options = [...select.options].filter((o) => !o.disabled && !o.hidden && !o.parentElement?.disabled);

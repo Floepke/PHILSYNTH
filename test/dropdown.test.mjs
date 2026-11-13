@@ -75,11 +75,12 @@ app.whenReady().then(async () => {
     // scrolls, and the dropdown is as wide as its widest choice
     const dir = mkdtempSync(join(tmpdir(), 'dropdown-'));
     const page = join(dir, 'page.html');
-    writeFileSync(page, `<!doctype html><style>${css}</style><body><div id="seq-bar" style="position:absolute;top:100px;left:100px"><select id="choice"></select></div>
+    writeFileSync(page, `<!doctype html><style>${css}</style><body><div id="seq-bar" style="position:absolute;top:100px;left:100px"><select id="choice"></select><select id="short"></select></div>
 <script type="module">
 import { initWidgets } from ${JSON.stringify(new URL('../src/widgets.js', import.meta.url).href)};
 const s = document.getElementById('choice');
 for (let i = 0; i < 60; i++) s.add(new Option(i % 7 ? 'M' + i : 'Module number ' + i, i));
+for (let i = 0; i < 12; i++) document.getElementById('short').add(new Option(i % 3 ? '#' + i + ' Synth' : '#' + i + ' MULTIMIDI Melody', i));
 initWidgets(document);
 window.ready = true;
 </script>`);
@@ -114,6 +115,12 @@ window.ready = true;
     })()`);
     assert.equal(widths.widths.length, 1, 'every choice gives the same width');
     assert.ok(widths.after > widths.before, 'a longer new choice widens the dropdown');
+    // the room is measured before the list opens: with max-height: stretch alone Chromium first
+    // laid a list that fits out with a scrollbar, so it opened wider and then shrank
+    const short = await run(`(() => { const b = document.getElementById('short').getBoundingClientRect(); return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2), room: Math.floor(Math.max(innerHeight - b.bottom, b.top)) }; })()`);
+    for (const type of ['mouseDown', 'mouseUp']) tall.webContents.sendInputEvent({ type, x: short.x, y: short.y, button: 'left', clickCount: 1 });
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(await run(`getComputedStyle(document.getElementById('short'), '::picker(select)').maxHeight`), `${short.room}px`);
     tall.destroy();
     rmSync(dir, { recursive: true, force: true });
     console.log('house style tests passed: all dialogs, future dialogs, menus and dropdowns use wood; rounded picker opens');
