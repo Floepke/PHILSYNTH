@@ -908,6 +908,10 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 #seq-bar .spinbox input { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
 #seq-bar .spin-buttons button, #sig-dialog .spin-buttons button { min-height: calc(var(--control-height) / 2); }
 #seq-name { width: 92px; }
+/* grows with the clip name (min 92px), capped so a very long name cannot push the bar off-screen */
+@supports (field-sizing: content) {
+  #seq-name { width: auto; field-sizing: content; min-width: 92px; max-width: 360px; }
+}
 #seq-target { box-shadow: inset 3px 0 0 var(--clip-color); }
 .seq-div { color: var(--beam-ink); font-size: 16px; line-height: 1; }
 #seq-bar .seq-div-input { width: 48px; }

@@ -1797,11 +1797,12 @@ async function exportAudio() {
     const secs = Math.round(out.seconds);
     const length = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
     const clipped = out.peak > 1 ? ` Clipped: peak +${(20 * Math.log10(out.peak)).toFixed(1)} dBFS, lower the Output level.` : '';
-    $('export-title').textContent = downloaded ? 'Audio ready' : 'Export complete';
     const quality = format.ext === '.wav' ? `${sampleRate} Hz, 24-bit stereo`
       : format.ext === '.mp3' ? 'MP3, 320 kbps stereo' : 'Ogg Vorbis, quality 10 stereo';
     const levelInfo = level === 'normalize' ? ' Peak normalized to -1 dBFS (sample peak; silence unchanged).' : '';
-    showExportProgress(`${downloaded ? 'Download started for' : 'Exported'} ${name} (${length}, ${quality}).${downloaded ? ' Check your browser downloads for completion.' : ''}${levelInfo}${clipped}`, 100);
+    // done: the dialog just closes; the summary (and a clipping warning) stays in the status bar
+    $('status').textContent = `${downloaded ? 'Download started for' : 'Exported'} ${name} (${length}, ${quality}).${downloaded ? ' Check your browser downloads for completion.' : ''}${levelInfo}${clipped}`;
+    exportDialog.close();
   } catch (err) {
     if (signal.aborted) {
       showExportProgress('Export cancelled.', 0);

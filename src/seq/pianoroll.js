@@ -5,7 +5,8 @@
 // piano range there are no lines, notes just float.
 // The keyboard sits below the stave. Noteheads are left-tilted ovals, white/black by key.
 // Keys held on the MIDI device or computer keyboard (ctx.heldKeys) light up blue (the selection colour).
-// During playback the keys of the clip's notes under the playhead light up in the clip's note colour.
+// During playback the keys of every playing clip's notes under the playhead light up in that clip's
+// note colour (muted / idea clips stay dark); the shown clip's colour wins a shared key.
 // Unzoomed, all 128 MIDI pitches fit the available width. Ctrl/Cmd + wheel zooms time, Shift + wheel
 // zooms pitch (the stave and the keyboard together, around the pointer) for finer micropitch work;
 // zoomed in, a horizontal scrollbar shows between the stave and the keyboard and middle-drag pans
@@ -356,6 +357,21 @@ export function createPianoRoll(host, ctx) {
     return out;
   }
 
+  // keyboard highlight: pitch -> clip for every clip's notes the transport is playing, plus the
+  // shown clip's notes under the playhead; the shown clip wins a key shared with other clips
+  function soundingKeys(clip) {
+    const out = new Map();
+    const { playing, pos } = ctx.transport;
+    if (!playing) return out;
+    const song = ctx.song();
+    for (const n of ctx.transport.soundingAt?.(pos) ?? []) {
+      if (n.song !== song || n.clip === clip) continue;
+      out.set(basePitch(notePitchAt(n.note, pos - n.start)), n.clip);
+    }
+    for (const p of soundingPitches(clip)) out.set(p, clip);
+    return out;
+  }
+
   // a bent note body: a thick line through its pitch curve, round ends inside the note's time
   function bentBody(g, n, poly, bw) {
     const hh = n.length * view.ppq;
@@ -594,12 +610,17 @@ export function createPianoRoll(host, ctx) {
     // keys held on the MIDI device / computer keyboard (a tuned pitch lights its base key)
     const live = new Set([...(ctx.heldKeys?.() ?? [])].map(basePitch));
     const blackLive = `color-mix(in srgb, ${SELECT} 70%, #000)`;
-    const sounding = soundingPitches(clip); // notes of this clip under the playhead while it plays
-    const noteColor = clip ? `color-mix(in srgb, ${ctx.color(clip)} 75%, #fff)` : null;
-    const blackNote = `color-mix(in srgb, ${noteColor} 70%, #000)`;
+    const sounding = soundingKeys(clip); // notes of all playing clips under the playhead
+    const noteColors = new Map();
+    const noteColor = (p) => {
+      const c = sounding.get(p);
+      if (!noteColors.has(c)) noteColors.set(c, `color-mix(in srgb, ${ctx.color(c)} 75%, #fff)`);
+      const white = noteColors.get(c);
+      return isBlack(p) ? `color-mix(in srgb, ${white} 70%, #000)` : white;
+    };
     const keyColor = (p) => (drag?.kind === 'keyboard' && drag.pitch === p ? PLAYHEAD
       : live.has(p) ? (isBlack(p) ? blackLive : SELECT)
-      : sounding.has(p) ? (isBlack(p) ? blackNote : noteColor)
+      : sounding.has(p) ? noteColor(p)
       : inPiano(p) ? (isBlack(p) ? '#191a20' : '#bfc1c7') : (isBlack(p) ? '#24262c' : '#777a84'));
     const blackY = keysY + BLACK_KEY;
     // white keys: equally wide like a real piano (an octave's 12 columns shared by 7), full height;

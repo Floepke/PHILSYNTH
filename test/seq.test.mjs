@@ -140,7 +140,7 @@ function setup({ snapVelocity = false } = {}) {
     menu: (opts) => menus.push(opts),
     song: () => song,
     clip: () => song.clips.find((c) => c.id === song.selected) ?? null,
-    color: () => '#e76f51',
+    color: (c) => c?.color ?? '#e76f51',
     targetLabel: () => 'test',
     defaultTarget: () => 7,
     transport: { playing: false, pos: 0, seek(t) { this.pos = t; } },
@@ -667,6 +667,21 @@ const assertNoOverlap = (song) => {
   paintAt(2.5);
   assert.equal(keyFill(60), '#607c69', 'keys held live win over clip playback');
   delete ctx.heldKeys;
+  // notes of other playing clips (the transport's sounding notes) light up in their clip's colour
+  const other = { id: 'other', color: '#2a9d8f' };
+  const shared = { song: ctx.song(), clip: other, note: note(60, 0, 8), start: clip.start, end: clip.start + 8 };
+  ctx.transport.soundingAt = () => [
+    { song: ctx.song(), clip: other, note: note(72, 0, 8), start: clip.start, end: clip.start + 8 },
+    shared,
+    { song: {}, clip: other, note: note(74, 0, 8), start: clip.start, end: clip.start + 8 },
+  ];
+  paintAt(2.5);
+  assert.equal(keyFill(72), 'color-mix(in srgb, #2a9d8f 75%, #fff)', 'other playing clip lights its key');
+  assert.equal(keyFill(60), noteColor, 'shown clip wins a shared key');
+  assert.notEqual(keyFill(74), 'color-mix(in srgb, #2a9d8f 75%, #fff)', 'other songs stay dark');
+  paintAt(2.5, false);
+  assert.notEqual(keyFill(72), 'color-mix(in srgb, #2a9d8f 75%, #fff)', 'stopped: no highlight');
+  delete ctx.transport.soundingAt;
   Object.assign(ctx.transport, { pos: 0, playing: false });
 }
 
@@ -4765,6 +4780,10 @@ for (const notes of [
   assert.equal('snapVelocity' in seq.viewState().roll, false, 'legacy project snapping is ignored');
   seq.applyView({ roll: { sx: 0, sy: 0 } });
   assert.equal('snapVelocity' in seq.viewState().roll, false, 'old projects do not override preferences');
+  seq.applyView({ arranger: { sx: 900, sy: 40, ppq: 50 }, roll: { hx: 300, hz: 4, sy: 200 } });
+  seq.applyView(null);
+  const { arranger: av, roll: rv } = seq.viewState();
+  assert.deepEqual([av.sx, av.sy, av.ppq, rv.hx, rv.hz, rv.sy], [0, 0, 16, 0, 1, -128], 'new project: TimeLine and piano roll scroll back to the start');
   const press = (key, props = {}, target = elements.get('arranger')) => {
     const e = new Event('keydown', { cancelable: true });
     Object.assign(e, { key, repeat: false, ctrlKey: false, altKey: false, metaKey: false, ...props });

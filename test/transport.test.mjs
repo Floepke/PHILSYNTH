@@ -138,6 +138,20 @@ function setup() {
   assert.equal(notesSounding(song, selected.start).find(e => e.note === trimmed).start, 4, 'chased note keeps its original onset for curve evaluation');
 }
 
+// soundingAt: the notes heard at a position (keyboard display), by playing clip, skipping muted lanes
+{
+  const { song, selected, other, transport } = setup();
+  assert.deepEqual(transport.soundingAt(4.3), [], 'stopped: nothing sounds');
+  transport.seek(4.3);
+  transport.play();
+  const pitches = () => transport.soundingAt(4.3).map((n) => [n.clip, n.note.pitch]);
+  assert.deepEqual(pitches(), [[selected, 60], [other, 80]], 'every playing clip');
+  assert.deepEqual(transport.soundingAt(4.25).map((n) => n.note.pitch), [60, 80], 'a note sounds from its start');
+  setLaneMute(song, 1, true);
+  assert.deepEqual(pitches(), [[selected, 60]], 'muted lane stays dark');
+  transport.stop();
+}
+
 // Muted lanes are silent in song and clip playback, the auditioned clip included; muting a lane
 // while playing cuts its notes.
 {

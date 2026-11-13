@@ -103,10 +103,11 @@ app.whenReady().then(async () => {
       await run(`window.testFormat = '${ext}'`);
       await begin();
       await run("document.getElementById('export-level-dialog').querySelector('[value=normalize]').click(); window.exportPromise");
-      assert.equal(await run("document.getElementById('export-title').textContent"), 'Export complete', `${ext} normalization exports successfully`);
+      assert.equal(await run("document.getElementById('export-dialog').open"), false, `${ext} export done: the dialog closes by itself`);
+      assert.ok(await run("document.getElementById('status').textContent.startsWith('Exported ')"), `${ext} normalization exports successfully`);
     }
     assert.equal(await run('window.writes.length'), 4);
-    assert.equal(await run("document.getElementById('export-message').textContent.includes('Clipped:')"), false);
+    assert.equal(await run("document.getElementById('status').textContent.includes('Clipped:')"), false);
     console.log('Audio export level dialog and worker UI tests passed (WAV, MP3, Ogg)');
   } finally {
     win?.destroy();

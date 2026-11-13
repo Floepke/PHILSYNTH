@@ -249,6 +249,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
   });
   const defaultRollView = roll.getView();
   const defaultLaneView = lane.getView();
+  const defaultArrangerView = arranger.getView();
   let viewClip = null;
   function restoreClipView() {
     const c = clip();
@@ -681,14 +682,15 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
       } else Object.assign(layout, defaults);
       applyLayout();
       restoreClipView();
-      roll.setView(v?.roll);
-      lane.setView(v?.lane);
+      // no saved view (new project): scroll and zoom start over, showing the first clip
+      roll.setView(v?.roll ?? defaultRollView);
+      lane.setView(v?.lane ?? defaultLaneView);
       const c = clip();
       if (c?.editorView) {
         const editor = isAuto(c) ? lane : roll;
         editor.setView({ ...(isAuto(c) ? defaultLaneView : defaultRollView), ...c.editorView });
       }
-      arranger.setView(v?.arranger);
+      arranger.setView(v?.arranger ?? defaultArrangerView);
       sync();
     },
   };

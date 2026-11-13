@@ -195,6 +195,25 @@ export class Transport {
     return !clipSilent(song, clip);
   }
 
+  // notes heard at song time q while playing, taken from the songs (AudioTransport keeps no
+  // note list, the worklet plays them): { clip, note, start, end, song }
+  soundingAt(q = this.pos) {
+    const out = [];
+    if (!this.playing) return out;
+    for (const { song } of this.layers()) {
+      for (const clip of song.clips) {
+        if (clip.start > q || clip.start + clip.length <= q || !clip.notes?.length || !this.audible(clip, song)) continue;
+        for (const note of clip.notes) {
+          if (note.start < 0 || note.start >= clip.length) continue;
+          const start = clip.start + note.start;
+          const end = clip.start + Math.min(clip.length, note.start + note.length);
+          if (start <= q && q < end) out.push({ clip, note, start, end, song });
+        }
+      }
+    }
+    return out;
+  }
+
   releaseAll() {
     for (const n of this.active) n.inst.noteOff(n.id);
     this.active = [];
