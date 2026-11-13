@@ -138,6 +138,11 @@ export function createPreferencesDialog(preferencesManager, { loadError = '' } =
     }
   }
   categories.addEventListener('change', render);
+  // every setting back to its default (previewed live; saved by OK, undone by Cancel like any edit)
+  dialog.querySelector('#preferences-reset-all')?.addEventListener('click', () => {
+    for (const item of preferencesManager.entries()) change(item, item.defaultValue);
+    render();
+  });
   dialog.addEventListener('cancel', (event) => { if (saving) event.preventDefault(); });
   dialog.addEventListener('close', () => preferencesManager.restore());
   dialog.querySelector('form').addEventListener('submit', async (event) => {

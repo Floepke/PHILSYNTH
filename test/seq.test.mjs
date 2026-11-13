@@ -3896,8 +3896,9 @@ for (const free of [false, true]) {
   point(cv, 'wheel', lx(0.5), ly(2.5), { deltaY: -100 });
   point(cv, 'wheel', lx(0.5), ly(2.5), { deltaY: -100 });
   assert.equal(a.points[1].r, 1);
-  // right click deletes, Backspace deletes the selected point
+  // right click deletes (on release, like the piano roll), Backspace deletes the selected point
   point(cv, 'pointerdown', lx(0.75), ly(3), { button: 2 });
+  point(cv, 'pointerup', lx(0.75), ly(3), { button: 2 });
   assert.deepEqual(a.points.map((p) => p.t), [1, 2.5]);
   click(cv, lx(0.25), ly(1));
   key(cv, 'Backspace');
@@ -3920,6 +3921,71 @@ for (const free of [false, true]) {
   point(cv, 'pointerdown', lx(0.5), ly(9), { buttons: 1, timeStamp: 1000 });
   point(cv, 'pointerup', lx(0.5), ly(9));
   assert.equal(a.points.length, 2);
+}
+
+// Automation lane editing like the piano roll: Margin Size, rectangle selection, group move,
+// clipboard, duplicate and the right-click menu.
+{
+  const song = emptySong();
+  const a = addAutoClip(song, { length: 8, target: 1, controller: 0 });
+  song.selected = a.id;
+  a.points.push({ t: 1, v: 0.2, r: 0 }, { t: 2, v: 0.4, r: 0 }, { t: 3, v: 0.6, r: 0 });
+  const prefs = { marginSize: 50 };
+  const menus = [];
+  const lane = createAutomationLane(host(), {
+    song: () => song, clip: () => a, color: () => '#e76f51', transport: { playing: false, pos: 0 },
+    changed() {}, autoParam: () => null, automationPreferences: prefs, menu: (o) => menus.push(o),
+  });
+  flush();
+  const cv = lane.surface.cv;
+  lane.setView({ sy: -20, ppq: 40 }); // times 0..8.9 fit the test canvas
+  const lx = (v) => 36 + 50 + v * (480 - ROLL_SB - 36 - 100);
+  const ly = (t) => t * 40 + 20;
+  const ts = () => a.points.map((p) => p.t);
+  // the Margin Size sets the value range; a too-wide margin keeps a usable range
+  click(cv, lx(0.2), ly(1));
+  key(cv, 'Backspace');
+  assert.deepEqual(ts(), [2, 3], 'points sit inside the margins');
+  a.points.unshift({ t: 1, v: 0.2, r: 0 });
+  prefs.marginSize = 400;
+  lane.redraw(); flush();
+  const narrow = (v) => 36 + 126 + v * 160; // (412 - 160) / 2 px margins
+  click(cv, narrow(0.4), ly(2));
+  key(cv, 'Backspace');
+  assert.deepEqual(ts(), [1, 3], 'margins shrink so the value range stays 160 px wide');
+  a.points.splice(1, 0, { t: 2, v: 0.4, r: 0 });
+  prefs.marginSize = 50;
+  lane.redraw(); flush();
+  // right drag: rectangle selection; Cmd + C, then Cmd + V pastes at the pointer's snapped time
+  drag(cv, lx(0.1), ly(0.5), lx(0.5), ly(2.5), { button: 2, buttons: 2 });
+  point(cv, 'pointermove', lx(0.9), ly(5.1));
+  key(cv, 'c', { metaKey: true });
+  key(cv, 'v', { metaKey: true });
+  assert.deepEqual(ts(), [1, 2, 3, 5, 6], 'two points pasted from time 5');
+  assert.deepEqual(a.points.slice(3).map((p) => p.v), [0.2, 0.4], 'values are kept');
+  // the pasted points are selected; dragging one moves both, within the clip
+  drag(cv, lx(0.4), ly(6), lx(0.5), ly(8.5));
+  assert.deepEqual(ts(), [1, 2, 3, 7, 8], 'the group stops at the clip end');
+  assert.ok(Math.abs(a.points[4].v - 0.5) < 1e-9 && Math.abs(a.points[3].v - 0.3) < 1e-9, 'values move together');
+  // Escape clears; Shift + drag on empty space selects too; Cmd + X cuts, Cmd + D duplicates
+  key(cv, 'Escape');
+  drag(cv, lx(0.95), ly(6.5), lx(0.25), ly(8.2), { shiftKey: true });
+  key(cv, 'x', { metaKey: true });
+  assert.deepEqual(ts(), [1, 2, 3], 'cut removes the selection');
+  key(cv, 'a', { metaKey: true });
+  key(cv, 'd', { metaKey: true });
+  assert.deepEqual(ts(), [1, 2, 3, 3.25, 4.25, 5.25], 'duplicate lands one grid step after the selection');
+  // Cmd + click toggles a point; a short right click on empty space opens the menu
+  key(cv, 'Escape');
+  click(cv, lx(0.2), ly(1));
+  click(cv, lx(0.6), ly(3), { metaKey: true });
+  point(cv, 'pointerdown', lx(0.9), ly(1.5), { button: 2, buttons: 2 });
+  point(cv, 'pointerup', lx(0.9), ly(1.5), { button: 2 });
+  assert.equal(menus.length, 1);
+  const items = menus[0].items.filter((i) => i !== '-');
+  assert.deepEqual(items.map((i) => i.label), ['Cut', 'Copy', 'Paste', 'Delete', 'Duplicate', 'Select all']);
+  items.find((i) => i.label === 'Delete').action();
+  assert.deepEqual(ts(), [2, 3.25, 4.25, 5.25], 'Delete removes the toggled selection');
 }
 
 // Automation playback uses absolute, floor-snapped pointer time, including after view changes.

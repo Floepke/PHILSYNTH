@@ -15,6 +15,7 @@ import { createPreferencesDialog } from './preferencesdialog.js';
 import { registerInterfacePreferences } from './interfacepreferences.js';
 import { registerTimelinePreferences } from './timelinepreferences.js';
 import { registerPianorollPreferences } from './pianorollpreferences.js';
+import { registerAutomationPreferences } from './automationpreferences.js';
 import { registerPatcherPreferences } from './patcherpreferences.js';
 import { AudioTransport } from './audiotransport.js';
 import { unsavedDialog, exportLevelDialog, infoDialog } from './dialogs.js';
@@ -70,6 +71,7 @@ initWoodTheme(preferencesManager);
 registerInterfacePreferences(preferencesManager);
 const timelineDisplay = registerTimelinePreferences(preferencesManager, () => seq?.redrawTimeline());
 const pianorollPreferences = registerPianorollPreferences(preferencesManager, () => seq?.redrawPianoroll());
+const automationPreferences = registerAutomationPreferences(preferencesManager, () => seq?.redrawAutomation());
 const patcherPreferences = registerPatcherPreferences(preferencesManager, () => analysePanel?.refresh());
 registerMidiPreferences(preferencesManager, () => midi);
 registerShortcutPreferences(preferencesManager);
@@ -1929,6 +1931,7 @@ const liveMidiEntry = () => modulePreview?.target ?? midiTarget() ?? firstLive(s
 seq = createSequencer({
   engine,
   pianorollPreferences,
+  automationPreferences,
   timelineDisplay,
   transport,
   getSong: () => layerSong(shown()),

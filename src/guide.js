@@ -444,9 +444,11 @@ export const GUIDE = [
       {
         title: 'Edit the controller curve',
         items: [
-          'Time runs <b>down</b>, just as in the pianoroll. Values run from the controller minimum on the left to its maximum on the right.',
-          `${k('Double-click')} inserts a point; drag moves it (${k('Shift')} = fine value). The wheel on a point rounds its corner; a right-click or ${k('Backspace')} deletes it.`,
-          'The times of new and moved points snap to the <b>Grid</b> in the upper divider and stay within the clip, between their neighbouring points. <b>Free timing</b> only frees pianoroll notes and velocity-curve times; automation points keep snapping.',
+          'Time runs <b>down</b>, just as in the pianoroll. Values run from the controller minimum on the left to its maximum on the right, with an empty margin on both sides. <b>Preferences… > Automation Editor > Margin Size</b> sets that margin in px (default 200, about the space beside the pianoroll stave); a narrow editor uses less.',
+          `${k('Double-click')} inserts a point; drag moves it (${k('Shift')} = fine value). The wheel on a point rounds its corner. A short right-click on a point deletes it.`,
+          `Select points as in the pianoroll: right-drag (or ${k('Shift')} + drag from empty space) draws a selection rectangle, ${k(CMD)} + click adds or removes a point, ${k(CMD)} + ${k('A')} selects all and Escape clears the selection. Drag a selected point to move the whole selection.`,
+          `${k(CMD)} + ${k('X')} / ${k('C')} / ${k('V')} cut, copy and paste; paste puts the earliest point at the pointer's snapped time. ${k(CMD)} + ${k('D')} duplicates the selection one grid step after it, and ${k('Backspace')} deletes it. Right-click empty space, or hold the right mouse button on a point, for the same commands in a menu.`,
+          'The times of new and moved points snap to the <b>Grid</b> in the upper divider and stay within the clip; a single point stays between its neighbours, while a moved selection may pass other points. <b>Free timing</b> only frees pianoroll notes and velocity-curve times; automation points keep snapping.',
           'Dragging points near / past the top or bottom edge scrolls the editor along; the wheel scrolls time when not over a point.',
           'Drag the thick clip-end line to shorten or lengthen the clip, just like in the pianoroll. It snaps to the Grid and stops at the next clip on the same lane. Scroll the wheel or drag past an edge to go further; Escape cancels. Shortening keeps existing points beyond the end, so extending the clip reveals them again. Points take priority when grabbing the end line.',
           'The time grid matches the pianoroll: dark barlines, dashed beat lines and alternating snap bands, with the same line widths, time-signature beat visibility and zoom-dependent line spacing.',
@@ -465,11 +467,15 @@ export const GUIDE = [
     keys: [
       [k('Double right-click'), 'TimeLine: insert an automation clip'],
       [k('Double-click'), 'automation editor: insert a point'],
-      ['drag / Shift + drag', 'move a point / fine value adjustment'],
+      ['drag / Shift + drag', 'move a point or the selection / fine value adjustment'],
+      ['right-drag / Shift + drag empty space', 'rectangle selection'],
+      [`${k(CMD)} + click`, 'add / remove a point from the selection'],
+      [`${k(CMD)} + ${k('X')} / ${k('C')} / ${k('V')} / ${k('D')}`, 'cut / copy / paste at the pointer / duplicate'],
       ['drag clip-end line', 'resize the automation clip'],
       ['drag ruler up / down', 'zoom time around the grab position'],
       ['wheel on a point', 'round its corner'],
-      [`right-click / ${k('Backspace')}`, 'delete a point'],
+      ['short right-click / ' + k('Backspace'), 'delete the point / the selection'],
+      ['right-click empty space / hold right on a point', 'menu'],
     ],
   },
   {
@@ -482,7 +488,7 @@ export const GUIDE = [
         items: [
           `Click <b>PHILSYNTH</b> (in the upper divider, left side) for <b>New</b> (${k(CMD, 'N')}), <b>Open…</b> (${k(CMD, 'O')}), <b>Save</b> (${k(CMD, 'S')}), <b>Save As…</b> (${k(CMD, 'Shift', 'S')}), <b>Export…</b> (folds open to <b>Export Audio…</b> and <b>Export MIDI…</b>), <b>Preferences…</b> and <b>Exit</b>. Audio export still uses ${k(CMD, 'E')}.`,
           'Menu groups fold inline like folders, without opening a second menu. The PHILSYNTH menu opens below its button when it fits, otherwise above it; expanding a group updates its position too. Menus widen only as needed to fit labels, up to the available window width. Long menus scroll within the available space. Use Up/Down to navigate, Right/Left to expand/collapse, Enter/Space to choose, and Escape to close.',
-          '<b>Preferences…</b> has a category list on the left. <b>Interface > Wood Tint</b> previews any RGB tint on the wooden frame, dividers, controls and dialogs without changing module colors. <b>OK</b> remembers it on this device; <b>Cancel</b> or Escape restores the saved tint. <b>Reset to default</b> previews the default tint.',
+          '<b>Preferences…</b> has a category list on the left; the settings of a category scroll on the right. <b>Reset all defaults</b> (bottom left) previews every default at once; OK saves, Cancel restores. <b>Interface > Wood Tint</b> previews any RGB tint on the wooden frame, dividers, controls and dialogs without changing module colors. <b>OK</b> remembers it on this device; <b>Cancel</b> or Escape restores the saved tint. <b>Reset to default</b> previews the default tint.',
           `Projects are <b>.phproject</b> files (older .mds / .json projects open too). The file name shows in the status bar and the window title, with <b>•</b> for unsaved changes; New and Open ask to save them first: ${k('Enter')} Yes, ${k('Backspace')} No, ${k('Esc')} Cancel. Every change is also autosaved, so the app starts with your latest project.`,
           'Project, module and clip files are saved as compact JSON to save disk space. Older formatted files still open.',
           'File dialogs remember their folder per kind (projects opened, projects saved, clips, modules). In the desktop Open and Save dialogs, right-click a file or folder to cut, copy, paste, rename or delete it; right-click a folder to paste into it, or empty space to paste into the current folder. Deletion is permanent: files require one confirmation and folders two, including for all their contents.',

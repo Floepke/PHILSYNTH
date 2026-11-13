@@ -1178,11 +1178,18 @@ dialog select {
   font: var(--font-weight) 13px var(--font);
 }
 dialog menu { display: flex; gap: 8px; justify-content: flex-end; padding: 0; margin: 18px 0 0; }
-#preferences-dialog { width: min(700px, calc(100vw - 48px)); max-height: calc(100vh - 48px); }
+/* a fixed size (half the window wide), so switching categories never resizes it; the settings scroll */
+#preferences-dialog {
+  width: min(max(640px, 50vw), calc(100vw - 48px));
+  height: min(max(480px, 60vh), calc(100vh - 48px));
+  max-height: none;
+}
 #preferences-dialog[open], #preferences-dialog form { display: flex; flex-direction: column; min-height: 0; }
-.preferences-layout { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 20px; min-height: 0; }
-#preferences-categories { height: auto; min-height: 240px; padding: 4px; }
-#preferences-categories option { padding: 10px; border-radius: 4px; }
+#preferences-dialog form { flex: 1; }
+.preferences-layout { flex: 1; display: grid; grid-template-columns: 200px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 20px; min-height: 0; }
+#preferences-categories { height: 100%; min-height: 0; padding: 4px; overflow-y: auto; }
+#preferences-categories option { padding: 10px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#preferences-reset-all { margin-right: auto; }
 #preferences-categories option:checked { background: var(--wood-raised); color: var(--wood-ink); }
 #preferences-content { overflow-y: auto; min-width: 0; padding: 0 4px; }
 .preference {
@@ -1195,7 +1202,7 @@ dialog menu { display: flex; gap: 8px; justify-content: flex-end; padding: 0; ma
 #preferences-error { color: #ff8a7a; }
 #preferences-error:empty { display: none; }
 @media (max-width: 520px) {
-  .preferences-layout { grid-template-columns: 110px minmax(0, 1fr); gap: 10px; }
+  .preferences-layout { grid-template-columns: 140px minmax(0, 1fr); gap: 10px; }
 }
 #export-dialog { position: fixed; inset: auto 16px 48px auto; margin: 0; width: min(440px, 94vw); z-index: 100; }
 #export-level-dialog { width: min(560px, 94vw); }
