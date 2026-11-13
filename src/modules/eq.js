@@ -4,6 +4,7 @@
 // drag a band point up or down, double-click resets it.
 // DSP: eq.dsp.js (C++: cpp/eq.h).
 import { BANDS, MAX_DB, responseDb } from './eq.dsp.js';
+import { nudge, wheelAccumulator, wheelDelta } from '../params.js';
 
 const hz = (f) => (f >= 1000 ? `${+(f / 1000).toFixed(2)} kHz` : `${f} Hz`);
 const dB = (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)} dB`;
@@ -13,7 +14,7 @@ const VIEW_DB = 15; // minimum display range in either direction
 const F_LO = 16;
 const F_HI = 22000;
 
-export function createEqView({ color = '#7a6aa8', values, setParam, beginEdit, endEdit }) {
+export function createEqView({ color = '#7a6aa8', values, setParam, beginEdit, endEdit, qParam }) {
   const el = document.createElement('div');
   el.className = 'wave-view eq-view';
   el.setAttribute('data-editor-title', 'Frequency response');
@@ -135,7 +136,19 @@ export function createEqView({ color = '#7a6aa8', values, setParam, beginEdit, e
   cv.addEventListener('pointercancel', end);
   cv.addEventListener('lostpointercapture', end);
   cv.addEventListener('dblclick', (ev) => setParam?.(bandId(bandAt(ev)), 0));
-  cv.title = 'Drag to draw the bands (sideways sweeps set every band you pass); double-click resets a band to 0 dB. The dB range automatically expands to fit the response.';
+  // the wheel sets the Bandwidth (Q), like the wheel on its controller (Shift = fine)
+  const takeWheel = wheelAccumulator({ whole: true });
+  cv.addEventListener('wheel', (e) => {
+    if (e.ctrlKey || !setParam || !qParam) return; // keep Ctrl + wheel for zoom
+    e.preventDefault();
+    const { dx, dy } = wheelDelta(e);
+    const n = takeWheel(e, Math.abs(dy) >= Math.abs(dx) ? dy : dx);
+    if (!n) return;
+    const q = val('q') ?? qParam.default;
+    const next = nudge(qParam, q, n, e.shiftKey);
+    if (next !== q) setParam('q', next);
+  }, { passive: false });
+  cv.title = 'Drag to draw the bands (sideways sweeps set every band you pass); double-click resets a band to 0 dB. The wheel sets the Bandwidth (Q), Shift + wheel finer. The dB range automatically expands to fit the response.';
 
   new ResizeObserver(draw).observe(cv);
   return {
@@ -168,6 +181,6 @@ export default {
   },
   view: (entry, api) => createEqView({
     color: api.color, values: entry.values, setParam: api.setParam,
-    beginEdit: api.beginEdit, endEdit: api.endEdit,
+    beginEdit: api.beginEdit, endEdit: api.endEdit, qParam: entry.def.params.find((p) => p.id === 'q'),
   }),
 };

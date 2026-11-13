@@ -33,11 +33,27 @@ export async function infoDialog(text, { title = 'Information' } = {}) {
   }
 }
 
-// Classic Yes / No / Cancel before the project is replaced. Resolves 'yes', 'no' or 'cancel' (also Escape).
+// Classic Yes / No / Cancel before the project is replaced. Resolves 'yes', 'no' or 'cancel'.
+// Keys: Enter = Yes, Backspace = No, Escape = Cancel (whichever button has focus).
 export async function unsavedDialog(name, { action = 'closing it' } = {}) {
   $('unsaved-title').textContent = `Save changes to "${name}"?`;
   $('unsaved-text').textContent = `Your changes will be lost if you don't save them before ${action}.`;
-  const r = await run($('unsaved-dialog'));
+  const dialog = $('unsaved-dialog');
+  const keys = (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+    const answer = { Enter: 'yes', Backspace: 'no' }[e.key];
+    if (!answer) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!e.repeat) dialog.close(answer);
+  };
+  dialog.addEventListener('keydown', keys);
+  let r;
+  try {
+    r = await run(dialog);
+  } finally {
+    dialog.removeEventListener('keydown', keys);
+  }
   return r === 'yes' || r === 'no' ? r : 'cancel';
 }
 

@@ -1306,7 +1306,7 @@ for (const how of ['wheel', 'edge']) {
     roll.setView({ sy: 0 }); flush();
     n.length = 1;
     roll.redraw(); flush();
-    point(cv, 'pointerdown', nx(64), ny(0), { buttons: 1 });
+    point(cv, 'pointerdown', nx(64), ny(0) + 6, { buttons: 1 }); // inside the head, not its top edge
     point(cv, 'pointermove', nx(64), 1000, { buttons: 1 });
     mock.timers.tick(3000); flush();
     point(cv, 'pointerup', nx(64), 1000);
@@ -1317,7 +1317,7 @@ for (const how of ['wheel', 'edge']) {
     mock.timers.tick(1000);
     // and back up past the top edge
     roll.setView({ sy: n.start * 48 - 100 }); flush();
-    point(cv, 'pointerdown', nx(64), n.start * 48 - roll.getView().sy, { buttons: 1 });
+    point(cv, 'pointerdown', nx(64), n.start * 48 - roll.getView().sy + 6, { buttons: 1 });
     point(cv, 'pointermove', nx(64), -200, { buttons: 1 });
     mock.timers.tick(5000); flush();
     point(cv, 'pointerup', nx(64), -200);
@@ -1770,6 +1770,10 @@ for (const end of ['lostpointercapture', 'pointercancel']) {
   const b = note(64, 1);
   const c = note(67, 3);
   clip.notes.push(a, b, c);
+  // where the untuned circles are drawn (a key's circle may sit off its column's middle)
+  cv.drawing.length = 0;
+  roll.redraw(); flush();
+  const untuned = cv.drawing.filter(([op]) => op === 'translate').map(([, x]) => x);
   // +10 cents
   point(cv, 'pointerdown', nx(60), ny(1) + 5, { buttons: 1, shiftKey: true });
   point(cv, 'pointermove', nx(60) + 40, ny(1) + 5, { buttons: 1, shiftKey: true });
@@ -1789,7 +1793,7 @@ for (const end of ['lostpointercapture', 'pointercancel']) {
   cv.drawing.length = 0;
   roll.redraw(); flush();
   assert.ok(cv.drawing.some(([op, x, y]) => op === 'roundRect' && Math.abs(x - (nx(60) - 7.5 + 0.499 * 14)) < 1e-9 && y === ny(1)), 'body shifts with the tuning');
-  assert.ok(cv.drawing.some(([op, x]) => op === 'translate' && Math.abs(x - (nx(60) + 0.499 * 14)) < 1e-9), 'circle leans by the tuning');
+  assert.ok(cv.drawing.some(([op, x]) => op === 'translate' && untuned.some((u) => Math.abs(x - (u + 0.499 * 14)) < 1e-9)), 'circle leans by the tuning');
   // the circle is still grabbed where it is drawn; down to -50 cents
   drag(cv, nx(60) + 7, ny(1) + 5, nx(60) + 7 - 4000, ny(1) + 5, { shiftKey: true });
   assert.equal(a.pitch, 59.5, '-50 cents: still C4');
@@ -4051,12 +4055,15 @@ for (const free of [false, true]) {
   assert.deepEqual(clip.notes, before);
   assert.ok(cv.drawing.some(([op, x, y, w, h]) => op === 'fillRect' && x === 0 && y === 376 && w === ROLL_WIDTH && h === 24));
   assert.ok(cv.drawing.some(([op, x, y, w, h]) => op === 'roundRect' && x === nx(60) - 7.5 && y === 48 && w === 15 && h === 48));
-  // noteheads: tilted ovals stretched 1.25× along time, with a thick (unstretched) outline
+  // noteheads: tilted ovals stretched 1.25× along time, with a thick (unstretched) outline; a white
+  // C head is the black oval widened towards C# (its left edge stays, so its middle moves right)
   const ei = cv.drawing.findIndex(([op, x, y, rx, ry, tilt]) => op === 'ellipse' && x === 0 && y === 0 && rx > ry && tilt < 0);
   assert.ok(ei > 1);
-  assert.deepEqual(cv.drawing[ei - 1], ['scale', 1, 1.25]);
+  assert.equal(cv.drawing[ei - 1][0], 'scale');
+  assert.ok(cv.drawing[ei - 1][1] > 1, 'widened sideways');
+  assert.equal(cv.drawing[ei - 1][2], 1.25);
   assert.equal(cv.drawing[ei - 2][0], 'translate');
-  assert.equal(cv.drawing[ei - 2][1], nx(60));
+  assert.ok(cv.drawing[ei - 2][1] > nx(60), 'grows to the right');
   assert.ok(cv.drawing.some(([op, color, width]) => op === 'stroke' && color === '#111216' && width === 3), 'outline twice as thick');
   assert.ok(cv.drawing.some(([op, color]) => op === 'fill' && color === '#607c69'));
   assert.ok(cv.drawing.some(([op, color, width]) => op === 'stroke' && color === '#111216' && width === 4));
@@ -4453,7 +4460,8 @@ for (const width of [300, 480, 900, 1912]) {
   const heads = () => {
     cv.drawing.length = 0;
     roll.redraw(); flush();
-    return cv.drawing.filter(([op]) => op === 'translate').map((op) => op[1]).slice(0, 2); // the notes, not the hover ghost
+    // middles of the note bodies (a white key's head may sit off its column's middle)
+    return cv.drawing.filter(([op, , y]) => op === 'roundRect' && y < 377).map(([, x, , w]) => x + w / 2).slice(0, 2);
   };
   const track = (y) => cv.drawing.some(([op, x0, y0, w, h, color]) => op === 'fillRect' && x0 === 0 && y0 === y && h === ROLL_SB && color === '#151517');
   const [a0, b0] = heads();
@@ -4506,7 +4514,7 @@ for (const width of [300, 480, 900, 1912]) {
   mock.timers.enable({ apis: ['setInterval'] });
   try {
     const x = nx(60);
-    point(cv, 'pointerdown', x, ny(1) + 3, { buttons: 1 });
+    point(cv, 'pointerdown', x, ny(1) + 20, { buttons: 1 }); // inside the (zoomed) head
     point(cv, 'pointermove', ROLL_WIDTH - ROLL_SB - 2, ny(1) + 3, { buttons: 1 });
     const p0 = clip.notes[0].pitch;
     mock.timers.tick(2000);
@@ -4525,10 +4533,10 @@ for (const width of [300, 480, 900, 1912]) {
   ctx.viewChanged = () => viewChanges++;
   clip.notes.push(note(0, 1), note(127, 1));
   const before = structuredClone(clip.notes);
-  const centers = () => {
+  const centers = () => { // middles of the note bodies (a white key's head may sit off its column's middle)
     cv.drawing.length = 0;
     roll.redraw(); flush();
-    return cv.drawing.filter(([op]) => op === 'translate').map((op) => op[1]);
+    return cv.drawing.filter(([op, , y]) => op === 'roundRect' && y < 377).map(([, x, , w]) => x + w / 2);
   };
   assert.equal(roll.getView().velW, 84, 'default width');
   drag(cv, 100, 50, 200, 50);
@@ -4599,7 +4607,8 @@ for (const width of [300, 480, 900, 1912]) {
     rollHost.clientWidth = width;
     rollHost.resize();
     flush();
-    const centers = cv.drawing.filter(([op]) => op === 'translate').map((op) => op[1]);
+    // middles of the note bodies (a white key's head may sit off its column's middle)
+    const centers = cv.drawing.filter(([op, , y]) => op === 'roundRect' && y < 377).map(([, x, , w]) => x + w / 2);
     const kw = (width - ROLL_SB - 120) / 128;
     assert.deepEqual(centers, [120 + kw / 2, 120 + 127.5 * kw]);
     roll.setView({ sx: 4000, kw: 40, sy: 0, ppq: 48 });
@@ -4610,7 +4619,7 @@ for (const width of [300, 480, 900, 1912]) {
     roll.setView({ sy: 0 });
     cv.drawing.length = 0;
     roll.redraw(); flush();
-    assert.deepEqual(cv.drawing.filter(([op]) => op === 'translate').map((op) => op[1]), centers);
+    assert.deepEqual(cv.drawing.filter(([op, , y]) => op === 'roundRect' && y < 377).map(([, x, , w]) => x + w / 2), centers);
     assert.deepEqual(clip.notes, before, 'resizing and scrolling do not alter the notes');
     assert.deepEqual(Object.keys(roll.getView()).sort(), ['hx', 'hz', 'ppq', 'sy', 'velW'], 'the view includes pitch zoom and scroll, not preferences');
   }

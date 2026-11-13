@@ -186,12 +186,38 @@ export function createPianoRoll(host, ctx) {
   const onHScrollbar = (x, y) => zoomedX() && x >= gridX() && x < rollRight() && y >= gridBottom() && y < keyTop();
   // the keys play the live MIDI module (preview.key) even without a clip; else the clip's target
   const keysPlay = () => !!(ctx.preview.key || ctx.clip());
-  const headSize = () => {
-    const rx = (noteW() - overlap()) / (2 * Math.hypot(Math.cos(TILT), 0.72 * Math.sin(TILT)));
+  const staveWidth = () => Math.min(keyWidth(), noteW()) * 0.22; // C# D# lines; F# G# A# twice as thick
+  const headLine = () => Math.min(3, noteW() * 0.3); // notehead outline
+  // Black noteheads keep one size. A white one grows towards each neighbouring black key until its
+  // outer edge touches the middle of that stave line (C, F: right; E, B: left); D, G, A get the
+  // same size, centred. A side next to a white key stays. All heads keep the black height: a white
+  // one is the black oval stretched sideways by sx; D#, E, A# and B lean the other way, D, G, G# and A stand
+  // upright (an untilted oval of the same width and height). dx: centre offset from the key's middle.
+  const headSize = (pitch = 1) => {
+    const half = (noteW() - overlap()) / 2;
+    let left = -half;
+    let right = half;
+    if (!isBlack(pitch)) {
+      const reach = Math.max(half, Math.min(keyWidth(), noteW()) - headLine() / 2);
+      const below = isBlack(pitch - 1);
+      const above = isBlack(pitch + 1);
+      if (below && above) { // D, G, A: as big as the other white heads, centred
+        left = -(half + reach) / 2;
+        right = (half + reach) / 2;
+      } else if (below) left = -reach;
+      else if (above) right = reach;
+    }
+    const rx = half / Math.hypot(Math.cos(TILT), 0.72 * Math.sin(TILT));
     const ry = rx * 0.72;
-    return { rx, ry, height: Math.hypot(rx * Math.sin(TILT), ry * Math.cos(TILT)) * HEAD_STRETCH + 0.75 };
+    const sx = half > 0 ? (right - left) / (2 * half) : 1; // collapsed roll: no width at all
+    const dx = (left + right) / 2;
+    const up = Math.hypot(rx * Math.sin(TILT), ry * Math.cos(TILT)); // half height, before HEAD_STRETCH
+    const height = up * HEAD_STRETCH + 0.75;
+    const pc = pitch % 12;
+    if ([2, 7, 8, 9].includes(pc)) return { rx: half * sx, ry: up, tilt: 0, sx: 1, dx, height };
+    return { rx, ry, tilt: [3, 4, 10, 11].includes(pc) ? -TILT : TILT, sx, dx, height };
   };
-  const headY = (y) => y + headSize().height;
+  const headY = (y, pitch) => y + headSize(pitch).height;
   const gridStep = () => snapStep(ctx.song().snap);
   const step = () => pianoTimeStep(ctx.song().snap);
   const vel = createVelocityStrip({
@@ -313,18 +339,20 @@ export function createPianoRoll(host, ctx) {
     onScroll,
   });
 
-  function head(g, x, y, black, alpha = 1) {
+  // pitch: its key decides colour and size (micropitch only moves x)
+  function head(g, x, y, pitch, alpha = 1) {
+    const black = isBlack(basePitch(pitch));
     g.globalAlpha = alpha;
     g.beginPath();
-    const { rx, ry } = headSize();
+    const { rx, ry, tilt, sx, dx, height } = headSize(basePitch(pitch));
     g.save(); // stretch the path only: the outline keeps an even width
-    g.translate(x, headY(y));
-    g.scale(1, HEAD_STRETCH);
-    g.ellipse(0, 0, rx, ry, TILT, 0, Math.PI * 2);
+    g.translate(x + dx, y + height);
+    g.scale(sx, HEAD_STRETCH);
+    g.ellipse(0, 0, rx, ry, tilt, 0, Math.PI * 2);
     g.restore();
     g.fillStyle = black ? STAVE : '#e0e1dc';
     g.fill();
-    g.lineWidth = Math.min(3, noteW() * 0.3);
+    g.lineWidth = headLine();
     g.strokeStyle = STAVE;
     g.stroke();
     if (!black) {
@@ -533,7 +561,7 @@ export function createPianoRoll(host, ctx) {
     // stave lines (black keys of the 88-key piano), on top of the note bodies; none without a clip
     if (clip) {
       g.strokeStyle = STAVE;
-      const thin = Math.min(kw, nw) * 0.22;
+      const thin = staveWidth();
       const staveTop = Math.min(bottom, Math.max(0, yOf(0)));
       // the group of three (F# G# A#) is twice as thick as the group of two (C# D#)
       const isThree = (p) => [6, 8, 10].includes(p % 12);
@@ -558,12 +586,16 @@ export function createPianoRoll(host, ctx) {
     }
 
     if (clip) {
-      for (const n of clip.notes) {
-        const y = yOf(n.start);
-        if (y < -2 * headSize().height || y > bottom) continue;
-        head(g, headX(n), y, isBlack(n.pitch), n.start >= 0 && n.start < clip.length ? 1 : 0.4);
+      // white heads first: a black one of a neighbouring key overlaps them
+      for (const black of [false, true]) {
+        for (const n of clip.notes) {
+          if (isBlack(basePitch(n.pitch)) !== black) continue;
+          const y = yOf(n.start);
+          if (y < -2 * headSize(basePitch(n.pitch)).height || y > bottom) continue;
+          head(g, headX(n), y, n.pitch, n.start >= 0 && n.start < clip.length ? 1 : 0.4);
+        }
       }
-      if (hover && !drag) head(g, xOf(hover.pitch) + kw / 2, yOf(hover.t), isBlack(hover.pitch));
+      if (hover && !drag) head(g, xOf(hover.pitch) + kw / 2, yOf(hover.t), hover.pitch);
       paintBends(g, clip);
       if (!isIdea(clip) && clipSilent(ctx.song(), clip)) mutedMark(g, gridX(), 0, w - gridX(), bottom);
       // play position
@@ -732,14 +764,15 @@ export function createPianoRoll(host, ctx) {
   function hit(x, y) {
     const clip = ctx.clip();
     if (!clip || !inGrid(x, y)) return null;
-    const { rx, ry } = headSize();
     const tolerance = Math.min(1, noteW() * 0.1);
-    for (let i = clip.notes.length - 1; i >= 0; i--) {
-      const n = clip.notes[i];
-      const dx = x - headX(n);
-      const dy = (y - headY(yOf(n.start))) / HEAD_STRETCH;
-      const u = dx * Math.cos(TILT) + dy * Math.sin(TILT);
-      const v = -dx * Math.sin(TILT) + dy * Math.cos(TILT);
+    // black heads are drawn on top: they are hit first
+    const order = [...clip.notes].reverse().sort((a, b) => isBlack(basePitch(b.pitch)) - isBlack(basePitch(a.pitch)));
+    for (const n of order) {
+      const { rx, ry, tilt, sx, dx: off } = headSize(basePitch(n.pitch));
+      const dx = (x - headX(n) - off) / sx;
+      const dy = (y - headY(yOf(n.start), basePitch(n.pitch))) / HEAD_STRETCH;
+      const u = dx * Math.cos(tilt) + dy * Math.sin(tilt);
+      const v = -dx * Math.sin(tilt) + dy * Math.cos(tilt);
       if ((u / (rx + tolerance)) ** 2 + (v / (ry + tolerance)) ** 2 <= 1) return { note: n, part: 'head' };
     }
     for (let i = clip.notes.length - 1; i >= 0; i--) {
@@ -900,7 +933,7 @@ export function createPianoRoll(host, ctx) {
         selected = new Set(clip.notes.filter((n) => {
           const nx = headX(n) - noteW() / 2;
           const ny = yOf(n.start);
-          const height = Math.max(n.length * view.ppq, 2 * headSize().height);
+          const height = Math.max(n.length * view.ppq, 2 * headSize(basePitch(n.pitch)).height);
           return nx + noteW() + overlap() >= left && nx - overlap() <= right && ny + height >= top && ny <= bottom;
         }));
       }
@@ -1101,8 +1134,8 @@ export function createPianoRoll(host, ctx) {
     const H = 34;
     const hx = headX(n);
     const left = clamp(hx - W / 2, gridX() + 4, rollRight() - W - 4);
-    const hy = headY(yOf(n.start));
-    const hh = headSize().height;
+    const hy = headY(yOf(n.start), basePitch(n.pitch));
+    const hh = headSize(basePitch(n.pitch)).height;
     const above = hy - hh - H - 10;
     // above the circle; flip below it when there is no room at the top of the view
     const top = above >= 4 ? above : clamp(hy + hh + 10, 4, Math.max(4, gridBottom() - H - 4));

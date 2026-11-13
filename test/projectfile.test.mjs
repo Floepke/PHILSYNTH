@@ -148,7 +148,7 @@ assert.equal(again.isDirty(), true);
   assert.deepEqual(clicks, ['a.phproject', 'a.phproject']);
 }
 
-// Yes / No / Cancel dialog: Escape cancels
+// Yes / No / Cancel dialog: Escape cancels; Enter = Yes, Backspace = No
 {
   class Dialog extends EventTarget {
     showModal() {}
@@ -165,5 +165,17 @@ assert.equal(again.isDirty(), true);
     dialog.close(value);
     assert.equal(await r, answer);
   }
+  // keys answer whichever button has focus: Enter = Yes, Backspace = No (Escape is the native cancel)
+  for (const [key, answer] of [['Enter', 'yes'], ['Backspace', 'no']]) {
+    const r = unsavedDialog('song.phproject');
+    const e = Object.assign(new Event('keydown', { cancelable: true }), { key });
+    dialog.dispatchEvent(e);
+    assert.equal(e.defaultPrevented, true);
+    assert.equal(await r, answer);
+  }
+  const r = unsavedDialog('song.phproject');
+  dialog.dispatchEvent(Object.assign(new Event('keydown'), { key: 'Backspace', metaKey: true }));
+  dialog.close('');
+  assert.equal(await r, 'cancel', 'a key with a modifier is not an answer');
 }
 console.log('project file tests passed');
