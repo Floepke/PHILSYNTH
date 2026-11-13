@@ -98,6 +98,31 @@ For a real AudioWorklet test on Linux, run:
 xvfb-run -a node_modules/.bin/electron test/audiotransport-ui.test.mjs --no-sandbox
 ```
 
+## Patch instances on worker threads
+
+The extra copies of a PATCH with Instances > 1 (instance 2 to 16) render on up
+to 4 worker threads (one per CPU core beyond two). Instance 1, the one you edit,
+stays on the audio thread so its scopes and meters keep working. The workers
+render within the same 128-sample block as the audio thread, so no latency is
+added. Audio crossing between threads goes through shared memory, and the
+output is sample-identical to single-thread rendering
+(`node test/instancepool.test.mjs`). With 16 heavy instances the audio thread's
+load drops by about half.
+
+Workers need `SharedArrayBuffer`, so the page must be cross-origin isolated.
+`server.mjs` (also used by the desktop app) sends the COOP/COEP headers. Hosts
+that can't send headers, such as GitHub Pages, get them from the service worker
+`coi-sw.js`: on the first visit the page registers it and reloads once, after
+which every page load comes through it. A browser without service workers (or
+private windows that block them) renders everything on the audio thread as
+before. `?workers=0` in the URL, or `localStorage['modsynth.workers'] = '0'`,
+turns the workers off.
+
+Modulators (LFO, ADSR, …) and INPUT modules of a copy stay on the audio thread;
+their controller changes reach the workers as messages. A worker that misses
+its deadline leaves its copies silent for that block. A FEEDBACK sound loop
+running between the audio thread and a worker is not supported.
+
 It verifies actual note onset and release during a 200 ms GUI-thread stall in a
 32,001-note project, using both DSP backends.
 
@@ -596,7 +621,8 @@ For a GitHub release, upload the two `.exe` files, `PHILSYNTH.AppImage` from
 ## GitHub Pages
 
 `.github/workflows/pages.yml` installs runtime dependencies, tests, and publishes
-`index.html`, `style.css`, `src/`, and the local MP3/Ogg encoder dependency on every
+`index.html`, `coi-sw.js` (the cross-origin isolation service worker, at the site
+root), `style.css`, `src/`, and the local MP3/Ogg encoder dependency on every
 push to `main`. Electron and packaging tools are not installed for this build.
 To enable it once, open
 **Settings → Pages** in the repository and choose **Source: GitHub Actions**.

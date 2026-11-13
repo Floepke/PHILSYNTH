@@ -54,6 +54,7 @@ import { initPanelScroll } from './panelscroll.js';
 import { createSpectrumAnalyserPanel, analysisHandle } from './spectrumanalyserpanel.js';
 import { loadFont } from './font.js';
 
+await globalThis.coiReady; // index.html: wait while the page may reload for cross-origin isolation
 await loadFont(); // canvases draw text right away; draw it in Fira Code from the first frame
 
 const engine = new Engine();

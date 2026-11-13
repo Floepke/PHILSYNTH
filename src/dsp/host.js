@@ -86,10 +86,11 @@ export class DspHost {
     port.onmessage = (e) => this.receive(e.data);
   }
 
-  create(kind, opts = null) {
+  // part: the PATCH instance copy creating it (src/patch.js), may render on a worker
+  create(kind, opts = null, part = 0) {
     const node = new DspNode(this, this.next++);
     this.nodes.set(node.h, node);
-    this.post(['add', node.h, kind, opts]);
+    this.post(part ? ['add', node.h, kind, opts, part] : ['add', node.h, kind, opts]);
     return node;
   }
 

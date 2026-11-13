@@ -18,4 +18,6 @@ const html = (await readFile(resolve(root, 'index.html'), 'utf8'))
   .replace('href="style.css"', `href="${prefix}style.css"`)
   .replace('src="src/main.js"', `src="${prefix}src/main.js"`);
 await writeFile(resolve(destination, 'index.html'), html);
+// at the site root so its scope covers index.html (cross-origin isolation for the PATCH workers)
+await cp(resolve(root, 'coi-sw.js'), resolve(destination, 'coi-sw.js'));
 await writeFile(resolve(destination, '.nojekyll'), '');

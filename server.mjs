@@ -35,8 +35,12 @@ const MIME = {
 
 const liveClients = new Set();
 
+// Cross-origin isolation: lets the page use SharedArrayBuffer, which the PATCH instance workers
+// need (src/dsp/instancepool.js). Everything the app loads comes from this server.
+const ISOLATED = { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' };
+
 function send(res, status, body = '', type = 'text/plain; charset=utf-8') {
-  res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-ModSynth-Server': '1' });
+  res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-ModSynth-Server': '1', ...ISOLATED });
   res.end(body);
 }
 
@@ -113,7 +117,7 @@ async function handleStatic(req, res) {
   try {
     if ((await stat(file)).isDirectory()) file = join(file, 'index.html');
     const body = await readFile(file);
-    res.writeHead(200, { 'Content-Type': MIME[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-store' });
+    res.writeHead(200, { 'Content-Type': MIME[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-store', ...ISOLATED });
     res.end(body);
   } catch {
     send(res, 404, 'Not found');

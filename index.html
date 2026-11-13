@@ -3,6 +3,32 @@
 <head>
   <meta charset="utf-8">
   <title>PHILSYNTH</title>
+  <script>
+    // Cross-origin isolation through coi-sw.js where the host can't send the headers (GitHub
+    // Pages), so PATCH instances can render on worker threads. src/main.js awaits coiReady: it
+    // never resolves when the page is about to reload through the service worker.
+    globalThis.coiReady = (() => {
+      const KEY = 'modsynth.coi-reload';
+      let off = new URLSearchParams(location.search).get('workers') === '0';
+      try { off ||= localStorage.getItem('modsynth.workers') === '0'; } catch { /* storage blocked */ }
+      try {
+        if (globalThis.crossOriginIsolated) { sessionStorage.removeItem(KEY); return; }
+        // reloaded once already and still not isolated: this browser can't, run single-threaded
+        if (off || !isSecureContext || !navigator.serviceWorker || sessionStorage.getItem(KEY)) return;
+      } catch { return; }
+      return new Promise((resolve) => {
+        let done = false;
+        const start = () => { if (!done) { done = true; resolve(); } };
+        navigator.serviceWorker.register('coi-sw.js').then(() => navigator.serviceWorker.ready).then(() => {
+          if (done) return;
+          done = true;
+          try { sessionStorage.setItem(KEY, '1'); } catch { /* storage blocked */ }
+          location.reload(); // a normal reload goes through the active service worker
+        }, start);
+        setTimeout(start, 4000);
+      });
+    })();
+  </script>
   <link rel="icon" type="image/svg+xml" href="src/icon.svg">
   <link rel="preload" href="src/fonts/fira-code-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="style.css">

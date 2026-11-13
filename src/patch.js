@@ -45,17 +45,22 @@ const passesMod = (m) => !!m.def.modulator && !m.def.routeParams && !(m.def.audi
 // Audio-through modulators select audio or controller output explicitly with Mode.
 // In audio modes, incompatible destinations and cables closing audio loops stay inactive.
 
+// Every extra PATCH instance (copy k >= 1) is a partition of its own: its DSP nodes may render on
+// a worker thread (src/dsp/instancepool.js). Nested patches inside it belong to the same one.
+let lastPart = 0;
+
 export class PatchRuntime {
-  constructor(engine, sink, salt = 0) {
+  constructor(engine, sink, salt = 0, part = 0) {
     this.engine = engine;
     this.sink = sink;
     this.salt = salt;
+    this.part = part;
     this.parent = null;
     this.parentEntry = null;
     this.watchers = new Set(); // called on any change inside (structure, controllers, nested patches)
     // what modules get as `host` in create(): nested patches inherit this runtime's salt
     this.host = { salt, dsp: engine.dsp, mics: engine.mics ?? null, createPatch: async (s, k = 0) => {
-      const child = await PatchRuntime.create(engine, s, instanceSalt(salt, k));
+      const child = await PatchRuntime.create(engine, s, instanceSalt(salt, k), k > 0 ? ++lastPart : part);
       child.parent = this;
       return child;
     } };
@@ -91,8 +96,8 @@ export class PatchRuntime {
     return cloneState(rest);
   }
 
-  static async create(engine, sink, salt = 0) {
-    const p = new PatchRuntime(engine, sink, salt);
+  static async create(engine, sink, salt = 0, part = 0) {
+    const p = new PatchRuntime(engine, sink, salt, part);
     await p.addModule('OUT', { id: 0, x: 560, y: 180 });
     return p;
   }
@@ -140,6 +145,7 @@ export class PatchRuntime {
     let inst;
     const nodes = [];
     const dsp = this.engine.dsp.forModule?.(this.sink.h, this.salt, id) ?? this.host.dsp;
+    const part = this.part;
     const host = { ...this.host, dsp: {
       clockBatch: dsp.clockBatch,
       remoteNotes: dsp.remoteNotes,
@@ -148,7 +154,7 @@ export class PatchRuntime {
       deferSync: dsp.deferSync,
       onClock: (fn) => dsp.onClock(fn),
       create(kind, opts) {
-        const node = dsp.create(kind, opts);
+        const node = part ? dsp.create(kind, opts, part) : dsp.create(kind, opts);
         nodes.push({ h: node.h, kind });
         return node;
       },

@@ -5,6 +5,7 @@ import { importSamples } from './samples.js';
 import { MicHub, MIC_SLOTS } from './mics.js';
 import { PROJECT_FORMAT, isProject } from './fileformat.js';
 import { playbackModel, playbackSong, preparePlayback } from './playbackmodel.js';
+import { POOL_BYTES, poolSize } from './dsp/instancepool.js';
 
 // The C++ DSP kernels (src/dsp/modsynth.wasm, built from cpp/ by `npm run build:wasm`), compiled in
 // the worklet. `?dsp=js` in the URL or localStorage['modsynth.dsp'] = 'js' forces the JS kernels.
@@ -19,6 +20,40 @@ async function loadWasm() {
     console.warn('C++ DSP not loaded, using the JavaScript kernels:', err);
     return null;
   }
+}
+
+// Workers that render the extra instances of PATCH modules (src/dsp/instancepool.js). They need
+// SharedArrayBuffer, so a cross-origin isolated page (server.mjs sends COOP/COEP, on static hosts
+// such as GitHub Pages the service worker coi-sw.js adds them); elsewhere everything renders on
+// the audio thread.
+// `?workers=0` or localStorage['modsynth.workers'] = '0' turns them off.
+function startPool(port, wasm, sampleRate, onError) {
+  let n = poolSize();
+  try {
+    const forced = new URLSearchParams(location.search).get('workers') ?? localStorage.getItem('modsynth.workers');
+    if (forced !== null && forced !== '') n = Math.min(n, Math.max(0, Math.floor(+forced) || 0));
+  } catch { /* no location/localStorage */ }
+  if (!n || !globalThis.crossOriginIsolated || typeof SharedArrayBuffer !== 'function') return [];
+  const workers = [];
+  const sabs = [];
+  const ports = [];
+  for (let i = 0; i < n; i++) {
+    const sab = new SharedArrayBuffer(POOL_BYTES);
+    const ch = new MessageChannel();
+    const w = new Worker(new URL('./dsp/instanceworker.js', import.meta.url), { type: 'module', name: `PATCH instances ${i + 1}` });
+    w.onmessage = (e) => {
+      if (e.data?.error) onError(e.data.error);
+      else if (e.data?.warn) console.warn(e.data.warn);
+    };
+    w.onerror = (e) => onError(e.message ?? String(e));
+    w.postMessage({ sab, port: ch.port2, wasm, sampleRate }, [ch.port2]);
+    workers.push(w);
+    sabs.push(sab);
+    ports.push(ch.port1);
+  }
+  // before any node is created: the worklet's graph needs the pool for them
+  port.postMessage([['pool', { sabs, ports }]], ports);
+  return workers;
 }
 
 export class Engine {
@@ -45,6 +80,7 @@ export class Engine {
       numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { wasm },
     });
     this.node.connect(this.ctx.destination);
+    this.workers = startPool(this.node.port, wasm, this.ctx.sampleRate, (err) => this.reportError(`PATCH instance worker: ${err}`));
     this.mics = new MicHub(this.ctx, this.node);
     this.dsp = new DspHost(this.node.port);
     this.dsp.remoteNotes = true; // autonomous CTL2NOTE runs on the audio thread, even when stopped

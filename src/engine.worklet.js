@@ -9,6 +9,7 @@ import { Graph } from './dsp/graph.js';
 import { instantiateDsp, wasmKernels } from './dsp/wasm.js';
 import { LoadMeter } from './dsp/loadmeter.js';
 import { Playback } from './dsp/playback.js';
+import { InstancePool } from './dsp/instancepool.js';
 import { useAudioNoteIds } from './modmidi.js';
 
 const REPORT_BLOCKS = 2; // ~5 ms at 48 kHz
@@ -47,7 +48,8 @@ class EngineProcessor extends AudioWorkletProcessor {
             if (type === 'model') await this.playback.model(data);
             else if (type === 'song') this.playback.setSong(data);
             else this.playback.command(data);
-          } else this.graph.op(op);
+          } else if (op[0] === 'pool') this.graph.setPool(new InstancePool(op[1]));
+          else this.graph.op(op);
         }
       }).catch((err) => {
         this.fail(err);

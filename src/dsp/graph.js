@@ -34,6 +34,10 @@
 // ['dis', from, to] ['msg', h, message] ['routes', h, [{ to, id, min, max, scale, step }]]
 // ['clock', on] (report the audio time even without modulation changes, for MULTIMIDI drift)
 // ['scope', [h...]] (watch these nodes for the cable display, see scope()).
+// ['add', h, kind, opts, part]: a node of a PATCH instance copy; with a pool (setPool) it renders
+// on a worker (src/dsp/instancepool.js) and is a remote node here. Step 2 then runs as steps:
+// fetching what workers rendered right before it is needed, publishing what they need right
+// after it is rendered, and rendering what doesn't depend on them first (see overlap / stepsOf).
 //
 // new Graph({ kernels, heap, native }): `kernels` overrides kinds of the JS registry (the C++
 // kernels of src/dsp/wasm.js); with a `heap` every node's audio buffers live in that wasm memory,
@@ -66,7 +70,12 @@ export class Graph {
     this.kernels = kernels ? { ...KERNELS, ...kernels } : KERNELS;
     this.heap = heap;
     this.x = native && heap ? heap.x : null; // wasm exports for the native graph runner
-    this.prog = 0; // native render program (heap pointer) or 0
+    this.native = false; // rendering with the native runner (see rebuild)
+    this.steps = []; // render steps of step 2 (see steps())
+    this.progs = []; // native programs of the steps (heap pointers)
+    this.pool = null; // PATCH instance workers (src/dsp/instancepool.js), audio thread only
+    this.block = 0;
+    this.sinks = new Set(); // worker: exported nodes, rendered like the master bus
     this.nodes = new Map();
     this.order = []; // audio nodes reaching the master bus, sources first
     this.plan = []; // the order with sound loops as groups (see loops())
@@ -90,9 +99,9 @@ export class Graph {
     for (const op of batch) this.op(op);
   }
 
-  op([t, a, b, c]) {
+  op([t, a, b, c, d]) {
     switch (t) {
-      case 'add': this.add(a, b, c); break;
+      case 'add': this.add(a, b, c, d); break;
       case 'del': this.remove(a); break;
       case 'con': this.connect(a, b); break;
       case 'dis': this.disconnect(a, b); break;
@@ -102,14 +111,28 @@ export class Graph {
       case 'scope': this.setScope(a); break;
       case 'analyse': this.setAnalysis(a, b); break;
       case 'panic': this.panic(); break;
+      case 'songStart': this.songStart(); break;
     }
   }
 
-  add(h, kind, opts) {
+  // the (first) native program, 0 when rendering in JS
+  get prog() { return this.native ? (this.progs[0] ?? 0) : 0; }
+
+  // set before any node is added (src/engine.worklet.js)
+  setPool(pool) { this.pool = pool; }
+
+  // part: the PATCH instance copy the node belongs to (0: none, see src/patch.js); with a pool,
+  // its audio modules render on a worker and the node here is a remote stand-in for them
+  add(h, kind, opts, part = 0) {
     const K = this.kernels[kind];
     if (!K) throw new Error(`Unknown DSP kernel: ${kind}`);
+    const remote = this.pool && part > 0 && !K.modulator && !K.external && K.audio !== false && !K.audioThrough;
+    const link = remote ? this.pool.linkFor(part) : null;
     const node = {
-      h, kind, k: new K(opts ?? {}),
+      h, kind, k: link ? link.proxy(h) : new K(opts ?? {}),
+      link, // remote: the worker it renders on
+      stand: null, // { io, slot }: outs come from another thread (an export / a worker's import)
+      taps: null, // [{ io, slot }]: outs go to other threads after rendering
       srcs: [], dsts: [],
       modulator: !!K.modulator,
       audio: K.audio !== false && (!K.modulator || !!K.audioInput),
@@ -140,12 +163,39 @@ export class Graph {
     };
     if (this.heap) node.outPtr = this.heap.alloc(2 * BLOCK * 4);
     node.outs = this.stereo(node.outPtr);
+    if (link) {
+      link.nodes++;
+      link.post(['add', h, kind, opts ?? null]);
+      // a placeholder record: native programs read its outs and silent flag like any source
+      if (this.x) node.rec = this.x.ms_node(0, node.outPtr, 0);
+      this.nodes.set(h, node);
+      this.dirty = true;
+      return node;
+    }
     if (K.external) node.k.graph = this; // reads this.ext (e.g. the INPUT kernel)
     if (K.meter) { node.meterSent = NaN; this.meters.add(node); }
     if (this.x && K.wasm) node.rec = this.x.ms_node(node.k.ptr, node.outPtr, (node.passive ? 1 : 0) | (node.carrierInputs ? 2 : 0));
     this.nodes.set(h, node);
     this.dirty = true;
     return node;
+  }
+
+  // worker: the stand-in of an audio-thread node cabled into this worker's nodes
+  addStand(h, stand) {
+    const n = this.add(h, 'bus');
+    n.audio = false;
+    n.stand = stand;
+    return n;
+  }
+
+  // worker: rendered and sent after every quantum (taps), or no longer (null)
+  setTaps(h, taps) {
+    const n = this.nodes.get(h);
+    if (!n) return;
+    n.taps = taps;
+    if (taps) this.sinks.add(n);
+    else this.sinks.delete(n);
+    this.dirty = true;
   }
 
   // [[L, R]] block buffers: views at ptr in the heap, or plain arrays without one
@@ -173,7 +223,9 @@ export class Graph {
     const node = this.nodes.get(h);
     if (!node || node === this.master) return;
     node.k.destroy?.();
+    if (node.link) { node.link.nodes--; node.link.post(['del', h]); }
     this.meters.delete(node);
+    this.sinks.delete(node);
     if (node.rec) this.x.ms_node_free(node.rec);
     if (this.heap) {
       this.heap.free(node.outPtr);
@@ -197,6 +249,8 @@ export class Graph {
     if (!a || !b || b.srcs.includes(a)) return;
     b.srcs.push(a);
     a.dsts.push(b);
+    // within a worker; cables crossing the border are imports / exports (rebuild)
+    if (a.link && a.link === b.link) a.link.post(['con', from, to]);
     this.dirty = true;
   }
 
@@ -204,8 +258,10 @@ export class Graph {
     const a = this.nodes.get(from);
     const b = this.nodes.get(to);
     if (!a || !b) return;
+    if (!b.srcs.includes(a)) return;
     b.srcs = b.srcs.filter((n) => n !== a);
     a.dsts = a.dsts.filter((n) => n !== b);
+    if (a.link && a.link === b.link) a.link.post(['dis', from, to]);
     this.dirty = true;
   }
 
@@ -235,12 +291,14 @@ export class Graph {
       n.liveAt?.fill(0);
       if (n.rec) this.x.ms_node_set_silent(n.rec, 1);
     }
+    this.pool?.broadcast(['panic']);
   }
 
   // play from start: kernels that follow the song clock restart (LFO phase), so every playback
   // from the start sounds the same
   songStart() {
     for (const n of this.nodes.values()) n.k.songStart?.();
+    this.pool?.broadcast(['songStart']);
   }
 
   setRoutes(h, list) {
@@ -270,7 +328,7 @@ export class Graph {
   rebuild() {
     this.dirty = false;
     const x = this.x;
-    if (this.prog) for (const n of this.nodes.values()) if (n.rec) n.silent = !!x.ms_node_silent(n.rec);
+    if (this.native) for (const n of this.nodes.values()) if (n.rec) n.silent = !!x.ms_node_silent(n.rec);
     // Audio modes render in audio order; controller mode ignores incoming sound.
     for (const n of this.nodes.values()) if (n.through) {
       n.audio = n.audioInput = n.k.mode > 0 && n.srcs.length > 0;
@@ -282,19 +340,21 @@ export class Graph {
       if (seen.has(n)) return;
       seen.add(n);
       for (const s of n.srcs) visit(s);
-      if (n.audio) order.push(n);
+      if (n.audio && !n.link) order.push(n); // remote: rendered by a worker
     };
     // Monitoring an uncabled module must not route it to the speakers. Visit it first so
     // the native runner still ends with the master bus, whose silence flag it returns.
     const monitored = this.nodes.get(this.analysis?.h);
     if (monitored?.audio) visit(monitored);
+    for (const n of this.sinks) visit(n);
     visit(this.master);
     // Audio-driven controllers need their sources even if no audio cable reaches the Output.
     for (const n of this.nodes.values()) if (n.audioInput && n.routes.length) visit(n);
     this.order = order;
-    this.plan = this.loops(order);
+    if (this.pool) this.pool.sync(this.nodes.values());
+    this.plan = this.overlap(this.loops(order));
     this.mods = [...this.nodes.values()].filter((n) => n.modulator);
-    for (const n of this.nodes.values()) if (!seen.has(n)) n.silent = true;
+    for (const n of this.nodes.values()) if (!seen.has(n) || (n.link && !n.stand)) n.silent = true;
     // summing buffers up front: render() must not allocate (a growing heap detaches the views)
     for (const n of order) {
       if (n.sums || n.srcs.length < 2) continue;
@@ -302,29 +362,11 @@ export class Graph {
       n.sums = this.stereo(n.sumPtr);
       if (n.rec) x.ms_node_sum(n.rec, n.sumPtr);
     }
-    if (this.prog) this.heap.free(this.prog);
-    this.prog = 0;
-    if (x && order.every((n) => n.rec)) {
-      // Non-native sources outside the render order are silent placeholders, so carrier
-      // input numbering stays the same in native and mixed graphs.
-      // A loop group is [0, member count, then per member: GNode*, source count, and per source
-      // GNode* and 0 outside the group / 1 inside / 2 inside, previous sample].
-      const words = [this.plan.length];
-      for (const e of this.plan) {
-        if (!e.members) {
-          words.push(e.rec, e.srcs.length, ...e.srcs.map((s) => s.rec));
-          continue;
-        }
-        words.push(0, e.members.length);
-        for (const n of e.members) {
-          words.push(n.rec, n.loopSrcs.length);
-          for (const l of n.loopSrcs) words.push(l.s.rec, l.inner ? (l.back ? 2 : 1) : 0);
-        }
-      }
-      this.prog = this.heap.alloc(words.length * 4);
-      new Int32Array(this.heap.memory.buffer, this.prog, words.length).set(words);
-      for (const n of this.nodes.values()) if (n.rec) x.ms_node_set_silent(n.rec, n.silent ? 1 : 0);
-    }
+    for (const p of this.progs) this.heap.free(p);
+    this.progs = [];
+    this.native = !!x && order.every((n) => n.rec);
+    this.steps = this.stepsOf(this.plan, seen);
+    if (this.native) for (const n of this.nodes.values()) if (n.rec) x.ms_node_set_silent(n.rec, n.silent ? 1 : 0);
     // like ms_node_set_silent: only the last sample of the previous block counts as live (it is
     // what a source back in a loop gives first)
     for (const n of this.nodes.values()) {
@@ -332,6 +374,81 @@ export class Graph {
       n.liveAt.fill(0);
       n.liveAt[BLOCK - 1] = n.silent ? 0 : 1;
     }
+  }
+
+  // With nodes fed from other threads (stand-ins): what doesn't depend on them renders first, so
+  // the workers render meanwhile, and of that first what feeds other threads (taps), so they
+  // can start early. Keeps the dependency order (the plan's sources come first).
+  overlap(plan) {
+    if (!this.pool && !this.sinks.size) return plan;
+    const late = new Set();
+    const early = [];
+    const rest = [];
+    for (const e of plan) {
+      const ms = e.members ?? [e];
+      if (ms.some((n) => n.srcs.some((s) => s.stand || late.has(s)))) {
+        for (const n of ms) late.add(n);
+        rest.push(e);
+      } else early.push(e);
+    }
+    const feeds = new Set();
+    for (let i = early.length - 1; i >= 0; i--) {
+      const ms = early[i].members ?? [early[i]];
+      if (ms.some((n) => n.taps || feeds.has(n))) for (const n of ms) for (const s of [n, ...n.srcs]) feeds.add(s);
+    }
+    const first = early.filter((e) => feeds.has(e.members?.[0] ?? e));
+    if (!rest.length && !first.length) return plan;
+    return [...first, ...early.filter((e) => !feeds.has(e.members?.[0] ?? e)), ...rest];
+  }
+
+  // Step 2 as steps: { fetch: stand-ins } before their first reader, runs of plan entries
+  // ({ prog }: one native program, { js }) and { publish: nodes with taps } after them.
+  // Taps of nodes outside the plan publish silence first.
+  stepsOf(plan, seen) {
+    const steps = [];
+    const idle = [...this.nodes.values()].filter((n) => n.taps && !(n.audio && seen.has(n) && !n.link));
+    if (idle.length) steps.push({ publish: idle });
+    let run = [];
+    const close = () => {
+      if (!run.length) return;
+      steps.push(this.native ? { prog: this.program(run) } : { js: run });
+      run = [];
+    };
+    const fetched = new Set();
+    for (const e of plan) {
+      const ms = e.members ?? [e];
+      const need = [];
+      for (const n of ms) for (const s of n.srcs) if (s.stand && !fetched.has(s)) { fetched.add(s); need.push(s); }
+      if (need.length) { close(); steps.push({ fetch: need }); }
+      run.push(e);
+      const pub = ms.filter((n) => n.taps);
+      if (pub.length) { close(); steps.push({ publish: pub }); }
+    }
+    close();
+    return steps;
+  }
+
+  // A native program of plan entries (cpp/engine.cpp ms_run). Non-native sources outside the
+  // render order are silent placeholders, so carrier input numbering stays the same in native
+  // and mixed graphs. A loop group is [0, member count, then per member: GNode*, source count,
+  // and per source GNode* and 0 outside the group / 1 inside / 2 inside, previous sample].
+  program(entries) {
+    const words = [entries.length];
+    for (const e of entries) {
+      if (!e.members) {
+        words.push(e.rec, e.srcs.length, ...e.srcs.map((s) => s.rec));
+        continue;
+      }
+      words.push(0, e.members.length);
+      for (const n of e.members) {
+        words.push(n.rec, n.loopSrcs.length);
+        for (const l of n.loopSrcs) words.push(l.s.rec, l.inner ? (l.back ? 2 : 1) : 0);
+      }
+    }
+    const prog = this.heap.alloc(words.length * 4);
+    new Int32Array(this.heap.memory.buffer, prog, words.length).set(words);
+    this.progs.push(prog);
+    return prog;
   }
 
   // The render plan: the order with every sound loop (a strongly connected part, Tarjan) replaced
@@ -535,29 +652,20 @@ export class Graph {
     if (this.tuned.length) this.tuneLoops();
     // A modulated wavetable Block Size can replace its prepared layout and grow the heap.
     if (this.heap?.grown()) this.remap();
-    if (this.prog) this.master.silent = !this.x.ms_run(this.prog, BLOCK);
-    else for (const n of this.plan) {
-      if (n.members) { this.renderLoop(n); continue; }
-      if (n.carrierInputs) {
-        const carrier = n.srcs[n.k.carrier];
-        let live = 0;
-        let last = null;
-        for (const s of n.srcs) if (s !== carrier && !s.silent) { live++; last = s; }
-        n.carrierInputs[0] = carrier && !carrier.silent ? carrier.outs[0] : NO_INPUT[0];
-        n.carrierInputs[1] = live === 0 ? NO_INPUT[0] : live === 1 ? last.outs[0] : this.sum(n, carrier)[0];
-        n.silent = n.k.process(n.carrierInputs, n.outs) === false;
-        continue;
+    if (this.pool) this.pool.begin(++this.block);
+    const x = this.x;
+    for (const st of this.steps) {
+      if (st.prog) x.ms_run(st.prog, BLOCK);
+      else if (st.js) for (const n of st.js) this.renderEntry(n);
+      else if (st.fetch) for (const n of st.fetch) {
+        n.silent = n.stand.io.fetch(n.stand.slot, n.outs[0]);
+        if (this.native && n.rec) x.ms_node_set_silent(n.rec, n.silent ? 1 : 0);
+      } else for (const n of st.publish) {
+        const silent = this.native && n.rec ? !!x.ms_node_silent(n.rec) : n.silent;
+        for (const t of n.taps) t.io.publish(t.slot, n.outs[0], silent);
       }
-      let live = 0;
-      let last = null;
-      for (const s of n.srcs) if (!s.silent) { live++; last = s; }
-      if (!live && n.passive) { n.silent = true; continue; }
-      if (!live && n.k.dormant) { n.silent = true; continue; }
-      let ins = NO_INPUT;
-      if (live === 1) ins = last.outs;
-      else if (live > 1) ins = this.sum(n);
-      n.silent = n.k.process(ins, n.outs) === false;
     }
+    if (this.native) this.master.silent = !!x.ms_node_silent(this.master.rec);
     // Apply after rendering: audio-derived control feeds the next quantum, including feedback
     // to its own source, without a circular audio dependency or insertion-order differences.
     for (const m of this.mods) if (m.audioInput && m.routes.length) this.modulate(m, m.k.value);
@@ -565,7 +673,7 @@ export class Graph {
     if (this.scopeH.length) this.scope();
     if (this.analysis) {
       const n = this.nodes.get(this.analysis.h);
-      const silent = !n || !n.audio || (this.prog && n.rec ? this.x.ms_node_silent(n.rec) : n.silent);
+      const silent = !n || !n.audio || (this.native && n.rec ? this.x.ms_node_silent(n.rec) : n.silent);
       this.analysis.push(silent ? null : n.outs[0][0], silent ? null : n.outs[0][1]);
     }
     const m = this.master;
@@ -581,6 +689,30 @@ export class Graph {
     }
   }
 
+  // one plan entry in JS: a node or a sound-loop group (see the header)
+  renderEntry(n) {
+    if (n.members) { this.renderLoop(n); return; }
+    if (n.carrierInputs) {
+      const carrier = n.srcs[n.k.carrier];
+      let live = 0;
+      let last = null;
+      for (const s of n.srcs) if (s !== carrier && !s.silent) { live++; last = s; }
+      n.carrierInputs[0] = carrier && !carrier.silent ? carrier.outs[0] : NO_INPUT[0];
+      n.carrierInputs[1] = live === 0 ? NO_INPUT[0] : live === 1 ? last.outs[0] : this.sum(n, carrier)[0];
+      n.silent = n.k.process(n.carrierInputs, n.outs) === false;
+      return;
+    }
+    let live = 0;
+    let last = null;
+    for (const s of n.srcs) if (!s.silent) { live++; last = s; }
+    if (!live && n.passive) { n.silent = true; return; }
+    if (!live && n.k.dormant) { n.silent = true; return; }
+    let ins = NO_INPUT;
+    if (live === 1) ins = last.outs;
+    else if (live > 1) ins = this.sum(n);
+    n.silent = n.k.process(ins, n.outs) === false;
+  }
+
   // Cable scope points of this quantum: per watched node SCOPE_PTS means of (L+R)/2 over
   // SCOPE_DECIM samples; 0 while silent or gone. Modulators give their value for the whole
   // quantum (LFO bipolar -1..1, others 0..1).
@@ -589,7 +721,7 @@ export class Graph {
     const nH = H.length;
     const buf = this.scopeBuf;
     const clip = this.scopeClip;
-    const native = this.prog ? this.x : null;
+    const native = this.native ? this.x : null;
     if (this.scopeN + SCOPE_PTS > SCOPE_MAX) this.scopeN = 0; // nobody reads: start over
     const at = this.scopeN;
     let loud = false;

@@ -8,6 +8,8 @@
 // copies kept in sync with it. Every instance runs its own random generators (drift, Random
 // LFO, ...) and seeded modules (REVERB) get a per-instance salt, so no two instances are alike.
 // Only one Patch along each nesting path may have Instances > 1.
+// The copies (instance 2..16) may render on worker threads (src/dsp/instancepool.js): each copy
+// is a partition of its own (PatchRuntime.part, src/patch.js).
 //
 // Mapped controllers (state.maps, edited in the Controllers dialog): any controller of any module
 // inside can be mapped to an extra controller of this module (numbered from 11, reserving room

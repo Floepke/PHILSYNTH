@@ -23,6 +23,9 @@ try {
       await readFile(new URL('../src/main.js', import.meta.url), 'utf8'));
   }
   assert.ok((await stat(join(output, '.nojekyll'))).isFile());
+  assert.equal(await readFile(join(output, 'coi-sw.js'), 'utf8'),
+    await readFile(new URL('../coi-sw.js', import.meta.url), 'utf8'), 'isolation service worker at the site root');
+  assert.ok((await readFile(join(output, 'index.html'), 'utf8')).includes("register('coi-sw.js')"));
 } finally {
   await rm(output, { recursive: true, force: true });
 }
