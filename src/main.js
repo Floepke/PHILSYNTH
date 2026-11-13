@@ -84,6 +84,15 @@ try {
   $('status').textContent = preferencesLoadError;
 }
 const openPreferences = createPreferencesDialog(preferencesManager, { loadError: preferencesLoadError });
+// Registered before the shortcut dispatcher: with text selected in the controller panel (e.g. the
+// manual), Cmd/Ctrl + C copies that text instead of running the patcher's Copy shortcut.
+window.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'c') return;
+  if (e.target.closest?.('input, select, textarea, [contenteditable]:not([contenteditable="false"])')) return;
+  if (!copyPanelText()) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+}, true);
 initShortcuts({ preferences: preferencesManager, closeMenu, notify: (message) => { $('status').textContent = message; } });
 const canvas = $('canvas');
 const noiseBg = createNoiseBackground(canvas);
@@ -1285,10 +1294,6 @@ window.addEventListener('keydown', (e) => {
   if (command && k === 'a') {
     e.preventDefault();
     selectEntries([...current().modules.values()]);
-    return;
-  }
-  if (command && !e.shiftKey && k === 'c' && copyPanelText()) {
-    e.preventDefault();
     return;
   }
   // only while the patcher has focus: elsewhere Cmd/Ctrl + C copies text as usual
