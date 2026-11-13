@@ -22,7 +22,7 @@ export const GUIDE = [
       {
         title: 'A different way to see music',
         items: [
-          'The pianoroll’s design is inspired by <b>Klavarskribo</b>, a music notation that relates pitches directly to the piano keyboard. Here, time runs downward and pitches follow the keys from left to right, with a stave built around the black keys.',
+          'The pianoroll’s design is inspired by <a href="https://klavarskribo.eu/en/" target="_blank" rel="noopener"><b>Klavarskribo</b></a>, a music notation that relates pitches directly to the piano keyboard. The chapter <b>Pianoroll — The Concept</b> explains how it works.',
           'I wanted an editor where the relationship between the notes and the keyboard feels visible and direct, while leaving room to shape the details: tiny tuning differences, individual bends and changing velocity throughout a note.',
         ],
       },
@@ -43,7 +43,7 @@ export const GUIDE = [
       {
         title: 'Inspired by SunVox, built through exploration',
         items: [
-          'PHILSYNTH is deeply inspired by <b>SunVox</b>, the original software by <b>Alexander Zolotov</b>. Its modular approach to building instruments is a major inspiration. My starting wish was simple: I wanted to work in a pianoroll editor with the kind of modular sound-design workflow I enjoyed in SunVox.',
+          'PHILSYNTH is deeply inspired by <a href="https://www.warmplace.ru/soft/sunvox/" target="_blank" rel="noopener"><b>SunVox</b></a>, the original software by <b>Alexander Zolotov</b>. Its modular approach to building instruments is a major inspiration. My starting wish was simple: I wanted to work in a pianoroll editor with the kind of modular sound-design workflow I enjoyed in SunVox.',
           'That wish led me to try building this app, making extensive use of modern development tools. PHILSYNTH is its own project, not SunVox with a different editor, but I want to acknowledge that inspiration with gratitude.',
           'The process itself is part of the pleasure: refining each module, listening carefully, and discovering how the modules can work together as instruments. There is always another interaction to improve or a new sound to find. I hope that curiosity comes through when you make music here.',
         ],
@@ -59,17 +59,21 @@ export const GUIDE = [
       {
         title: 'Find your way',
         items: [
-          'The <b>piano roll</b> at the top edits notes, the <b>patcher</b> in the middle builds instruments, and the <b>TimeLine</b> at the bottom arranges clips. Keyboard shortcuts act on the area you last clicked: for example, Delete removes selected notes in the piano roll or selected modules in the patcher.',
-          'Select a module to replace this manual with its controllers, descriptions and usage notes. Click empty space in the patcher to return to the manual. Your reading position and open / closed chapters are remembered on this device, including after reopening the app, separately from your project. Drag the dividers to resize or hide areas.',
-          'Click <b>PHILSYNTH</b> for project commands and <b>Preferences…</b>. Preferences are saved on this device, separately from your project.',
+          'The <b>pianoroll</b> at the top edits notes, the <b>patcher</b> in the middle builds instruments, and the <b>TimeLine</b> at the bottom arranges clips. Keyboard shortcuts act on the area you last clicked: for example, Delete removes selected notes in the pianoroll or selected modules in the patcher.',
+          'Select a module to replace this manual with its controllers, descriptions and usage notes. Your reading position and open / closed chapters are remembered on this device, including after reopening the app, separately from your project.',
+          `Select text in this panel and press ${k(CMD, 'C')} to copy it, for example to quote the manual when asking a question.`,
+          'Click <b>PHILSYNTH</b> for project commands and <b>Preferences…</b>; see <b>Workspace & files</b>.',
         ],
       },
       {
         title: 'Make your own shortcuts',
         items: [
-          '<b>Right-click a button</b>, or open a right-click menu and <b>right-click an action inside it</b>, to open <b>Learn keyboard shortcut</b>. Press the key or key combination you want; an available combination is saved automatically.',
+          '<b>Right-click a button</b>, or open a right-click menu and <b>right-click an action inside it</b>, to open <b>Learn keyboard shortcut</b>. The current shortcut, if any, is shown in bold. Press the key or key combination you want, such as <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>A</kbd>; an available combination is saved automatically.',
           'If the combination is already in use, the dialog explains the conflict so you can choose another. <b>Cancel</b> or Escape leaves it unchanged.',
-          'Your custom shortcut replaces the default. Right-click the same action again and choose <b>Restore default</b> to reset it. Reset all mappings under <b>Preferences… > Keyboard > Custom shortcuts</b>. Shortcuts are remembered on this device.',
+          'Your custom shortcut replaces the default. Right-click the same action again and choose <b>Restore default</b> to reset it, or reset all mappings under <b>Preferences… > Keyboard > Custom shortcuts > Reset to default</b>. Shortcuts are device preferences, not project data.',
+          'Editor menu actions use the current selection and pointer in the focused editor, not the item originally right-clicked. Button shortcuts act on the currently visible button. Transport shortcuts work across all areas, even when a button has keyboard focus; Space plays / stops instead of activating that button. Shortcuts do not interfere with typing in text fields, except modified global menu commands, and transport shortcuts pause while a dialog is open.',
+          'TimeLine <b>Insert clip</b>, <b>Insert automation clip</b> and <b>Load Clip…</b> shortcuts also work with a clip selected; move the pointer to the desired position in the TimeLine first.',
+          'Escape, Tab and F11 remain reserved for navigation and full screen. Unmodified piano keys assigned to actions trigger those actions instead of playing notes. Some browser and operating-system combinations cannot be captured.',
         ],
       },
     ],
@@ -78,7 +82,7 @@ export const GUIDE = [
   {
     id: 'patcher',
     title: 'Patcher',
-    intro: 'The patcher (middle pane) is where the instrument is built. Every box is a module with a number (<b>#</b>); cables carry sound, MIDI notes or modulation from one module to the next and finally into the <b>Output</b>. Select a module to see its controllers and its reference here.',
+    intro: 'The patcher (middle pane) is where the instrument is built. Every box is a module with a number (<b>#</b>); cables carry sound, MIDI notes or modulation from one module to the next and finally into the <b>Output</b>.',
     steps: [
       {
         title: 'Insert modules',
@@ -102,7 +106,7 @@ export const GUIDE = [
         title: 'Select',
         items: [
           'Click a module to select it: the controller panel shows its controllers, their descriptions and usage notes. Mini editors have matching section headings. Module and editor titles stay on one line as you resize the panel; hover a shortened title to read its full name.',
-          `Drag on empty canvas or use the mouse <b>Forward</b> button + drag to draw a selection rectangle; ${k('Shift')} + drag on empty canvas pans the view (also on a trackpad). Forward-drag can also start over a module. ${k(CMD)} + drag adds to the selection, ${k(CMD)} + click toggles one module, ${k(CMD, 'A')} selects all.`,
+          `Drag on empty canvas or use the mouse <b>Forward</b> button + drag to draw a selection rectangle; Forward-drag can also start over a module. ${k(CMD)} + drag adds to the selection, ${k(CMD)} + click toggles one module, ${k(CMD, 'A')} selects all.`,
         ],
       },
       {
@@ -110,7 +114,7 @@ export const GUIDE = [
         items: [
           'Drag a module (or any module of a selection) to move it or the whole selection. Near / past the edge of the patcher the view pans along (also while duplicating, Shift-wiring or drawing a selection rectangle).',
           '<b>Snap to Grid</b> (right-click menu, a checkbox): moved and duplicated modules snap with their left edge and top to an invisible 20 px grid (half a module high), the same step sideways. Remembered on this computer.',
-          `${k('Shift')} + drag on empty canvas or ${k('Middle mouse')} + drag (also over modules) pans the canvas. The mouse wheel or two-finger trackpad scrolling zooms around the pointer on every platform; pinch or ${k(CMD)} + wheel also zooms. The spectrum icon (top right) switches the spectrogram on or off. Drag the dividers to resize or hide the piano roll and TimeLine.`,
+          `${k('Shift')} + drag on empty canvas or ${k('Middle mouse')} + drag (also over modules) pans the canvas. The mouse wheel or two-finger trackpad scrolling zooms around the pointer on every platform; pinch or ${k(CMD)} + wheel also zooms.`,
         ],
       },
       {
@@ -144,9 +148,9 @@ export const GUIDE = [
       {
         title: 'Play live',
         items: [
-          'Notes from your MIDI controller, the piano-roll keyboard and the computer keyboard play the module with the <b>MIDI</b> badge: the last selected MIDI module. Click the badge to lock MIDI to it (red), again to unlock. Every patch level has its own MIDI module and lock.',
-          `Computer keyboard: ${k('Q')} … ${k('P')} are the white keys C4–E5, the number row above them (${k('2')} ${k('3')} ${k('5')} ${k('6')} ${k('7')} ${k('9')} ${k('0')}) the black keys. In a focused piano roll ${k('Shift', 'Q')} quantizes; plain ${k('Q')} still plays C4.`,
-          'Choose the MIDI controller under <b>Preferences… > MIDI > MIDI Input</b> in the main menu.',
+          'Notes from your MIDI controller, the pianoroll keyboard and the computer keyboard play the module with the <b>MIDI</b> badge: the last selected MIDI module. Click the badge to lock MIDI to it (red), again to unlock. Every patch level has its own MIDI module and lock.',
+          `Computer keyboard: ${k('Q')} … ${k('P')} are the white keys C4–E5, the number row above them (${k('2')} ${k('3')} ${k('5')} ${k('6')} ${k('7')} ${k('9')} ${k('0')}) the black keys. In a focused pianoroll ${k('Shift', 'Q')} quantizes; plain ${k('Q')} still plays C4.`,
+          '<b>Preferences… > MIDI > MIDI Input</b> picks the MIDI controller; <i>Auto</i> uses every input except Linux\'s <i>Midi Through</i>. <b>Re-scan MIDI Inputs</b> finds newly plugged-in devices and retries access. Changes preview immediately; OK saves the input on this device, Cancel restores it. Disconnected saved controllers remain listed.',
         ],
       },
       {
@@ -157,7 +161,7 @@ export const GUIDE = [
           'Audio, MIDI and modulation cabled into a Patch go to its <b>Input Module</b> (default <kbd>1</kbd>: the first module inserted inside; <kbd>0</kbd> = straight to the inner Output). <b>Instances</b> plays notes round-robin over copies of the contents.',
           '<b>Controllers…</b> (in the panel of a selected Patch) maps controllers of modules inside onto the Patch module, so they can be set, modulated and automated from outside.',
           'Custom MIDI / modulation modules: inside a Patch, cable a MULTIMIDI, STRUM or TRILL into the Output to send notes out of the Patch, or a modulator to send modulation out; cable the Patch module to modules outside to play / drive them.',
-          'Each level has its own sequencer (piano roll and TimeLine) and its Output its own BPM, <b>Global Transpose</b> and <b>Global Cents Offset</b>. Play always plays the level you are on, so a Patch\'s TimeLine is a sketch pad that never sounds in the main song.',
+          'Each level has its own sequencer (pianoroll and TimeLine) and its Output its own BPM, <b>Global Transpose</b> and <b>Global Cents Offset</b>. Play always plays the level you are on, so a Patch\'s TimeLine is a sketch pad that never sounds in the main song.',
         ],
       },
     ],
@@ -165,14 +169,14 @@ export const GUIDE = [
       [k('Double-click'), 'insert a module'],
       [`${k('Shift')} + drag`, 'connect / disconnect modules'],
       [`${k('Alt')} + drag`, 'duplicate'],
-      [`${k('Ctrl')} + click / drag`, 'toggle / add to the selection'],
+      [`${k(CMD)} + click / drag`, 'toggle / add to the selection'],
       [k(CMD, 'A'), 'select all modules'],
       [`${k(CMD)} + ${k('X')} / ${k('C')} / ${k('V')}`, 'cut / copy / paste at the pointer'],
       [`${k('Backspace')} ${k('Delete')}`, 'delete the selection or cable'],
       [k('F2'), 'rename the module'],
       [k('Enter'), 'open the selected Patch'],
       [`${k(CMD, 'Z')} / ${k(CMD, 'Shift', 'Z')}`, 'undo / redo'],
-      [`${k('Shift')} + drag empty canvas / ${k('Middle mouse')} drag, wheel`, 'pan, zoom'],
+      [`${k('Shift')} + drag empty canvas / ${k('Middle mouse')} drag, wheel`, 'pan'],
       ['drag empty canvas / Forward button + drag', 'selection rectangle'],
       ['Wheel / two-finger scroll / pinch', 'zoom around the pointer'],
       [`${k('Right-click')}`, 'menu: cut, copy, paste, delete, open, save / load module, rename, Snap to Grid'],
@@ -196,7 +200,7 @@ export const GUIDE = [
         items: [
           'At the bottom of the editor lies a traditional piano keyboard. Every <b>vertical line</b> above it starts at one of its <b>black keys</b> and continues upward through the whole clip. The stave lines are, quite literally, the black keys stretched out in time.',
           'Because the stave grows out of the keyboard, there is nothing to translate: a line is a black key, and the space next to a line is a white key. Whatever you know about the keyboard, you already know about the stave.',
-          'This idea is inspired by <b>Klavarskribo</b>, a notation that has related written pitches directly to the piano keyboard since the 1930s.',
+          'This idea is inspired by <a href="https://klavarskribo.eu/en/" target="_blank" rel="noopener"><b>Klavarskribo</b></a>, a notation that has related written pitches directly to the piano keyboard since the 1930s.',
         ],
       },
       {
@@ -255,8 +259,9 @@ export const GUIDE = [
       {
         title: 'Create a note clip',
         items: [
-          `${k('Double-click')} empty TimeLine space: a one-bar clip appears on that lane, at the grid position under the pointer, and opens in the piano roll.`,
-          'Pick the module that plays it under <b>Send to</b> in the upper divider (the bar between the piano roll and the patcher). With multiple MIDI clips selected in the TimeLine, this changes all their destinations in one undoable edit; selected automation clips are left unchanged. Linked clones still share their destination.',
+          `${k('Double-click')} empty TimeLine space: a one-bar clip appears on that lane, at the grid position under the pointer, and opens in the pianoroll.`,
+          'A new clip plays the module selected in the patcher. When none is selected, or the selected one takes no notes (Filter, Output…), it plays the last selected module of this patch level that does.',
+          'Pick the module that plays it under <b>Send to</b> in the upper divider (the bar between the pianoroll and the patcher). With multiple MIDI clips selected in the TimeLine, this changes all their destinations in one undoable edit; selected automation clips are left unchanged. Linked clones still share their destination.',
         ],
       },
       {
@@ -271,16 +276,15 @@ export const GUIDE = [
         items: [
           '<b>Grid</b> in the upper divider sets the snap step: a note value (Whole … 128th) divided by the number beside <b>÷</b> (1–64; e.g. Quarter ÷ 3 = eighth-note triplets). Hover the number to see the step in quarter notes.',
           '<b>TimeLine:</b> inserting, moving, trimming and resizing clips and pasting snap to the grid step (the edges of neighbouring clips take priority). The restart marker instead snaps to barlines (whole measures), independently of the Input Grid.',
-          '<b>Piano roll:</b> new notes start on the grid line at or before the pointer; dragging lengths and moving notes, pasting, the clip-end line, the velocity-curve point times, the arrow-key nudges and <b>Quantize</b> (Shift + Q) all use the grid step. The light / dark bands show it.',
-          '<b>Automation editor:</b> the times of new and moved points snap to the grid step.',
-          '<b>Free timing</b> (the checkbox beside the Grid) frees piano-roll notes and velocity-curve times from the grid; the bands stay as a guide and Quantize still snaps. Press <kbd>F</kbd> to toggle it, or right-click the checkbox or its label to assign a custom shortcut. The TimeLine and the automation editor keep snapping.',
+          '<b>Pianoroll:</b> new notes start on the grid line at or before the pointer; dragging lengths and moving notes, pasting, the clip-end line, the velocity-curve point times, the arrow-key nudges and <b>Quantize</b> (Shift + Q) all use the grid step. The light / dark bands show it.',
+          '<b>Free timing</b> (the checkbox beside the Grid) frees pianoroll notes and velocity-curve times from the grid; the bands stay as a guide. Press <kbd>F</kbd> to toggle it, or right-click the checkbox or its label to assign a custom shortcut. The TimeLine and the automation editor keep snapping.',
           'The Grid and Free timing are saved per sequencer, so every Patch level has its own.',
         ],
       },
       {
         title: 'Read the pianoroll',
         items: [
-          'Our one-of-a-kind pianoroll combines a stave with a piano keyboard. Time runs <b>down</b>, and pitch runs left to right across all 128 MIDI notes. The vertical stave lines connect to the <b>black keys</b> of the keyboard at the bottom. Each notehead reflects its key’s colour—black or white—so you can relate notes to the keyboard at a glance. The strip on the left shows note velocity. The chapter <b>Pianoroll — The Concept</b> explains the stave and the noteheads in detail.',
+          'Time runs <b>down</b>, and pitch runs left to right across all 128 MIDI notes; the strip on the left shows note velocity. The stave and the noteheads are explained in <b>Pianoroll — The Concept</b>.',
           'Selecting a note also makes the pianoroll the active editor: Delete then removes selected notes, and the arrow keys move them, rather than editing modules or clips in another pane.',
         ],
       },
@@ -288,34 +292,34 @@ export const GUIDE = [
         title: 'Pianoroll: write notes',
         items: [
           'Click empty space to insert a note at that pitch, starting on the grid line at or before the pointer, with the last used length; move more than 10 pixels while holding to start setting its duration.',
-          'Click / drag the keyboard at the bottom to audition pitches on the live MIDI module without writing notes. Keys held on your MIDI controller or the computer keyboard light up blue there, so you can read what you play. During playback the notes under the playhead light up their keys in the clip colour, so you can read the harmony.',
+          'Click / drag the keyboard at the bottom to audition pitches on the live MIDI module without writing notes. Keys held on your MIDI controller or the computer keyboard light up there in the selection colour, so you can read what you play. During playback the notes under the playhead light up their keys in the clip colour, so you can read the harmony.',
           'Drag the empty cell to the left or right of the keyboard up or down to make the keyboard taller or shorter; double-click a cell to reset it. The height is remembered on this computer, not saved in the project.',
         ],
       },
       {
         title: 'Pianoroll: select notes',
         items: [
-          `Click a note to select it, ${k(CMD)} + click toggles it without moving or resizing it, just as for modules and clips. ${k('Shift')} + drag (starting off a note\'s circle) or ${k('right')} + drag draws a selection rectangle; while dragging, scroll the wheel or move past the top / bottom edge to extend it over the whole clip.`,
-          `${k(CMD, 'A')} selects all notes; ${k('Esc')} clears the selection. Selected notes are filled blue.`,
+          `Click a note to select it, ${k(CMD)} + click toggles it without moving or resizing it, just as for modules and clips. ${k('Shift')} + drag (starting off a notehead) or ${k('right')} + drag draws a selection rectangle; while dragging, scroll the wheel or move past the top / bottom edge to extend it over the whole clip.`,
+          `${k(CMD, 'A')} selects all notes; ${k('Esc')} clears the selection. Selected notes are shown in the selection colour (green).`,
           'Dragging any selected note moves or resizes the whole selection.',
         ],
       },
       {
         title: 'Pianoroll: edit notes',
         items: [
-          'Drag a note\'s coloured <b>body</b> more than 10 pixels to start setting its length. One note\'s end jumps to the snapped pointer; with several notes selected, dragging increases or decreases every duration by the same amount, preserving their length differences. Shortening stops when the shortest note reaches the minimum length. Drag a note\'s <b>circle</b> to change pitch (sideways) and start time (up / down).',
+          'Drag a note\'s coloured <b>body</b> more than 10 pixels to start setting its length. One note\'s end jumps to the snapped pointer; with several notes selected, dragging increases or decreases every duration by the same amount, preserving their length differences. Shortening stops when the shortest note reaches the minimum length. Drag a note\'s <b>notehead</b> to change pitch (sideways) and start time (up / down).',
           'Every drag along time (note lengths and moves, bend and velocity points, the clip end, selection rectangles, automation points) scrolls the view along when you hold the pointer near / past the top or bottom edge, faster further out; the wheel scrolls along too.',
-          `${k('Alt')} + drag a note (body or circle) moves a clone of it.`,
-          `<b>Micropitch</b>: ${k('Shift')} + drag a note\'s circle sideways to tune it up or down (slowly, in 0.1 cent steps); a slider shows the cents while you drag and the note sounds along. With several notes selected, all of them change by the same amount. The note stays on its key (from −50 to just under +50 cents); the whole note (circle and coloured body) shifts sideways to show the tuning; menu → <b>Reset tuning</b> puts the selection back on its keys.`,
+          `${k('Alt')} + drag a note (body or notehead) moves a clone of it.`,
+          `<b>Micropitch</b>: ${k('Shift')} + drag a note\'s notehead sideways to tune it up or down (slowly, in 0.1 cent steps); a slider shows the cents while you drag and the note sounds along. With several notes selected, all of them change by the same amount. The note stays on its key (from −50 to just under +50 cents); the whole note (notehead and coloured body) shifts sideways to show the tuning; menu → <b>Reset tuning</b> puts the selection back on its keys.`,
           `<b>Pitch bend</b>: select a note and double-click its coloured body to add a bend point (keep the second press held to drag it right away). The note becomes a thick line through its bend points and glides along them while it plays. Pitch snaps to whole notes; hold ${k('Shift')} for free pitch editing sideways. Point times snap to the grid unless <b>Free timing</b> is on; Shift only frees pitch, not time. Points stay between their neighbours and inside the note. Scroll on a point to round its corner, right-click a point to delete it; menu → <b>Reset bend</b> straightens the selection. Moving, transposing or tuning a note takes its bend along.`,
           `${k('Left')} / ${k('Right')} transpose the selection by a semitone, ${k('Up')} / ${k('Down')} move it by one grid step; with ${k('Shift')}: an octave / a bar.`,
-          'A short right-click deletes the note under the pointer.',
+          'A short right-click deletes the note under the pointer; hold the right mouse button for the menu (see below).',
         ],
       },
       {
         title: 'Pianoroll: clip length',
         items: [
-          'Drag the thick end line of the clip up or down to shorten or lengthen the clip (snapped, never into the next clip on its lane); the wheel or the top / bottom edge scrolls along, <kbd>Esc</kbd> cancels. This changes the length of the clip in the TimeLine too.',
+          'Drag the thick end line of the clip up or down to shorten or lengthen the clip (snapped, never into the next clip on its lane); <kbd>Esc</kbd> cancels. This changes the length of the clip in the TimeLine too.',
           'Past the end the grid is shaded: notes there do not play.',
         ],
       },
@@ -324,7 +328,7 @@ export const GUIDE = [
         items: [
           'The strip left of the notes shows each note\'s velocity (stick) and how it changes while the note sounds. Dragging a selected start dot sets every selected note to the same start velocity, regardless of start time. Each curve shifts by its own start-velocity change, clamping points at 0 or 100 %; point times and rounding stay unchanged.',
           `${k('Double-click')} inside a selected note adds a point for every selected note at the same offset from its start (clamped to shorter notes\' ends). Dragging an existing point edits points at the same timeline time (${k('Shift')} = fine), creating missing points in selected notes sounding then, never changing start velocities or other points. The wheel rounds same-time points. Select just one note to edit it alone.`,
-          'Right-drag in the velocity strip to draw a selection rectangle: enclosing start dots selects their notes; enclosing curve points selects those individual points. Drag a selected point to move the selected points together in time and velocity. The wheel or dragging past the top / bottom edge extends the rectangle; Escape cancels. Right-click a point for <b>Delete point</b>.',
+          'Right-drag in the velocity strip to draw a selection rectangle: enclosing start dots selects their notes; enclosing curve points selects those individual points. Drag a selected point to move the selected points together in time and velocity. Escape cancels. Right-click a point for <b>Delete point</b>.',
           '<b>Preferences… > Pianoroll > Snap velocity values to 16 step grid.</b> enables 1/16-step velocity snapping, shown as alternating light/dark bands. This is a device preference, not part of the project, and does not quantize existing values.',
           'Drag the bar ruler beside the strip sideways to resize the velocity editor and vertically to zoom time (up zooms in, down zooms out). Zoom stays anchored at the original grab position; both axes work simultaneously during diagonal drags. In Electron the cursor locks during ruler drags and returns to its press position on release; web browsers use ordinary cursor dragging. Double-click resets the width; the wheel still scrolls time.',
         ],
@@ -332,7 +336,7 @@ export const GUIDE = [
       {
         title: 'Pianoroll: menu and clipboard',
         items: [
-          'Right-click empty space to open the menu (cut, copy, paste, delete, duplicate, quantize, octave, reset tuning, reset bend). On an existing note, hold the right mouse button still to open it instead of deleting the note; releasing after the menu opened never deletes it. Left-click outside the menu to close it without editing notes; the next click works normally. Right-drag still draws a selection rectangle.',
+          'Right-click empty space to open the menu (cut, copy, paste, delete, duplicate, quantize, octave, reset tuning, reset bend). On an existing note, hold the right mouse button still to open it instead of deleting the note; releasing after the menu opened never deletes it. Left-click outside the menu to close it without editing notes; the next click works normally.',
           `${k(CMD)} + ${k('X')} / ${k('C')} / ${k('V')} cut, copy and paste notes at the pointer\'s snapped time (pitches and timing are kept); ${k(CMD, 'D')} duplicates the selection right after itself; ${k('Shift', 'Q')} quantizes note starts and ends to the Input Grid (the selection, else all), even with Free timing on. Notes keep at least one grid step of length.`,
         ],
       },
@@ -341,15 +345,13 @@ export const GUIDE = [
         items: [
           `The wheel or trackpad scrolls smoothly (scroll up past beat zero for some free room; with the pitch zoomed in, swiping sideways pans the keys); ${k(CMD)} + wheel zooms time, ${k('Middle mouse')} + drag pans. The scrollbar on the right (the TimeLine\'s look) spans the clip: drag it, or click its track to jump there.`,
           `${k('Shift')} + wheel zooms pitch around the pointer: the stave and the keyboard widen together, so micropitch leans and bends are easier to place. Zoomed in, a horizontal scrollbar shows just above the keyboard, ${k('Middle mouse')} + drag also pans sideways, and moving notes, bend points or a selection rectangle past the left / right edge scrolls along. Notes stop growing at 48 px wide. Zoom fully out to see all keys again; the view is saved with the project and restored on startup.`,
-          `${k('Space')} over the note grid plays the song from that (snapped) time. The shared transport and recording controls are described under <b>Play and record</b> below.`,
         ],
       },
       {
         title: 'Timeline: arrange clips',
         items: [
-          `Click a clip to select it (when stopped the playhead jumps to its start). Double-click a clip to focus its editor and maximize the piano roll area by moving both dividers to the bottom; drag the dividers back to show the other panes. Drag on empty space or use the mouse <b>Forward</b> button + drag to draw a selection rectangle (${k(CMD)} + drag adds); ${k('Shift')} + drag on empty space pans the view (like the patcher). Forward-drag can also start over a clip. ${k(CMD)} + click toggles a clip. One clip always stays selected (a new project starts with one empty bar, selected), so the piano roll always shows a clip.`,
+          `Click a clip to select it (when stopped the playhead jumps to its start). Double-click a clip to focus its editor and maximize the pianoroll area by moving both dividers to the bottom; drag the dividers back to show the other panes. Drag on empty space or use the mouse <b>Forward</b> button + drag to draw a selection rectangle (${k(CMD)} + drag adds). Forward-drag can also start over a clip. ${k(CMD)} + click toggles a clip. One clip always stays selected (a new project starts with one empty bar, selected), so the pianoroll always shows a clip.`,
           `Drag a clip (or the selection) to move it in time and up / down over the lanes; drag its left / right edge to trim the start / set the length. ${k(CMD)} + drag an edge time-stretches the clip instead: the notes inside (with their velocity and bend curves, or the automation points) scale along, the other edge stays put; linked clones stretch together. ${k(CMD)} + click without dragging still toggles the selection. Every drag (clips, the selection rectangle, the restart marker, scrubbing, the M / S buttons) scrolls the TimeLine along near / past an edge of the view.`,
-          'A new clip (double-click empty TimeLine space or <b>Insert clip</b>) plays the module selected in the patcher. When none is selected, or the selected one takes no notes (Filter, Output…), it plays the last selected module of this patch level that does.',
           'Clips never overlap: a moved, pasted or new clip snaps to the nearest free position, and resizing stops at neighbours. Use separate lanes for clips that play together.',
           `${k('Alt')} + drag copies; ${k('Shift')} + drag makes <i>linked clones</i> (hatched, ⧉) that share their notes: editing one edits all. ${k(CMD, 'D')} clones the selection right after itself, ${k(CMD, 'Shift', 'D')} duplicates it.`,
           'The TimeLine starts at the first measure (time zero): scrolling, zooming and clip placement cannot go earlier. Clips saved before time zero in older projects are kept, but their negative-time portions are outside the view. Use idea storage above the lanes for source clips and unused ideas.',
@@ -366,7 +368,6 @@ export const GUIDE = [
           '<i>Import MIDI…</i> imports a Standard MIDI File (.mid or .midi, formats 0, 1 or 2) as one unassigned note clip per track, including empty tracks. Assign a <i>Send to</i> module to hear each clip. Tracks start together at the clicked time; occupied lanes are skipped. Imports into idea storage stay there and do not play unless looped.',
           'Choose Yes to import tempo into an automation clip targeting Output BPM; No keeps the current tempo and MIDI beat positions. Tempo changes are abrupt, and fractional BPM values are rounded to whole BPM while clip timing is adjusted to preserve elapsed time. Tempos outside the Output BPM range are limited and reported. Format 2 uses the first track’s tempo, with other tracks aligned by elapsed time. Imported automation in idea storage does not play unless looped.',
           'MIDI notes, velocities and track names are imported. MIDI channels are combined within each track; controllers, programs, pitch bends and time signatures are not imported. PPQN timing uses MIDI beats when tempo is not imported; SMPTE timing uses MIDI tempo events (120 BPM before the first tempo). Unmatched note-offs are ignored; unfinished or zero-length notes are repaired and reported in the status bar.',
-          'File dialogs remember their folder per kind (projects opened, projects saved, clips, modules).',
         ],
       },
       {
@@ -377,21 +378,21 @@ export const GUIDE = [
           `${k('Double-click')} the time signature row to insert a time signature change at the nearest bar line (or edit it); right-click a change to remove it.`,
           'Drag a green signature flag left or right to move it by whole bars of the preceding meter. The initial signature stays at zero. Later changes snap to their nearest whole measure without reordering or overlapping; clips and notes do not move. The grid updates during the drag; Escape cancels, and release records one undo step.',
           'Choose Insert/Edit time-Signature Change… from the timeline clip, empty-space or ruler context menu to open the same dialog at the nearest bar to the right-click position. Hold right-click on an existing signature or restart marker to open this menu without removing it.',
-          'The time-signature dialog includes a two-octave stave preview with time running downward. The entire measure scales to fit the available editor height. Click a numbered beat row to show or hide its piano-roll line; beat 1 controls the barline. Editing either time-signature field resets all beats to enabled. These choices repeat each measure and do not change snapping, playback or ruler marks.',
-          '<b>Restart point</b>: double-click the bar numbers on the ruler, or right-click the ruler (or a clip / empty space) → <i>Insert restart point at playhead</i>. Placement and dragging snap to the nearest barline (whole measures), following time-signature changes and ignoring the Input Grid. A green <b>restart:</b> | marks it in the bar number row; drag it to move it. Song playback continues there when it reaches the end of the song, and stopping it (Space, <kbd>\'</kbd> or the stop button) returns the playhead there; the <kbd>/</kbd> clip loop ignores it. Right-click the marker (or drag it to time zero) to remove it.',
+          'The time-signature dialog includes a two-octave stave preview with time running downward. The entire measure scales to fit the available editor height. Click a numbered beat row to show or hide its pianoroll line; beat 1 controls the barline. Editing either time-signature field resets all beats to enabled. These choices repeat each measure and do not change snapping, playback or ruler marks.',
+          '<b>Restart point</b>: double-click the bar numbers on the ruler, or right-click the ruler (or a clip / empty space) → <i>Insert restart point at playhead</i>. Placement and dragging snap to the nearest barline (whole measures), following time-signature changes and ignoring the Input Grid. A green <b>restart:</b> | marks it in the bar number row; drag it to move it. Song playback continues there when it reaches the end of the song; the <kbd>/</kbd> clip loop ignores it. Right-click the marker (or drag it to time zero) to remove it.',
         ],
       },
       {
         title: 'Play and record',
         items: [
-          `${k('Space')} plays / stops (over the piano-roll grid or automation lane: from the pointer's time). Stopping parks the playhead at the restart point (when set), else at the start of the selected clip. The TimeLine always shows the playhead; the piano roll and automation lanes only draw it during playback.`,
+          `${k('Space')} plays / stops (over the pianoroll grid or automation lane: from the pointer's time). Stopping parks the playhead at the restart point (when set), else at the start of the selected clip. The TimeLine always shows the playhead; the pianoroll and automation lanes only draw it during playback.`,
           `${k('.')} plays / resumes the song, ${k(',')} restarts it at zero, ${k('/')} loops the time range of the selected clip with everything else that plays there, ${k("'")} stops (pressed again: panic, all notes and tails off).`,
           'The lower divider, left of the clock, has matching buttons: bar + play starts from the beginning, play resumes from the playhead, play + c loops the selected clip, and the square stops playback (press again for panic).',
           'While looping a clip, select another clip to switch to it when the current clip finishes. The selection at the loop boundary is the one that plays next.',
           'Starting in the middle of a note plays it for the rest of its length.',
           'The round <b>Record</b> button arms MIDI recording and flashes red at the project BPM. Create and select a MIDI clip first; recording never creates clips. Existing notes are kept.',
           'The <b>Metronome</b> toggle next to Record clicks during playback and recording: the same short sine sound as the count-in, 880 Hz at each barline and 440 Hz on the other beats. It follows the playing TimeLine’s tempo, time signatures and loops, including beats hidden from the editor grid. Switch it off to silence it; recording’s one-measure count-in still sounds independently. The metronome is a monitoring aid and is not included in exported audio.',
-          `With Record armed, ${k('Space')} over the piano roll records from the pointer, or ${k('/')} records from the clip start and overdubs on every loop. Play starts with a one-measure count-in in the time signature at that position: a short 880 Hz sine blip on beat 1, then 440 Hz on the other beats. The playhead waits until the count-in finishes. Notes pressed early and still held when recording begins are recorded from the recording start; notes released entirely during the count-in are not recorded.`,
+          `With Record armed, ${k('Space')} over the pianoroll records from the pointer, or ${k('/')} records from the clip start and overdubs on every loop. Play starts with a one-measure count-in in the time signature at that position, with the metronome sound. The playhead waits until the count-in finishes. Notes pressed early and still held when recording begins are recorded from the recording start; notes released entirely during the count-in are not recorded.`,
           `Play your MIDI controller to record pitches, velocities and durations without quantization. Notes are added on release; notes held across a loop are split at the boundary. The clip's Send to target monitors the input while armed. ${k("'")}, the stop button or ${k('Space')} stops and disarms recording. Normal recording continues past the original clip and song end without looping; the clip grows while recording, then ends at the first barline at or after the final note end (including existing notes). An empty take keeps the original length. Loop recording keeps its fixed clip length and overdubs on every pass. Click Record again to disarm; changing clip or Patch level ends the take. Undo removes the take, including length changes.`,
         ],
       },
@@ -412,7 +413,7 @@ export const GUIDE = [
       ['click / drag', 'Pianoroll: insert a note / set its duration'],
       [`${k('Shift')} + drag, ${k('right')} + drag`, 'Pianoroll: selection rectangle'],
       [`${k(CMD)} + click`, 'Pianoroll: toggle a note in the selection'],
-      [`${k('Shift')} + drag a circle sideways`, 'Pianoroll: micropitch, tune the note in cents'],
+      [`${k('Shift')} + drag a notehead sideways`, 'Pianoroll: micropitch, tune the note in cents'],
       ['double-click a selected note\'s body', 'Pianoroll: add a pitch bend point (drag it; wheel rounds it, right-click deletes it)'],
       [`${k('Alt')} + drag`, 'Pianoroll: clone and move a note'],
       ['short right-click', 'Pianoroll: delete the note (empty space: deselect)'],
@@ -423,7 +424,6 @@ export const GUIDE = [
       [k('Shift', 'Q'), 'Pianoroll: quantize note starts and ends'],
       [`${k(CMD, 'A')} / ${k('Esc')}`, 'Pianoroll: select all / clear the selection'],
       [`${k('Backspace')} ${k('Delete')}`, 'Pianoroll: delete the selected notes'],
-      [k('Space'), 'Pianoroll: play from the pointer'],
       [`${k(CMD)} + wheel`, 'Pianoroll: zoom time'],
       [`${k('Shift')} + wheel`, 'Pianoroll: zoom pitch (keys and stave)'],
       [`${k('Middle mouse')} drag`, 'Pianoroll: pan (sideways too when zoomed in)'],
@@ -456,16 +456,9 @@ export const GUIDE = [
       {
         title: 'Arrange automation with notes',
         items: [
-          'Select, move, trim, copy and arrange automation clips in the TimeLine alongside note clips. The shared clip operations, Grid, lanes, ruler and transport are described in <b>Pianoroll and Timeline</b>.',
+          'Select, move, trim, copy and arrange automation clips in the TimeLine alongside note clips. The shared clip operations, Grid, lanes, ruler, playback and recording are described in <b>Pianoroll and Timeline</b>.',
           'While playing, the clip drives the controller like an LFO; after the clip the controller keeps the last value the clip gave it.',
           'Automation goes first: a note that starts together with an automation clip (or anywhere inside it) already hears the clip\'s value, also in EXPORT WAV, so the controller does not jump just after the note starts.',
-        ],
-      },
-      {
-        title: 'Play automation',
-        items: [
-          `${k('Space')} over the automation lane plays the song from the pointer's snapped time; press it again to stop.`,
-          `${k('/')} loops the selected clip's time range with everything else that plays there. Clips in idea storage do not play with the song; looping an idea plays it solo.`,
         ],
       },
     ],
@@ -477,14 +470,12 @@ export const GUIDE = [
       ['drag ruler up / down', 'zoom time around the grab position'],
       ['wheel on a point', 'round its corner'],
       [`right-click / ${k('Backspace')}`, 'delete a point'],
-      [k('Space'), 'play from the pointer / stop'],
-      [k('/'), 'loop the selected clip'],
     ],
   },
   {
     id: 'workspace',
     title: 'Workspace & files',
-    intro: 'Projects, export and the window layout.',
+    intro: 'Projects, export, the window layout and the spectrum analyser.',
     steps: [
       {
         title: 'Main menu',
@@ -494,26 +485,16 @@ export const GUIDE = [
           '<b>Preferences…</b> has a category list on the left. <b>Interface > Wood Tint</b> previews any RGB tint on the wooden frame, dividers, controls and dialogs without changing module colors. <b>OK</b> remembers it on this device; <b>Cancel</b> or Escape restores the saved tint. <b>Reset to default</b> previews the default tint.',
           `Projects are <b>.phproject</b> files (older .mds / .json projects open too). The file name shows in the status bar and the window title, with <b>•</b> for unsaved changes; New and Open ask to save them first: ${k('Enter')} Yes, ${k('Backspace')} No, ${k('Esc')} Cancel. Every change is also autosaved, so the app starts with your latest project.`,
           'Project, module and clip files are saved as compact JSON to save disk space. Older formatted files still open.',
-          '<b>Preferences… > MIDI > MIDI Input</b> picks the MIDI controller; <i>Auto</i> uses every input except Linux\'s <i>Midi Through</i>, <b>Re-scan MIDI Inputs</b> finds newly plugged-in devices and retries access. Changes preview immediately; OK saves the input on this device, Cancel restores it. Disconnected saved controllers remain listed.',
-          `${k('Esc')} (when nothing else is open) goes up one patch level. In the main patch it asks <b>Exit to OS?</b>: ${k('Enter')} saves and closes, ${k('Esc')} cancels.`,
-        ],
-      },
-      {
-        title: 'Custom keyboard shortcuts',
-        items: [
-          'Right-click a button or an action in a menu to open <b>Learn keyboard shortcut</b>. The current shortcut, if assigned, is shown in bold. Press a key or combination such as <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>A</kbd>; the first available combination is saved automatically. <b>Cancel</b> or Escape leaves the mapping unchanged.',
-          'Conflicting shortcuts are explained in the dialog; choose a different combination. Editor menu actions use the current selection and pointer in the focused editor, not the item originally right-clicked. Button shortcuts operate on the currently visible button. Transport shortcuts work across workspace areas, even when a button has keyboard focus; Space plays / stops instead of activating that button. Shortcuts do not interfere with typing in text fields, except modified global menu commands, and transport shortcuts pause while a modal dialog is open.',
-          'TimeLine <b>Insert clip</b>, <b>Insert automation clip</b> and <b>Load Clip…</b> shortcuts remain available with a clip selected. Move the pointer to the desired position in the TimeLine before using them.',
-          'A custom shortcut replaces the action\'s default keys. Right-click the action again and choose <b>Restore default</b> to undo its mapping, or use <b>Preferences… > Keyboard > Custom shortcuts > Reset to default</b> and save to reset all mappings. Mappings are device preferences, not project data.',
-          'Escape, Tab and F11 remain reserved for navigation and full screen. Unmodified piano keys assigned to actions trigger those actions instead of playing notes. Some browser and operating-system combinations cannot be captured.',
+          'File dialogs remember their folder per kind (projects opened, projects saved, clips, modules). In the desktop Open and Save dialogs, right-click a file or folder to cut, copy, paste, rename or delete it; right-click a folder to paste into it, or empty space to paste into the current folder. Deletion is permanent: files require one confirmation and folders two, including for all their contents.',
+          `In the main patch, ${k('Esc')} (when nothing else is open) asks <b>Exit to OS?</b>: ${k('Enter')} saves and closes, ${k('Esc')} cancels.`,
         ],
       },
       {
         title: 'Export audio',
         items: [
-          'Renders the song offline from its start to the end of the last clip plus up to 10 s of tail. Choose WAV (24-bit stereo at the device sample rate), MP3 (maximum 320 kbps), or Ogg Vorbis (maximum quality 10) in the save picker, or type the corresponding extension. Browsers without a native save picker download WAV. Encoding is local and cancellable. The status bar warns when the mix clips. Export formats do not change sampler storage.',
-          'After choosing the file, select <b>Original Dynamics</b> to keep the original output level (peaks above 0 dBFS clip), or <b>Peak Normalization</b> to scale the entire stereo mix to a -1 dBFS sample peak before encoding. Normalization preserves relative dynamics and stereo balance without compression; silence stays silent. It does not match perceived loudness between projects, repair existing distortion or guarantee the peak after MP3/Ogg encoding. Cancel or Escape stops the export without writing a file.',
-          'The non-blocking export dialog shows rendering progress, then encoding and writing; normal playback and editing can continue. <b>Cancel</b> stops the export. When it is done the dialog closes by itself; the status bar shows the file, length and a clipping warning if any. Browser downloads then still need to finish in your browser downloads.',
+          'Renders the song offline from its start to the end of the last clip plus up to 10 s of tail. Choose WAV (24-bit stereo at the device sample rate), MP3 (maximum 320 kbps), or Ogg Vorbis (maximum quality 10) in the save picker, or type the corresponding extension. Browsers without a native save picker download WAV. Encoding is local. Export formats do not change sampler storage.',
+          'After choosing the file, select <b>Original Dynamics</b> to keep the original output level (peaks above 0 dBFS clip), or <b>Peak Normalization</b> to scale the entire stereo mix to a -1 dBFS sample peak before encoding. Normalization preserves relative dynamics and stereo balance without compression; silence stays silent. It does not match perceived loudness between projects, repair existing distortion or guarantee the peak after MP3/Ogg encoding.',
+          'The non-blocking export dialog shows rendering progress, then encoding and writing; normal playback and editing can continue. <b>Cancel</b> or Escape stops the export without writing a file. When it is done the dialog closes by itself; the status bar shows the file, length and a clipping warning if any. Browser downloads then still need to finish in your browser downloads.',
         ],
       },
       {
@@ -527,13 +508,17 @@ export const GUIDE = [
       {
         title: 'Layout',
         items: [
-          'Piano roll, patcher and TimeLine are stacked top to bottom. Drag a divider up / down to resize the panes (to an edge hides a pane), left / right to resize this controller panel. The patcher keeps the same patch position centred as its viewport resizes; the TimeLine likewise keeps the same time and lane position centred, without changing zoom. Arrow keys, Home and End move a focused divider. Positions are saved with the project.',
-          'In the desktop Open and Save dialogs, right-click a file or folder to cut, copy, paste, rename or delete it. Right-click a folder to paste into it, or empty space to paste into the current folder. Deletion is permanent: files require one confirmation and folders require two, including for all their contents.',
+          'Pianoroll, patcher and TimeLine are stacked top to bottom. Drag a divider up / down to resize the panes (to an edge hides a pane), left / right to resize this controller panel. The patcher keeps the same patch position centred as its viewport resizes; the TimeLine likewise keeps the same time and lane position centred, without changing zoom. Arrow keys, Home and End move a focused divider. Positions are saved with the project.',
           'The upper divider holds the clip name, <i>Send to</i>, the Grid and Free timing; their names (<i>Clip:</i>, <i>Send to:</i>, <i>Input Grid:</i>) drag the divider too. When it is too narrow, move the pointer along it to reveal its controls. The lower divider shows the patch path on the left and the TimeLine transport buttons and play position immediately left of the clock on the right.',
-          'The <b>Spectrum Analyser</b> icon button in the top-right corner of the patcher switches the transparent spectrogram on or off. It defaults to off for new projects. It always fills the patcher viewport, above the noise background but below modules and cables, without padding or scrolling. Switching it does not move the camera. Turning it off disables audio monitoring and spectrum processing; analysis also pauses when the patcher or application tab is hidden. All-zero spectrum windows skip FFT and colour calculations while transparent rows continue scrolling old sound out of view. The on/off state is saved with the project.',
-          '<b>Preferences… > Spectrum Analyser > Spectrum Analyser FFT size</b> sets the window to 512–32768 samples in powers of two (default 4096). Larger windows distinguish nearby frequencies more precisely but respond more slowly and use more CPU. Changes preview live, preserve displayed history, and are saved for the app rather than the project; Cancel restores the saved size.',
-          '<b>Preferences… > Spectrum Analyser > Spectrum Analyser speed</b> adjusts scrolling from 0.25 to 4 times normal speed (default 1), in either flow direction. The analyser updates at approximately 20 frames per second to limit CPU usage. It previews live and is saved for the app; Cancel restores the saved speed.',
-          'Analyse monitors the selected audio module, even when uncabled, without routing it to the speakers. With several modules selected, it shows the first audio-capable selection; with no audio-capable module selected (including MIDI-only/controller-only selections), it shows the current Patch level’s Output after Master volume. <b>Preferences… > Spectrum Analyser > Spectrum Analyser flow direction</b> chooses Top to bottom (the default, like rain) or Bottom to top. New rows enter at the opposite edge to the flow direction. This preference previews live and is saved for the app, not the project. Frequency labels stay along the bottom of the patcher in either direction. Brightness indicates strength over a -100 to 0 dBFS range; colour follows the Wood Tint preference for new rows, and silence stays transparent. Switching modules preserves history and repeats the last spectrum rows to keep scrolling while the new input fills its spectrum window. The spectrogram, frequency grid and numbers sit above the Perlin noise background but below modules and cables. Frequency runs logarithmically from 20 Hz to 20 kHz (limited by sample rate), combining stereo energy without phase cancellation. The analyser does not change the sound. Audio cables continue to warn of clipping.',
+        ],
+      },
+      {
+        title: 'Spectrum Analyser',
+        items: [
+          'The <b>Spectrum Analyser</b> icon button in the top-right corner of the patcher switches the transparent spectrogram on or off; it is off for new projects and the state is saved with the project. The spectrogram fills the patcher viewport, above the noise background but below modules and cables, and switching it does not move the camera. When it is off, audio monitoring and spectrum processing stop; analysis also pauses while the patcher or application tab is hidden.',
+          'It analyses the selected audio module, even when uncabled, without routing it to the speakers. With several modules selected it shows the first audio-capable one; with none (including MIDI-only or controller-only selections) it shows the current Patch level’s Output after Master volume. Switching modules keeps the history scrolling while the new input fills its window. The analyser does not change the sound, and audio cables still warn of clipping.',
+          'Frequency runs logarithmically from 20 Hz to 20 kHz (limited by the sample rate), with labels along the bottom of the patcher; stereo energy is combined without phase cancellation. Brightness shows strength over a -100 to 0 dBFS range, the colour follows the Wood Tint preference, and silence stays transparent.',
+          '<b>Preferences… > Spectrum Analyser</b> sets the <b>FFT size</b> (512–32768 samples in powers of two, default 4096: larger windows separate nearby frequencies more precisely but respond more slowly and use more CPU), the <b>speed</b> (0.25 to 4 times normal, default 1; the analyser draws about 20 frames per second) and the <b>flow direction</b> (Top to bottom, the default, or Bottom to top; new rows enter at the opposite edge). These preview live, keep the displayed history and are saved for the app rather than the project; Cancel restores the saved values.',
         ],
       },
     ],

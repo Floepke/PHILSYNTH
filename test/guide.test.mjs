@@ -19,10 +19,10 @@ const text = (id) => JSON.stringify(GUIDE.find((t) => t.id === id));
 for (const topic of ['MULTIMIDI', 'micropitch', 'pitch bends', 'velocity fading', 'sound colour', 'Klavarskribo', 'MPE', 'ten years', 'SunVox', 'Alexander Zolotov', 'modern development tools']) assert.ok(text('about').includes(topic), `about: ${topic}`);
 for (const topic of ['controller area', 'show this manual', 'Right-click a button', 'Learn keyboard shortcut', 'Restore default']) assert.ok(text('interface').includes(topic), `interface: ${topic}`);
 for (const topic of ['Shift</kbd> + drag', 'Alt</kbd> + drag', 'Snap to Grid', 'F2', 'Save module', 'Input Module', 'Ctrl/Cmd</kbd> + <kbd>Z']) assert.ok(text('patcher').includes(topic), `patcher: ${topic}`);
-for (const topic of ['<b>Clip</b> field', 'Grid', 'Free timing', 'Piano roll:', 'TimeLine:', 'Save Clip', 'selection rectangle', 'end line', 'velocity', 'Right-click empty space', 'hold the right mouse button', 'Q</kbd>', 'Left</kbd>', 'Play and record']) assert.ok(text('timeline').includes(topic), `timeline: ${topic}`);
+for (const topic of ['<b>Clip</b> field', 'Grid', 'Free timing', 'Pianoroll:', 'TimeLine:', 'Save Clip', 'selection rectangle', 'end line', 'velocity', 'Right-click empty space', 'hold the right mouse button', 'Q</kbd>', 'Left</kbd>', 'Play and record']) assert.ok(text('timeline').includes(topic), `timeline: ${topic}`);
 for (const topic of ['Double right-click', 'Send to', 'Controller', 'Double-click', 'rounds its corner', 'Free timing', 'keep snapping', 'keeps the last value', 'Automation goes first', 'Pianoroll and Timeline']) assert.ok(text('automation').includes(topic), `automation: ${topic}`);
 const patcherKeys = GUIDE.find((t) => t.id === 'patcher').keys;
-assert.ok(patcherKeys.some(([keys, action]) => keys.includes('Shift</kbd> + drag empty canvas') && action === 'pan, zoom'), 'patcher: Shift-drag pans');
+assert.ok(patcherKeys.some(([keys, action]) => keys.includes('Shift</kbd> + drag empty canvas') && action === 'pan'), 'patcher: Shift-drag pans');
 assert.ok(patcherKeys.some(([keys, action]) => keys.startsWith('drag empty canvas') && action === 'selection rectangle'), 'patcher: plain drag selects');
 assert.ok(text('patcher').includes('zooms around the pointer on every platform'), 'patcher: wheel zoom is documented');
 

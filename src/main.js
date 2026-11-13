@@ -1245,6 +1245,19 @@ initMouseNavigation(window, () => {
   }
 });
 
+// Text selected in the controller panel (e.g. the manual) is copied as text. The desktop app has no
+// Edit menu, so Cmd/Ctrl + C would otherwise copy nothing there.
+function copyPanelText() {
+  const selection = document.getSelection();
+  if (!selection || selection.isCollapsed || !selection.rangeCount) return false;
+  const range = selection.getRangeAt(0);
+  if (!panelScroller.contains(range.commonAncestorContainer)) return false;
+  const text = selection.toString();
+  if (!text.trim()) return false;
+  if (!document.execCommand?.('copy')) navigator.clipboard?.writeText(text).catch(() => {});
+  return true;
+}
+
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !document.querySelector('dialog[open]')) {
     if (e.repeat) return;
@@ -1272,6 +1285,10 @@ window.addEventListener('keydown', (e) => {
   if (command && k === 'a') {
     e.preventDefault();
     selectEntries([...current().modules.values()]);
+    return;
+  }
+  if (command && !e.shiftKey && k === 'c' && copyPanelText()) {
+    e.preventDefault();
     return;
   }
   // only while the patcher has focus: elsewhere Cmd/Ctrl + C copies text as usual
