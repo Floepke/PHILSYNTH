@@ -121,6 +121,33 @@ const engine = {
   r.destroy();
 }
 
+// editsJSON (unsaved-changes check) leaves out controllers that move by themselves: driven by a
+// modulator (inside a Patch too, with the Patch's mapped controller following it) or an automation clip.
+{
+  const { dsp: audio } = dspTestHost();
+  const r = await PatchRuntime.create({ ctx, dsp: audio }, audio.destination);
+  const osc = await r.addModule('OSC');
+  const folder = await r.addModule('PATCH');
+  const inner = folder.inst.patch;
+  const iosc = await inner.addModule('OSC');
+  const lfo = await inner.addModule('LFO');
+  const duty = controllerNumber(paramsOf(iosc).find((p) => p.id === 'duty'), paramsOf(iosc).findIndex((p) => p.id === 'duty'));
+  inner.connect(lfo.id, iosc.id);
+  inner.setParam(lfo.id, 'outController', duty);
+  r.setState(folder.id, { maps: [{ key: 'map1', module: iosc.id, param: 'duty' }] });
+  const gain = paramsOf(osc).findIndex((p) => p.id === 'gain');
+  const song = { clips: [{ kind: 'auto', target: osc.id, controller: controllerNumber(paramsOf(osc)[gain], gain) }] };
+  const { json } = r.editsJSON(song);
+  const mod = (j, id) => j.modules.find((m) => m.id === id);
+  const innerJSON = mod(json, folder.id).patch;
+  assert.equal('duty' in mod(innerJSON, iosc.id).values, false, 'LFO-driven controller left out');
+  assert.equal('wave' in mod(innerJSON, iosc.id).values, true, 'other controllers kept');
+  assert.equal('map1' in mod(json, folder.id).values, false, 'mapped controller following a driven one left out');
+  assert.equal('gain' in mod(json, osc.id).values, false, 'automated controller left out');
+  assert.equal('duty' in mod(mod(r.toJSON(), folder.id).patch, iosc.id).values, true, 'the saved file keeps them');
+  r.destroy();
+}
+
 // All Out Controller modules expose/save output smoothing without renumbering old controllers.
 {
   const types = ['LFO', 'ADSR', 'ENVELOPE', 'VELOCITY2CTL', 'PITCH2CTL', 'SOUND2CTL'];

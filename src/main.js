@@ -285,12 +285,18 @@ canvas.addEventListener('auxclick', (e) => { if (e.button === 1) e.preventDefaul
 
 // ---- persistence ----
 // The project file (main menu: New / Open / Save / Save As). Unsaved = the project differs from
-// what was last opened or saved; view and selection changes do not count.
+// what was last opened or saved; view and selection changes do not count, nor do controllers a
+// modulator (LFO, …) or an automation clip moves while playing (PatchRuntime.editsJSON).
+// The same content decides when an undo step is made.
+function projectEdits(project = engine.saveProject()) {
+  project = { ...project, patch: engine.root.editsJSON(engine.song).json };
+  // a clip's remembered piano-roll / lane scroll and zoom (editorView) is view state too,
+  // in the song and in the TimeLines inside Patch modules
+  const noViews = (k, v) => (k === 'editorView' ? undefined : v);
+  return JSON.stringify({ ...project, song: { ...project.song, selected: null } }, noViews);
+}
 const projectFile = createProjectFile({
-  fingerprint() {
-    const project = engine.saveProject();
-    return { ...project, song: { ...project.song, selected: null } };
-  },
+  fingerprint: () => JSON.parse(projectEdits()),
   serialize: () => jsonFileText(withSamples({ ...engine.saveProject(), view: viewState() })),
   backend: pickBackend(window, $('file')),
   onChange: showDocument,
@@ -300,7 +306,7 @@ function showDocument({ name, ref, dirty }) {
   el.textContent = name;
   el.classList.toggle('dirty', dirty);
   const where = typeof ref === 'string' && !/^(fsa|download):/.test(ref) ? ref : name;
-  el.title = dirty ? `${where} (unsaved changes)` : where;
+  el.title = `${dirty ? `${where} (unsaved changes)` : where} — click to save`;
   document.title = `${dirty ? '• ' : ''}${name} — PHILSYNTH`;
 }
 // Autosave: the latest state always comes back on start, with its file name and unsaved state.
@@ -1567,6 +1573,8 @@ const openFile = () => fileCommand('Open', async () => {
   if (name) $('status').textContent = `Opened ${name}`;
 });
 const saveCommand = (as) => fileCommand(as ? 'Save As' : 'Save', () => saveFile(as));
+// the status bar's file name (and its unsaved dot) saves the project
+$('doc-name').addEventListener('click', () => saveCommand(false));
 
 const brand = $('brand');
 let mainMenuOpen = false;
@@ -1936,6 +1944,8 @@ undoHistory = createHistory({
     const project = engine.saveProject();
     return { ...project, song: { ...project.song, selected: null } };
   },
+  // only edits make an undo step: not selection, scrolling or values a modulator moves
+  key: (project) => projectEdits(project),
   async restore(project) {
     const ids = path.slice(1).map((level) => level.id);
     const cameras = path.map((level) => level.cam);

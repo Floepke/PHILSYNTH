@@ -1,7 +1,8 @@
 const DEFAULT_LIMIT = 200;
 const DEFAULT_DELAY = 300;
 
-export function createHistory({ capture, restore, limit = DEFAULT_LIMIT, delay = DEFAULT_DELAY }) {
+// key(state): what counts as a change; a snapshot with the same key as the current step is no new step
+export function createHistory({ capture, restore, key = (state) => JSON.stringify(state), limit = DEFAULT_LIMIT, delay = DEFAULT_DELAY }) {
   let stack = [];
   let index = -1;
   let timer = null;
@@ -10,14 +11,17 @@ export function createHistory({ capture, restore, limit = DEFAULT_LIMIT, delay =
   let groups = 0;
   let pending = false;
 
-  const snapshot = () => JSON.stringify(capture());
+  const snapshot = () => {
+    const state = capture();
+    return { json: JSON.stringify(state), key: key(state) };
+  };
   const clearTimer = () => {
     if (timer !== null) clearTimeout(timer);
     timer = null;
   };
   const commit = () => {
     const next = snapshot();
-    if (next === stack[index]) return;
+    if (next.key === stack[index]?.key) return;
     stack.length = index + 1;
     stack.push(next);
     if (stack.length > limit) stack.shift();
@@ -76,7 +80,7 @@ export function createHistory({ capture, restore, limit = DEFAULT_LIMIT, delay =
       if (next < 0 || next >= stack.length) return false;
       restoring = true;
       try {
-        await restore(JSON.parse(stack[next]));
+        await restore(JSON.parse(stack[next].json));
         index = next;
         return true;
       } finally {

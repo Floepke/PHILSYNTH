@@ -685,6 +685,36 @@ export class PatchRuntime {
     };
   }
 
+  // toJSON() for the unsaved-changes check (main.js): controllers that move by themselves while
+  // playing are left out, as they are no edits: those driven by a modulator or by an automation
+  // clip of this level's song (`song`: the root's lives in the engine), and a Patch module's mapped
+  // controller that follows such a controller inside. Returns { json, moving: Set of 'id pid' }.
+  editsJSON(song = this._song) {
+    const json = this.toJSON();
+    const moving = new Set();
+    for (const c of song?.clips ?? []) {
+      if (c.kind !== 'auto') continue;
+      const t = this.modules.get(c.target);
+      const p = t && controllerAt(paramsOf(t), c.controller | 0);
+      if (p) moving.add(`${t.id} ${p.id}`);
+    }
+    for (const m of json.modules) {
+      const e = this.modules.get(m.id);
+      if (m.patch && e?.inst.patch) {
+        const inner = e.inst.patch.editsJSON();
+        m.patch = inner.json;
+        for (const map of e.state?.maps ?? []) if (inner.moving.has(`${map.module} ${map.param}`)) moving.add(`${m.id} ${map.key}`);
+      }
+      for (const pid of Object.keys(m.values)) {
+        if (moving.has(`${m.id} ${pid}`) || this.isDriven(m.id, pid, true)) {
+          moving.add(`${m.id} ${pid}`);
+          delete m.values[pid];
+        }
+      }
+    }
+    return { json, moving };
+  }
+
   async load(data) {
     this.validateInstanceTree(data);
     [...this.modules.keys()].forEach((id) => this.removeModule(id));

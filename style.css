@@ -1085,7 +1085,8 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   text-overflow: ellipsis;
 }
 #tip { color: var(--text); }
-.doc-name { flex: none; overflow: hidden; max-width: 32vw; color: var(--text-dim); text-overflow: ellipsis; white-space: nowrap; }
+.doc-name { flex: none; overflow: hidden; max-width: 32vw; color: var(--text-dim); text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.doc-name:hover { color: var(--text); }
 .doc-name.dirty::after { content: ' •'; color: var(--text); }
 #status[hidden], #tip[hidden] { display: none; }
 #cpu {

@@ -37,7 +37,7 @@ app.whenReady().then(async () => {
         const path = resolve(root, '.' + new URL(req.url, 'http://localhost').pathname);
         if (path !== root && !path.startsWith(root + sep)) throw new Error('Invalid path');
         let body = path === root ? index : await readFile(path);
-        if (path === resolve(root, 'src/main.js')) body += '\nwindow.exportTest = { engine, seq, exportAudio };\n';
+        if (path === resolve(root, 'src/main.js')) body += '\nwindow.exportTest = { engine, seq, exportAudio, projectFile };\n';
         res.writeHead(200, { 'Content-Type': /\.(m?js)$/.test(path) ? 'text/javascript'
           : path.endsWith('.css') ? 'text/css' : path.endsWith('.wasm') ? 'application/wasm' : 'text/html' });
         res.end(body);
@@ -108,7 +108,21 @@ app.whenReady().then(async () => {
     }
     assert.equal(await run('window.writes.length'), 4);
     assert.equal(await run("document.getElementById('status').textContent.includes('Clipped:')"), false);
-    console.log('Audio export level dialog and worker UI tests passed (WAV, MP3, Ogg)');
+    // clicking the status bar's file name (or its unsaved dot) saves the project
+    await run(`window.saves = 0; window.exportTest.projectFile.save = async () => { window.saves++; return 'song.phproject'; };
+      document.getElementById('doc-name').click(); void 0`);
+    await waitFor('window.saves === 1');
+    await waitFor("document.getElementById('status').textContent === 'Saved song.phproject'");
+    // once saved, scrolling / zooming the piano roll (a clip's editorView) does not bring the dot back
+    await run(`(() => {
+      const { engine, projectFile } = window.exportTest;
+      projectFile.reset('song.phproject');
+      engine.song.clips[0].editorView = { sy: 300, ppq: 96 };
+    })()`);
+    assert.equal(await run('window.exportTest.projectFile.isDirty()'), false, 'piano roll scroll / zoom is not an unsaved change');
+    await run('window.exportTest.engine.song.clips[0].notes.push({ pitch: 64, start: 0.5, length: 0.25, vel: 0.8 }); void 0');
+    assert.equal(await run('window.exportTest.projectFile.isDirty()'), true, 'a note edit still is');
+    console.log('Audio export (WAV, MP3, Ogg) and status bar save UI tests passed');
   } finally {
     win?.destroy();
     if (server) await new Promise(resolve => server.close(resolve));
