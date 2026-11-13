@@ -4,8 +4,11 @@
 // scopes and meters work) are rendered by up to POOL_MAX workers (src/dsp/instanceworker.js),
 // within the same render quantum, so no latency is added.
 //
-// Each instance copy is a partition (`part`, see src/patch.js): its modules go to worker
-// (part - 1) % workers. In the audio thread's Graph they stay as remote nodes (same handle,
+// Each instance copy is a partition (`part`, see src/patch.js): all its modules go to one worker
+// (InstancePool.take). A worker takes PER_WORKER copies before the next idle one is woken, then
+// new copies go to the busy worker with the fewest: a woken worker costs a hand-off per quantum
+// and is one more chance of a late block (the OS may pause a worker for a few ms; the audio thread
+// has real-time priority, workers don't). In the audio thread's Graph they stay as remote nodes (same handle,
 // topology and output buffers, a forwarding kernel) so the order and the cables work as before.
 // Audio crossing the border uses shared slots:
 //   import: an audio-thread node cabled into a remote node (e.g. the PATCH input into an
@@ -28,7 +31,8 @@
 // can't go as JSON (typed arrays, non-finite numbers) or don't fit go by MessagePort; every batch
 // has a sequence number so the worker applies them in order.
 const BLOCK = 128;
-export const POOL_MAX = 4;
+export const POOL_MAX = 6;
+const PER_WORKER = 4;
 export const SLOTS = 64; // imports and exports per worker
 const RING = 1 << 16; // UTF-16 code units
 const DEADLINE = 0.7; // of a quantum's duration
@@ -47,8 +51,12 @@ const DEAD_BLOCKS = 4000; // a worker that hasn't finished for this long is give
 const budgetMs = () => DEADLINE * (BLOCK / sampleRate) * 1000;
 const now = globalThis.performance?.now ? () => performance.now() : () => Date.now();
 
-// workers worth starting on this machine (the audio thread and the main thread keep a core each)
-export const poolSize = (cores = globalThis.navigator?.hardwareConcurrency ?? 1) => Math.min(POOL_MAX, Math.max(0, cores - 2));
+// Workers worth starting on this machine. `cores` are logical processors (hardwareConcurrency):
+// with hyperthreading about half are real cores, and two workers on one core barely beat one.
+// The audio thread and the main thread keep a core each. Measured on 8 cores / 16 threads (see
+// README): beyond about 6 workers the audio thread's load hardly drops while late blocks rise.
+export const poolSize = (cores = globalThis.navigator?.hardwareConcurrency ?? 1) =>
+  Math.max(0, Math.min(POOL_MAX, Math.max(Math.min(cores - 2, 2), Math.floor(cores / 2) - 1)));
 
 function views(sab) {
   const slots = (at) => Array.from({ length: SLOTS }, (_, i) => [
@@ -150,13 +158,15 @@ class PoolLink {
   }
 
   kick(block, deadline) {
+    const behind = this.late || this.lag; // the last quantum wasn't finished in time
     this.kicked = false;
     this.late = false;
     this.deadline = deadline;
     if (this.dead || !Atomics.load(this.ctrl, READY)) return;
     // the worker publishes its exports before it stores DONE: it is about to finish (unless it
-    // has been lagging already: then it isn't waited for)
-    const done = this.lag ? Atomics.load(this.ctrl, DONE) === this.last : await_(this.ctrl, DONE, this.last, deadline);
+    // was behind already: then it isn't waited for, so a stalled worker costs the audio thread
+    // one deadline, not one per quantum)
+    const done = behind ? Atomics.load(this.ctrl, DONE) === this.last : await_(this.ctrl, DONE, this.last, deadline);
     if (!done) {
       if (++this.lag > DEAD_BLOCKS) { this.dead = true; this.queue = []; }
       return;
@@ -194,9 +204,31 @@ export class InstancePool {
   constructor({ sabs, ports }, { budget = null } = {}) {
     this.budget = budget;
     this.links = sabs.map((sab, i) => new PoolLink(sab, ports[i]));
+    this.parts = new Map(); // part -> { link, nodes }
   }
 
-  linkFor(part) { return this.links[(part - 1) % this.links.length]; }
+  // the worker for a node of `part` (null: none left, render it here); drop(part) when removed
+  take(part) {
+    let p = this.parts.get(part);
+    if (!p) {
+      const live = this.links.filter((l) => !l.dead);
+      if (!live.length) return null;
+      const load = new Map(live.map((l) => [l, 0]));
+      for (const q of this.parts.values()) if (load.has(q.link)) load.set(q.link, load.get(q.link) + 1);
+      const busy = live.filter((l) => load.get(l));
+      const want = Math.min(live.length, Math.ceil((this.parts.size + 1) / PER_WORKER));
+      const link = busy.length < want ? live.find((l) => !load.get(l))
+        : busy.reduce((a, b) => (load.get(b) < load.get(a) ? b : a));
+      this.parts.set(part, p = { link, nodes: 0 });
+    }
+    p.nodes++;
+    return p.link;
+  }
+
+  drop(part) {
+    const p = this.parts.get(part);
+    if (p && !--p.nodes) this.parts.delete(part);
+  }
 
   broadcast(op) { for (const l of this.links) if (l.nodes) l.post(op); }
 

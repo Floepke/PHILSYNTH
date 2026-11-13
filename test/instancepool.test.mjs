@@ -15,9 +15,31 @@ const { PatchRuntime } = await import('../src/patch.js');
 const bytes = new Uint8Array(readFileSync(new URL('../src/dsp/modsynth.wasm', import.meta.url)));
 const BUDGET = 5000; // ms: a slow test machine must not change the result
 
-assert.equal(poolSize(1), 0);
-assert.equal(poolSize(4), 2);
-assert.equal(poolSize(16), 4, 'at most 4 workers');
+// logical processors -> workers: about half are real cores, two stay with the audio and main thread
+assert.deepEqual([1, 2, 3, 4, 6, 8, 12, 16, 32].map((c) => poolSize(c)), [0, 0, 1, 2, 2, 3, 5, 6, 6]);
+
+// assignment: a worker takes 4 copies before the next one wakes, then the least busy one; every
+// node of a copy goes to the same worker and a deleted copy frees its place
+{
+  const fake = (n) => new InstancePool({ sabs: Array.from({ length: n }, () => new SharedArrayBuffer(POOL_BYTES)), ports: Array(n).fill(null) });
+  const p = fake(3);
+  const at = (part) => p.links.indexOf(p.take(part));
+  assert.deepEqual([1, 2, 3, 4].map(at), [0, 0, 0, 0], 'the first 4 copies share one worker');
+  assert.equal(at(1), 0, 'a copy keeps its worker');
+  assert.deepEqual([5, 6, 7, 8, 9, 10, 11, 12, 13, 14].map(at), [1, 1, 1, 1, 2, 2, 2, 2, 0, 1], 'more copies wake more workers, then spread');
+  const count = (w) => [...p.parts.values()].filter((q) => q.link === p.links[w]).length;
+  assert.deepEqual([0, 1, 2].map(count), [5, 5, 4]);
+  p.drop(1);
+  assert.equal(at(1), 0, 'one of two nodes of copy 1 removed: the copy stays');
+  p.drop(1); p.drop(1);
+  for (const part of [5, 6, 7, 8]) p.drop(part);
+  assert.deepEqual([0, 1, 2].map(count), [4, 1, 4]);
+  assert.equal(at(20), 1, 'a new copy fills the emptied worker');
+  p.links[1].dead = true;
+  assert.deepEqual([21, 22].map(at), [0, 2], 'a dead worker gets no new copies');
+  for (const l of p.links) l.dead = true;
+  assert.equal(p.take(23), null, 'no worker left: the node renders on the audio thread');
+}
 
 async function startWorkers(n, wasm) {
   const workers = [];
@@ -182,7 +204,8 @@ async function patchScene(graph) {
   assert.deepEqual(pool.errors, []);
   const remote = [...pooled.nodes.values()].filter((n) => n.link);
   assert.ok(remote.length >= 14, `PATCH copies render remotely (${remote.length} nodes)`);
-  assert.equal(new Set(remote.map((n) => n.link)).size, 4, 'spread over all 4 workers');
+  const per = pooled.pool.links.map((l) => new Set(remote.filter((n) => n.link === l).map((n) => n.part)).size);
+  assert.deepEqual(per, [4, 3, 0, 0], '7 copies wake 2 workers');
   same(expected, got, 'PATCH instances');
   await Promise.all(pool.workers.map((w) => w.terminate()));
   console.log('PATCH instances: pooled render matches');

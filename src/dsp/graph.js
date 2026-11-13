@@ -127,10 +127,11 @@ export class Graph {
     const K = this.kernels[kind];
     if (!K) throw new Error(`Unknown DSP kernel: ${kind}`);
     const remote = this.pool && part > 0 && !K.modulator && !K.external && K.audio !== false && !K.audioThrough;
-    const link = remote ? this.pool.linkFor(part) : null;
+    const link = remote ? this.pool.take(part) : null;
     const node = {
       h, kind, k: link ? link.proxy(h) : new K(opts ?? {}),
       link, // remote: the worker it renders on
+      part,
       stand: null, // { io, slot }: outs come from another thread (an export / a worker's import)
       taps: null, // [{ io, slot }]: outs go to other threads after rendering
       srcs: [], dsts: [],
@@ -223,7 +224,7 @@ export class Graph {
     const node = this.nodes.get(h);
     if (!node || node === this.master) return;
     node.k.destroy?.();
-    if (node.link) { node.link.nodes--; node.link.post(['del', h]); }
+    if (node.link) { node.link.nodes--; node.link.post(['del', h]); this.pool.drop(node.part); }
     this.meters.delete(node);
     this.sinks.delete(node);
     if (node.rec) this.x.ms_node_free(node.rec);

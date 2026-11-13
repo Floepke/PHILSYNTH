@@ -5,7 +5,7 @@ import { importSamples } from './samples.js';
 import { MicHub, MIC_SLOTS } from './mics.js';
 import { PROJECT_FORMAT, isProject } from './fileformat.js';
 import { playbackModel, playbackSong, preparePlayback } from './playbackmodel.js';
-import { POOL_BYTES, poolSize } from './dsp/instancepool.js';
+import { POOL_BYTES, POOL_MAX, poolSize } from './dsp/instancepool.js';
 
 // The C++ DSP kernels (src/dsp/modsynth.wasm, built from cpp/ by `npm run build:wasm`), compiled in
 // the worklet. `?dsp=js` in the URL or localStorage['modsynth.dsp'] = 'js' forces the JS kernels.
@@ -26,12 +26,13 @@ async function loadWasm() {
 // SharedArrayBuffer, so a cross-origin isolated page (server.mjs sends COOP/COEP, on static hosts
 // such as GitHub Pages the service worker coi-sw.js adds them); elsewhere everything renders on
 // the audio thread.
-// `?workers=0` or localStorage['modsynth.workers'] = '0' turns them off.
+// How many: poolSize() from the CPU; `?workers=N` or localStorage['modsynth.workers'] = 'N'
+// overrides it (0 turns them off, at most POOL_MAX).
 function startPool(port, wasm, sampleRate, onError) {
   let n = poolSize();
   try {
     const forced = new URLSearchParams(location.search).get('workers') ?? localStorage.getItem('modsynth.workers');
-    if (forced !== null && forced !== '') n = Math.min(n, Math.max(0, Math.floor(+forced) || 0));
+    if (forced !== null && forced !== '') n = Math.min(POOL_MAX, Math.max(0, Math.floor(+forced) || 0));
   } catch { /* no location/localStorage */ }
   if (!n || !globalThis.crossOriginIsolated || typeof SharedArrayBuffer !== 'function') return [];
   const workers = [];

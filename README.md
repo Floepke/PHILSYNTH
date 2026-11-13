@@ -100,14 +100,37 @@ xvfb-run -a node_modules/.bin/electron test/audiotransport-ui.test.mjs --no-sand
 
 ## Patch instances on worker threads
 
-The extra copies of a PATCH with Instances > 1 (instance 2 to 16) render on up
-to 4 worker threads (one per CPU core beyond two). Instance 1, the one you edit,
-stays on the audio thread so its scopes and meters keep working. The workers
-render within the same 128-sample block as the audio thread, so no latency is
-added. Audio crossing between threads goes through shared memory, and the
-output is sample-identical to single-thread rendering
-(`node test/instancepool.test.mjs`). With 16 heavy instances the audio thread's
-load drops by about half.
+The extra copies of a PATCH with Instances > 1 (instance 2 to 16) render on
+worker threads. Instance 1, the one you edit, stays on the audio thread so its
+scopes and meters keep working. The workers render within the same 128-sample
+block as the audio thread, so no latency is added. Audio crossing between
+threads goes through shared memory, and the output is sample-identical to
+single-thread rendering (`node test/instancepool.test.mjs`). With 16 heavy
+instances the audio thread's load drops by about half.
+
+The app picks the worker count from the CPU. Browsers report logical processors
+(two per core with hyperthreading). The app keeps one core for the audio thread
+and one for the interface, and uses up to 6 workers:
+
+| Logical processors | 2 | 4 | 6 | 8 | 12 | 16+ |
+|---|---|---|---|---|---|---|
+| Workers | 0 | 2 | 2 | 3 | 5 | 6 |
+
+Workers are only woken when copies need them: each takes 4 copies before the
+next one starts, then new copies go to the least busy worker, and every PATCH
+module shares the same workers. Each woken worker adds a hand-off per block
+and one more chance of a late block, because the operating system may pause a
+worker for a few milliseconds (the audio thread runs at real-time priority,
+workers don't). A late worker's copies are silent for that block.
+
+Measured on 8 cores / 16 threads (OSC 4 voices → FILTER → AMP → REVERB per
+copy, % of the audio block on the audio thread):
+
+| Copies | No workers | 4 workers | 6 workers | 8+ workers |
+|---|---|---|---|---|
+| 15 | 29 % | 15 % | 15 % | 13 %, more late blocks |
+| 30 | 47 %, overruns | 26 % | 22 % | 18–20 %, more late blocks |
+| 45 | 66 %, overruns | 34 % | 30 % | 22–27 %, more late blocks |
 
 Workers need `SharedArrayBuffer`, so the page must be cross-origin isolated.
 `server.mjs` (also used by the desktop app) sends the COOP/COEP headers. Hosts
@@ -115,8 +138,8 @@ that can't send headers, such as GitHub Pages, get them from the service worker
 `coi-sw.js`: on the first visit the page registers it and reloads once, after
 which every page load comes through it. A browser without service workers (or
 private windows that block them) renders everything on the audio thread as
-before. `?workers=0` in the URL, or `localStorage['modsynth.workers'] = '0'`,
-turns the workers off.
+before. `?workers=N` in the URL, or `localStorage['modsynth.workers'] = 'N'`,
+overrides the worker count (0 turns the workers off, at most 6).
 
 Modulators (LFO, ADSR, …) and INPUT modules of a copy stay on the audio thread;
 their controller changes reach the workers as messages. A worker that misses
