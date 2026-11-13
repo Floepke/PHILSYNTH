@@ -585,9 +585,9 @@ export const DOCS = {
     },
     mapped: 'Mapped controller: sets this controller inside the Patch (every instance follows). It can be modulated and automated from outside like any other controller.',
     notes: [
-      'Click <b>Edit Patch...</b> beside <b>Controllers…</b> to open the Patch (or <kbd>Double-click</kbd> it, or select it and press <kbd>Enter</kbd>); the mouse <b>back</b> button or the patch path goes up again.',
+      'Click <b>Edit Patch...</b> beside <b>Controllers…</b> to open the Patch (or <kbd>Double-click</kbd> the Patch module in the patcher view, or select it and press <kbd>Enter</kbd>); the mouse <b>back</b> button, <kbd>Escape</kbd> or clicking the main button in the bottom divider returns to the main project.',
       'While inside an uncabled Patch, its Output is heard directly through the main Output. Once the Patch is cabled, it follows its normal connections.',
-      '<b>Controllers…</b> maps controllers of modules inside to extra controllers numbered from 11. Lower numbers are reserved for native Patch controllers. Older projects use this numbering too; existing modulation and automation controller numbers are not migrated and may need retargeting.',
+      '<b>Controllers…</b> maps controllers of modules inside to extra controllers numbered from 11. Lower numbers are reserved for native Patch controllers.',
       'Inside, cable a MULTIMIDI, STRUM or TRILL into the Output to send notes out, or an LFO, ADSR, ENVELOPE, VELOCITY2CTL, PITCH2CTL or SOUND2CTL to send modulation out; the inner modulator\'s Out Controller then picks a controller of the modules this Patch is cabled to.',
     ],
   },

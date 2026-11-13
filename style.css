@@ -94,7 +94,7 @@ body {
     background-image: var(--wood-panel);
     color: var(--wood-ink);
     box-shadow: var(--wood-shadow);
-    max-height: min(360px, 60vh);
+    max-height: stretch;
     overflow: auto;
   }
   select:not([multiple]):not([size]) option {

@@ -112,7 +112,11 @@ struct Wavetable : SamplePoly {
     const double k = 1 - exp(-n / (0.01 * sr));
     pos = fabs(target - pos0) < 1e-6 ? target : pos0 + (target - pos0) * k;
     const double dp = (pos - pos0) / n;
+    const double firstFp = pos0 * last;
+    const int firstFrame = (int)floor(firstFp);
+    const bool stableFrame = (int)floor((pos0 + dp * (n - 1)) * last) == firstFrame;
     int active = 0;
+    bool baseBuilt = false;
     for (int vi = 0; vi < poly; vi++) {
       auto& v = voices[vi];
       if (!v.stage) continue;
@@ -121,20 +125,25 @@ struct Wavetable : SamplePoly {
       const double dv = glide(v, e.k, n);
       const double inc = mind(0.45, 440 * pow(2, (v.pitch - 69) / 12) / sr);
       // JS prepares frame zero to establish the common mip layout.
-      table->build(0);
+      if (!baseBuilt) { table->build(0); baseBuilt = true; }
       const int level = (int)clampd(ceil(log2(table->M * inc)), 0, table->levels - 1);
       const int size = table->sizes[level];
+      const float* a0 = stableFrame ? table->frame(firstFrame, level) : nullptr;
+      const bool needsNextFrame = stableFrame && firstFrame < last && (firstFp != firstFrame || dp != 0);
+      const float* b0 = needsNextFrame ? table->frame(firstFrame + 1, level) : nullptr;
       for (int i = 0; i < n; i++) {
         const double lvl = tick(v, e);
         if (!v.stage) break;
         vel += dv;
         const double fp = (pos0 + dp * i) * last;
-        const int f0 = (int)floor(fp);
+        const int f0 = stableFrame ? firstFrame : (int)floor(fp);
         const double t = fp - f0;
-        double y = sampleRead(table->frame(f0, level), size, v.pos * size, interpolation, true);
+        const float* a = stableFrame ? a0 : table->frame(f0, level);
+        double y = sampleRead(a, size, v.pos * size, interpolation, true);
         if (t > 0 && f0 < last) {
-          const double b = sampleRead(table->frame(f0 + 1, level), size, v.pos * size, interpolation, true);
-          y += (b - y) * t;
+          const float* b = stableFrame ? b0 : table->frame(f0 + 1, level);
+          const double bSample = sampleRead(b, size, v.pos * size, interpolation, true);
+          y += (bSample - y) * t;
         }
         L[i] = (float)(L[i] + y * lvl * vel);
         v.pos += inc;

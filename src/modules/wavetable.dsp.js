@@ -134,6 +134,10 @@ export default class WavetableKernel extends PolyKernel {
     const k = 1 - Math.exp(-n / (SMOOTH_S * sampleRate));
     this.pos = Math.abs(posT - pos0) < 1e-6 ? posT : pos0 + (posT - pos0) * k;
     const posStep = (this.pos - pos0) / n;
+    const firstFp = pos0 * last;
+    const firstFrame = Math.floor(firstFp);
+    const stableFrame = Math.floor((pos0 + posStep * (n - 1)) * last) === firstFrame;
+    let baseLevels = null;
     let active = 0;
     for (let vi = 0; vi < this.poly; vi++) {
       const v = this.voices[vi];
@@ -142,20 +146,24 @@ export default class WavetableKernel extends PolyKernel {
       let vel = v.vel;
       const velStep = this.glide(v, e.k, n);
       const inc = Math.min(0.45, (440 * Math.pow(2, (v.pitch - 69) / 12)) / sampleRate);
-      const M = this.frame(0)[0].size;
-      const levels = this.frame(0).length;
+      baseLevels ??= this.frame(0);
+      const M = baseLevels[0].size;
+      const levels = baseLevels.length;
       const L = Math.max(0, Math.min(levels - 1, Math.ceil(Math.log2(M * inc))));
+      const a0 = stableFrame ? this.frame(firstFrame)[L] : null;
+      const needsNextFrame = stableFrame && firstFrame < last && (firstFp !== firstFrame || posStep !== 0);
+      const b0 = needsNextFrame ? this.frame(firstFrame + 1)[L] : null;
       for (let i = 0; i < n; i++) {
         const lvl = envTick(v, e);
         if (!v.stage) break;
         vel += velStep;
         const fp = (pos0 + posStep * i) * last;
-        const f0 = Math.floor(fp);
+        const f0 = stableFrame ? firstFrame : Math.floor(fp);
         const t = fp - f0;
-        const a = this.frame(f0)[L];
+        const a = stableFrame ? a0 : this.frame(f0)[L];
         let y = readWrapped(a.data, a.size, v.pos * a.size, mode);
         if (t > 0 && f0 < last) {
-          const b = this.frame(f0 + 1)[L];
+          const b = stableFrame ? b0 : this.frame(f0 + 1)[L];
           y += (readWrapped(b.data, b.size, v.pos * b.size, mode) - y) * t;
         }
         buf[i] += y * lvl * vel;

@@ -234,11 +234,27 @@ assert.equal(fire(time, 'wheel', { deltaY: -100 }).defaultPrevented, false);
   press();
   assert.equal(s.pickerCalls, 3, 'after it closed by itself, one click opens it');
   frame();
-  let toggled = 0;
-  Object.defineProperty(s, 'disabled', { get: () => false, set(v) { if (v) { toggled++; s.open = false; } } });
-  press(); // a browser that leaves it open until the click arrives
+  // Chromium leaves it open until the click arrives: another auto popover shown closes the picker
+  let closers = 0;
+  const createElement = document.createElement;
+  document.body = new Element('body');
+  document.createElement = (tag) => Object.assign(new Element(tag), {
+    style: {}, remove() {}, hidePopover() {},
+    showPopover() { if (this.popover === 'auto') { closers++; s.open = false; } },
+  });
+  press();
   assert.equal(s.pickerCalls, 3);
-  assert.deepEqual([s.open, toggled], [false, 1], 'still open at the click: closed');
+  assert.deepEqual([s.open, closers], [false, 1], 'still open at the click: closed');
+  press();
+  assert.equal(s.pickerCalls, 4, 'and the next click opens it again');
+  frame();
+  s.open = false;
+  frame();
+  s.open = true; // opened from the keyboard: a click closes it too
+  press();
+  assert.deepEqual([s.pickerCalls, s.open, closers], [4, false, 2]);
+  document.createElement = createElement;
+  delete document.body;
   delete globalThis.requestAnimationFrame;
 }
 

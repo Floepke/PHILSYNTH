@@ -32,7 +32,7 @@ const image = {
     return seed >>> 24;
   }),
 };
-const midiTypes = ['MULTIMIDI', 'STRUM', 'TRILL', 'TUNING', 'DELAY'];
+const midiTypes = ['MULTIMIDI', 'STRUM', 'TRILL', 'TUNING', 'CTL2NOTE', 'DELAY'];
 const defs = [getModule('OUT'), ...modules];
 const cases = [];
 const add = (type, workload, values = {}, voices = 0) => {
@@ -53,6 +53,7 @@ for (const def of defs) {
   // Keep the source active throughout warmup and all measured repetitions.
   if (def.type === 'SAMPLER') values.playMode = 3;
   if (def.type === 'ENVELOPE') values.mode = 1;
+  if (def.type === 'FEEDBACK') values.feedback = 0.5;
   add(def.type, poly ? '1 held voice' : 'active defaults', values, def.acceptsMidi ? 1 : 0);
   if (poly) add(def.type, '8 held voices', values, 8);
 }
@@ -168,6 +169,17 @@ function midiRunner(type, stress) {
   const run = (n) => {
     for (let i = 0; i < n; i++, block++) {
       ctx.currentTime = block * BLOCK / RATE;
+      if (type === 'CTL2NOTE') {
+        if (block % chordBlocks === 0) {
+          inst.setParam('noteState', 0);
+          inst.setParam('pitch', 48 + Math.floor(block / chordBlocks) % 24);
+          inst.setParam('noteState', 1);
+        } else if (block % 8 === 0) {
+          inst.setParam('pitch', 48 + Math.floor(block / 8) % 24);
+        }
+        if (block % 2 === 0) for (const tick of clocks) tick(ctx.currentTime);
+        continue;
+      }
       if (block % chordBlocks === 0) {
         for (const id of held) inst.noteOff(id);
         held = Array.from({ length: voices }, (_, i) => block * voices + i + 1);
@@ -238,7 +250,9 @@ const dspResults = cases.map(c => {
 });
 const midiResults = midiTypes.flatMap(type => [false, true].map(stress => ({
   type,
-  workload: stress ? '32 keys, 31.25 chords/s, pitch updates; drift/fast trill' : '8 keys, 3.906 chords/s, pitch updates',
+  workload: type === 'CTL2NOTE'
+    ? stress ? '1 controller note, 31.25 retriggers/s, pitch updates' : '1 controller note, 3.906 retriggers/s, pitch updates'
+    : stress ? '32 keys, 31.25 chords/s, pitch updates; drift/fast trill' : '8 keys, 3.906 chords/s, pitch updates',
   msPerAudioSecond: measure([['js', midiRunner(type, stress)]]).js,
 })));
 const patchResults = measure([['withoutFolder', await patchRunner(false)], ['emptyFolder', await patchRunner(true)]]);

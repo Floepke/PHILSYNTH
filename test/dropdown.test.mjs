@@ -1,7 +1,9 @@
 // Run on Linux: xvfb-run -a node_modules/.bin/electron test/dropdown.test.mjs
 import assert from 'node:assert/strict';
 import { app, BrowserWindow } from 'electron';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true } });
@@ -68,6 +70,52 @@ app.whenReady().then(async () => {
     }
     await win.webContents.executeJavaScript("document.getElementById('choice').showPicker()", true);
     assert.equal(await win.webContents.executeJavaScript("document.getElementById('choice').matches(':open')"), true);
+
+    // initWidgets: a second click closes the list, the list uses the window's height before it
+    // scrolls, and the dropdown is as wide as its widest choice
+    const dir = mkdtempSync(join(tmpdir(), 'dropdown-'));
+    const page = join(dir, 'page.html');
+    writeFileSync(page, `<!doctype html><style>${css}</style><body><div id="seq-bar" style="position:absolute;top:100px;left:100px"><select id="choice"></select></div>
+<script type="module">
+import { initWidgets } from ${JSON.stringify(new URL('../src/widgets.js', import.meta.url).href)};
+const s = document.getElementById('choice');
+for (let i = 0; i < 60; i++) s.add(new Option(i % 7 ? 'M' + i : 'Module number ' + i, i));
+initWidgets(document);
+window.ready = true;
+</script>`);
+    const tall = new BrowserWindow({ width: 600, height: 900, useContentSize: true, show: false, webPreferences: { webSecurity: false } });
+    await tall.loadFile(page);
+    const run = (code) => tall.webContents.executeJavaScript(code, true);
+    while (!(await run('window.ready === true'))) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 100));
+    const box = await run(`(() => { const b = document.getElementById('choice').getBoundingClientRect(); return { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2), bottom: b.bottom }; })()`);
+    const click = async () => {
+      for (const type of ['mouseDown', 'mouseUp']) tall.webContents.sendInputEvent({ type, x: box.x, y: box.y, button: 'left', clickCount: 1 });
+      await new Promise((r) => setTimeout(r, 300));
+    };
+    const isOpen = () => run(`document.getElementById('choice').matches(':open')`);
+    await click();
+    assert.equal(await isOpen(), true, 'a click opens the list');
+    const height = parseFloat(await run(`getComputedStyle(document.getElementById('choice'), '::picker(select)').height`));
+    assert.ok(height > 900 - box.bottom - 2 && height <= 900 - box.bottom, `the list fills the space below the dropdown (${height}px)`);
+    await click();
+    assert.equal(await isOpen(), false, 'a second click closes it');
+    await click();
+    assert.equal(await isOpen(), true, 'and a third opens it again');
+    await click();
+    const widths = await run(`(async () => {
+      const s = document.getElementById('choice');
+      const widths = new Set();
+      for (const i of [0, 1, 7, 59]) { s.selectedIndex = i; widths.add(s.getBoundingClientRect().width); }
+      const before = s.getBoundingClientRect().width;
+      s.add(new Option('A much longer module name than the others', 'x'));
+      await new Promise((r) => setTimeout(r, 50));
+      return { widths: [...widths], before, after: s.getBoundingClientRect().width };
+    })()`);
+    assert.equal(widths.widths.length, 1, 'every choice gives the same width');
+    assert.ok(widths.after > widths.before, 'a longer new choice widens the dropdown');
+    tall.destroy();
+    rmSync(dir, { recursive: true, force: true });
     console.log('house style tests passed: all dialogs, future dialogs, menus and dropdowns use wood; rounded picker opens');
     app.exit(0);
   } catch (err) {

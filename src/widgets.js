@@ -25,12 +25,79 @@ export function initWidgets(root, { numberStep = () => 1 } = {}) {
 
   // whether a select's picker is open (:open); null where the browser cannot tell
   const isOpen = (el) => { try { return el.matches(':open'); } catch { return null; } };
+  // The customizable picker is an auto popover: showing another auto popover closes it (toggling
+  // disabled, blur or Escape events do not).
+  const closePicker = () => {
+    try {
+      const closer = document.createElement('div');
+      closer.popover = 'auto';
+      closer.style.display = 'none';
+      document.body.append(closer);
+      closer.showPopover();
+      closer.hidePopover();
+      closer.remove();
+    } catch { /* no popover API */ }
+  };
 
-  for (const select of root.querySelectorAll('select')) {
+  // A dropdown is as wide as its widest choice, so it does not change width with the choice.
+  // Content-sized selects only: those that are as wide for every choice (width: 100% …) are left.
+  const fitted = new WeakMap(); // select -> option labels it was fitted to
+  const fitWidth = (select) => {
+    if (!select.isConnected || typeof select.getBoundingClientRect !== 'function') return true;
+    const labels = [...select.options].map((o) => (o.hidden ? '' : o.label)).join('\n');
+    if (fitted.get(select) === labels) return true;
+    select.style.minWidth = '';
+    const index = select.selectedIndex;
+    const widths = [];
+    for (let i = 0; i < select.options.length; i++) {
+      select.selectedIndex = i;
+      widths.push(select.getBoundingClientRect().width);
+    }
+    select.selectedIndex = index;
+    if (!widths.length || !Math.max(...widths)) return false; // not rendered yet
+    const widest = Math.max(...widths);
+    fitted.set(select, labels);
+    if (widest - Math.min(...widths) > 0.5) select.style.minWidth = `${Math.ceil(widest)}px`;
+    return true;
+  };
+  const unfitted = new Set();
+  const refit = () => {
+    for (const select of [...unfitted]) if (fitWidth(select)) unfitted.delete(select);
+  };
+  let refitQueued = false;
+  const queueFit = (select) => {
+    unfitted.add(select);
+    if (refitQueued) return;
+    refitQueued = true;
+    queueMicrotask(() => { refitQueued = false; refit(); });
+  };
+  const observers = typeof MutationObserver === 'function' && typeof ResizeObserver === 'function';
+  // option lists change (modules added, renamed …) and hidden selects measure once they are shown
+  const optionsChanged = observers && new MutationObserver((records) => {
+    for (const { target } of records) {
+      const select = (target.nodeType === 1 ? target : target.parentElement)?.closest('select');
+      if (select) queueFit(select);
+    }
+  });
+  const sized = observers && new ResizeObserver((entries) => {
+    for (const { target } of entries) if (unfitted.has(target) && fitWidth(target)) unfitted.delete(target);
+  });
+  if (observers) document.fonts?.ready.then(() => { for (const s of root.querySelectorAll('select')) { fitted.delete(s); queueFit(s); } });
+
+  const selects = new WeakSet();
+  const enhanceSelect = (select, { scroll = true } = {}) => {
+    if (selects.has(select)) return;
+    selects.add(select);
+    if (observers && !select.multiple && !(select.size > 1)) {
+      optionsChanged.observe(select, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['label', 'hidden'] });
+      sized.observe(select);
+      queueFit(select);
+    }
     let mouse = false;
-    // A click on the select while its list is open closes it. The browser closes the list before
-    // the click arrives, so `shown` remembers it was open (checked every frame; Escape, a pick or
-    // a click elsewhere end it) and the click then does not open it again.
+    // A click on the select while its list is open closes it. Chromium keeps the list open until
+    // the click arrives (then it is closed here); a browser that closes it first is covered by
+    // `shown`, which remembers it was open (checked every frame; Escape, a pick or a click
+    // elsewhere end it), so the click then does not open it again.
     let shown = false;
     const watch = () => {
       if (!shown) return;
@@ -42,10 +109,11 @@ export function initWidgets(root, { numberStep = () => 1 } = {}) {
       if (e.target.closest?.('option, optgroup')) return;
       releaseWidgetFocus();
       mouse = true;
-      if (shown) {
+      const open = isOpen(select);
+      if (shown || open) {
         shown = false;
         e.preventDefault();
-        if (isOpen(select)) { select.disabled = true; select.disabled = false; } // still open: close it
+        if (open) closePicker(); // still open: close it
         return;
       }
       // showPicker opens the native, scrollable list without focusing the closed control.
@@ -60,7 +128,7 @@ export function initWidgets(root, { numberStep = () => 1 } = {}) {
     });
     select.addEventListener('keydown', () => { mouse = false; });
     select.addEventListener('change', () => { if (mouse) select.blur(); });
-    wheel(select, (steps) => {
+    if (scroll) wheel(select, (steps) => {
       const options = [...select.options].filter((o) => !o.disabled && !o.hidden && !o.parentElement?.disabled);
       if (!options.length) return;
       const index = options.indexOf(select.selectedOptions[0]);
@@ -70,6 +138,19 @@ export function initWidgets(root, { numberStep = () => 1 } = {}) {
       next.selected = true;
       notify(select);
     });
+  };
+  for (const select of root.querySelectorAll('select')) enhanceSelect(select);
+  // dropdowns built later (module panels, Preferences, the file dialog) behave the same
+  if (observers && root.nodeType === 9) {
+    new MutationObserver((records) => {
+      for (const r of records) {
+        for (const node of r.addedNodes) {
+          if (node.nodeType !== 1) continue;
+          if (node.tagName === 'SELECT') enhanceSelect(node, { scroll: false });
+          else for (const select of node.querySelectorAll('select')) enhanceSelect(select, { scroll: false });
+        }
+      }
+    }).observe(root.documentElement, { childList: true, subtree: true });
   }
 
   for (const input of root.querySelectorAll('input[type="number"]')) {
