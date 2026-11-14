@@ -206,14 +206,29 @@ export default {
       const all = runtimes().slice(0, wanted());
       if (all.length === 1) return all[0];
       const busy = new Set();
-      for (const n of notes.values()) if (!n.off) busy.add(n.rt);
-      let k = next % all.length;
-      for (let i = 0; i < all.length; i++) {
-        const j = (next + i) % all.length;
-        if (!busy.has(all[j])) { k = j; break; }
-      }
+      const held = new Set(); // instances playing a held live note: taken only when all are
+      for (const n of notes.values()) if (!n.off) { busy.add(n.rt); if (n.live) held.add(n.rt); }
+      const first = (skip) => {
+        for (let i = 0; i < all.length; i++) {
+          const j = (next + i) % all.length;
+          if (!skip.has(all[j])) return j;
+        }
+        return -1;
+      };
+      let k = first(busy);
+      if (k < 0) k = first(held);
+      if (k < 0) k = next % all.length;
       next = k + 1;
       return all[k];
+    };
+    // targetsOf(rt): the modules of instance rt that get the note
+    const playIn = (targetsOf, id, pitch, vel, phase, time, live = false) => {
+      const now = Date.now();
+      for (const [k, n] of notes) if ((n.off && now - n.off > RELEASE_KEEP_MS) || n.rt.dead) notes.delete(k);
+      const rt = pickRuntime();
+      const insts = targetsOf(rt);
+      insts.forEach((i) => i.noteOn(id, pitch, vel, phase, time));
+      notes.set(id, { rt, insts, off: 0, live });
     };
 
     const apply = (id, v) => {
@@ -353,12 +368,27 @@ export default {
       // a note's mod/off go to the modules that got its noteOn, even if cables changed since
       // (released notes stay known for a while, so drift still reaches their release tail)
       noteOn(id, pitch, vel, phase, time) {
-        const now = Date.now();
-        for (const [k, n] of notes) if ((n.off && now - n.off > RELEASE_KEEP_MS) || n.rt.dead) notes.delete(k);
-        const rt = pickRuntime();
-        const insts = midiOf(rt);
-        insts.forEach((i) => i.noteOn(id, pitch, vel, phase, time));
-        notes.set(id, { rt, insts, off: 0 });
+        playIn(midiOf, id, pitch, vel, phase, time);
+      },
+      // Live notes (keyboard, MIDI device) played on a module inside (ids: its module numbers
+      // below this Patch; none: this Patch itself) join the round robin like clip notes: each goes to that module in a
+      // free instance, and clip notes skip the instances held by live notes (and vice versa).
+      // null with a single instance: the module is played directly.
+      liveTarget(ids) {
+        if (wanted() <= 1) return null;
+        const live = new Set();
+        const at = (rt) => {
+          if (!ids.length) return midiOf(rt); // played on this Patch itself
+          for (const k of ids.slice(0, -1)) rt = rt?.modules.get(k)?.inst.patch;
+          const e = rt?.modules.get(ids.at(-1));
+          return e?.def.acceptsMidi ? [e.inst] : [];
+        };
+        return {
+          noteOn(id, pitch, vel, phase, time) { live.add(id); playIn(at, id, pitch, vel, phase, time, true); },
+          noteMod: (id, pitch, vel) => inst.noteMod(id, pitch, vel),
+          noteOff(id) { live.delete(id); inst.noteOff(id); },
+          allOff() { [...live].forEach((id) => this.noteOff(id)); },
+        };
       },
       noteMod(id, pitch, vel) {
         const n = notes.get(id);

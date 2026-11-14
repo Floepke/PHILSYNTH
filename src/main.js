@@ -1928,7 +1928,21 @@ engine.dsp.onPlayback = (state) => {
 };
 // live notes (computer keyboard, on-screen piano keys) go to the red MIDI module
 const firstLive = (rt) => [...rt.modules.values()].find((e) => takesLiveMidi(e.def)) ?? null;
-const liveMidiEntry = () => modulePreview?.target ?? midiTarget() ?? firstLive(shown()) ?? firstLive(engine.root);
+// A live module inside a Patch with Instances > 1 is played through that Patch's round robin
+// (like clip notes), so a held key keeps its instance and clip notes go to the others.
+function viaInstances(e) {
+  if (!e || modulePreview?.target === e) return e;
+  const level = path.findIndex((l) => l.patch.modules.get(e.id) === e);
+  if (level < 0) return e;
+  for (let j = 1; j <= level; j++) {
+    const owner = path[j - 1].patch.modules.get(path[j].id);
+    const inst = owner?.inst.liveTarget?.([...path.slice(j + 1, level + 1).map((l) => l.id), e.id]);
+    if (inst) return { def: e.def, inst };
+  }
+  const inst = e.inst.liveTarget?.([]); // a Patch module played itself
+  return inst ? { def: e.def, inst } : e;
+}
+const liveMidiEntry = () => viaInstances(modulePreview?.target ?? midiTarget() ?? firstLive(shown()) ?? firstLive(engine.root));
 seq = createSequencer({
   engine,
   pianorollPreferences,
@@ -2039,7 +2053,7 @@ const flushAll = () => {
 window.addEventListener('pagehide', flushAll);
 connectLiveReload(flushAll);
 midi = initMidi({
-  getTarget: () => modulePreview?.target ?? (seq.recordArmed() ? seq.recordTarget() : midiTarget()),
+  getTarget: () => modulePreview?.target ?? (seq.recordArmed() ? seq.recordTarget() : viaInstances(midiTarget())),
   pitchOffset: () => modulePreview ? 0 : pitchOffset(),
   selected: preferencesManager.get(MIDI_INPUT_ID),
   onStatus: (msg) => ($('status').textContent = msg),

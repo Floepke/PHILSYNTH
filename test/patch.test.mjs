@@ -1064,6 +1064,22 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.deepEqual(logs[2].at(-1), { type: 'noteOff', id: 6 }, 'off goes to the instance that got the note');
   assert.ok(!logs[0].concat(logs[1], logs[3]).some((m) => m.id === 6));
 
+  // live notes on a module inside join the round robin; a held one keeps its instance
+  for (const id of [1, 3, 4, 5]) pm.inst.noteOff(id);
+  logs.forEach((l) => { l.length = 0; });
+  const live = pm.inst.liveTarget([osc.id]);
+  live.noteOn(10, 60, 1);
+  assert.deepEqual(ons(), [[], [], [], [10]], 'a live note goes to a free instance, in turn');
+  for (let i = 11; i <= 13; i++) pm.inst.noteOn(i, 60, 1);
+  assert.deepEqual(ons(), [[11], [12], [13], [10]], 'clip notes skip the instance of the held key');
+  pm.inst.noteOn(14, 60, 1);
+  pm.inst.noteOn(15, 60, 1);
+  assert.deepEqual(ons(), [[11, 14], [12, 15], [13], [10]], 'all busy: the held key is not stolen');
+  live.noteOff(10);
+  assert.deepEqual(logs[3].at(-1), { type: 'noteOff', id: 10 });
+  [11, 12, 13, 14, 15].forEach((id) => pm.inst.noteOff(id));
+  assert.ok(pm.inst.liveTarget([]), 'live notes on the Patch itself join too');
+
   // editing instance 1 updates the copies: values in place, structure by rebuilding
   const before = pm.inst.clones[0];
   r.setParam(pm.id, 'instances', 4);
