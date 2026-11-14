@@ -1,4 +1,4 @@
-// Native project files for the page (sandboxed preload: CommonJS, only contextBridge + ipcRenderer).
+// Native project files for the page (CommonJS; uses only contextBridge + ipcRenderer).
 // See the 'project:*' handlers in electron/main.mjs and src/projectfile.js.
 const { contextBridge, ipcRenderer } = require('electron');
 

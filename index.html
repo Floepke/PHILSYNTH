@@ -5,12 +5,15 @@
   <title>PHILSYNTH</title>
   <script>
     // Cross-origin isolation through coi-sw.js where the host can't send the headers (GitHub
-    // Pages), so PATCH instances can render on worker threads. src/main.js awaits coiReady: it
-    // never resolves when the page is about to reload through the service worker.
+    // Pages), so PATCH instances can render on worker threads. In a browser that's only wanted
+    // when workers are asked for (?workers=N or localStorage['modsynth.workers'], see
+    // src/engine.js). src/main.js awaits coiReady: it never resolves when the page is about to
+    // reload through the service worker.
     globalThis.coiReady = (() => {
       const KEY = 'modsynth.coi-reload';
-      let off = new URLSearchParams(location.search).get('workers') === '0';
-      try { off ||= localStorage.getItem('modsynth.workers') === '0'; } catch { /* storage blocked */ }
+      let workers = new URLSearchParams(location.search).get('workers');
+      try { workers ??= localStorage.getItem('modsynth.workers'); } catch { /* storage blocked */ }
+      const off = !(Math.floor(+workers) > 0);
       try {
         if (globalThis.crossOriginIsolated) { sessionStorage.removeItem(KEY); return; }
         // reloaded once already and still not isolated: this browser can't, run single-threaded

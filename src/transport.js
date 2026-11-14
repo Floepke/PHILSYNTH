@@ -33,11 +33,11 @@ import { automationAt, barCeil, barLines, beatLines, meter, clipSilent, getClip,
 const TICK_MS = 5;
 
 // Timer in a worker: unlike setInterval on the page it keeps running at full speed when the
-// window is in the background.
+// window is in the background. A file, not a blob: the desktop app's Content-Security-Policy only
+// allows the app's own workers (electron/main.mjs).
 function createTicker(fn) {
   try {
-    const src = 'let t=null;onmessage=(e)=>{clearInterval(t);t=e.data>0?setInterval(()=>postMessage(0),e.data):null}';
-    const w = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+    const w = new Worker(new URL('./tickerworker.js', import.meta.url));
     w.onmessage = fn;
     return { start: () => w.postMessage(TICK_MS), stop: () => w.postMessage(0) };
   } catch {

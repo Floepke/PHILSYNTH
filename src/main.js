@@ -2034,9 +2034,12 @@ window.modsynthExit?.onRequest(() => {
   closeMenu();
   if (nativeExitWaiting) return;
   const dialog = document.querySelector('dialog[open]');
-  const request = () => exitToOS(persist, (message) => { $('status').textContent = message; });
-  if (!dialog || dialog.id === 'confirm-dialog' && $('confirm-title').textContent === 'Exit to OS?') {
+  // window close / Cmd+Q: no Exit to OS? question, just autosave and quit
+  const request = () => exitToOS(persist, (message) => { $('status').textContent = message; }, { ask: false });
+  if (!dialog) {
     request();
+  } else if (dialog.id === 'confirm-dialog' && $('confirm-title').textContent === 'Exit to OS?') {
+    dialog.close('ok'); // closing the window answers the open question: Yes
   } else {
     nativeExitWaiting = true;
     dialog.addEventListener('close', () => {

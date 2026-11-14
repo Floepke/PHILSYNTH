@@ -22,14 +22,18 @@ async function loadWasm() {
   }
 }
 
-// Workers that render the extra instances of PATCH modules (src/dsp/instancepool.js). They need
-// SharedArrayBuffer, so a cross-origin isolated page (server.mjs sends COOP/COEP, on static hosts
-// such as GitHub Pages the service worker coi-sw.js adds them); elsewhere everything renders on
-// the audio thread.
-// How many: poolSize() from the CPU; `?workers=N` or localStorage['modsynth.workers'] = 'N'
-// overrides it (0 turns them off, at most POOL_MAX).
+// Workers that render the extra instances of PATCH modules (src/dsp/instancepool.js). Only the
+// desktop app uses them by default: there they run at real-time priority (electron/realtime.cjs).
+// Browser workers can't, and the OS wakes them late now and then (a crackle), so in a browser
+// everything renders on the audio thread unless workers are asked for.
+// They need SharedArrayBuffer, so a cross-origin isolated page (server.mjs sends COOP/COEP, on
+// static hosts such as GitHub Pages the service worker coi-sw.js adds them).
+// How many: poolSize() from the CPU in the desktop app, else 0; `?workers=N` or
+// localStorage['modsynth.workers'] = 'N' overrides it (0 turns them off, at most POOL_MAX).
+const desktopApp = () => typeof globalThis.modsynthFiles === 'object' && globalThis.modsynthFiles !== null;
+
 function startPool(port, wasm, sampleRate, onError) {
-  let n = poolSize();
+  let n = desktopApp() ? poolSize() : 0;
   try {
     const forced = new URLSearchParams(location.search).get('workers') ?? localStorage.getItem('modsynth.workers');
     if (forced !== null && forced !== '') n = Math.min(POOL_MAX, Math.max(0, Math.floor(+forced) || 0));

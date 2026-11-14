@@ -2,10 +2,12 @@
 // Runs the dev server in-process (static files, disk autosave, live reload) and opens the app
 // in a Chromium window where Web MIDI is allowed without a prompt.
 import { app, BrowserWindow, Menu, session, shell, systemPreferences, ipcMain } from 'electron';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { registerProjectFiles } from './projectfiles.mjs';
 import { registerExit } from './exit.mjs';
+import { contentSecurityPolicy } from './csp.mjs';
 import { registerPreferences, launchFullscreen, showLaunchWindow } from './preferences.mjs';
 import { DEFAULT_LAUNCH_FULLSCREEN } from '../src/interfacepreferences.js';
 
@@ -26,6 +28,10 @@ const PORT = Number(process.env.MODSYNTH_PORT) || (app.isPackaged ? 8768 : 8767)
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // fileSystem: writing the file chosen in the Export Audio save dialog (File System Access API)
 const TRUSTED = new Set(['midi', 'midiSysex', 'media', 'clipboard-sanitized-write', 'fullscreen', 'fileSystem', 'pointerLock']);
+
+// The PATCH instance workers ask for real-time priority through this module (Node in workers:
+// see createWindow; src/dsp/instanceworker.js reads the path, renderer processes inherit it)
+process.env.MODSYNTH_REALTIME = join(ROOT, 'electron', 'realtime.cjs');
 
 // audio may start without a click first (the AudioContext resumes on load)
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
@@ -72,8 +78,13 @@ function createWindow(url, fullscreen) {
     show: false,
     fullscreen, // F11 toggles
     webPreferences: {
+      // Node only in workers (the PATCH instance workers request real-time priority,
+      // electron/realtime.cjs), which needs the renderer unsandboxed; the page itself has no Node
+      // and its Content-Security-Policy (electron/csp.mjs) only runs the app's own code.
       contextIsolation: true,
-      sandbox: true,
+      nodeIntegration: false,
+      nodeIntegrationInWorker: true,
+      sandbox: false,
       backgroundThrottling: false,
       preload: join(dirname(fileURLToPath(import.meta.url)), 'preload.cjs'), // native project files
     },
@@ -82,10 +93,15 @@ function createWindow(url, fullscreen) {
     showLaunchWindow(win, fullscreen);
   });
   exit = registerExit(app, win, (u) => typeof u === 'string' && u.startsWith(url));
-  // links to other sites open in the normal browser
+  // links to other sites open in the normal browser; the window never leaves the app
   win.webContents.setWindowOpenHandler(({ url: target }) => {
     if (!target.startsWith(url)) shell.openExternal(target);
     return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (e, target) => {
+    if (target.startsWith(url)) return;
+    e.preventDefault();
+    if (/^https?:/i.test(target)) shell.openExternal(target);
   });
   // No menu bar (Alt is used for duplicating modules); keep the useful shortcuts.
   win.webContents.on('before-input-event', (e, input) => {
@@ -143,6 +159,14 @@ if (!app.requestSingleInstanceLock()) {
       micAccess().then(callback, () => callback(false));
     });
     session.defaultSession.setPermissionCheckHandler((_wc, permission, origin) => TRUSTED.has(permission) && local(`${origin}/`));
+    // read per page load: index.html's inline script is allowed by its hash (live reload edits it)
+    session.defaultSession.webRequest.onHeadersReceived({ urls: [`${url}*`] }, (details, callback) => {
+      if (details.resourceType !== 'mainFrame') return callback({});
+      let csp;
+      try { csp = contentSecurityPolicy(readFileSync(join(ROOT, 'index.html'), 'utf8')); }
+      catch (err) { console.error('Content-Security-Policy:', err); return callback({ cancel: true }); }
+      callback({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': [csp] } });
+    });
     registerProjectFiles(local);
     const preferencesFile = join(app.getPath('userData'), 'preferences.json');
     registerPreferences(ipcMain, preferencesFile, local);

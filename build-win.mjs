@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildIcon } from './build-icon.mjs';
+import { ensureKoffi } from './build-koffi.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const OUT = join(ROOT, 'release');
@@ -31,6 +32,7 @@ if (process.platform !== 'win32') {
 }
 if (!existsSync(join(ROOT, 'src', 'dsp', 'modsynth.wasm'))) console.warn('warning: src/dsp/modsynth.wasm is missing (npm run build:wasm); the app falls back to the JS DSP.');
 await buildIcon();
+const koffi = ensureKoffi('win32', arch); // real-time worker threads (electron/realtime.cjs)
 
 const name = `PHILSYNTH-${pkg.version}-win-${arch}`;
 await build({
@@ -41,8 +43,9 @@ await build({
     productName: 'PHILSYNTH',
     copyright: `© ${new Date().getFullYear()} Philip Bergwerf`,
     directories: { output: OUT },
-    files: ['package.json', 'index.html', 'style.css', 'server.mjs', 'src/**/*', 'electron/**/*', 'node_modules/wasm-media-encoders/**/*'],
+    files: ['package.json', 'index.html', 'style.css', 'server.mjs', 'src/**/*', 'electron/**/*', 'node_modules/wasm-media-encoders/**/*', 'node_modules/koffi/**/*', `node_modules/${koffi}/**/*`],
     asar: true,
+    asarUnpack: ['**/*.node'], // native binaries (koffi) can't load from inside the archive
     npmRebuild: false,
     win: {
       executableName: 'PHILSYNTH',

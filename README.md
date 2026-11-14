@@ -100,8 +100,8 @@ xvfb-run -a node_modules/.bin/electron test/audiotransport-ui.test.mjs --no-sand
 
 ## Patch instances on worker threads
 
-The extra copies of a PATCH with Instances > 1 (instance 2 to 16) render on
-worker threads. Instance 1, the one you edit, stays on the audio thread so its
+In the desktop app, the extra copies of a PATCH with Instances > 1 (instance
+2 to 16) render on worker threads. Instance 1, the one you edit, stays on the audio thread so its
 scopes and meters keep working. The workers render within the same 128-sample
 block as the audio thread, so no latency is added. Audio crossing between
 threads goes through shared memory, and the output is sample-identical to
@@ -118,10 +118,31 @@ and one for the interface, and uses up to 6 workers:
 
 Workers are only woken when copies need them: each takes 4 copies before the
 next one starts, then new copies go to the least busy worker, and every PATCH
-module shares the same workers. Each woken worker adds a hand-off per block
-and one more chance of a late block, because the operating system may pause a
-worker for a few milliseconds (the audio thread runs at real-time priority,
-workers don't). A late worker's copies are silent for that block.
+module shares the same workers. Each woken worker adds a hand-off per block.
+
+The workers ask the operating system for real-time priority, like the audio
+thread has (`electron/realtime.cjs`, through the FFI library koffi): on macOS
+the time-constraint policy Core Audio threads use, on Windows the MMCSS task
+"Pro Audio", and on Linux SCHED_FIFO (granted only with an rtprio limit, e.g.
+membership of the `audio` group; otherwise a warning is logged and the workers
+run at normal priority). A normal-priority worker is sometimes woken a few
+milliseconds late, and a late worker's copies are silent for that block (a
+crackle), most often while the app is in the background. Measured on an Apple
+M1 (16 copies of OSC → FILTER, a note every 60 ms, 30 s): 103 late blocks at
+normal priority against 3 at real-time priority, 112 against 5 with the app
+in the background, at the same CPU load.
+
+Real-time priority needs Node in the workers (`nodeIntegrationInWorker`), and
+that needs the renderer to run without the Chromium sandbox. The page itself
+has no Node access (`nodeIntegration: false`, `contextIsolation`), the window
+never navigates away from the app, and a Content-Security-Policy
+(`electron/csp.mjs`) only runs the app's own scripts and workers (no remote,
+inline or blob code apart from index.html's own script, allowed by its hash).
+The build scripts bundle koffi with the target's native binary
+(`build-koffi.mjs`) and unpack `*.node` files from the asar archive.
+
+Browsers can't give workers real-time priority, so in a browser everything
+renders on the audio thread by default.
 
 Measured on 8 cores / 16 threads (OSC 4 voices → FILTER → AMP → REVERB per
 copy, % of the audio block on the audio thread):
@@ -132,14 +153,15 @@ copy, % of the audio block on the audio thread):
 | 30 | 47 %, overruns | 26 % | 22 % | 18–20 %, more late blocks |
 | 45 | 66 %, overruns | 34 % | 30 % | 22–27 %, more late blocks |
 
-Workers need `SharedArrayBuffer`, so the page must be cross-origin isolated.
-`server.mjs` (also used by the desktop app) sends the COOP/COEP headers. Hosts
-that can't send headers, such as GitHub Pages, get them from the service worker
-`coi-sw.js`: on the first visit the page registers it and reloads once, after
-which every page load comes through it. A browser without service workers (or
-private windows that block them) renders everything on the audio thread as
-before. `?workers=N` in the URL, or `localStorage['modsynth.workers'] = 'N'`,
-overrides the worker count (0 turns the workers off, at most 6).
+`?workers=N` in the URL, or `localStorage['modsynth.workers'] = 'N'`, overrides
+the worker count (0 turns the workers off, at most 6); in a browser this is the
+only way to turn them on, at normal priority. Workers need `SharedArrayBuffer`,
+so the page must be cross-origin isolated. `server.mjs` (also used by the
+desktop app) sends the COOP/COEP headers. Hosts that can't send headers, such as
+GitHub Pages, get them from the service worker `coi-sw.js`: when workers are
+asked for, the page registers it and reloads once, after which every page load
+comes through it. A browser without service workers (or private windows that
+block them) renders everything on the audio thread.
 
 Modulators (LFO, ADSR, …) and INPUT modules of a copy stay on the audio thread;
 their controller changes reach the workers as messages. A worker that misses
@@ -271,8 +293,9 @@ Projects autosave under Electron's user-data directory, normally
 `~/.config/PHILSYNTH/projects` (or `$XDG_CONFIG_HOME/PHILSYNTH/projects`).
 The AppImage itself stays read-only. F11 toggles fullscreen, F12 opens developer
 tools, and Ctrl+Q quits.
-Window-manager Close, Alt+F4, and Ctrl/Cmd+Q first show the same "Exit to OS?"
-confirmation as the Exit menu item. Yes saves before quitting; No keeps the app open.
+Window-manager Close, Alt+F4, and Ctrl/Cmd+Q autosave and quit without asking (if
+the autosave fails, the app stays open and says so). The Exit menu item and Escape
+first ask "Exit to OS?": Yes saves before quitting; No keeps the app open.
 In a focused TimeLine or piano roll, Escape clears an existing selection first;
 the next Escape opens the exit confirmation, without needing to move focus.
 In the piano roll, Ctrl-click a note (Cmd-click on macOS) to add it to the

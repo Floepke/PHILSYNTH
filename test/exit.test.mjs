@@ -37,6 +37,19 @@ const key = (value, repeat = false) => {
   saves = 0;
 }
 {
+  let confirmed = 0;
+  window.modsynthExit = { confirm() { confirmed++; } };
+  await exitToOS(persist, notify, { ask: false });
+  assert.equal(dialog.open, false, 'window close / Cmd+Q quits without the Exit to OS? question');
+  assert.equal(saves, 1, 'and still autosaves first');
+  assert.equal(confirmed, 1);
+  await exitToOS({ flush: async () => ({ local: false, disk: false }) }, notify, { ask: false });
+  assert.equal(confirmed, 1, 'a failed autosave still keeps the app open');
+  assert.match(messages.pop(), /autosave failed/);
+  delete window.modsynthExit;
+  saves = 0;
+}
+{
   const done = exitToOS(persist, notify);
   assert.equal(key('Escape', true).defaultPrevented, true);
   assert.equal(dialog.open, true, 'held Escape must not dismiss the newly opened prompt');
@@ -75,7 +88,7 @@ for (const cancel of ['cancel', '']) {
   let finishSave;
   const done = exitToOS({ flush: () => new Promise((resolve) => { finishSave = resolve; }) }, notify);
   dialog.close('ok');
-  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve));
   assert.equal(closes, 0, 'waits for autosave');
   await exitToOS(persist, notify);
   assert.equal(dialog.open, false, 'no second exit prompt while saving');

@@ -2,7 +2,7 @@
 // Options: --arch=arm64|x64|universal (default: this Mac's), --zip (also writes PHILSYNTH-<version>-<arch>.zip)
 // The app is not signed with a Developer ID: on another Mac, open it the first time with
 // right-click > Open (or: xattr -dr com.apple.quarantine PHILSYNTH.app).
-// Only runtime files and the audio encoder dependency are copied;
+// Only runtime files, the audio encoder and koffi (real-time worker threads) are copied;
 // autosaves of the app go to ~/Library/Application Support/PHILSYNTH/projects (see electron/main.mjs).
 import { packager } from '@electron/packager';
 import { execFileSync } from 'node:child_process';
@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildIcon } from './build-icon.mjs';
+import { ensureKoffi } from './build-koffi.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const OUT = join(ROOT, 'release');
@@ -24,9 +25,11 @@ if (process.platform !== 'darwin') {
 }
 if (!existsSync(join(ROOT, 'src', 'dsp', 'modsynth.wasm'))) console.warn('warning: src/dsp/modsynth.wasm is missing (npm run build:wasm); the app falls back to the JS DSP.');
 await buildIcon();
+// both Mac binaries, so x64, arm64 and universal builds bundle the same files
+for (const a of ['arm64', 'x64']) ensureKoffi('darwin', a);
 
 // everything outside these is left out of the bundle
-const KEEP = /^\/(package\.json|index\.html|style\.css|server\.mjs|src(\/.*)?|electron(\/.*)?|node_modules\/wasm-media-encoders(\/.*)?)$/;
+const KEEP = /^\/(package\.json|index\.html|style\.css|server\.mjs|src(\/.*)?|electron(\/.*)?|node_modules\/(wasm-media-encoders|koffi|@koromix\/koffi-darwin-(arm64|x64))(\/.*)?|node_modules\/@koromix)$/;
 
 const [appDir] = await packager({
   dir: ROOT,
@@ -42,7 +45,7 @@ const [appDir] = await packager({
   icon: existsSync(ICON) ? ICON : undefined,
   overwrite: true,
   prune: true,
-  asar: true,
+  asar: { unpack: '**/*.node' }, // native binaries (koffi) can't load from inside the archive
   ignore: (path) => path !== '' && !KEEP.test(path) && !/^\/(src|electron|node_modules)$/.test(path),
   extendInfo: {
     NSHighResolutionCapable: true,
