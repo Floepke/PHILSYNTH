@@ -34,7 +34,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
   const seq = $('seq');
   const ui = {
     restart: $('seq-restart'), play: $('seq-play'), loop: $('seq-loop'), stop: $('seq-stop'), record: $('seq-record'),
-    metronome: $('seq-metronome'), pos: $('seq-pos'), name: $('seq-name'), target: $('seq-target'),
+    metronome: $('seq-metronome'), pos: $('seq-pos'), time: $('seq-time'), name: $('seq-name'), target: $('seq-target'),
     base: $('seq-snap-base'), div: $('seq-snap-div'), free: $('seq-free-time'),
     ctl: $('seq-ctl'), ctlField: $('seq-ctl-field'), targetField: $('seq-target-field'),
   };
@@ -518,6 +518,10 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     ui.pos.textContent = transport.countingIn
       ? `Count ${Math.min(transport.countIn.beats, Math.floor((transport.elapsed + transport.countIn.beats * transport.countIn.beat) / transport.countIn.beat) + 1)}`
       : formatPos(transport.pos, song());
+    const bpm = transport.getBpm();
+    const seconds = Number.isFinite(bpm) && bpm > 0 && Number.isFinite(transport.pos)
+      ? Math.floor(Math.max(0, transport.pos) * 60 / bpm) : 0;
+    ui.time.textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
     const looping = transport.loopClip ? (transport.clipSong === song() ? transport.loopClip() : null) : getClip(song(), transport.clipId);
     ui.pos.title = looping ? `Looping ${looping.name} (/ to restart, . for the song)` : 'Play position: bar.beat.hundredths';
   }
@@ -626,7 +630,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
   applyLayout();
 
   // module changes in the shown layer update the target lists and clip colours
-  const onModules = () => { refreshTargets(); roll.redraw(); lane.redraw(); arranger.redraw(); };
+  const onModules = () => { refreshTargets(); showPos(); roll.redraw(); lane.redraw(); arranger.redraw(); };
   let watched = null;
   function watchLayer() {
     if (watched === patch()) return;

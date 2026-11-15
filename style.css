@@ -1031,8 +1031,8 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 }
 #crumbs button:hover { background: var(--surface-3); color: var(--text); }
 #crumbs button.current { background: var(--surface-3); border-color: var(--border-strong); color: var(--text); }
-/* wall clock (HH:MM) on the outer right of the lower divider; clicks pass through to the divider */
-#clock {
+/* Divider time displays let pointer events reach the divider. */
+#clock, #seq-time {
   flex: none;
   margin-left: 10px;
   padding: 0 6px;
@@ -1042,6 +1042,11 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   letter-spacing: 0.04em;
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.85);
   pointer-events: none;
+}
+#clock { position: absolute; right: 14px; margin-left: 0; }
+@media (max-width: 520px) {
+  #seq-transport { --control-height: 28px; gap: 4px; }
+  #seq-time { margin-left: 4px; padding: 0 2px; }
 }
 #seq-bar button, #seq-bar select, #seq-bar .spinbox, #seq-transport button { cursor: default; }
 #seq-bar input { user-select: text; }

@@ -56,6 +56,7 @@
           <label class="seq-field" title="Draw, move, resize and paste notes and edit velocity-curve times without snapping. The dark/light grid remains visible; timeline and automation keep snapping. Right-click to assign a shortcut (default F)."><input id="seq-free-time" type="checkbox" data-shortcut-control aria-label="Free Timing" aria-keyshortcuts="F"><span>Free Timing</span></label>
         </div>
       </div>
+      <time id="clock" aria-label="Current time"></time>
     </div>
     <section id="patcher" aria-label="Patcher">
       <div id="panel-shell">
@@ -82,7 +83,7 @@
         <button id="seq-stop" class="seq-play" title="Stop playback ('); press again for panic" aria-label="Stop playback" aria-keyshortcuts="'"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3h10v10H3z"/></svg></button>
         <span id="seq-pos" class="seq-pos" title="Play position: bar.beat.hundredths">1.1.00</span>
       </div>
-      <time id="clock" aria-label="Current time"></time>
+      <span id="seq-time" aria-label="Playhead time" title="Playhead position in minutes and seconds">00:00</span>
     </div>
     <div id="arranger" class="seq-view" role="region" aria-label="TimeLine"></div>
   </div>

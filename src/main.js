@@ -2096,7 +2096,7 @@ initKeyboard({
   onNoTarget: () => ($('status').textContent = 'No module to play: add a module that takes MIDI (e.g. OSC) to hear the Q..P keys.'),
 });
 
-// wall clock (HH:MM, 24 h) on the lower divider; re-aligned to every minute boundary
+// wall clock (HH:MM, 24 h) on the upper divider; re-aligned to every minute boundary
 (function startClock() {
   const el = $('clock');
   if (!el) return;

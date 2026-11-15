@@ -4939,7 +4939,7 @@ for (const notes of [
   const elements = new Map();
   const inputIds = ['seq-name', 'seq-snap-div', 'seq-free-time'];
   const transportIds = ['seq-restart', 'seq-play', 'seq-loop', 'seq-stop', 'seq-record', 'seq-metronome'];
-  for (const id of ['seq', 'seq-bar', 'seq-bar-content', ...transportIds, 'seq-pos', 'seq-target', 'seq-snap-base', 'seq-ctl', 'seq-ctl-field', 'seq-target-field', ...inputIds,
+  for (const id of ['seq', 'seq-bar', 'seq-bar-content', ...transportIds, 'seq-pos', 'seq-time', 'seq-target', 'seq-snap-base', 'seq-ctl', 'seq-ctl-field', 'seq-target-field', ...inputIds,
     'workspace', 'patcher', 'roll', 'arranger', 'seq-split', 'seq-hsplit', 'panel', 'panel-split', 'status']) {
     elements.set(id, new Element(inputIds.includes(id) ? 'input' : transportIds.includes(id) ? 'button' : 'div'));
   }
@@ -4951,8 +4951,9 @@ for (const notes of [
   const song = emptySong();
   const clip = addClip(song, { start: 4.25, length: 0.5 });
   song.selected = clip.id;
+  let bpm = 120;
   const transport = new Transport({
-    getSong: () => song, getBpm: () => 120, getTarget: () => null, now: () => 0,
+    getSong: () => song, getBpm: () => bpm, getTarget: () => null, now: () => 0,
     ticker: () => ({ start() {}, stop() {} }),
   });
   let viewChanges = 0;
@@ -4968,6 +4969,22 @@ for (const notes of [
   });
   seq.reload();
   flush();
+  assert.equal(elements.get('seq-time').textContent, '00:00');
+  transport.seek(123);
+  assert.equal(elements.get('seq-time').textContent, '01:01', 'seek shows the song position, not elapsed playback time');
+  bpm = 60;
+  for (const listener of engine.root.listeners) listener();
+  assert.equal(elements.get('seq-time').textContent, '02:03', 'tempo changes update a parked playhead');
+  transport.seek(6000);
+  assert.equal(elements.get('seq-time').textContent, '100:00', 'long songs retain all minute digits');
+  transport.seek(0);
+  bpm = 120;
+  transport.playClip(clip.id);
+  assert.equal(elements.get('seq-time').textContent, '00:02', 'clip playback uses its song position');
+  transport.seek(clip.start + clip.length);
+  assert.equal(transport.pos, clip.start, 'seeking past a loop returns to its start');
+  assert.equal(elements.get('seq-time').textContent, '00:02', 'time follows the looped playhead');
+  transport.stop({ to: 0 });
   const auditioned = [];
   previewTarget = {
     noteOn(id, pitch, velocity) { auditioned.push(['on', pitch, velocity]); },

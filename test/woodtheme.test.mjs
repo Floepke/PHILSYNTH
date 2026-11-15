@@ -198,6 +198,25 @@ app.whenReady().then(async () => {
     const submit = value => run(`document.querySelector('#preferences-dialog form').requestSubmit(document.querySelector('#preferences-dialog button[value="${value}"]'))`);
     const open = () => run('window.openPreferences()');
     const flushClose = () => run('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    const initialSize = win.getSize();
+    for (const width of [1200, 360]) {
+      win.setSize(width, 700);
+      const positions = await run(`(() => {
+        const clock = document.getElementById('clock');
+        const time = document.getElementById('seq-time');
+        clock.textContent = '23:59';
+        time.textContent = '100:00';
+        const rect = element => { const r = element.getBoundingClientRect(); return { left: r.left, right: r.right }; };
+        return { clockParent: clock.parentElement.id, timeParent: time.parentElement.id,
+          clock: rect(clock), toolbar: rect(document.getElementById('seq-bar')),
+          time: rect(time), transport: rect(document.getElementById('seq-transport')), width: innerWidth };
+      })()`);
+      assert.equal(positions.clockParent, 'seq-split', 'wall clock is on the upper divider');
+      assert.equal(positions.timeParent, 'seq-hsplit', 'playhead time is on the lower divider');
+      assert.ok(positions.toolbar.right <= positions.clock.left, `${width}: clock clears the toolbar`);
+      assert.ok(positions.transport.right <= positions.time.left && positions.time.right <= positions.width, `${width}: playhead time fits beside transport`);
+    }
+    win.setSize(...initialSize);
     assert.equal(await tint(), defaultTint, 'existing default tint is preserved');
     await open();
     assert.equal(await run("document.activeElement.id"), 'preferences-categories', 'category list receives focus');

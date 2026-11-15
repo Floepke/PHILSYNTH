@@ -26,6 +26,10 @@ the left selects a category; OK saves all changes, while Cancel or Escape undoes
 live previews. Preferences are independent of projects.
 Each setting has its own labeled groupbox to clearly separate its controls.
 
+The upper divider shows the current clock time. The lower divider shows the
+TimeLine playhead in minutes and seconds, calculated from its musical position
+and the current BPM; it follows seeking and loop playback.
+
 Audio > Audio Latency offers Interactive (the default) and requested output
 latencies of 20, 40, 80, or 160 ms. Save with OK, then restart the Electron app
 or reload the browser to apply it. Larger requests increase live keyboard/MIDI
