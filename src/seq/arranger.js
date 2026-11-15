@@ -37,7 +37,7 @@
 //   scrollbars (bottom, right) drag the thumb, or click the track to jump there
 // The camera pans freely except upward: the idea-storage label stays above the bottom scrollbar.
 //   double-click the signature row  insert a time signature change at the nearest bar line (or edit it)
-//   right-click a signature    remove that change (the first one can only be edited)
+//   right-click a signature    edit the first signature, remove any later change
 // Restart point (green 'restart:' marker in the bar number row): song playback continues there at
 // the end of the song and stopping it parks the playhead there.
 //   double-click the bar numbers   insert the restart point at the nearest barline (moves an existing one)
@@ -930,11 +930,14 @@ export function createArranger(host, ctx) {
       const box = sigAt(x, y);
       if (y < RULER || x < x0) {
         lastRight = null;
-        // right-click a time signature: remove it; the restart marker: remove it;
+        // right-click a time signature: edit the first, remove later changes; remove the restart marker;
         // elsewhere on the ruler: the signature / restart point menu
         const openRulerMenu = () => menu({ x: e.clientX, y: e.clientY, items: [signatureItem(x), '-', ...restartItems()] });
         if (box) rightHold(cv, e, {
-          onShort: () => { if (removeSig(ctx.song(), box.at)) { ctx.changed(); s.redraw(); } },
+          onShort: () => {
+            if (box.at === 0) ctx.editSig(0);
+            else if (removeSig(ctx.song(), box.at)) { ctx.changed(); s.redraw(); }
+          },
           onHold: openRulerMenu,
         });
         else if (x >= x0 && restartAt(x, y)) rightHold(cv, e, { onShort: removeRestart, onHold: openRulerMenu });

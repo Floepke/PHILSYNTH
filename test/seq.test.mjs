@@ -685,6 +685,32 @@ const assertNoOverlap = (song) => {
   Object.assign(ctx.transport, { pos: 0, playing: false });
 }
 
+// Note gestures forward the written start velocity; the sequencer applies the audition floor.
+for (const velocity of [0, 0.25, 1]) {
+  for (const y of [ny(1) + 5, ny(1) + 30]) {
+    const { clip, roll, ctx } = setup();
+    const cv = roll.surface.cv;
+    clip.notes.push(note(60, 1, 2, velocity));
+    const calls = [];
+    const handle = {};
+    ctx.preview.on = (c, pitch, vel) => { assert.equal(c, clip); calls.push([pitch, vel]); return handle; };
+    ctx.preview.off = h => { assert.equal(h, handle); calls.push('off'); };
+    point(cv, 'pointerdown', nx(60), y, { buttons: 1 });
+    assert.deepEqual(calls, [[60, velocity]], 'both the head and body use the written start velocity');
+    point(cv, 'pointerup', nx(60), y);
+    assert.deepEqual(calls.at(-1), 'off', 'release stops the preview');
+  }
+}
+{
+  const { clip, roll, ctx } = setup();
+  const cv = roll.surface.cv;
+  clip.notes.push(note(60, 1, 2, 0.2));
+  const velocities = [];
+  ctx.preview.on = (c, pitch, velocity) => { velocities.push(velocity); return {}; };
+  drag(cv, nx(60), ny(1) + 5, nx(62), ny(1) + 5);
+  assert.deepEqual(velocities, [0.2, 0.2], 'pitch changes retrigger with the same note velocity');
+}
+
 for (const ending of ['pointerup', 'pointercancel', 'lostpointercapture', 'blur']) {
   const { clip, roll, ctx, changes } = setup();
   const cv = roll.surface.cv;
@@ -3794,7 +3820,7 @@ for (const free of [false, true]) {
 
 // A normal right-click opens the TimeLine menu at once (no 250 ms hold).
 {
-  const { song, arranger, menus, clip } = setup();
+  const { song, arranger, menus, clip, ctx, changes } = setup();
   const cv = arranger.surface.cv;
   clip.length = 4;
   mock.timers.enable({ apis: ['setTimeout'] });
@@ -3812,6 +3838,18 @@ for (const free of [false, true]) {
     // a time signature change: a short right-click removes it, a hold does not
     song.sigs = [{ at: 0, num: 4, den: 4 }, { at: 16, num: 3, den: 4 }];
     arranger.redraw(); flush();
+    const sigEdits = [];
+    ctx.editSig = at => sigEdits.push(at);
+    const beforeChanges = changes();
+    click(cv, ax(0) + 6, 8, { button: 2 });
+    assert.deepEqual(sigEdits, [0], 'right-clicking the first signature opens its edit dialog');
+    assert.equal(song.sigs.length, 2, 'the first signature is never deleted');
+    assert.equal(changes(), beforeChanges, 'opening the edit dialog creates no undo step');
+    point(cv, 'pointerdown', ax(0) + 6, 8, { button: 2, buttons: 2 });
+    mock.timers.tick(500);
+    point(cv, 'pointerup', ax(0) + 6, 8, { button: 2 });
+    assert.deepEqual(sigEdits, [0], 'holding the first signature does not open its edit dialog');
+    assert.ok(labels(menus).includes('Insert/Edit time-Signature Change…'), 'holding the first signature keeps the ruler menu');
     point(cv, 'pointerdown', ax(16) + 6, 8, { button: 2, buttons: 2 });
     mock.timers.tick(500);
     point(cv, 'pointerup', ax(16) + 6, 8, { button: 2 });
@@ -3819,6 +3857,7 @@ for (const free of [false, true]) {
     assert.ok(labels(menus).includes('Insert/Edit time-Signature Change…'), 'holding an existing signature opens the insertion menu');
     click(cv, ax(16) + 6, 8, { button: 2 });
     assert.equal(song.sigs.length, 1, 'short right-click removes the signature');
+    assert.deepEqual(sigEdits, [0], 'right-clicking later signatures still deletes without editing');
   } finally {
     mock.timers.reset();
   }
@@ -4920,14 +4959,43 @@ for (const notes of [
   let panics = 0;
   let songChanges = 0;
   const engine = { song, resume() {}, panic() { panics++; }, root: { modules: new Map(), listeners: new Set() } };
+  let previewTarget = null;
   let picked = null; // the module selected in the patcher (main.js selectedTarget)
   const seq = createSequencer({
     engine,
-    transport, getTarget: () => null, defaultTarget: () => null, selectedTarget: () => picked, onChange() { viewChanges++; },
+    transport, getTarget: () => previewTarget, defaultTarget: () => null, selectedTarget: () => picked, onChange() { viewChanges++; },
     onSongChange() { songChanges++; },
   });
   seq.reload();
   flush();
+  const auditioned = [];
+  previewTarget = {
+    noteOn(id, pitch, velocity) { auditioned.push(['on', pitch, velocity]); },
+    noteMod(id, pitch, velocity) { auditioned.push(['mod', pitch, velocity]); },
+    noteOff() { auditioned.push(['off']); },
+  };
+  clip.notes.push(note(60, 0, 0.5, 0.23));
+  seq.applyView({ roll: { sy: 0, ppq: 48 } }); flush();
+  const rollCv = elements.get('roll').children[0];
+  const x = 120 + 60.5 * (480 - 120 - ROLL_SB) / 128;
+  for (const [velocity, expected] of [[0, 0.1], [0.05, 0.1], [0.0999, 0.1], [0.1, 0.1], [0.23, 0.23], [1, 1]]) {
+    clip.notes[0].vel = velocity;
+    click(rollCv, x, 1);
+    click(rollCv, x, 15);
+    assert.deepEqual(auditioned.splice(0), [
+      ['on', 60, expected], ['off'], ['on', 60, expected], ['off'],
+    ], `head and body auditions apply the minimum velocity to ${velocity}`);
+    assert.equal(clip.notes[0].vel, velocity, 'auditioning leaves the written velocity unchanged');
+  }
+  clip.notes[0].vel = 0.05;
+  drag(rollCv, x, 1, x + 40, 1, { shiftKey: true }, 'pointercancel');
+  assert.equal(auditioned[0][0], 'on');
+  assert.ok(auditioned.some(([kind]) => kind === 'mod'), 'tuning modulates the preview pitch');
+  assert.ok(auditioned.filter(([kind]) => kind !== 'off').every(([, , velocity]) => velocity === 0.1),
+    'pitch modulation preserves the instrument preview velocity');
+  previewTarget = null;
+  clip.notes = [];
+  seq.applyView(null); flush();
   const metronome = elements.get('seq-metronome');
   metronome.onclick();
   assert.equal(transport.metronome, true);

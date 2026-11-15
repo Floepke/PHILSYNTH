@@ -116,7 +116,7 @@ const ROUND_STEP = 0.05; // rounding change per wheel step on a bend point
 // whole, bar lines are thinned so the ones left stay at least this far apart (snap bands unaffected).
 export { GRID_MIN_PX } from './timegrid.js';
 
-// ctx: { song(), clip(), color(clip), preview: { on(clip, pitch) -> handle, key(pitch) -> handle,
+// ctx: { song(), clip(), color(clip), preview: { on(clip, pitch, velocity?) -> handle, key(pitch) -> handle,
 //        bend?(handle, pitch) (micropitch drag), off(handle) }, changed(), transport,
 //        menu?(opts) (context menu, default showMenu), heldKeys?() -> Set of pitches held on the live
 //        inputs (shown blue on the keyboard; call redraw() when it changes) }
@@ -1072,7 +1072,7 @@ export function createPianoRoll(host, ctx) {
         if (Math.abs(p.x - x0) < dragThreshold()) return;
         state.moved = true;
         selected = new Set(group);
-        pv = ctx.preview.on(clip, note.pitch);
+        pv = ctx.preview.on(clip, note.pitch, note.vel);
       }
       apply(p);
     }, (ev) => {
@@ -1141,7 +1141,7 @@ export function createPianoRoll(host, ctx) {
       if (t <= 1e-9) t = Math.min(hi, 1 / view.ppq); // just after the note's start
       note.bends = orig.map((b, j) => (j === i ? { t, d, r: b.r } : b));
       const pitch = clamp(note.pitch + d, 0, PITCH_MAX);
-      if (!pv) pv = ctx.preview.on(clip, pitch);
+      if (!pv) pv = ctx.preview.on(clip, pitch, note.vel);
       else ctx.preview.bend?.(pv, pitch);
       hoverPitch = basePitch(pitch);
       s.redraw();
@@ -1417,15 +1417,16 @@ export function createPianoRoll(host, ctx) {
     let pv = null;
     if (h?.part === 'body' && !dup) {
       drag = { kind: 'length', t0: timeAt(y) };
+      pv = ctx.preview.on(clip, h.note.pitch, h.note.vel);
     } else if (h) {
       drag = { kind: 'move', t0: timeAt(y), p0: pitchAt(x) };
-      pv = ctx.preview.on(clip, h.note.pitch);
+      pv = ctx.preview.on(clip, h.note.pitch, h.note.vel);
     } else {
       const note = withVelEnd({ pitch: pitchAt(x), start: Math.max(0, snapFloor(timeAt(y), st)), length: lastLength ?? gridStep(), vel: lastVelocity ?? DEFAULT_VEL });
       clip.notes.push(note);
       group = [note];
       drag = { kind: 'new' };
-      pv = ctx.preview.on(clip, note.pitch);
+      pv = ctx.preview.on(clip, note.pitch, note.vel);
     }
     if (!inSelection) selected = new Set(group);
     const sources = group;
@@ -1496,7 +1497,7 @@ export function createPianoRoll(host, ctx) {
         group.forEach((n, i) => { n.pitch = clean(origs[i].pitch + dp); n.start = clean(origs[i].start + dt); });
         if (group[anchor].pitch !== before) {
           ctx.preview.off(pv);
-          pv = ctx.preview.on(clip, group[anchor].pitch);
+          pv = ctx.preview.on(clip, group[anchor].pitch, group[anchor].vel);
         }
       }
       hoverPitch = group[anchor].pitch;

@@ -293,6 +293,7 @@ export const GUIDE = [
         items: [
           'Click empty space to insert a note at that pitch, starting on the grid line at or before the pointer, with the last used length; move more than 10 pixels while holding to start setting its duration.',
           'Click / drag the keyboard at the bottom to audition pitches on the live MIDI module without writing notes. Keys held on your MIDI controller or the computer keyboard light up there in the selection colour, so you can read what you play. During playback the notes under the playhead light up their keys in the clip colour, so you can read the harmony.',
+          'Click a written notehead or note body to audition it using that note\'s starting velocity, with a minimum audition velocity of 0.1 (10%). Moving or tuning its pitch keeps the same preview velocity. This minimum affects only auditioning, not the written note or playback.',
           'Drag the empty cell to the left or right of the keyboard up or down to make the keyboard taller or shorter; double-click a cell to reset it. The height is remembered on this computer, not saved in the project.',
         ],
       },
@@ -375,7 +376,7 @@ export const GUIDE = [
         items: [
           'Drag the timeline measure ruler left/right to pan horizontally and up/down to zoom around the grabbed time; both axes act together without moving the playhead. Clicking it leaves the playhead unchanged. In Electron the cursor locks during the drag and returns to its press position on release; web browsers use ordinary cursor dragging without pointer lock. Escape cancels navigation. Restart markers still drag to change their position.',
           'Click the time signature row to set the play position; dragging there scrubs.',
-          `${k('Double-click')} the time signature row to insert a time signature change at the nearest bar line (or edit it); right-click a change to remove it.`,
+          `${k('Double-click')} the time signature row to insert a time signature change at the nearest bar line (or edit it). Right-click the first marker at time zero to edit it; right-click any later change to remove it.`,
           'Drag a green signature flag left or right to move it by whole bars of the preceding meter. The initial signature stays at zero. Later changes snap to their nearest whole measure without reordering or overlapping; clips and notes do not move. The grid updates during the drag; Escape cancels, and release records one undo step.',
           'Choose Insert/Edit time-Signature Change… from the timeline clip, empty-space or ruler context menu to open the same dialog at the nearest bar to the right-click position. Hold right-click on an existing signature or restart marker to open this menu without removing it.',
           'The time-signature dialog includes a two-octave stave preview with time running downward. The entire measure scales to fit the available editor height. Click a numbered beat row to show or hide its pianoroll line; beat 1 controls the barline. Editing either time-signature field resets all beats to enabled. These choices repeat each measure and do not change snapping, playback or ruler marks.',

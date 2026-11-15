@@ -191,13 +191,14 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
       $('status').textContent = 'MIDI import cancelled because the project or layer changed.';
     },
     preview: {
-      on(c, pitch) {
+      on(c, pitch, velocity = DEFAULT_VEL) {
         const inst = getTarget(c.target);
         if (!inst) return null;
+        velocity = Math.max(0.1, velocity);
         engine.resume();
         const id = newNoteId();
-        inst.noteOn(id, pitch + pitchOffset(), DEFAULT_VEL);
-        return { inst, id };
+        inst.noteOn(id, pitch + pitchOffset(), velocity);
+        return { inst, id, velocity };
       },
       // the on-screen keyboard plays the live MIDI module (red MIDI marker in the patcher)
       key(pitch) {
@@ -206,10 +207,10 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
         engine.resume();
         const id = newNoteId();
         inst.noteOn(id, pitch + pitchOffset(), DEFAULT_VEL);
-        return { inst, id };
+        return { inst, id, velocity: DEFAULT_VEL };
       },
       // micropitch drag: the sounding preview glides to the new pitch
-      bend(h, pitch) { h?.inst.noteMod?.(h.id, pitch + pitchOffset(), DEFAULT_VEL); },
+      bend(h, pitch) { h?.inst.noteMod?.(h.id, pitch + pitchOffset(), h.velocity); },
       off(h) { h?.inst.noteOff(h.id); },
     },
   };
