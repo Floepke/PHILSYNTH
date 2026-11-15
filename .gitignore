@@ -10,6 +10,7 @@ out/
 release/
 build/
 /PHILSYNTH.AppImage
+.nvmrc
 
 # Logs and temp files
 *.log

@@ -10,6 +10,50 @@ import { registerInterfacePreferences, PANEL_DIVIDER_WIDTH_ID, LAUNCH_FULLSCREEN
 import { registerMidiPreferences, migrateMidiInput, MIDI_INPUT_ID } from '../src/midipreferences.js';
 import { registerPianorollPreferences, SNAP_VELOCITY_ID } from '../src/pianorollpreferences.js';
 import { registerPatcherPreferences, SPECTRUM_FLOW_ID, SPECTRUM_SIZE_ID } from '../src/patcherpreferences.js';
+import { registerAudioPreferences, audioLatencyHint, AUDIO_LATENCY_ID } from '../src/audiopreferences.js';
+import { Engine } from '../src/engine.js';
+
+{
+  let stored = null;
+  const manager = createPreferencesManager({ storage: { load: async () => stored, save: async text => { stored = text; } } });
+  registerAudioPreferences(manager);
+  await manager.load();
+  assert.equal(manager.entries()[0].category, 'Audio');
+  assert.equal(audioLatencyHint(manager), 'interactive');
+  manager.preview(AUDIO_LATENCY_ID, '80');
+  assert.equal(audioLatencyHint(manager), 'interactive', 'preview does not change the saved startup latency');
+  manager.restore();
+  await manager.save({ [AUDIO_LATENCY_ID]: '80' });
+  assert.equal(audioLatencyHint(manager), 0.08, 'milliseconds convert to seconds for AudioContext');
+  const restored = createPreferencesManager({ storage: { load: async () => stored } });
+  registerAudioPreferences(restored);
+  await restored.load();
+  assert.equal(audioLatencyHint(restored), 0.08, 'latency persists across sessions');
+  for (const [value, hint] of [['20', 0.02], ['40', 0.04], ['160', 0.16], ['interactive', 'interactive']]) {
+    await manager.save({ [AUDIO_LATENCY_ID]: value });
+    assert.equal(audioLatencyHint(manager), hint);
+  }
+  await assert.rejects(manager.save({ [AUDIO_LATENCY_ID]: '0' }), /Invalid value/);
+  await assert.rejects(manager.save({ [AUDIO_LATENCY_ID]: 80 }), /Invalid value/);
+  const original = globalThis.AudioContext;
+  const stop = new Error('Stop after creating AudioContext');
+  let options;
+  globalThis.AudioContext = class {
+    constructor(value) {
+      options = value;
+      this.audioWorklet = { addModule: async () => { throw stop; } };
+    }
+  };
+  try {
+    await assert.rejects(new Engine().init(), error => error === stop);
+    assert.deepEqual(options, { latencyHint: 'interactive' }, 'existing engine callers keep their default');
+    await assert.rejects(new Engine().init({ latencyHint: audioLatencyHint(restored) }), error => error === stop);
+    assert.deepEqual(options, { latencyHint: 0.08 }, 'engine forwards the saved latency request');
+  } finally {
+    if (original === undefined) delete globalThis.AudioContext;
+    else globalThis.AudioContext = original;
+  }
+}
 
 {
   let stored = null;

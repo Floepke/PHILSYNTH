@@ -11,6 +11,71 @@ const { DspHost } = await import('../src/dsp/host.js');
 const { InstancePool, POOL_BYTES, poolSize } = await import('../src/dsp/instancepool.js');
 const { instantiateDsp, wasmKernels } = await import('../src/dsp/wasm.js');
 const { PatchRuntime } = await import('../src/patch.js');
+const { startPool } = await import('../src/engine.js');
+
+{
+  const names = ['Worker', 'MessageChannel', 'navigator', 'location', 'localStorage', 'crossOriginIsolated', 'modsynthFiles'];
+  const original = new Map(names.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  const created = [], channels = [], messages = [], errors = [];
+  let statuses = [], search = '', stored = null;
+  const set = (name, value) => Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  set('navigator', { hardwareConcurrency: 4 });
+  set('location', { get search() { return search; } });
+  set('localStorage', { getItem: () => stored });
+  set('crossOriginIsolated', true);
+  set('modsynthFiles', {});
+  set('MessageChannel', class {
+    constructor() {
+      this.port1 = { closed: false, close() { this.closed = true; } };
+      this.port2 = { closed: false, close() { this.closed = true; } };
+      channels.push(this);
+    }
+  });
+  set('Worker', class {
+    constructor() { this.status = statuses.shift(); this.terminated = false; created.push(this); }
+    postMessage(data) {
+      this.requireRealtime = data.requireRealtime;
+      if (this.status) queueMicrotask(() => this.onmessage?.({ data: this.status }));
+    }
+    terminate() { this.terminated = true; }
+  });
+  const run = async (next) => {
+    statuses = next;
+    created.length = channels.length = messages.length = 0;
+    return startPool({ postMessage: (...args) => messages.push(args) }, null, 48000, error => errors.push(error), { timeout: 10 });
+  };
+  const ready = ok => ({ ready: true, realtime: { ok, error: ok ? undefined : 'No rtprio permission' } });
+  try {
+    assert.deepEqual(await run([ready(true), ready(false)]), [], 'one denied worker disables the entire automatic pool');
+    assert.equal(messages.length, 0, 'fallback does not install a pool');
+    assert.ok(created.every(worker => worker.terminated && worker.requireRealtime), 'automatic candidates are stopped');
+    assert.ok(channels.every(channel => channel.port1.closed && channel.port2.closed), 'fallback closes both ends of every channel');
+    const automatic = await run([ready(true), ready(true)]);
+    assert.equal(automatic.length, 2, 'real-time workers remain enabled');
+    assert.equal(messages.length, 1, 'the pool is installed only after startup succeeds');
+    automatic[0].onmessage({ data: { error: 'Runtime failure' } });
+    assert.deepEqual(errors, ['Runtime failure'], 'runtime errors still reach the engine');
+    assert.deepEqual(await run([{ error: 'Startup failure' }, ready(true)]), [], 'startup errors fall back');
+    assert.deepEqual(await run([ready(true), null]), [], 'a missing handshake times out and falls back');
+    search = '?workers=2';
+    assert.equal((await run([ready(false), ready(false)])).length, 2, 'explicit URL overrides can still benchmark normal-priority workers');
+    assert.ok(created.every(worker => !worker.requireRealtime));
+    search = '';
+    stored = '2';
+    assert.equal((await run([ready(false), ready(false)])).length, 2, 'stored worker overrides retain their behavior');
+    stored = '0';
+    assert.deepEqual(await run([]), [], 'explicit zero disables workers without probing');
+    stored = null;
+    set('modsynthFiles', undefined);
+    assert.deepEqual(await run([]), [], 'browsers remain single-threaded by default');
+    assert.equal(created.length, 0);
+  } finally {
+    for (const [name, descriptor] of original) {
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else delete globalThis[name];
+    }
+  }
+}
 
 const bytes = new Uint8Array(readFileSync(new URL('../src/dsp/modsynth.wasm', import.meta.url)));
 const BUDGET = 5000; // ms: a slow test machine must not change the result

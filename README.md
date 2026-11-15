@@ -26,6 +26,24 @@ the left selects a category; OK saves all changes, while Cancel or Escape undoes
 live previews. Preferences are independent of projects.
 Each setting has its own labeled groupbox to clearly separate its controls.
 
+Audio > Audio Latency offers Interactive (the default) and requested output
+latencies of 20, 40, 80, or 160 ms. Save with OK, then restart the Electron app
+or reload the browser to apply it. Larger requests increase live keyboard/MIDI
+response latency. Web Audio and the audio device may choose a different actual
+latency. Electron now renders complete engine blocks on a dedicated worker,
+then the AudioWorklet plays them from a shared queue without waiting for DSP.
+Interactive uses 20 ms of rendering headroom; numeric options request at least
+that much headroom. The queue also includes a margin for device-buffer callback
+bursts, and both are rounded to 128-sample blocks. Queue delay is additional to
+device latency and affects live keyboard/MIDI and microphone monitoring.
+The DSP block remains 128 samples. Patch workers in buffered mode can wait for
+70% of the selected headroom rather than 70% of one tiny block; those waits
+sleep on atomic notifications on the render worker, never on the AudioWorklet.
+Browsers retain direct AudioWorklet rendering. If buffered desktop startup fails,
+the app falls back to direct rendering. `engine.buffering` in developer tools
+reports queue delay and cumulative output underruns; no buffer can compensate
+for sustained rendering slower than real time.
+
 Interface > Controller Panel Divider Width sets only the divider between the
 controller panel and patcher, in CSS px (10–128; default 48). The 10 px minimum
 fits its 6 px grip with padding. App scaling still applies; the widget-bearing
@@ -78,7 +96,8 @@ Unregistered JSON values are retained for future settings.
 
 ## Playback timing
 
-Timeline playback runs in the AudioWorklet alongside the existing DSP graph.
+Timeline playback runs alongside the DSP graph, in Electron's buffered render
+worker or the browser AudioWorklet. Its clock advances by audio samples.
 Notes, note releases, automation, and timed MIDI processors (including STRUM,
 TRILL, delays, and nested Patch instances) advance on the audio clock, not on
 GUI timers. Divider dragging or a blocked GUI can delay the displayed playhead,
@@ -91,7 +110,7 @@ UI, and offline export keeps its existing virtual-clock transport.
 Adding Patch instances still requires GUI-side DSP allocation. Instance-count
 automation uses the instances already provisioned until the GUI creates and
 binds additional ones. Project/model edits synchronize with the audio engine;
-unlike divider movement, those edits can incur audio-thread preparation work.
+unlike divider movement, those edits can incur render-thread preparation work.
 
 `npm test` includes headless audio-clock transport and MIDI-routing regressions.
 For a real AudioWorklet test on Linux, run:
@@ -102,10 +121,11 @@ xvfb-run -a node_modules/.bin/electron test/audiotransport-ui.test.mjs --no-sand
 
 ## Patch instances on worker threads
 
-In the desktop app, the extra copies of a PATCH with Instances > 1 (instance
-2 to 16) render on worker threads. Instance 1, the one you edit, stays on the audio thread so its
-scopes and meters keep working. The workers render within the same 128-sample
-block as the audio thread, so no latency is added. Audio crossing between
+In the desktop app, when real-time priority is available, the extra copies of a
+PATCH with Instances > 1 (instances 2 to 16) render on additional worker threads.
+Instance 1, the one you edit, stays on the engine's render thread so its scopes
+and meters keep working. The workers render the same 128-sample block as that
+thread; the full engine's output queue supplies buffering. Audio crossing between
 threads goes through shared memory, and the output is sample-identical to
 single-thread rendering (`node test/instancepool.test.mjs`). With 16 heavy
 instances the audio thread's load drops by about half.
@@ -127,7 +147,13 @@ thread has (`electron/realtime.cjs`, through the FFI library koffi): on macOS
 the time-constraint policy Core Audio threads use, on Windows the MMCSS task
 "Pro Audio", and on Linux SCHED_FIFO (granted only with an rtprio limit, e.g.
 membership of the `audio` group; otherwise a warning is logged and the workers
-run at normal priority). A normal-priority worker is sometimes woken a few
+are disabled in automatic mode). Startup checks every worker before assigning
+any DSP nodes. If any worker cannot obtain real-time priority, fails to start,
+or does not respond within five seconds, the entire pool is shut down and all
+instances render on the engine thread (the buffered worker on desktop, or the
+AudioWorklet in direct mode). The console reports the fallback reason.
+Project settings and instance counts are unchanged; engine-thread CPU load may
+increase. A forced normal-priority worker is sometimes woken a few
 milliseconds late, and a late worker's copies are silent for that block (a
 crackle), most often while the app is in the background. Measured on an Apple
 M1 (16 copies of OSC → FILTER, a note every 60 ms, 30 s): 103 late blocks at
@@ -146,6 +172,43 @@ The build scripts bundle koffi with the target's native binary
 Browsers can't give workers real-time priority, so in a browser everything
 renders on the audio thread by default.
 
+To compare worker scheduling on a particular project on Linux, run:
+
+```sh
+xvfb-run -a node_modules/.bin/electron test/bench-project-ui.mjs HornSound.phproject
+```
+
+The opt-in benchmark plays the supplied project using the real Electron
+AudioWorklet with 0, 1, 2, then 0 workers again. It does not change the project,
+preferences, or production worklet. Each run warms up for three seconds and
+measures 15 seconds; `BENCH_SECONDS=30` increases the measurement interval.
+`latePercent` counts audio blocks where at least one worker missed its deadline
+or was still behind; those workers contribute silence. `averageLoad` is elapsed
+DSP/playback time divided by the audio duration, including worker waits.
+Timing uses the worklet's millisecond clock, so `overruns` and `maxMs` are coarse
+diagnostics, not measurements of audible device underruns. `maxMs` includes
+warmup. The benchmark excludes the main app's drawing workload; confirm changes
+by listening in the full app too. It requires Electron's normal audio libraries
+and a working audio device/server.
+
+Diagnostic environment variables can isolate worker behavior:
+`BENCH_WORKERS=auto,0,2` compares automatic selection, no workers, and two forced
+workers; `BENCH_EXPECT_WORKERS=0` asserts that each run uses zero workers,
+`BENCH_SKIP_REALTIME=1` skips koffi and the real-time priority request,
+`BENCH_NODE_WORKERS=0` disables Node integration in workers, and
+`BENCH_LATENCY_MS=160` requests 160 ms output latency. Results include actual
+`baseLatency`, the requested hint, and per-worker rendering and wake timing.
+Wake timing uses a millisecond clock; rendering timing uses `performance.now()`.
+Worker maxima include warmup; averages cover the measurement interval. This
+instrumentation is only injected by the benchmark server, not into the app.
+
+`BENCH_BUFFERED=1` selects the buffered desktop path (the benchmark defaults to
+direct mode for comparisons). `BENCH_STALL_MS=10` injects a single 10 ms pause
+into the buffered render worker after 3,000 blocks, and
+`BENCH_EXPECT_UNDERRUNS=0` asserts zero output-queue underruns during measurement.
+Buffered results also check that the AudioWorklet emits non-silent samples.
+Queue unit regressions run through `npm run test:renderqueue` and `npm test`.
+
 Measured on 8 cores / 16 threads (OSC 4 voices → FILTER → AMP → REVERB per
 copy, % of the audio block on the audio thread):
 
@@ -157,7 +220,11 @@ copy, % of the audio block on the audio thread):
 
 `?workers=N` in the URL, or `localStorage['modsynth.workers'] = 'N'`, overrides
 the worker count (0 turns the workers off, at most 6); in a browser this is the
-only way to turn them on, at normal priority. Workers need `SharedArrayBuffer`,
+only way to turn them on, at normal priority. Explicit nonzero overrides bypass
+the real-time-priority requirement for benchmarking and can still crackle.
+To restore automatic selection, remove the `workers` URL parameter and run
+`localStorage.removeItem('modsynth.workers')` in developer tools, then reload.
+Workers need `SharedArrayBuffer`,
 so the page must be cross-origin isolated. `server.mjs` (also used by the
 desktop app) sends the COOP/COEP headers. Hosts that can't send headers, such as
 GitHub Pages, get them from the service worker `coi-sw.js`: when workers are
@@ -581,7 +648,7 @@ spinbox or the beat-note-value dropdown resets the measure to all beats enabled.
 Clip looping chases notes already sounding at the loop start on every pass,
 including notes in overlapping clips and notes beginning before a trimmed
 clip's left edge. Chased notes resume at their current velocity and bent pitch
-and stop at their normal end (or the loop boundary).
+In the desktop app, when worker real-time priority is available, the extra copies of a PATCH with Instances > 1 (instance
 
 TimeLine > right-click > Consolidate combines selected MIDI clips across lanes
 and destinations. The result uses the first selected clip's name, destination
@@ -645,7 +712,7 @@ npm test
 Rebuilding the WASM DSP engine uses `npm run build:wasm`.
 
 Every module's panel ends with a reference (About, Controllers, Usage) from
-`src/moduledocs.js`. When adding a module or controller, describe it there;
+`BENCH_WORKERS=auto,0,2` compares automatic selection, no workers, and two forced
 `npm test` checks that every controller is documented.
 macOS packaging uses `npm run build:mac` on macOS.
 

@@ -1,111 +1,29 @@
-// The one AudioWorklet of the app: runs the whole module graph (src/dsp/graph.js).
-// Messages from the main thread (src/dsp/host.js) arrive between render quanta; every
-// REPORT_BLOCKS quanta the changed modulation values (and the audio time, for MULTIMIDI
-// drift) go back to the main thread. The cable scope waveforms only go along about SCOPE_HZ
-// times per second (display rate), to keep the audio thread's message traffic low.
-// processorOptions.wasm: the bytes of src/dsp/modsynth.wasm (C++ kernels, src/dsp/wasm.js). Without
-// them, or if they fail to load, the JS kernels run. The choice is posted back as { info }.
-import { Graph } from './dsp/graph.js';
-import { instantiateDsp, wasmKernels } from './dsp/wasm.js';
-import { LoadMeter } from './dsp/loadmeter.js';
-import { Playback } from './dsp/playback.js';
-import { InstancePool } from './dsp/instancepool.js';
-import { useAudioNoteIds } from './modmidi.js';
-
-const REPORT_BLOCKS = 2; // ~5 ms at 48 kHz
-const SCOPE_HZ = 60;
-const SCOPE_BLOCKS = Math.max(REPORT_BLOCKS, Math.round(sampleRate / 128 / SCOPE_HZ / REPORT_BLOCKS) * REPORT_BLOCKS);
-const ANALYSIS_BLOCKS = Math.max(REPORT_BLOCKS, Math.round(sampleRate / 128 / 20 / REPORT_BLOCKS) * REPORT_BLOCKS);
+import { EngineRenderer } from './dsp/enginerenderer.js';
+import { RenderQueue } from './dsp/renderqueue.js';
 
 class EngineProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
-    const bytes = options?.processorOptions?.wasm;
-    let info = { dsp: 'js' };
-    if (bytes) {
-      try {
-        this.graph = new Graph(wasmKernels(instantiateDsp(bytes), sampleRate));
-        info = { dsp: 'wasm' };
-      } catch (err) {
-        info = { dsp: 'js', error: String(err?.message ?? err) };
-      }
-    }
-    this.graph ??= new Graph();
-    useAudioNoteIds();
-    this.playback = new Playback(this.graph, () => currentTime);
-    this.playback.onError = (error) => this.fail(error);
-    this.controlQueue = Promise.resolve();
-    this.port.postMessage({ info });
-    this.blocks = 0;
-    this.scopeBlocks = 0;
-    this.analysisBlocks = 0;
-    this.load = new LoadMeter((128 / sampleRate) * 1000);
-    this.port.onmessage = (e) => {
-      this.controlQueue = this.controlQueue.then(async () => {
-        for (const op of e.data) {
-          if (op[0] === 'playback') {
-            const [, type, data] = op;
-            if (type === 'model') await this.playback.model(data);
-            else if (type === 'song') this.playback.setSong(data);
-            else this.playback.command(data);
-          } else if (op[0] === 'pool') this.graph.setPool(new InstancePool(op[1]));
-          else this.graph.op(op);
-        }
-      }).catch((err) => {
-        this.fail(err);
-      });
-    };
-  }
-
-  fail(error) {
-    this.playback.failed = true;
-    try { this.playback.command({ type: 'panic' }); }
-    catch (cleanup) {
-      this.graph.panic();
-      this.playback.transport.playing = false;
-      this.port.postMessage({ error: `Playback cleanup: ${cleanup?.stack ?? cleanup}` });
-    }
-    this.port.postMessage({ error: `DSP/playback: ${error?.stack ?? error}` });
+    const settings = options?.processorOptions;
+    if (settings?.queue) {
+      this.queue = new RenderQueue(settings.queue);
+      this.block = 0;
+    } else this.renderer = new EngineRenderer(this.port, settings);
   }
 
   process(inputs, outputs) {
-    const out = outputs[0];
-    this.graph.ext = inputs; // microphones (src/mics.js), read by the INPUT kernels
-    try {
-      const t0 = Date.now();
-      this.playback.process();
-      this.graph.render(out[0], out[1] ?? out[0]);
-      this.playback.renderCountIn(out[0], out[1] ?? out[0], sampleRate);
-      const cpu = this.load.add(t0, Date.now());
-      if (cpu) this.port.postMessage({ cpu });
-      this.failed = false;
-    } catch (err) {
-      // keep the worklet alive (a dead process() would silence everything for good)
-      for (const ch of out) ch.fill(0);
-      if (!this.failed) this.fail(err);
-      this.failed = true;
-    }
-    if (++this.blocks >= REPORT_BLOCKS) {
-      this.scopeBlocks += this.blocks;
-      this.analysisBlocks += this.blocks;
-      this.blocks = 0;
-      const withScope = this.scopeBlocks >= SCOPE_BLOCKS;
-      if (withScope) this.scopeBlocks = 0;
-      const r = this.graph.report(currentTime, withScope);
-      try { this.playback.receive(r?.mods); }
-      catch (error) { this.fail(error); }
-      const report = r ?? { time: currentTime, mods: [] };
-      report.playback = this.playback.report();
-      const transfers = report.scope ? [report.scope.v.buffer] : [];
-      if (this.analysisBlocks >= ANALYSIS_BLOCKS) {
-        this.analysisBlocks = 0;
-        const analysis = this.graph.analysis?.report();
-        if (analysis) {
-          report.analysis = analysis;
-          transfers.push(analysis.samples.buffer);
-        }
-      }
-      this.port.postMessage(report, transfers);
+    if (this.renderer) return this.renderer.process(inputs, outputs, currentTime);
+    if (!this.block) Atomics.store(this.queue.ctrl, 4, Math.round(currentTime * sampleRate));
+    this.queue.capture(++this.block, inputs);
+    this.queue.consume(this.block, outputs[0]);
+    this.maxPending = Math.max(this.maxPending ?? 0, this.block - Atomics.load(this.queue.ctrl, 5));
+    if (!(this.block % Math.round(sampleRate / 128))) {
+      this.port.postMessage({ buffering: {
+        latency: this.queue.delay * 128 / sampleRate,
+        underruns: Atomics.load(this.queue.ctrl, 1),
+        lostInputs: Atomics.load(this.queue.ctrl, 2),
+        maxPending: this.maxPending,
+      } });
     }
     return true;
   }

@@ -95,7 +95,14 @@ function jsonSafe(v) {
 
 // Wait until stamp[slot] is `block` (true) or the deadline passed (false).
 function await_(stamp, slot, block, deadline) {
-  for (let i = 1; Atomics.load(stamp, slot) !== block; i++) if (!(i & 63) && now() > deadline) return false;
+  for (let i = 1; Atomics.load(stamp, slot) !== block; i++) {
+    if (globalThis.modsynthBlockingWait) {
+      const remaining = deadline - now();
+      if (remaining <= 0) return false;
+      const value = Atomics.load(stamp, slot);
+      if (value !== block) Atomics.wait(stamp, slot, value, remaining);
+    } else if (!(i & 63) && now() > deadline) return false;
+  }
   return true;
 }
 
@@ -195,6 +202,7 @@ class PoolLink {
     if (!silent) { this.ins[slot][0].set(L); this.ins[slot][1].set(R); }
     this.inSilent[slot] = silent ? 1 : 0;
     Atomics.store(this.inStamp, slot, this.block);
+    Atomics.notify(this.inStamp, slot);
   }
 }
 
@@ -294,7 +302,7 @@ export class InstancePool {
 }
 
 // back to the event loop once (worker only: the AudioWorklet scope has no MessageChannel)
-let yieldOnce = () => {
+export let yieldOnce = () => {
   if (typeof setImmediate === 'function') yieldOnce = () => new Promise((r) => setImmediate(r));
   else {
     const ch = new MessageChannel();
@@ -379,6 +387,7 @@ export class PoolWorker {
     try { this.graph.render(this.L, this.R); }
     catch (err) { this.onError?.(err); }
     Atomics.store(this.ctrl, DONE, block);
+    Atomics.notify(this.ctrl, DONE);
   }
 
   // one kick, if there is one: applies the ops and renders (used by run() and by tests)
@@ -410,5 +419,6 @@ export class PoolWorker {
     if (!silent) { this.outs[slot][0].set(L); this.outs[slot][1].set(R); }
     this.outSilent[slot] = silent ? 1 : 0;
     Atomics.store(this.outStamp, slot, this.block);
+    Atomics.notify(this.outStamp, slot);
   }
 }

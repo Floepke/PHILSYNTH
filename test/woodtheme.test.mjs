@@ -134,6 +134,7 @@ app.whenReady().then(async () => {
         import { createPreferencesManager } from '/src/preferences.js';
         import { createPreferencesDialog } from '/src/preferencesdialog.js';
         import { registerInterfacePreferences } from '/src/interfacepreferences.js';
+        import { registerAudioPreferences } from '/src/audiopreferences.js';
         import { registerTimelinePreferences } from '/src/timelinepreferences.js';
         import { registerPianorollPreferences } from '/src/pianorollpreferences.js';
         import { registerPatcherPreferences } from '/src/patcherpreferences.js';
@@ -168,6 +169,7 @@ app.whenReady().then(async () => {
           inputs: () => window.midiDevices,
           enable: async () => { window.midiDevices = [{ name: 'Keyboard' }, { name: 'New Controller' }]; return true; },
         }));
+        registerAudioPreferences(window.preferencesManager);
         await window.preferencesManager.load();
         window.openPreferences = createPreferencesDialog(window.preferencesManager);
       </script>`);
@@ -176,7 +178,7 @@ app.whenReady().then(async () => {
       ['/style.css', ['text/css', css]],
       ['/src/dsp/analysis.js', ['text/javascript', readFileSync(new URL('../src/dsp/analysis.js', import.meta.url), 'utf8')]],
       ['/src/seq/menu.js', ['text/javascript', readFileSync(new URL('../src/seq/menu.js', import.meta.url), 'utf8')]],
-      ...['woodtheme', 'modcolor', 'preferences', 'preferencesdialog', 'interfacepreferences', 'timelinepreferences', 'pianorollpreferences', 'patcherpreferences', 'midipreferences', 'midi', 'modmidi', 'dialogs', 'song', 'curve', 'fileformat', 'shortcuts'].map(name => [`/src/${name}.js`, ['text/javascript',
+      ...['woodtheme', 'modcolor', 'preferences', 'preferencesdialog', 'interfacepreferences', 'audiopreferences', 'timelinepreferences', 'pianorollpreferences', 'patcherpreferences', 'midipreferences', 'midi', 'modmidi', 'dialogs', 'song', 'curve', 'fileformat', 'shortcuts'].map(name => [`/src/${name}.js`, ['text/javascript',
         readFileSync(new URL('../src/' + name + '.js', import.meta.url), 'utf8')]]),
     ]);
     server = http.createServer((req, res) => {
@@ -199,7 +201,7 @@ app.whenReady().then(async () => {
     assert.equal(await tint(), defaultTint, 'existing default tint is preserved');
     await open();
     assert.equal(await run("document.activeElement.id"), 'preferences-categories', 'category list receives focus');
-    assert.deepEqual(await run("Array.from(document.getElementById('preferences-categories').options, o => o.text)"), ['Interface', 'Testing', 'Timeline', 'Pianoroll', 'Spectrum Analyser', 'MIDI']);
+    assert.deepEqual(await run("Array.from(document.getElementById('preferences-categories').options, o => o.text)"), ['Interface', 'Testing', 'Timeline', 'Pianoroll', 'Spectrum Analyser', 'MIDI', 'Audio']);
     const groups = await run(`Array.from(document.querySelectorAll('#preferences-content fieldset'), group => ({
       label: group.querySelector('legend')?.textContent,
       border: getComputedStyle(group).borderTopWidth,
@@ -234,6 +236,33 @@ app.whenReady().then(async () => {
     await submit('cancel');
     await flushClose();
     assert.equal(await tint(), defaultTint, 'Cancel restores the previous tint');
+    const audioCategory = () => run(`(() => {
+      const list = document.getElementById('preferences-categories');
+      list.value = 'Audio'; list.dispatchEvent(new Event('change'));
+    })()`);
+    const audioChange = value => run(`(() => {
+      const input = document.getElementById('pref-audio-latency');
+      input.value = '${value}'; input.dispatchEvent(new Event('change'));
+    })()`);
+    await open();
+    await audioCategory();
+    assert.equal(await run("document.querySelector('#preferences-content legend').textContent"), 'Audio Latency');
+    assert.equal(await run("document.getElementById('pref-audio-latency').value"), 'interactive');
+    assert.deepEqual(await run("Array.from(document.getElementById('pref-audio-latency').options, option => option.value)"), ['interactive', '20', '40', '80', '160']);
+    await audioChange('80');
+    await submit('cancel'); await flushClose();
+    assert.equal(await run("window.preferencesManager.get('audio.latency')"), 'interactive', 'Cancel does not save audio latency');
+    await open(); await audioCategory();
+    await audioChange('80');
+    await submit('ok'); await flushClose();
+    await win.loadURL(url);
+    await open(); await audioCategory();
+    assert.equal(await run("document.getElementById('pref-audio-latency').value"), '80', 'audio latency survives reload');
+    await run("document.querySelector('#preferences-content .preference-reset').click()");
+    assert.equal(await run("document.getElementById('pref-audio-latency').value"), 'interactive', 'Reset selects the interactive default');
+    await submit('cancel'); await flushClose();
+    assert.equal(await run("window.preferencesManager.get('audio.latency')"), '80', 'Cancel discards an audio latency reset');
+    await win.loadURL(url);
     await open();
     await change([64, 128, 192]);
     await submit('ok');

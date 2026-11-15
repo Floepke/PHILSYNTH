@@ -13,6 +13,7 @@ import { initWoodTheme, migrateWoodTint } from './woodtheme.js';
 import { createPreferencesManager } from './preferences.js';
 import { createPreferencesDialog } from './preferencesdialog.js';
 import { registerInterfacePreferences } from './interfacepreferences.js';
+import { registerAudioPreferences, audioLatencyHint } from './audiopreferences.js';
 import { registerTimelinePreferences } from './timelinepreferences.js';
 import { registerPianorollPreferences } from './pianorollpreferences.js';
 import { registerAutomationPreferences } from './automationpreferences.js';
@@ -70,6 +71,7 @@ const $ = (id) => document.getElementById(id);
 const preferencesManager = createPreferencesManager();
 initWoodTheme(preferencesManager);
 registerInterfacePreferences(preferencesManager);
+registerAudioPreferences(preferencesManager);
 const timelineDisplay = registerTimelinePreferences(preferencesManager, () => seq?.redrawTimeline());
 const pianorollPreferences = registerPianorollPreferences(preferencesManager, () => seq?.redrawPianoroll());
 const automationPreferences = registerAutomationPreferences(preferencesManager, () => seq?.redrawAutomation());
@@ -1892,7 +1894,7 @@ initWidgets(document, { numberStep: () => snapStep(layerSong(shown()).snap) });
 initStatusTips({ tipEl: $('tip'), statusEl: $('status') }); // after initWidgets: it extends some titles
 ['pointerdown', 'keydown'].forEach((ev) => window.addEventListener(ev, () => engine.resume()));
 initCpuMeter(engine);
-await engine.init();
+await engine.init({ latencyHint: audioLatencyHint(preferencesManager) });
 patchMonitor = createPatchMonitor(engine.root);
 scope = new CableScope(engine.dsp);
 analysePanel = createSpectrumAnalyserPanel({

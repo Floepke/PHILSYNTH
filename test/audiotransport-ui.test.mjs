@@ -7,6 +7,8 @@ import { readFile } from 'node:fs/promises';
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.whenReady().then(async () => {
   const server = http.createServer(async (req, res) => {
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
     if (req.url === '/') {
       res.setHeader('Content-Type', 'text/html');
       res.end('<!doctype html><title>Audio-thread playback regression</title>');
@@ -33,7 +35,7 @@ app.whenReady().then(async () => {
   });
   try {
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-    for (const backend of ['js', 'wasm']) {
+    for (const [backend, buffered] of [['js', false], ['wasm', false], ['js', true], ['wasm', true]]) {
       await win.loadURL(`http://127.0.0.1:${server.address().port}/`);
       const result = await win.webContents.executeJavaScript(`(async () => {
         localStorage.setItem('modsynth.dsp', '${backend}');
@@ -42,7 +44,7 @@ app.whenReady().then(async () => {
         const { addClip, addAutoClip } = await import('/src/song.js');
         const { playbackModel } = await import('/src/playbackmodel.js');
         const engine = new Engine();
-        await engine.init();
+        await engine.init({ buffered: ${buffered} });
         const errors = [], scopes = [];
         engine.dsp.onError = error => errors.push(error);
         const receive = engine.dsp.receive.bind(engine.dsp);
@@ -118,12 +120,13 @@ app.whenReady().then(async () => {
           tr.stop();
           await wait(50);
           return {
-            backend: engine.dspInfo?.dsp, ...timing, playing: tr.playing, failedSafely, recovered,
+            backend: engine.dspInfo?.dsp, buffered: !!engine.renderWorker, ...timing, playing: tr.playing, failedSafely, recovered,
           };
         } finally { await engine.ctx.close(); }
       })()`);
       assert.deepEqual(result.errors, [], `${backend}: worklet has no errors`);
       assert.equal(result.backend, backend, 'test uses the requested DSP backend');
+      assert.equal(result.buffered, buffered, 'test uses the requested rendering path');
       assert.ok(result.before >= 0.03 && result.before < 0.1, 'UI stalls before the note starts');
       assert.ok(result.after > result.before + 0.4, 'audio playhead advances during the 200 ms UI stall');
       assert.ok(result.sounding.some(s => s.peak > 0.001), 'note onset sounds while the UI is blocked');
@@ -132,7 +135,7 @@ app.whenReady().then(async () => {
       assert.equal(result.playing, false);
       assert.equal(result.failedSafely, true, 'worklet synchronization errors are reported and stop playback');
       assert.equal(result.recovered, true, 'a valid model restores playback after a synchronization error');
-      console.log(`${backend}: 32,001-note project, onset/release verified during a 200 ms UI stall`);
+      console.log(`${backend} ${buffered ? 'buffered' : 'direct'}: 32,001-note project, onset/release verified during a 200 ms UI stall`);
     }
     app.exit(0);
   } catch (error) {

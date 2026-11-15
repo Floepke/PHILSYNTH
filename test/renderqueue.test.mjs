@@ -1,0 +1,40 @@
+import assert from 'node:assert/strict';
+import { createRenderQueue, RenderQueue } from '../src/dsp/renderqueue.js';
+
+const settings = createRenderQueue(48000, 20, 1);
+assert.equal(settings.delay, 8);
+const capture = new RenderQueue(settings);
+const render = new RenderQueue(settings);
+const input = [new Float32Array(128), new Float32Array(128)];
+const output = [new Float32Array(128), new Float32Array(128)];
+for (let block = 1; block <= 150; block++) {
+  input[0].fill(block);
+  input[1].fill(-block);
+  capture.capture(block, [input]);
+  assert.ok(render.readInput(block));
+  assert.deepEqual(render.inputs[0], input, 'capture preserves both input channels');
+  render.publish(block, render.inputs[0]);
+  const ready = capture.consume(block, output);
+  assert.equal(ready, block > settings.delay);
+  assert.ok(output[0].every(sample => sample === Math.max(0, block - settings.delay)));
+  assert.ok(output[1].every(sample => sample === -Math.max(0, block - settings.delay)));
+}
+assert.equal(capture.ctrl[1], 0, 'startup silence is not an underrun');
+capture.capture(151, []);
+assert.ok(render.readInput(151));
+assert.ok(render.inputs[0].every(channel => channel.every(sample => sample === 0)), 'missing microphone inputs are cleared');
+assert.equal(capture.consume(159, output), false, 'a missing finished block never blocks playback');
+assert.ok(output.every(channel => channel.every(sample => sample === 0)));
+assert.equal(capture.ctrl[1], 1);
+assert.equal(render.readInput(1), false, 'overwritten input is detected');
+render.publish(151, render.inputs[0]);
+capture.flush();
+assert.equal(capture.consume(159, output), false, 'seek and panic discard queued audio');
+assert.equal(capture.ctrl[1], 1, 'intentional queue flushing is not an underrun');
+input[0].fill(2); input[1].fill(-2);
+capture.capture(152, [input]);
+assert.ok(render.readInput(152));
+render.publish(152, render.inputs[0]);
+assert.ok(capture.consume(160, output), 'new audio resumes after a flush');
+assert.ok(output[0].every(sample => sample === 2));
+console.log('renderqueue tests passed');
