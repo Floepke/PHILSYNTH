@@ -2,7 +2,7 @@
 // Inside the 88-key piano range (A0..C8) every black key is drawn as a black stave line through
 // the middle of its column, ON TOP of the notes, so black-key notes sit under a line and
 // white-key notes sit between the lines (2- and 3-line groups like a keyboard). Outside the
-// piano range there are no lines, notes just float.
+// piano range, short ledger lines extend the groups around each written notehead.
 // The keyboard sits below the stave. Noteheads are left-tilted ovals, white/black by key.
 // Keys held on the MIDI device or computer keyboard (ctx.heldKeys) light up blue (the selection colour).
 // During playback the keys of every playing clip's notes under the playhead light up in that clip's
@@ -99,6 +99,7 @@ const BG = '#45464e';
 const PLAYHEAD = '#ff916e';
 const SELECT = '#607c69';
 const STAVE = TIME_GRID.color;
+const isThree = (p) => [6, 8, 10].includes(p % 12);
 const BEAT = STAVE;
 const BAR_LINE = STAVE;
 const BOUNDARY = STAVE;
@@ -343,6 +344,35 @@ export function createPianoRoll(host, ctx) {
     scroll: (dx, dy) => { view.sy += dy; view.hx += dx; limitScroll(); ctx.viewChanged?.(); },
     onScroll,
   });
+
+  function ledgerLines(g, pitch, y, alpha = 1) {
+    const p = basePitch(pitch);
+    if (inPiano(p)) return;
+    const half = headSize(p).height + 4;
+    const cy = headY(y, p);
+    if (cy + half < gridTop() || cy - half > gridBottom()) return;
+    // C..E belong to the pair, F..B to the triple; always finish the outer group.
+    const three = p % 12 >= 5;
+    const group = p - p % 12 + (three ? 6 : 1);
+    const low = p < PIANO_LOW ? group : PIANO_HIGH + 1;
+    const high = p < PIANO_LOW ? GRID_LOW : group + (three ? 4 : 2);
+    g.globalAlpha = alpha;
+    g.strokeStyle = STAVE;
+    g.lineCap = 'round';
+    for (const thick of [false, true]) {
+      g.lineWidth = staveWidth() * (thick ? 1.6 : 1);
+      g.beginPath();
+      for (let key = low; key <= high; key++) {
+        if (!isBlack(key) || isThree(key) !== thick) continue;
+        const x = centerX(key);
+        g.moveTo(x, cy - half);
+        g.lineTo(x, cy + half);
+      }
+      g.stroke();
+    }
+    g.lineCap = 'butt';
+    g.globalAlpha = 1;
+  }
 
   // pitch: its key decides colour and size (micropitch only moves x)
   function head(g, x, y, pitch, alpha = 1) {
@@ -607,7 +637,6 @@ export function createPianoRoll(host, ctx) {
       const thin = staveWidth();
       const staveTop = Math.min(bottom, Math.max(0, yOf(0)));
       // the group of three (F# G# A#) is thicker than the group of two (C# D#)
-      const isThree = (p) => [6, 8, 10].includes(p % 12);
       const stave = (dashed, three) => {
         g.lineWidth = three ? thin * 1.6 : thin;
         g.beginPath();
@@ -631,6 +660,7 @@ export function createPianoRoll(host, ctx) {
     }
 
     if (clip) {
+      for (const n of clip.notes) ledgerLines(g, n.pitch, yOf(n.start), n.start >= 0 && n.start < clip.length ? 1 : 0.4);
       // white heads first: a black one of a neighbouring key overlaps them
       for (const black of [false, true]) {
         for (const n of clip.notes) {

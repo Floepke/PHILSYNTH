@@ -4333,6 +4333,72 @@ for (const free of [false, true]) {
   assert.ok(contrast(rgb('#c3c7d0'), rgb('#292b31')) >= 4.5);
 }
 
+// Written out-of-range heads extend the stave with short, matching black-key groups.
+{
+  const { clip, roll } = setup();
+  const cv = roll.surface.cv;
+  const drawnLedgers = () => {
+    let path = [];
+    return cv.drawing.flatMap(([op, ...args]) => {
+      if (op === 'beginPath') path = [];
+      if (op === 'moveTo' || op === 'lineTo') path.push([op, ...args]);
+      if (op !== 'stroke' || args[0] !== '#111216' || !path.length || path.length % 2) return [];
+      if (!path.every(([kind, x, y], i) => i % 2 === 0
+        ? kind === 'moveTo'
+        : kind === 'lineTo' && x === path[i - 1][1] && y > path[i - 1][2] && y - path[i - 1][2] < 48)) return [];
+      const segments = [];
+      for (let i = 0; i < path.length; i += 2) {
+        const [, x, y0] = path[i];
+        const [, x1, y1] = path[i + 1];
+        assert.equal(x, x1, 'ledger lines run along time, like stave lines');
+        segments.push({ pitch: (x - 120 - 7) / 14, y0, y1, width: args[1] });
+      }
+      return segments;
+    });
+  };
+  const ledgers = (pitch, start = 1) => {
+    clip.notes = [note(pitch, start, 8)];
+    cv.drawing.length = 0;
+    roll.redraw(); flush();
+    return drawnLedgers();
+  };
+  for (const pitch of [21, 60, 108]) assert.deepEqual(ledgers(pitch), [], 'in-range notes need no ledgers');
+  for (const [pitch, expected] of [
+    [20, [18, 20, 22]],
+    [17, [18, 20, 22]],
+    [16, [13, 15, 18, 20, 22]],
+    [0, [1, 3, 6, 8, 10, 13, 15, 18, 20, 22]],
+    [109, [109, 111]],
+    [112, [109, 111]],
+    [113, [109, 111, 114, 116, 118]],
+    [120, [109, 111, 114, 116, 118, 121, 123]],
+    [127, [109, 111, 114, 116, 118, 121, 123, 126, 128, 130]],
+  ]) {
+    const lines = ledgers(pitch);
+    assert.deepEqual(lines.map((l) => l.pitch).sort((a, b) => a - b), expected, `complete groups for pitch ${pitch}`);
+    for (const line of lines) {
+      const thick = [6, 8, 10].includes(line.pitch % 12);
+      assert.ok(Math.abs(line.width - 14 * 0.22 * (thick ? 1.6 : 1)) < 1e-9, 'ledger thickness matches the stave');
+      assert.ok(line.y0 < ny(1) && line.y1 > ny(1) && line.y1 < ny(2), 'ledgers surround only the notehead, not its duration');
+    }
+  }
+  assert.deepEqual(ledgers(108.49), [], 'micropitch within C8 stays in range');
+  assert.deepEqual(ledgers(108.5).map((l) => l.pitch), [109, 111], 'micropitch uses the notehead base key');
+  assert.deepEqual(ledgers(0, -4), [], 'an offscreen head does not draw ledger lines along its visible body');
+  clip.notes = [];
+  cv.drawing.length = 0;
+  point(cv, 'pointermove', nx(109), ny(2));
+  assert.deepEqual(drawnLedgers(), [], 'the cursor preview has no ledger lines');
+  click(cv, nx(109), ny(2));
+  cv.drawing.length = 0;
+  point(cv, 'pointermove', nx(113), ny(3));
+  assert.deepEqual(drawnLedgers().map((l) => l.pitch), [109, 111], 'only the written note has ledger lines');
+  roll.setView({ sy: 0, ppq: 48, hz: 2, hx: 100 }); flush();
+  const zoomed = ledgers(109);
+  assert.equal(zoomed[1].pitch - zoomed[0].pitch, 4, 'ledger pitch spacing follows horizontal zoom');
+  assert.equal(zoomed[0].width, 28 * 0.22, 'ledger thickness follows horizontal zoom');
+}
+
 // The A#0/A#7 time grid scales with the viewport; saved manual horizontal zoom is ignored.
 for (const width of [240, 480, 1000, 1912, 3000]) {
   const { roll, clip, rollHost } = setup();

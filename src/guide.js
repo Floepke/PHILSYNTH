@@ -208,7 +208,7 @@ export const GUIDE = [
         items: [
           'The black keys of a piano form a repeating pattern: a group of <b>two</b> (C♯ and D♯) followed by a group of <b>three</b> (F♯, G♯ and A♯). The stave repeats exactly that pattern. The lines of the group of two are <b>thin</b>; the lines of the group of three are <b>slightly thicker</b>.',
           'The difference in weight lets the eye find its place immediately. The group of two marks C, D and E; the group of three marks F, G, A and B. As on the piano, you never count lines, you recognise the groups.',
-          'The two lines of the <b>central octave</b> (C♯4 and D♯4) are <b>dashed</b>, a landmark around middle C. Lines are drawn across the range of an 88-key piano (A0 to C8); outside it, the keys and notes remain available without stave lines.',
+          'The two lines of the <b>central octave</b> (C♯4 and D♯4) are <b>dashed</b>, a landmark around middle C. The full stave spans an 88-key piano (A0 to C8). Written notes below A0 or above C8 have short <b>ledger lines</b> around their noteheads, extending back to the stave in complete groups of two and three with the same colour and thin/thick pattern. The cursor preview has no ledger lines. A0 and C8 themselves need no ledger lines. C♯8 adds the C♯8/D♯8 pair; F8 adds the F♯8/G♯8/A♯8 triple as well.',
         ],
       },
       {
