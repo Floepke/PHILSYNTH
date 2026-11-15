@@ -31,7 +31,7 @@ const ROUND_STEP = 0.05;
 const SELECT = '#607c69';
 const VEL_SNAP = 16; // velocity snapping levels: 0, 1/16 .. 1
 
-// o: { cv, local(e), clip(), selected() -> Set, setSelected(Set), yOf(t), timeAt(y), bottom(), ppq(), song(),
+// o: { cv, local(e), clip(), selected() -> Set, setSelected(Set), yOf(t), timeAt(y), top(), bottom(), ppq(), song(),
 //      color(clip), changed(), redraw(), menu(opts), snapVelocity(), selectRect(e, x, y, onClick), width()?,
 //      rememberVelocity?(value) (committed note-start velocity for new notes),
 //      edgeScroll(onScroll)? (an edgeScroll() that scrolls the shared time axis),
@@ -71,7 +71,7 @@ export function createVelocityStrip(o) {
   const xv = (v) => PAD + v * (W() - 2 * PAD);
   const vx = (x) => clamp((x - PAD) / (W() - 2 * PAD), 0, 1);
   const snapVelocity = (v) => o.snapVelocity() ? Math.round(v * VEL_SNAP) / VEL_SNAP : v;
-  const contains = (x, y) => x >= 0 && x < W() && y >= 0 && y < o.bottom();
+  const contains = (x, y) => x >= 0 && x < W() && y >= o.top() && y < o.bottom();
   const step = () => pianoTimeStep(o.song().snap);
   const sigOf = (notes) => notes.map((n) => `${n.start},${n.length},${n.vel},${JSON.stringify(n.vels ?? [])}`).join(';');
 
@@ -236,8 +236,7 @@ export function createVelocityStrip(o) {
       g.setLineDash([]);
     }
     g.restore();
-    // label strip under the velocity area (the keyboard strip of the roll; below the roll's
-    // horizontal scrollbar row when that shows)
+    // label strip under the velocity area (the keyboard strip of the roll)
     const labelTop = Math.max(bottom, o.labelTop?.() ?? bottom);
     g.save();
     g.beginPath();
@@ -304,7 +303,7 @@ export function createVelocityStrip(o) {
       if (drag !== state || !q) return;
       const target = snapVelocity(v0 + ((q.x - x) * (shift ? 0.1 : 1)) / (W() - 2 * PAD));
       const delta = target - v0;
-      const dt = clamp(snapRound(t0 + o.timeAt(clamp(q.y, 0, o.bottom())) - tStart, st) - t0, minTime, maxTime);
+      const dt = clamp(snapRound(t0 + o.timeAt(clamp(q.y, o.top(), o.bottom())) - tStart, st) - t0, minTime, maxTime);
       targets.forEach(({ point }, index) => {
         point.v = clean(clamp(values[index] + delta, 0, 1));
         point.t = clean(times[index] + dt);
@@ -383,7 +382,7 @@ export function createVelocityStrip(o) {
     const sel = o.selected();
     const picked = clip.notes.filter((n) => sel.has(n));
     const notes = picked.length ? picked : clip.notes;
-    const at = (q) => ({ t: Math.max(0, o.timeAt(clamp(q.y, 0, o.bottom()))), v: snapVelocity(vx(q.x)) });
+    const at = (q) => ({ t: Math.max(0, o.timeAt(clamp(q.y, o.top(), o.bottom()))), v: snapVelocity(vx(q.x)) });
     line = { a: at({ x, y }), b: at({ x, y }) };
     const state = line;
     let q = { x, y };

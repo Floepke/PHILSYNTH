@@ -21,6 +21,9 @@ try {
     }
     assert.equal(await readFile(join(output, base, 'src/main.js'), 'utf8'),
       await readFile(new URL('../src/main.js', import.meta.url), 'utf8'));
+    const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+    assert.deepEqual(JSON.parse(await readFile(join(output, base, 'package.json'), 'utf8')),
+      { version: manifest.version }, 'each deployment carries its app version');
   }
   assert.ok((await stat(join(output, '.nojekyll'))).isFile());
   assert.equal(await readFile(join(output, 'coi-sw.js'), 'utf8'),

@@ -1601,6 +1601,26 @@ const saveCommand = (as) => fileCommand(as ? 'Save As' : 'Save', () => saveFile(
 // the status bar's file name (and its unsaved dot) saves the project
 $('doc-name').addEventListener('click', () => saveCommand(false));
 
+const versionDialog = $('version-dialog');
+let versionRequest = 0;
+versionDialog.addEventListener('close', () => { versionRequest++; });
+async function openVersionDialog() {
+  if (versionDialog.open) return;
+  const request = ++versionRequest;
+  $('version-text').textContent = 'Loading version…';
+  versionDialog.showModal();
+  try {
+    const response = await fetch(new URL('../package.json', import.meta.url));
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const { version } = await response.json();
+    if (typeof version !== 'string' || !version.trim()) throw new Error('Invalid version in package manifest');
+    if (request === versionRequest) $('version-text').textContent = `PHILSYNTH ${version}`;
+  } catch (err) {
+    console.error('Could not load app version:', err);
+    if (request === versionRequest) $('version-text').textContent = `Could not load app version: ${err.message}`;
+  }
+}
+
 const brand = $('brand');
 let mainMenuOpen = false;
 let brandClosesMenu = false;
@@ -1637,6 +1657,7 @@ function mainMenuItems() {
     ] },
     '-',
     { label: 'Preferences…', action: openPreferences },
+    { label: 'Version…', action: openVersionDialog },
     '-',
     { label: 'Exit', shortcut: 'Esc', action: () => exitToOS(persist, (message) => { $('status').textContent = message; }) },
   ];

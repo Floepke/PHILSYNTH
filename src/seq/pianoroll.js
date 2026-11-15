@@ -9,7 +9,7 @@
 // note colour (muted / idea clips stay dark); the shown clip's colour wins a shared key.
 // Unzoomed, all 128 MIDI pitches fit the available width. Ctrl/Cmd + wheel zooms time, Shift + wheel
 // zooms pitch (the stave and the keyboard together, around the pointer) for finer micropitch work;
-// zoomed in, a horizontal scrollbar shows between the stave and the keyboard and middle-drag pans
+// zoomed in, a horizontal scrollbar shows at the top of the roll and middle-drag pans
 // both ways. Noteheads and bodies grow with the pitch zoom only up to NOTE_MAX_W. A vertical
 // scrollbar right of the note grid (the TimeLine's look) spans the clip; the keyboard ends beside it.
 //   click / drag the keyboard  play pitches on the live MIDI module (red MIDI in the patcher) without editing notes
@@ -143,7 +143,7 @@ export function createPianoRoll(host, ctx) {
   const { cv } = s;
   const velW = () => clamp(view.velW, VEL_MIN, Math.max(VEL_MIN, s.w * VEL_MAX_SHARE));
   const gridX = () => velW() + GUTTER; // left edge of the note grid
-  const inRuler = (x, y) => x >= velW() && x < gridX() && y >= 0 && y < s.h;
+  const inRuler = (x, y) => x >= velW() && x < gridX() && y >= gridTop() && y < s.h;
   const rollRight = () => Math.max(gridX(), s.w - SB); // the note grid and keyboard end at the scrollbar
   const visW = () => Math.max(0, rollRight() - gridX());
   const baseKeyWidth = () => visW() / (PITCH_MAX + 1); // unzoomed: all keys fit
@@ -181,11 +181,12 @@ export function createPianoRoll(host, ctx) {
   const blackKey = () => Math.round(keyboardHeight() * 2 / 3); // black keys cover the back 2/3, like a real piano
   const keyTop = () => Math.max(0, s.h - keyboardHeight());
   const onKeyboardCell = (x, y) => y >= keyTop() && y < s.h && (x < gridX() || x >= rollRight()); // the height handles
-  const gridBottom = () => Math.max(0, keyTop() - (zoomedX() ? SB : 0)); // zoomed: the horizontal scrollbar sits above the keys
-  const inGrid = (x, y) => x >= gridX() && x < rollRight() && y >= 0 && y < gridBottom();
+  const gridTop = () => zoomedX() ? Math.min(SB, keyTop()) : 0;
+  const gridBottom = () => keyTop();
+  const inGrid = (x, y) => x >= gridX() && x < rollRight() && y >= gridTop() && y < gridBottom();
   const inKeyboard = (x, y) => x >= gridX() && x < rollRight() && y >= keyTop() && y < s.h;
-  const onScrollbar = (x, y) => x >= rollRight() && y >= 0 && y < gridBottom();
-  const onHScrollbar = (x, y) => zoomedX() && x >= gridX() && x < rollRight() && y >= gridBottom() && y < keyTop();
+  const onScrollbar = (x, y) => x >= rollRight() && y >= gridTop() && y < gridBottom();
+  const onHScrollbar = (x, y) => zoomedX() && x >= gridX() && x < rollRight() && y >= 0 && y < gridTop();
   // the keys play the live MIDI module (preview.key) even without a clip; else the clip's target
   const keysPlay = () => !!(ctx.preview.key || ctx.clip());
   const staveWidth = () => Math.min(keyWidth(), noteW()) * 0.22; // C# D# lines; F# G# A# 1.6x as thick
@@ -231,6 +232,7 @@ export function createPianoRoll(host, ctx) {
     setSelected: (set) => { selected = set; },
     yOf,
     timeAt,
+    top: gridTop,
     bottom: gridBottom,
     labelTop: keyTop,
     ppq: () => view.ppq,
@@ -286,7 +288,7 @@ export function createPianoRoll(host, ctx) {
     limitX();
     limitScroll();
   }
-  // the horizontal scrollbar between the stave and the keyboard (zoomed in only)
+  // the horizontal scrollbar at the top of the roll (zoomed in only)
   const hScrollbar = () => scrollThumb(gridX(), visW(), visW(), 0, (view.hz - 1) * visW(), view.hx);
   function hScrollbarDrag(e, p) {
     e.preventDefault();
@@ -311,7 +313,8 @@ export function createPianoRoll(host, ctx) {
   function scrollbar() {
     const clip = ctx.clip();
     const end = clip ? Math.max(clip.length, ...clip.notes.map((n) => n.start + n.length), drag?.kind === 'clipEnd' ? drag.extent : 0) : BAR;
-    return scrollThumb(0, gridBottom(), gridBottom(), -TOP_MARGIN, scrollMax(end), view.sy);
+    const height = gridBottom() - gridTop();
+    return scrollThumb(gridTop(), height, height, -TOP_MARGIN, scrollMax(end), view.sy);
   }
   // drag the thumb (grabbed where pressed), or press the track: the thumb centres there and follows
   function scrollbarDrag(e, p) {
@@ -335,8 +338,8 @@ export function createPianoRoll(host, ctx) {
   // horizontal: also sideways past the left / right edge while zoomed in (drags that change pitch)
   const gridScroll = (onScroll, { horizontal = false } = {}) => edgeScroll({
     area: () => (horizontal && zoomedX()
-      ? { left: gridX(), right: rollRight(), top: 0, bottom: gridBottom() }
-      : { left: -Infinity, right: Infinity, top: 0, bottom: gridBottom() }),
+      ? { left: gridX(), right: rollRight(), top: gridTop(), bottom: gridBottom() }
+      : { left: -Infinity, right: Infinity, top: gridTop(), bottom: gridBottom() }),
     scroll: (dx, dy) => { view.sy += dy; view.hx += dx; limitScroll(); ctx.viewChanged?.(); },
     onScroll,
   });
@@ -496,6 +499,7 @@ export function createPianoRoll(host, ctx) {
     const clip = ctx.clip();
     const kw = keyWidth();
     const nw = noteW();
+    const top = gridTop();
     const bottom = gridBottom();
     const keysY = keyTop();
     const gridLeft = xOf(GRID_LOW) + kw / 2;
@@ -507,7 +511,7 @@ export function createPianoRoll(host, ctx) {
 
     g.save();
     g.beginPath();
-    g.rect(gridX(), 0, Math.max(0, w - gridX()), bottom);
+    g.rect(gridX(), top, Math.max(0, w - gridX()), bottom - top);
     g.clip();
     if (clip) {
       // past the clip end: shaded, notes there do not play
@@ -518,7 +522,7 @@ export function createPianoRoll(host, ctx) {
       }
       // grid: alternating light/dark snap-step bands, dashed beat lines and solid bar lines
       // of the time signature (taken from the TimeLine at the clip's position)
-      const t0 = Math.max(0, timeAt(0));
+      const t0 = Math.max(0, timeAt(top));
       const t1 = timeAt(bottom);
       const st = gridStep();
       g.fillStyle = TIME_GRID.band;
@@ -766,20 +770,12 @@ export function createPianoRoll(host, ctx) {
     g.strokeStyle = '#34363e';
     g.lineWidth = 2;
     g.beginPath(); g.moveTo(gridX(), 0); g.lineTo(gridX(), h); g.moveTo(0, keysY); g.lineTo(fullW, keysY); g.stroke();
-    if (bottom < keysY) { // zoomed in: horizontal scrollbar between the stave and the keys
-      g.fillStyle = SB_TRACK;
-      g.fillRect(0, bottom, fullW, keysY - bottom);
-      g.strokeStyle = '#1e1e21';
-      g.lineWidth = 1;
-      g.beginPath(); g.moveTo(0, bottom + 0.5); g.lineTo(fullW, bottom + 0.5); g.stroke();
-      paintThumb(g, hScrollbar(), false, bottom, hbActive ? 2 : hbHover ? 1 : 0);
-    }
     // vertical scrollbar right of the note grid
     g.fillStyle = SB_TRACK;
-    g.fillRect(w, 0, fullW - w, bottom);
+    g.fillRect(w, top, fullW - w, bottom - top);
     g.strokeStyle = '#1e1e21';
     g.lineWidth = 1;
-    g.beginPath(); g.moveTo(w + 0.5, 0); g.lineTo(w + 0.5, bottom); g.stroke();
+    g.beginPath(); g.moveTo(w + 0.5, top); g.lineTo(w + 0.5, bottom); g.stroke();
     paintThumb(g, scrollbar(), true, w, sbActive ? 2 : sbHover ? 1 : 0);
     vel.paint(g, h);
     if (drag?.kind === 'select' && drag.shown && drag.velocity) {
@@ -792,6 +788,14 @@ export function createPianoRoll(host, ctx) {
       g.strokeStyle = SELECT;
       g.lineWidth = 1;
       g.strokeRect(x + 0.5, y + 0.5, w, height);
+    }
+    if (top > 0) {
+      g.fillStyle = SB_TRACK;
+      g.fillRect(0, 0, fullW, top);
+      g.strokeStyle = '#1e1e21';
+      g.lineWidth = 1;
+      g.beginPath(); g.moveTo(0, top - 0.5); g.lineTo(fullW, top - 0.5); g.stroke();
+      paintThumb(g, hScrollbar(), false, 0, hbActive ? 2 : hbHover ? 1 : 0);
     }
   }
 
@@ -900,7 +904,7 @@ export function createPianoRoll(host, ctx) {
     const apply = () => {
       if (drag !== state || !pointer) return;
       const st = step();
-      const t = timeAt(clamp(pointer.y, 0, gridBottom()));
+      const t = timeAt(clamp(pointer.y, gridTop(), gridBottom()));
       const length = clamp(clean(snapRound(t, st)), Math.max(st, 1 / view.ppq), max);
       if (length !== clip.length) { clip.length = length; moved = true; ctx.live?.(); }
       state.extent = Math.max(state.extent, length);
@@ -957,7 +961,7 @@ export function createPianoRoll(host, ctx) {
       state.y0 = yOf(state.t0);
       state.x0 = state.c0 - (velocity ? 0 : view.hx); // anchored in pitch, so the rectangle grows while the view pans
       state.x1 = velocity ? clamp(pointer.x, 0, velW()) : clamp(pointer.x, gridX(), rollRight());
-      state.y1 = clamp(pointer.y, 0, gridBottom());
+      state.y1 = clamp(pointer.y, gridTop(), gridBottom());
       const left = Math.min(state.x0, state.x1);
       const right = Math.max(state.x0, state.x1);
       const top = Math.min(state.y0, state.y1);
@@ -1103,7 +1107,7 @@ export function createPianoRoll(host, ctx) {
       if (drag !== state || !pointer) return;
       const q = pointer;
       const d = bendPitch(note, pitchFromX(x0 - view.hx + clampX(q.x) - x), shift);
-      let t = bendTime(note, note.start + p0.t + timeAt(clamp(q.y, 0, gridBottom())) - tStart, lo, hi);
+      let t = bendTime(note, note.start + p0.t + timeAt(clamp(q.y, gridTop(), gridBottom())) - tStart, lo, hi);
       if (t <= 1e-9) t = Math.min(hi, 1 / view.ppq); // just after the note's start
       note.bends = orig.map((b, j) => (j === i ? { t, d, r: b.r } : b));
       const pitch = clamp(note.pitch + d, 0, PITCH_MAX);
@@ -1250,14 +1254,14 @@ export function createPianoRoll(host, ctx) {
       });
       return;
     }
+    if (zoomedX() && y >= 0 && y < gridTop()) {
+      e.preventDefault();
+      if (e.button === 0 && onHScrollbar(x, y)) hScrollbarDrag(e, { x, y });
+      return;
+    }
     if (onScrollbar(x, y) || (x >= rollRight() && y >= gridBottom())) { // the scrollbar, and the dead corner below it
       e.preventDefault();
       if (e.button === 0 && y < gridBottom()) scrollbarDrag(e, { x, y });
-      return;
-    }
-    if (y >= gridBottom() && y < keyTop()) { // zoomed in: the horizontal scrollbar (dead left of it)
-      e.preventDefault();
-      if (e.button === 0 && onHScrollbar(x, y)) hScrollbarDrag(e, { x, y });
       return;
     }
     if (e.button === 0 && inRuler(x, y)) { // the bar ruler is a divider: velocity strip | note grid
@@ -1439,7 +1443,7 @@ export function createPianoRoll(host, ctx) {
         cloned = true;
       }
       const a = origs[anchor];
-      const end = timeAt(clamp(p.y, 0, gridBottom())); // past the grid edge the time stays at the edge while it scrolls
+      const end = timeAt(clamp(p.y, gridTop(), gridBottom())); // past the grid edge the time stays at the edge while it scrolls
       if (drag.kind === 'new') {
         const n = group[0];
         const length = Math.max(minLength, clean(snapRound(end, st) - n.start));

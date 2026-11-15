@@ -11,6 +11,8 @@ const assets = resolve(destination, prefix);
 await mkdir(assets, { recursive: true });
 await cp(resolve(root, 'src'), resolve(assets, 'src'), { recursive: true });
 await cp(resolve(root, 'style.css'), resolve(assets, 'style.css'));
+const { version: appVersion } = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
+await writeFile(resolve(assets, 'package.json'), JSON.stringify({ version: appVersion }) + '\n');
 await mkdir(resolve(assets, 'node_modules'), { recursive: true });
 await cp(resolve(root, 'node_modules/wasm-media-encoders'), resolve(assets, 'node_modules/wasm-media-encoders'), { recursive: true });
 const html = (await readFile(resolve(root, 'index.html'), 'utf8'))

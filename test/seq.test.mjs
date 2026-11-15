@@ -475,7 +475,7 @@ const assertNoOverlap = (song) => {
   expectViewChange(() => fire(rollCv, 'wheel', { clientX: 400, clientY: 100, deltaY: -100, deltaMode: 0, shiftKey: true }), 'roll pitch zoom');
   expectViewChange(() => drag(rollCv, 400, 100, 430, 120, { button: 1 }), 'roll pan');
   expectViewChange(() => click(rollCv, ROLL_WIDTH - ROLL_SB / 2, 300), 'roll vertical scrollbar');
-  expectViewChange(() => click(rollCv, ROLL_WIDTH - ROLL_SB - 2, 360), 'roll horizontal scrollbar');
+  expectViewChange(() => click(rollCv, ROLL_WIDTH - ROLL_SB - 2, 16), 'roll horizontal scrollbar');
   const arrangerCv = arranger.surface.cv;
   expectViewChange(() => fire(arrangerCv, 'wheel', { clientX: 200, clientY: 100, deltaY: 60, deltaMode: 0 }), 'timeline scroll');
   expectViewChange(() => fire(arrangerCv, 'wheel', { clientX: 200, clientY: 100, deltaY: -100, deltaMode: 0, ctrlKey: true }), 'timeline zoom');
@@ -4516,7 +4516,7 @@ for (const width of [300, 480, 900, 1912]) {
 }
 
 // Shift + wheel zooms pitch (stave and keyboard) around the pointer; zoomed in, a horizontal
-// scrollbar shows above the keys and middle-drag pans sideways. The view is saved.
+// scrollbar shows at the top and middle-drag pans sideways. The view is saved.
 {
   const { clip, roll, ctx } = setup();
   const cv = roll.surface.cv;
@@ -4533,14 +4533,28 @@ for (const width of [300, 480, 900, 1912]) {
   const track = (y) => cv.drawing.some(([op, x0, y0, w, h, color]) => op === 'fillRect' && x0 === 0 && y0 === y && h === ROLL_SB && color === '#151517');
   const [a0, b0] = heads();
   assert.equal(b0 - a0, 14, 'unzoomed: one 14 px column per key');
-  assert.ok(!track(400 - 24 - ROLL_SB), 'no horizontal scrollbar unzoomed');
+  assert.ok(!track(0), 'no horizontal scrollbar unzoomed');
   for (let i = 0; i < 10; i++) fire(cv, 'wheel', { clientX: nx(60), clientY: 100, deltaX: 0, deltaY: -100, deltaMode: 0, shiftKey: true });
   const [a1, b1] = heads();
   assert.ok(Math.abs(a1 - a0) < 1e-6, 'the key under the pointer stays put');
   assert.ok(b1 - a1 > 50, `keys widen (${b1 - a1} px)`);
   assert.equal(roll.getView().sy, 0, 'Shift + wheel does not scroll time');
-  const sbY = 400 - 24 - ROLL_SB;
-  assert.ok(track(sbY), 'the horizontal scrollbar shows just above the keyboard');
+  const sbY = 0;
+  assert.ok(track(sbY), 'the horizontal scrollbar shows at the top');
+  assert.ok(!track(400 - 24 - ROLL_SB), 'the old scrollbar row is available for notes');
+  assert.ok(cv.drawing.some(([op, x, y, w, h, color]) => op === 'fillRect' && x === ROLL_WIDTH - ROLL_SB
+    && y === ROLL_SB && w === ROLL_SB && h === 400 - 24 - ROLL_SB && color === '#151517'),
+  'the vertical track starts below the horizontal scrollbar');
+  click(cv, ROLL_WIDTH - 16, 375);
+  assert.equal(roll.getView().sy, (clip.length + 4) * 48 - (400 - 24), 'vertical scrolling reaches the clip end');
+  drag(cv, ROLL_WIDTH - 16, 360, ROLL_WIDTH - 16, 32);
+  assert.equal(roll.getView().sy, -TOP_MARGIN, 'vertical scrolling reaches the top margin');
+  roll.setView({ ...roll.getView(), sy: 0 }); flush();
+  cv.drawing.length = 0;
+  roll.redraw(); flush();
+  assert.ok(cv.drawing.some(([op, x, y, w, h]) => op === 'rect' && x === 120 && y === ROLL_SB
+    && w === ROLL_WIDTH - ROLL_SB - 120 && h === 400 - 24 - ROLL_SB),
+  'notes are clipped below the top scrollbar');
   const bodies = cv.drawing.filter(([op, , y]) => op === 'roundRect' && y < 377); // note bodies, not black keys
   assert.ok(bodies.length === 2 && bodies.every((r) => r[3] <= 48 + 1), 'notes stop growing at 48 px');
   // keys and stave stay aligned: click the keyboard and the stave under the same key
@@ -4555,10 +4569,22 @@ for (const width of [300, 480, 900, 1912]) {
   assert.ok(Math.abs(a2 - (a1 + 100)) < 1e-6, 'middle-drag pans the zoomed keys');
   // the horizontal scrollbar: click the track at its right end, the view jumps to the highest keys
   click(cv, ROLL_WIDTH - ROLL_SB - 2, sbY + 16);
+  point(cv, 'pointermove', ROLL_WIDTH - ROLL_SB - 2, sbY + 16);
+  assert.equal(roll.getPointerTime(), null, 'the scrollbar is not a playback time target');
   click(cv, ROLL_WIDTH - ROLL_SB - 4, ny(6));
   assert.equal(clip.notes.at(-1).pitch, 127, 'scrolled to the right end of the keys');
   clip.notes.pop();
+  click(cv, ROLL_WIDTH - ROLL_SB - 4, 360);
+  assert.equal(clip.notes.at(-1).pitch, 127, 'the area above the keyboard still accepts notes');
+  clip.notes.pop();
+  const beforeCorners = roll.getView();
+  click(cv, 10, 16);
+  click(cv, ROLL_WIDTH - 10, 16);
+  assert.deepEqual(roll.getView(), beforeCorners, 'top corners do not change the view');
+  drag(cv, ROLL_WIDTH - ROLL_SB - 5, 16, 120, 16);
+  assert.equal(roll.getView().hx, 0, 'dragging the top scrollbar pans to the lowest keys');
   assert.equal(clip.notes.length, 2, 'the scrollbar inserts no notes');
+  click(cv, ROLL_WIDTH - ROLL_SB - 2, 16);
   const saved = JSON.parse(JSON.stringify(roll.getView()));
   assert.ok(saved.hz > 1 && saved.hx > 0, 'pitch zoom and scroll are saved');
   for (let i = 0; i < 40; i++) fire(cv, 'wheel', { clientX: 600, clientY: 100, deltaX: 0, deltaY: 100, deltaMode: 0, shiftKey: true });
