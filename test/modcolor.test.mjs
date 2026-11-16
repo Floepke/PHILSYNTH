@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import { dspTestHost } from './dsphost.mjs';
 import { cleanColor, colorOf, stockColor, hexToRgb, rgbToHex } from '../src/modcolor.js';
+import { MODULE_COLOR_PALETTE, nearestModuleColorIndex } from '../src/modulecolorpalette.js';
+import { openColorDialog } from '../src/colordialog.js';
 
 assert.equal(cleanColor('#A1b2C3'), '#a1b2c3');
 assert.equal(cleanColor(' #000000 '), '#000000');
@@ -19,6 +21,109 @@ assert.equal(colorOf({ def: { color: '#123456' }, color: null }), '#123456', 'st
 assert.equal(colorOf({ def: { color: '#123456' }, color: '#abcdef' }), '#abcdef', 'custom wins');
 assert.equal(colorOf({ def: { isOutput: true }, color: null }), null, 'Output keeps its own look');
 assert.equal(colorOf({ def: { isOutput: true }, color: '#102030' }), '#102030');
+assert.equal(MODULE_COLOR_PALETTE.length, 128);
+assert.equal(new Set(MODULE_COLOR_PALETTE).size, 128, 'palette colors are unique');
+for (let i = 0; i < MODULE_COLOR_PALETTE.length; i++) {
+  assert.equal(nearestModuleColorIndex(MODULE_COLOR_PALETTE[i]), i, 'palette swatches map back to themselves');
+  const [r, g, b] = hexToRgb(MODULE_COLOR_PALETTE[i]).map((v) => {
+    const c = v / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  assert.ok(luminance > 0.18 && luminance < 0.55, 'palette avoids colors that are too dark or light');
+}
+
+{
+  class Element extends EventTarget {
+    attributes = new Map();
+    dataset = {};
+    style = { values: new Map(), setProperty(name, value) { this.values.set(name, value); }, removeProperty(name) { this.values.delete(name); } };
+    classList = { toggle() {} };
+    value = '0';
+    textContent = '';
+    setAttribute(name, value) { this.attributes.set(name, String(value)); }
+    getAttribute(name) { return this.attributes.get(name) ?? null; }
+    querySelector(selector) { return this.children.get(selector); }
+    children = new Map();
+    focus() {}
+    showModal() { this.open = true; }
+    close(value) {
+      this.returnValue = value;
+      this.open = false;
+      this.dispatchEvent(new Event('close'));
+    }
+    getBoundingClientRect() { return { left: 0, width: 128 }; }
+  }
+  const previousDocument = globalThis.document;
+  const elements = new Map();
+  for (const id of ['color-dialog', 'color-sample', 'color-title', 'color-reset', 'color-note', 'color-palette',
+    'color-r', 'color-g', 'color-b', 'color-r-val', 'color-g-val', 'color-b-val']) elements.set(id, new Element());
+  elements.get('color-sample').children.set('.module-name', new Element());
+  elements.get('color-sample').children.set('.module-id', new Element());
+  globalThis.document = { getElementById: (id) => elements.get(id) };
+  try {
+    const palette = elements.get('color-palette');
+    const slider = (channel) => elements.get(`color-${channel}`);
+    const pointer = (type, x, buttons) => {
+      const event = new Event(type, { cancelable: true });
+      Object.assign(event, { button: 0, clientX: x, buttons });
+      palette.dispatchEvent(event);
+    };
+    const pending = openColorDialog({ id: 1, color: null, def: { type: 'OSC', color: '#ff0000' } });
+    const initial = +palette.getAttribute('aria-valuenow');
+    pointer('pointerdown', 64, 1);
+    pointer('pointermove', 64 - 128 / 9, 1);
+    pointer('pointerup', 64 - 128 / 9, 0);
+    const dragged = (initial + 1) % MODULE_COLOR_PALETTE.length;
+    assert.equal(+palette.getAttribute('aria-valuenow'), dragged);
+    assert.deepEqual(['r', 'g', 'b'].map((c) => +slider(c).value), hexToRgb(MODULE_COLOR_PALETTE[dragged]));
+    assert.match(palette.style.backgroundImage, new RegExp(MODULE_COLOR_PALETTE[dragged].slice(1)));
+    assert.equal(palette.style.values.get('--palette-position'), '50%');
+
+    const wheel = new Event('wheel', { cancelable: true });
+    Object.assign(wheel, { deltaY: 1, deltaX: 0 });
+    palette.dispatchEvent(wheel);
+    assert.equal(+palette.getAttribute('aria-valuenow'), (dragged + 1) % MODULE_COLOR_PALETTE.length, 'scroll advances and wraps through colors');
+
+    slider('r').value = '120';
+    slider('r').oninput();
+    const edited = rgbToHex(+slider('r').value, +slider('g').value, +slider('b').value);
+    assert.equal(+palette.getAttribute('aria-valuenow'), nearestModuleColorIndex(edited), 'RGB edits move the palette marker');
+    const next = new Event('keydown', { cancelable: true });
+    next.key = 'ArrowRight';
+    palette.dispatchEvent(next);
+    assert.equal(+palette.getAttribute('aria-valuenow'), (nearestModuleColorIndex(edited) + 1) % MODULE_COLOR_PALETTE.length);
+    const end = new Event('keydown', { cancelable: true });
+    end.key = 'End';
+    palette.dispatchEvent(end);
+    const scrollForward = new Event('wheel', { cancelable: true });
+    Object.assign(scrollForward, { deltaY: 1, deltaX: 0 });
+    palette.dispatchEvent(scrollForward);
+    assert.equal(+palette.getAttribute('aria-valuenow'), 0, 'scrolling past the last color wraps to the first');
+    const scrollBack = new Event('wheel', { cancelable: true });
+    Object.assign(scrollBack, { deltaY: -1, deltaX: 0 });
+    palette.dispatchEvent(scrollBack);
+    assert.equal(+palette.getAttribute('aria-valuenow'), 127, 'scrolling before the first color wraps to the last');
+    end.key = 'End';
+    palette.dispatchEvent(end);
+    const wrap = new Event('keydown', { cancelable: true });
+    wrap.key = 'ArrowRight';
+    palette.dispatchEvent(wrap);
+    assert.equal(+palette.getAttribute('aria-valuenow'), 0, 'keyboard navigation wraps at the end');
+    elements.get('color-dialog').close('cancel');
+    assert.equal(await pending, undefined, 'Cancel discards palette colors');
+
+    const committed = openColorDialog({ id: 1, color: null, def: { type: 'OSC', color: '#ff0000' } });
+    const selectEnd = new Event('keydown', { cancelable: true });
+    selectEnd.key = 'End';
+    palette.dispatchEvent(selectEnd);
+    elements.get('color-dialog').close('ok');
+    assert.equal(await committed, MODULE_COLOR_PALETTE[127], 'OK returns the chosen palette color');
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+}
 
 // patch model: recolor, save, load (old projects without `color`), duplicate, copy / paste
 const ctx = { currentTime: 0 };

@@ -221,6 +221,43 @@ app.whenReady().then(async () => {
       window.openClipColorMenu();
     })()`);
     assert.equal(await run("document.getElementById('color-title').textContent"), 'Color of 3 clips');
+    await run(`window.paletteColors = (await import('/src/modulecolorpalette.js')).MODULE_COLOR_PALETTE`);
+    assert.deepEqual(await run(`(() => {
+      const palette = document.getElementById('color-palette');
+      return [palette.getAttribute('role'), palette.getAttribute('aria-valuemin'), palette.getAttribute('aria-valuemax')];
+    })()`), ['slider', '0', '127'], 'the color strip exposes an accessible 128-color slider');
+    await run(`(() => {
+      const palette = document.getElementById('color-palette');
+      const r = palette.getBoundingClientRect();
+      const fire = (type, index) => palette.dispatchEvent(new PointerEvent(type, {
+        bubbles: true, clientX: r.left + r.width * (index + 0.5) / 128, clientY: r.top + r.height / 2,
+        pointerId: 1, button: 0, buttons: type === 'pointerup' ? 0 : 1,
+      }));
+      fire('pointerdown', 42);
+      fire('pointermove', 45);
+      fire('pointerup', 45);
+    })()`);
+    const paletteColor = await run('window.paletteColors[45]');
+    assert.equal(await run("document.getElementById('color-palette').getAttribute('aria-valuenow')"), '45');
+    assert.equal(await run("document.getElementById('color-palette').getAttribute('aria-valuetext')"), paletteColor);
+    assert.equal(await run("document.getElementById('color-note').textContent"), `Custom color ${paletteColor}`,
+      'dragging the strip previews the selected palette color');
+    assert.deepEqual(await run(`['r', 'g', 'b'].map(c => +document.getElementById('color-' + c).value)`),
+      paletteColor.slice(1).match(/../g).map(v => parseInt(v, 16)), 'palette selection updates the RGB sliders');
+    await run(`(() => {
+      const slider = document.getElementById('color-g');
+      slider.value = 230;
+      slider.dispatchEvent(new Event('input'));
+    })()`);
+    const { nearestModuleColorIndex } = await import('../src/modulecolorpalette.js');
+    const editedColor = await run("['r', 'g', 'b'].map(c => +document.getElementById('color-' + c).value).reduce((hex, v) => hex + v.toString(16).padStart(2, '0'), '#')");
+    assert.equal(await run("document.getElementById('color-palette').getAttribute('aria-valuenow')"),
+      String(nearestModuleColorIndex(editedColor)), 'RGB edits move the marker to the nearest palette color');
+    await run("document.getElementById('color-dialog').close('cancel')");
+    await wait();
+    assert.deepEqual(await run('window.clipColors()'), [null, null, null], 'cancel discards palette selection');
+    await run('window.openClipColorMenu()');
+    await wait();
     await run(`(() => {
       for (const [channel, value] of [['r', 171], ['g', 205], ['b', 239]]) {
         const slider = document.getElementById('color-' + channel);

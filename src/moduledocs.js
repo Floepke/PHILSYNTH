@@ -609,14 +609,16 @@ const el = (tag, cls, html) => {
   return e;
 };
 
-// The panel section: About (summary), Controllers (number, name, description), Usage (notes).
+// The panel sections are independently collapsible: About, Controllers, and Usage.
 export function moduleDocs(def, params) {
   const d = DOCS[def.type];
   if (!d) return null;
   const root = el('section', 'module-docs');
-  root.append(el('h3', null, 'About'), el('p', 'md-summary', d.summary));
+  const about = el('details', 'md-about');
+  about.append(el('summary', null, 'About'), el('p', 'md-summary', d.summary));
+  root.append(about);
   if (params.length) {
-    root.append(el('h3', null, 'Controllers'));
+    const controllers = el('details', 'md-controllers');
     const list = el('dl', 'md-params');
     params.forEach((p, i) => {
       if (p.panel === false) return; // documented with its module's notes (MULTICTL route ranges)
@@ -628,13 +630,15 @@ export function moduleDocs(def, params) {
       dt.append(num, name);
       list.append(dt, el('dd', null, paramDoc(def.type, p) ?? ''));
     });
-    root.append(list);
+    controllers.append(el('summary', null, 'Controllers'), list);
+    root.append(controllers);
   }
   if (d.notes.length) {
-    root.append(el('h3', null, 'Usage'));
+    const usage = el('details', 'md-usage');
     const ul = el('ul', 'md-notes');
     for (const n of d.notes) ul.append(el('li', null, n));
-    root.append(ul);
+    usage.append(el('summary', null, 'Usage'), ul);
+    root.append(usage);
   }
   return root;
 }

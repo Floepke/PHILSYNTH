@@ -22,14 +22,30 @@ assert.equal(paramDoc('NOPE', { id: 'x' }), null);
 {
   const previousDocument = globalThis.document;
   globalThis.document = {
-    createElement: () => ({ children: [], append(...children) { this.children.push(...children); } }),
+    createElement: (tagName) => ({ tagName, children: [], open: false, append(...children) { this.children.push(...children); } }),
   };
   try {
     const docs = moduleDocs(getModule('PATCH'), [
       ...getModule('PATCH').params, { id: 'map1', label: 'Cutoff', number: 11 },
     ]);
-    const list = docs.children.find((e) => e.className === 'md-params');
+    const about = docs.children.find((e) => e.className === 'md-about');
+    assert.equal(about.tagName, 'details');
+    assert.equal(about.open, false, 'the About summary starts folded');
+    assert.deepEqual(about.children.map((e) => e.tagName), ['summary', 'p']);
+    assert.equal(about.children[0].tagName, 'summary');
+    assert.equal(about.children[0].innerHTML, 'About');
+    assert.equal(about.children[1].innerHTML, DOCS.PATCH.summary);
+    const controllers = docs.children.find((e) => e.className === 'md-controllers');
+    assert.equal(controllers.tagName, 'details');
+    assert.equal(controllers.open, false, 'the Controllers section starts folded');
+    assert.equal(controllers.children[0].innerHTML, 'Controllers');
+    const list = controllers.children.find((e) => e.className === 'md-params');
     assert.deepEqual(list.children.filter((_, i) => i % 2 === 0).map((e) => e.children[0].textContent), [0, 1, 11]);
+    const usage = docs.children.find((e) => e.className === 'md-usage');
+    assert.equal(usage.tagName, 'details');
+    assert.equal(usage.open, false, 'the Usage section starts folded');
+    assert.equal(usage.children[0].innerHTML, 'Usage');
+    assert.equal(usage.children[1].className, 'md-notes');
   } finally {
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;
