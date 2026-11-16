@@ -16,6 +16,7 @@
 #include "vibrato.h"
 #include "sampler.h"
 #include "wavetable.h"
+#include "spectra.h"
 
 // no libc++: plain malloc-backed new/delete
 void* operator new(__SIZE_TYPE__ n) { return malloc(n); }
@@ -26,10 +27,10 @@ void operator delete(void* p, __SIZE_TYPE__) noexcept { free(p); }
 
 using namespace ms;
 
-enum Kind { KIND_OSC = 1, KIND_FILTER = 2, KIND_REVERB = 3, KIND_WAVESHAPER = 4, KIND_BUS = 5, KIND_AMP = 6, KIND_OUT = 7, KIND_DCBLOCK = 8, KIND_EQ = 9, KIND_DELAY = 10, KIND_ECHO = 11, KIND_MODULATOR = 12, KIND_OPERATOR = 13, KIND_IMAGESAMPLER = 14, KIND_DISTORTION = 15, KIND_VIBRATO = 16, KIND_SAMPLER = 17, KIND_WAVETABLE = 18, KIND_FEEDBACK = 19 };
+enum Kind { KIND_OSC = 1, KIND_FILTER = 2, KIND_REVERB = 3, KIND_WAVESHAPER = 4, KIND_BUS = 5, KIND_AMP = 6, KIND_OUT = 7, KIND_DCBLOCK = 8, KIND_EQ = 9, KIND_DELAY = 10, KIND_ECHO = 11, KIND_MODULATOR = 12, KIND_OPERATOR = 13, KIND_IMAGESAMPLER = 14, KIND_DISTORTION = 15, KIND_VIBRATO = 16, KIND_SAMPLER = 17, KIND_WAVETABLE = 18, KIND_FEEDBACK = 19, KIND_SPECTRA = 20 };
 
 // Bumped when the API changes; src/dsp/wasm.js refuses other versions.
-EXPORT(ms_version) int ms_version() { return 20; }
+EXPORT(ms_version) int ms_version() { return 23; }
 
 EXPORT(ms_param_count) int ms_param_count(int kind) {
   switch (kind) {
@@ -43,6 +44,7 @@ EXPORT(ms_param_count) int ms_param_count(int kind) {
     case KIND_VIBRATO: return Vibrato::PARAMS;
     case KIND_SAMPLER: return Sampler::PARAMS;
     case KIND_WAVETABLE: return Wavetable::PARAMS;
+    case KIND_SPECTRA: return Spectra::PARAMS;
     case KIND_BUS: return Bus::PARAMS;
     case KIND_AMP: return Amp::PARAMS;
     case KIND_FEEDBACK: return Feedback::PARAMS;
@@ -72,6 +74,7 @@ EXPORT(ms_create) Kernel* ms_create(int kind, double sampleRate, int salt, uint3
     case KIND_VIBRATO: return new Vibrato(sampleRate);
     case KIND_SAMPLER: return new Sampler(sampleRate);
     case KIND_WAVETABLE: return new Wavetable(sampleRate);
+    case KIND_SPECTRA: return new Spectra(sampleRate);
     case KIND_BUS: return new Bus(sampleRate);
     case KIND_AMP: return new Amp(sampleRate);
     case KIND_FEEDBACK: return new Feedback(sampleRate);
@@ -93,8 +96,11 @@ EXPORT(ms_sample_create) SampleBank* ms_sample_create(int size, int stereo) {
   return bank;
 }
 EXPORT(ms_sample_data) float* ms_sample_data(SampleBank* bank) { return bank->samples; }
-EXPORT(ms_sample_free) void ms_sample_free(SampleBank* bank) { delete bank; }
+EXPORT(ms_sample_free) void ms_sample_free(SampleBank* bank) { bank->release(); }
 EXPORT(ms_sample_set) void ms_sample_set(Sampler* k, SampleBank* bank, double rate) { k->setSample(bank, rate); }
+EXPORT(ms_spectra_set) void ms_spectra_set(Spectra* k, SampleBank* bank, double rate, int phaseFrame) { k->setSample(bank, rate, phaseFrame != 0); }
+EXPORT(ms_spectra_next) void ms_spectra_next(Spectra* k, SampleBank* bank, double rate, int frame) { k->stageSample(bank, rate, frame); }
+EXPORT(ms_spectra_cycle) int ms_spectra_cycle(Spectra* k) { return k->cycle; }
 EXPORT(ms_table_create) SampleTable* ms_table_create(SampleBank* bank, int frame) {
   if (!bank || frame < 1) return nullptr;
   auto* table = new SampleTable(bank, frame);

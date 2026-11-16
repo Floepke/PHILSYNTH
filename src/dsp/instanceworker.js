@@ -25,7 +25,11 @@ self.onmessage = async (e) => {
     catch (err) { self.postMessage({ warn: `C++ DSP unavailable in the worker: ${err?.message ?? err}` }); }
   }
   graph ??= new Graph();
-  const worker = new PoolWorker({ sab, port, graph, budget, onError: (err) => self.postMessage({ error: String(err?.stack ?? err) }) });
+  const worker = new PoolWorker({
+    sab, port, graph, budget,
+    onError: (err) => self.postMessage({ error: String(err?.stack ?? err) }),
+    onReport: (report) => self.postMessage(report),
+  });
   self.postMessage({ ready: true, realtime });
   worker.run();
 };

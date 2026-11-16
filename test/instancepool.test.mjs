@@ -8,7 +8,7 @@ import { Worker, MessageChannel } from 'node:worker_threads';
 globalThis.sampleRate = 48000;
 const { Graph } = await import('../src/dsp/graph.js');
 const { DspHost } = await import('../src/dsp/host.js');
-const { InstancePool, POOL_BYTES, poolSize } = await import('../src/dsp/instancepool.js');
+const { InstancePool, PoolWorker, POOL_BYTES, poolSize } = await import('../src/dsp/instancepool.js');
 const { instantiateDsp, wasmKernels } = await import('../src/dsp/wasm.js');
 const { PatchRuntime } = await import('../src/patch.js');
 const { startPool } = await import('../src/engine.js');
@@ -16,7 +16,7 @@ const { startPool } = await import('../src/engine.js');
 {
   const names = ['Worker', 'MessageChannel', 'navigator', 'location', 'localStorage', 'crossOriginIsolated', 'modsynthFiles'];
   const original = new Map(names.map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
-  const created = [], channels = [], messages = [], errors = [];
+  const created = [], channels = [], messages = [], errors = [], reports = [];
   let statuses = [], search = '', stored = null;
   const set = (name, value) => Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
   set('navigator', { hardwareConcurrency: 4 });
@@ -42,7 +42,9 @@ const { startPool } = await import('../src/engine.js');
   const run = async (next) => {
     statuses = next;
     created.length = channels.length = messages.length = 0;
-    return startPool({ postMessage: (...args) => messages.push(args) }, null, 48000, error => errors.push(error), { timeout: 10 });
+    return startPool({ postMessage: (...args) => messages.push(args) }, null, 48000, error => errors.push(error), {
+      timeout: 10, onReport: report => reports.push(report),
+    });
   };
   const ready = ok => ({ ready: true, realtime: { ok, error: ok ? undefined : 'No rtprio permission' } });
   try {
@@ -55,6 +57,8 @@ const { startPool } = await import('../src/engine.js');
     assert.equal(messages.length, 1, 'the pool is installed only after startup succeeds');
     automatic[0].onmessage({ data: { error: 'Runtime failure' } });
     assert.deepEqual(errors, ['Runtime failure'], 'runtime errors still reach the engine');
+    automatic[0].onmessage({ data: { meters: [23, 1] } });
+    assert.deepEqual(reports, [{ meters: [23, 1] }], 'worker cycle reports reach the main DSP host');
     assert.deepEqual(await run([{ error: 'Startup failure' }, ready(true)]), [], 'startup errors fall back');
     assert.deepEqual(await run([ready(true), null]), [], 'a missing handshake times out and falls back');
     search = '?workers=2';
@@ -79,6 +83,23 @@ const { startPool } = await import('../src/engine.js');
 
 const bytes = new Uint8Array(readFileSync(new URL('../src/dsp/modsynth.wasm', import.meta.url)));
 const BUDGET = 5000; // ms: a slow test machine must not change the result
+
+{
+  const graph = new Graph();
+  const reports = [];
+  const worker = new PoolWorker({
+    sab: new SharedArrayBuffer(POOL_BYTES), port: {}, graph,
+    onReport: report => reports.push(report),
+  });
+  graph.op(['add', 23, 'spectra', null]);
+  graph.connect(23, 0);
+  graph.op(['msg', 23, { type: 'sample', rate: 48000, data: new Float32Array(9001).fill(0.2) }]);
+  graph.op(['msg', 23, { type: 'nextSample', rate: 48000, data: new Float32Array(9001).fill(-0.2) }]);
+  graph.op(['msg', 23, { type: 'noteOn', id: 1, pitch: 60, velocity: 1 }]);
+  for (let block = 1; block <= 80; block++) worker.render(block);
+  assert.deepEqual(reports, [{ meters: [23, 0] }, { meters: [23, 1] }], 'worker rendering emits only changed phase-cycle counters');
+  graph.remove(23);
+}
 
 // logical processors -> workers: about half are real cores, two stay with the audio and main thread
 assert.deepEqual([1, 2, 3, 4, 6, 8, 12, 16, 32].map((c) => poolSize(c)), [0, 0, 1, 2, 2, 3, 5, 6, 6]);

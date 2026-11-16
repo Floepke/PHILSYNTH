@@ -25,6 +25,7 @@ import DelayKernel from '../modules/delay.dsp.js';
 import EchoKernel from '../modules/echo.dsp.js';
 import ModulatorKernel from '../modules/modulator.dsp.js';
 import SamplerKernel from '../modules/sampler.dsp.js';
+import SpectraKernel from '../modules/spectra.dsp.js';
 import WavetableKernel from '../modules/wavetable.dsp.js';
 import ImageSamplerKernel from '../modules/imagesampler.dsp.js';
 import InputKernel from '../modules/input.dsp.js';
@@ -57,6 +58,7 @@ export const KERNELS = {
   echo: EchoKernel,
   modulator: ModulatorKernel,
   sampler: SamplerKernel,
+  spectra: SpectraKernel,
   wavetable: WavetableKernel,
   imagesampler: ImageSamplerKernel,
   input: InputKernel,

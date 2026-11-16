@@ -1,8 +1,8 @@
 // PATCH instances on worker threads. The engine worklet (src/engine.worklet.js) renders the whole
 // project in one Graph (src/dsp/graph.js); with a pool, the audio modules of every extra instance
-// of a PATCH (instance 2..16; instance 1, the one being edited, stays on the audio thread so its
-// scopes and meters work) are rendered by up to POOL_MAX workers (src/dsp/instanceworker.js),
-// within the same render quantum, so no latency is added.
+// of a PATCH (instance 2..16; instance 1 stays on the audio thread for its scopes) are rendered
+// by up to POOL_MAX workers (src/dsp/instanceworker.js) within the same render quantum, so no
+// audio latency is added. Worker meter reports reach the main host.
 //
 // Each instance copy is a partition (`part`, see src/patch.js): all its modules go to one worker
 // (InstancePool.take). A worker takes PER_WORKER copies before the next idle one is woken, then
@@ -315,11 +315,12 @@ export let yieldOnce = () => {
 
 // Worker side: applies the op batches to its own Graph and renders it when kicked.
 export class PoolWorker {
-  constructor({ sab, port, graph, onError = null, budget = null }) {
+  constructor({ sab, port, graph, onError = null, onReport = null, budget = null }) {
     Object.assign(this, views(sab));
     this.budget = budget;
     this.graph = graph;
     this.onError = onError;
+    this.onReport = onReport;
     this.seq = 0;
     this.ringNext = null;
     this.portQueue = [];
@@ -384,7 +385,13 @@ export class PoolWorker {
     this.block = block;
     this.late = false;
     this.deadline = now() + (this.budget ?? budgetMs());
-    try { this.graph.render(this.L, this.R); }
+    try {
+      this.graph.render(this.L, this.R);
+      if (this.onReport) {
+        const meters = this.graph.report(block * BLOCK / sampleRate, false)?.meters;
+        if (meters) this.onReport({ meters });
+      }
+    }
     catch (err) { this.onError?.(err); }
     Atomics.store(this.ctrl, DONE, block);
     Atomics.notify(this.ctrl, DONE);

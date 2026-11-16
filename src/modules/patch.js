@@ -7,6 +7,7 @@
 // instances (a free instance first). Instance 1 is the one you edit; the others are hidden
 // copies kept in sync with it. Every instance runs its own random generators (drift, Random
 // LFO, ...) and seeded modules (REVERB) get a per-instance salt, so no two instances are alike.
+// SPECTRA copies share their rendered PCM and phase-frame generator, but keep independent voices.
 // Only one Patch along each nesting path may have Instances > 1.
 // The copies (instance 2..16) may render on worker threads (src/dsp/instancepool.js): each copy
 // is a partition of its own (PatchRuntime.part, src/patch.js).

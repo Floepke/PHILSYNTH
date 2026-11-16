@@ -50,17 +50,18 @@ const passesMod = (m) => !!m.def.modulator && !m.def.routeParams && !(m.def.audi
 let lastPart = 0;
 
 export class PatchRuntime {
-  constructor(engine, sink, salt = 0, part = 0) {
+  constructor(engine, sink, salt = 0, part = 0, shared = new Map()) {
     this.engine = engine;
     this.sink = sink;
     this.salt = salt;
     this.part = part;
+    this.shared = shared; // logical module resources shared by PATCH copies
     this.parent = null;
     this.parentEntry = null;
     this.watchers = new Set(); // called on any change inside (structure, controllers, nested patches)
     // what modules get as `host` in create(): nested patches inherit this runtime's salt
-    this.host = { salt, dsp: engine.dsp, mics: engine.mics ?? null, createPatch: async (s, k = 0) => {
-      const child = await PatchRuntime.create(engine, s, instanceSalt(salt, k), k > 0 ? ++lastPart : part);
+    this.host = { salt, dsp: engine.dsp, mics: engine.mics ?? null, createPatch: async (s, k = 0, resources) => {
+      const child = await PatchRuntime.create(engine, s, instanceSalt(salt, k), k > 0 ? ++lastPart : part, resources);
       child.parent = this;
       return child;
     } };
@@ -97,8 +98,8 @@ export class PatchRuntime {
     return cloneState(rest);
   }
 
-  static async create(engine, sink, salt = 0, part = 0) {
-    const p = new PatchRuntime(engine, sink, salt, part);
+  static async create(engine, sink, salt = 0, part = 0, shared) {
+    const p = new PatchRuntime(engine, sink, salt, part, shared);
     await p.addModule('OUT', { id: 0, x: 560, y: 180 });
     return p;
   }
@@ -147,19 +148,26 @@ export class PatchRuntime {
     const nodes = [];
     const dsp = this.engine.dsp.forModule?.(this.sink.h, this.salt, id) ?? this.host.dsp;
     const part = this.part;
-    const host = { ...this.host, dsp: {
-      clockBatch: dsp.clockBatch,
-      remoteNotes: dsp.remoteNotes,
-      controlOnly: dsp.controlOnly,
-      maxInstances: dsp.maxInstances,
-      deferSync: dsp.deferSync,
-      onClock: (fn) => dsp.onClock(fn),
-      create(kind, opts) {
-        const node = part ? dsp.create(kind, opts, part) : dsp.create(kind, opts);
-        nodes.push({ h: node.h, kind });
-        return node;
+    const shared = this.shared.get(id) ?? new Map();
+    this.shared.set(id, shared);
+    const host = {
+      ...this.host,
+      shared,
+      createPatch: (sink, k = 0) => this.host.createPatch(sink, k, shared),
+      dsp: {
+        clockBatch: dsp.clockBatch,
+        remoteNotes: dsp.remoteNotes,
+        controlOnly: dsp.controlOnly,
+        maxInstances: dsp.maxInstances,
+        deferSync: dsp.deferSync,
+        onClock: (fn) => dsp.onClock(fn),
+        create(kind, opts) {
+          const node = part ? dsp.create(kind, opts, part) : dsp.create(kind, opts);
+          nodes.push({ h: node.h, kind });
+          return node;
+        },
       },
-    } };
+    };
     try {
       inst = await def.create(this.engine.ctx, def, host);
     } finally {

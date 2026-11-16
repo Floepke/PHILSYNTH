@@ -147,6 +147,7 @@ function compare(kind, { opts = {}, script = [], input = null, gaps = () => fals
     const rj = js.process(ins, outJ) !== false;
     if (outPtrs && outW[0][0].buffer !== heap.memory.buffer) outW[0] = outPtrs.map((p) => heap.f32(p, N));
     const rw = wa.process(ins, outW) !== false;
+    if (kind === 'spectra') assert.equal(wa.meter, js.meter, `SPECTRA cycle reports match at block ${b}`);
     assert.equal(rw, rj, `${kind}: same silent flag at block ${b}`);
     if (!rj) continue; // silent outputs are undefined
     for (let c = 0; c < channels; c++) {
@@ -170,6 +171,80 @@ const noteOn = (id, pitch, velocity = 0.8, phase) => ({ type: 'noteOn', id, pitc
 // stereo/mono, moving selections, glides, sample replacement and one-shot end conditions.
 const sampleL = Float32Array.from({ length: 9001 }, (_, i) => 0.6 * Math.sin(i * 0.13) + 0.1 * Math.cos(i * 0.031));
 const sampleR = Float32Array.from(sampleL, v => -v * 0.4);
+
+// SPECTRA: curved envelopes, phase starts, wraps, glides, voice stealing and successive swaps.
+for (const channels of [1, 2]) compare('spectra', {
+  channels, inHeap: true, blocks: 180, tol: 1e-6,
+  script: [
+    [0, noteOn(99, 60)], // No sample yet: note must stay silent.
+    [1, { type: 'sample', rate: 22050, data: sampleL }],
+    [1, param('polyphony', 2)],
+    [1, param('attack', 0.008)], [1, param('decay', 0.027)], [1, param('sustain', 0.4)],
+    [1, param('release', 0.03)], [1, param('gain', 0.7)],
+    [1, param('atkCurve', -75)], [1, param('decCurve', 100)], [1, param('relCurve', -50)],
+    [1, noteOn(1, 60.37, 0.9, 0.999)], [2, noteOn(2, 48.21, 0.4, -0.25)],
+    [3, { type: 'noteMod', notes: [[1, 84.9, 0.25], [2, 51.2, 0.8]] }],
+    [5, { type: 'sample', rate: 22050, data: sampleR }],
+    [6, { type: 'sample', rate: 22050, data: sampleL.slice() }],
+    [8, noteOn(3, 72.1, 0.8, 1.25)], [9, noteOn(3, 66.3, 0.5, 0.5)],
+    [12, param('atkCurve', 100)], [12, param('decCurve', -100)],
+    [14, { type: 'noteOff', id: 2 }], [15, { type: 'noteOff', id: 3 }],
+    [28, param('polyphony', 1)], [29, noteOn(4, 72, 0.8)],
+    [32, param('gain', 0)], [34, param('gain', 0.45)],
+    [40, { type: 'allOff' }], [41, noteOn(5, 60, 0.7)],
+    [44, 'panic'], [45, noteOn(6, 60, 0.5)],
+    [48, { type: 'noteOff', id: 6 }],
+    [80, { type: 'sample', rate: 22050, data: sampleR }],
+  ],
+});
+
+compare('spectra', {
+  inHeap: true, blocks: 520, tol: 1e-6,
+  script: [
+    [0, { type: 'sample', rate: 22050, data: sampleL }],
+    [0, noteOn(1, 60, 1)],
+    [1, { type: 'nextSample', rate: 22050, data: sampleR, frame: 5 }],
+    [155, { type: 'phaseSample', rate: 22050, data: sampleR, frame: 5 }],
+    [165, { type: 'phaseSample', rate: 22050, data: sampleL.slice() }],
+    [170, { type: 'sample', rate: 22050, data: sampleR.slice() }],
+    [190, { type: 'nextSample', rate: 22050, data: sampleL, frame: 8 }],
+    [320, { type: 'nextSample', rate: 22050, data: sampleR, frame: 11 }],
+  ],
+});
+
+// Equal loops are shared, but old PCM must remain valid during a native-rendered sample swap.
+{
+  const counts = { banks: 0, releases: 0 };
+  let failBank = false;
+  const native = wasmKernels({
+    ...x,
+    ms_sample_create(...args) { if (failBank) return 0; counts.banks++; return x.ms_sample_create(...args); },
+    ms_sample_free(ptr) { counts.releases++; x.ms_sample_free(ptr); },
+  }, 48000);
+  const a = new native.kernels.spectra(), b = new native.kernels.spectra();
+  for (const k of [a, b]) k.message({ type: 'sample', rate: 48000, data: sampleL.slice() });
+  assert.equal(counts.banks, 1, 'SPECTRA clones share equal loop PCM');
+  a.message(noteOn(1, 60));
+  a.message({ type: 'sample', rate: 48000, data: sampleR });
+  b.destroy();
+  assert.ok(a.process([[]], [stereo()]), 'old sample remains valid after its cache owner is destroyed');
+  const previous = a.sampleEntry;
+  failBank = true;
+  assert.throws(() => a.message({ type: 'sample', rate: 48000, data: sampleL }), /cannot allocate sample/);
+  assert.equal(a.sampleEntry, previous, 'failed replacement preserves the sounding loop');
+  assert.throws(() => a.message({ type: 'sample', rate: 0, data: sampleL }), /invalid sample/);
+  failBank = false;
+  a.message({ type: 'nextSample', rate: 48000, data: sampleL });
+  const staged = a.nextEntry;
+  for (let i = 0; i < 72; i++) a.process([[]], [stereo()]);
+  assert.equal(a.meter, 1, 'native kernel reports consuming its staged frame');
+  assert.equal(a.sampleEntry, staged, 'staged cache ownership becomes current after native consumption');
+  assert.equal(a.nextEntry, null);
+  assert.ok(a.process([[]], [stereo()]), 'native old PCM remains valid during the cycle fade');
+  a.destroy(); a.destroy();
+  assert.equal(counts.banks, counts.releases, 'sample cache ownership is fully released');
+}
+
 for (const playMode of [0, 1, 2, 3, 4, 5]) for (const interpolation of [0, 1, 2]) {
   for (const channels of [1, 2]) compare('sampler', {
     channels, blocks: 160, inHeap: true, tol: 1e-5,
@@ -196,7 +271,7 @@ for (const playMode of [0, 1, 2, 3, 4, 5]) for (const interpolation of [0, 1, 2]
   });
 }
 
-for (const kind of ['sampler', 'wavetable']) {
+for (const kind of ['sampler', 'wavetable', 'spectra']) {
   compare(kind, {
     blocks: 160,
     script: [
@@ -291,13 +366,16 @@ for (const frame of [2, 7, 256, 257, 2048, 4096]) for (const interpolation of [0
 }
 
 // Modules use the native graph through real state uploads, including a Patch container.
-for (const type of ['SAMPLER', 'WAVETABLE']) {
+for (const type of ['SAMPLER', 'WAVETABLE', 'SPECTRA']) {
   const h = dspTestHost({ kernels: WASM, heap });
   const engine = { ctx: { get currentTime() { return h.time; } }, dsp: h.dsp };
   const root = await PatchRuntime.create(engine, h.dsp.destination);
   const folder = await root.addModule('PATCH');
-  const sampleId = addSample({ rate: 48000, channels: [sampleL] });
-  const entry = await folder.inst.patch.addModule(type, { state: { sampleId, frame: 256 }, values: { playMode: 3 } });
+  const state = type === 'SPECTRA' ? {
+    levels: Array.from({ length: 128 }, (_, i) => i === 0 ? 20 : i === 127 ? 60 : 0),
+    detunes: Array.from({ length: 128 }, (_, i) => i === 127 ? -35 : 0),
+  } : { sampleId: addSample({ rate: 48000, channels: [sampleL] }), frame: 256 };
+  const entry = await folder.inst.patch.addModule(type, { state, values: type === 'SPECTRA' ? {} : { playMode: 3 } });
   assert.ok(folder.inst.patch.connect(entry.id, 0) && root.connect(folder.id, 0));
   folder.inst.noteOn(1, 60.7, 0.8, 0.3);
   let peak = 0;
@@ -310,6 +388,97 @@ for (const type of ['SAMPLER', 'WAVETABLE']) {
   h.dsp.destination.destroy();
 }
 
+// Native graph reports replenish phase frames without calling the adapter's process().
+{
+  const h = dspTestHost({ kernels: WASM, heap });
+  const src = h.dsp.create('spectra');
+  src.connect(h.dsp.destination);
+  const frames = [
+    new Float32Array(9001).fill(0.2),
+    new Float32Array(9001).fill(-0.2),
+  ];
+  const cycles = [];
+  src.onMeter = (cycle) => {
+    if (!cycle) return;
+    cycles.push(cycle);
+    src.send({ type: 'nextSample', rate: 48000, data: frames[(cycle + 1) % 2] });
+  };
+  src.send({ type: 'sample', rate: 48000, data: frames[0] });
+  src.send({ type: 'nextSample', rate: 48000, data: frames[1] });
+  src.send(noteOn(1, 60, 1));
+  h.render(320);
+  assert.ok(h.graph.prog, 'phase cycling runs through the single-call native graph');
+  assert.deepEqual(cycles, [1, 2, 3, 4], 'native graph meter delivery prepares successive frames');
+  src.destroy();
+  h.dsp.destination.destroy();
+}
+
+// Nested SPECTRA copies generate once and share native current/staged PCM across 16 instances.
+{
+  const previousWorker = globalThis.Worker;
+  const workers = [];
+  globalThis.Worker = class {
+    constructor() { workers.push(this); this.requests = []; this.terminated = false; }
+    postMessage(message) { this.requests.push(message); }
+    terminate() { this.terminated = true; }
+  };
+  const counts = { banks: 0, releases: 0 };
+  const native = wasmKernels({
+    ...x,
+    ms_sample_create(...args) { counts.banks++; return x.ms_sample_create(...args); },
+    ms_sample_free(ptr) { counts.releases++; x.ms_sample_free(ptr); },
+  }, 48000);
+  const h = dspTestHost(native);
+  let root;
+  try {
+    root = await PatchRuntime.create({ ctx: { sampleRate: 48000 }, dsp: h.dsp }, h.dsp.destination);
+    const folder = await root.addModule('PATCH');
+    const midi = await folder.inst.patch.addModule('MULTIMIDI');
+    const nested = await folder.inst.patch.addModule('PATCH');
+    const entry = await nested.inst.patch.addModule('SPECTRA');
+    nested.inst.patch.connect(entry.id, 0);
+    folder.inst.patch.connect(midi.id, nested.id);
+    folder.inst.patch.connect(nested.id, 0);
+    root.connect(folder.id, 0);
+    root.setParam(folder.id, 'instances', 16);
+    await folder.inst.sync();
+    const copies = () => [folder.inst.patch, ...folder.inst.clones]
+      .map(rt => rt.modules.get(nested.id).inst.patch.modules.get(entry.id));
+    assert.equal(copies().length, 16);
+    assert.equal(workers.length, 1, 'nested copies share one generation worker');
+    assert.equal(workers[0].requests.length, 1);
+    assert.equal(counts.banks, 1, '16 native kernels allocate only one initial PCM bank');
+    assert.equal(new Set(copies().map(e => h.kernel(e.inst.node).sampleEntry)).size, 1);
+    const request = workers[0].requests[0];
+    const data = new Float32Array(96000 * 15).fill(0.1);
+    workers[0].onmessage({ data: { revision: request.revision, mode: request.mode, sample: data } });
+    assert.equal(counts.banks, 2, 'all copies share one upcoming PCM bank');
+    assert.equal(new Set(copies().map(e => h.kernel(e.inst.node).nextEntry)).size, 1);
+    const voices = copies();
+    voices[5].inst.node.send(noteOn(1, 60, 1, 0.9999));
+    voices[7].inst.node.send(noteOn(2, 72, 0.5, 0.3));
+    h.render(2);
+    assert.ok(h.graph.prog, 'shared phase refresh uses the native graph');
+    assert.equal(workers[0].requests.length, 2, 'one loop boundary requests one shared successor');
+    assert.equal(new Set(copies().map(e => h.kernel(e.inst.node).sampleEntry)).size, 1, 'all copies adopt the same phase frame');
+    assert.equal(counts.banks, 2, 'phase refresh does not allocate per-instance PCM');
+    const separate = await nested.inst.patch.addModule('SPECTRA');
+    await folder.inst.sync();
+    assert.equal(workers.length, 2, 'different logical SPECTRA modules retain independent generators');
+    assert.notEqual(h.kernel(separate.inst.node).sampleEntry, h.kernel(entry.inst.node).sampleEntry);
+    root.setParam(folder.id, 'instances', 1);
+    await folder.inst.sync();
+    assert.ok(workers.every(worker => !worker.terminated), 'removing clones does not stop their original generators');
+  } finally {
+    root?.destroy();
+    h.dsp.destination.destroy();
+    if (previousWorker === undefined) delete globalThis.Worker;
+    else globalThis.Worker = previousWorker;
+  }
+  assert.ok(workers.every(worker => worker.terminated), 'destroying the PATCH releases shared workers');
+  assert.equal(counts.banks, counts.releases, 'all shared PCM cache ownership is released');
+}
+
 // Sample-based graphs switch safely between the single-call native runner and mixed rendering.
 for (const kind of ['sampler', 'wavetable']) {
   const h = dspTestHost({ kernels: { ...WASM, jsonly: KERNELS.bus }, heap });
@@ -319,6 +488,7 @@ for (const kind of ['sampler', 'wavetable']) {
     src.send({ type: 'sample', rate: 48000, channels: [sampleL] });
     src.param('playMode', 3);
   }
+  if (kind === 'spectra') src.send({ type: 'sample', rate: 48000, data: sampleL });
   src.send(noteOn(1, 60.7));
   assert.ok(h.render(4).L.some(v => v !== 0));
   assert.ok(h.graph.prog);
@@ -331,6 +501,27 @@ for (const kind of ['sampler', 'wavetable']) {
   src.connect(h.dsp.destination);
   assert.ok(h.render(4).L.some(v => v !== 0));
   assert.ok(h.graph.prog);
+  src.destroy(); h.dsp.destination.destroy();
+}
+
+// SPECTRA old loops are freed inside the single-call native runner, without adapter process calls.
+{
+  const h = dspTestHost({ kernels: WASM, heap });
+  const src = h.dsp.create('spectra');
+  const data = new Float32Array(48000 * 15);
+  data.fill(0.2);
+  src.connect(h.dsp.destination);
+  src.send({ type: 'sample', rate: 48000, data });
+  src.send(noteOn(1, 60));
+  let stableSize;
+  for (let i = 0; i < 12; i++) {
+    data[0] = 0.2 + i * 0.001;
+    src.send({ type: 'sample', rate: 48000, data });
+    assert.ok(h.render(10).L.some(v => v !== 0));
+    assert.ok(h.graph.prog, 'SPECTRA uses the single-call native graph');
+    if (i === 4) stableSize = heap.memory.buffer.byteLength;
+    if (i > 4) assert.equal(heap.memory.buffer.byteLength, stableSize, 'completed crossfades recycle PCM memory');
+  }
   src.destroy(); h.dsp.destination.destroy();
 }
 

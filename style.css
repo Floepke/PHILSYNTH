@@ -332,6 +332,13 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 .curve-info { margin-top: 4px; min-height: 16px; color: var(--text-faint); font: var(--font-weight) 11px var(--mono); }
 .wave-view { margin-top: 10px; height: 96px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); overflow: hidden; }
 .wave-view canvas { display: block; width: 100%; height: 100%; }
+.spectra-editor { margin-top: 10px; }
+.spectra-tabs { display: flex; gap: 4px; margin-bottom: 6px; }
+.spectra-tabs button { flex: 1; }
+.spectra-tabs button[aria-selected="true"] { background: var(--surface-2); outline: 1px solid currentColor; }
+.spectra-editor canvas { display: block; width: 100%; height: 440px; border: 1px solid var(--border); border-radius: var(--radius-sm); touch-action: none; }
+.spectra-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.spectra-tools input { width: 66px; }
 .eq-view { height: 192px; margin-bottom: 10px; }
 .dist-view canvas { cursor: pointer; }
 .adsr-view { margin-top: 6px; height: 84px; }

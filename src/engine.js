@@ -34,7 +34,7 @@ async function loadWasm() {
 // localStorage['modsynth.workers'] = 'N' overrides it (0 turns them off, at most POOL_MAX).
 const desktopApp = () => typeof globalThis.modsynthFiles === 'object' && globalThis.modsynthFiles !== null;
 
-export async function startPool(port, wasm, sampleRate, onError, { timeout = 5000, budget = null } = {}) {
+export async function startPool(port, wasm, sampleRate, onError, { timeout = 5000, budget = null, onReport = null } = {}) {
   let n = desktopApp() ? poolSize() : 0;
   let explicit = false;
   try {
@@ -71,6 +71,7 @@ export async function startPool(port, wasm, sampleRate, onError, { timeout = 500
             if (active) onError(e.data.error);
             else finish(e.data);
           } else if (e.data?.warn) console.warn(e.data.warn);
+          else if (active && e.data?.meters) onReport?.(e.data);
         };
         w.onerror = (e) => {
           const error = e.message ?? String(e);
@@ -173,6 +174,7 @@ export class Engine {
     this.mics = new MicHub(this.ctx, this.node);
     this.workers = await startPool(this.dsp.port, wasm, this.ctx.sampleRate, (err) => this.reportError(`PATCH instance worker: ${err}`), {
       budget: queue ? headroomMs * 0.7 : null,
+      onReport: (report) => this.dsp.receive(report),
     });
     this.root = await PatchRuntime.create(this, this.dsp.destination);
     this.node.connect(this.ctx.destination);

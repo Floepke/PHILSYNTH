@@ -31,12 +31,15 @@ inline double sampleRead(const float* data, int size, double x, int mode, bool w
 
 struct SampleBank {
   int size;
+  int refs = 1;
   bool stereo;
   float* samples;
   SampleBank(int n, bool two) : size(n), stereo(two) {
     samples = (float*)calloc((size_t)n * (two ? 2 : 1), sizeof(float));
   }
   ~SampleBank() { free(samples); }
+  void retain() { refs++; }
+  void release() { if (!--refs) delete this; }
   const float* right() const { return stereo ? samples + size : samples; }
 };
 

@@ -14,7 +14,7 @@ import { curveTable, defaultCurve } from '../curve.js';
 import { imageCache } from './imagecache.js';
 import { BLOCK_SIZES, DEFAULT_FRAME, builtinTable } from '../modules/wavetable.dsp.js';
 
-export const WASM_VERSION = 20;
+export const WASM_VERSION = 23;
 
 // kind = Kind in cpp/engine.cpp; params in the order of the kernel's enum
 export const SPECS = {
@@ -31,6 +31,7 @@ export const SPECS = {
   distortion: { kind: 15, params: ['type', 'power', 'bits', 'frequency'] },
   vibrato: { kind: 16, params: ['wave', 'unit', 'freq', 'phase', 'amp'] },
   sampler: { kind: 17, params: ['polyphony', 'selStart', 'selLength', 'playMode', 'transpose', 'finetune', 'interpolation', 'attack', 'decay', 'sustain', 'release', 'gain'] },
+  spectra: { kind: 20, params: ['polyphony', 'attack', 'decay', 'sustain', 'release', 'atkCurve', 'decCurve', 'relCurve', 'gain'] },
   wavetable: { kind: 18, params: ['polyphony', 'block', 'position', 'interpolation', 'attack', 'decay', 'sustain', 'release', 'gain'] },
   bus: { kind: 5, params: [], passive: true },
   amp: { kind: 6, params: ['amp', 'inverse', 'pan', 'fine'], passive: true },
@@ -326,6 +327,52 @@ function sampleKernels(kernels, x, heap) {
       super.destroy();
       release(this.sampleEntry);
       this.sampleEntry = null;
+    }
+  };
+  kernels.spectra = class extends kernels.spectra {
+    static meter = true;
+    constructor(opts) { super(opts); this.sampleEntry = null; this.nextEntry = null; this.cycle = 0; }
+    syncCycle() {
+      const cycle = x.ms_spectra_cycle(this.ptr);
+      if (cycle !== this.cycle) {
+        release(this.sampleEntry);
+        this.sampleEntry = this.nextEntry;
+        this.nextEntry = null;
+        this.cycle = cycle;
+      }
+      return cycle;
+    }
+    get meter() { return this.syncCycle(); }
+    message(m) {
+      if (m.type !== 'sample' && m.type !== 'nextSample' && m.type !== 'phaseSample') return super.message(m);
+      if (!(m.data instanceof Float32Array) || !m.data.length || !Number.isFinite(m.rate) || m.rate <= 0) {
+        throw new TypeError('SPECTRA received an invalid sample');
+      }
+      this.syncCycle();
+      if (m.type === 'phaseSample' && m.frame !== undefined && m.frame <= this.cycle) return;
+      const frame = m.frame ?? this.cycle + 1;
+      if (m.type === 'nextSample' && (!Number.isInteger(frame) || frame <= 0 || frame > 0x7fffffff)) {
+        throw new TypeError('SPECTRA received an invalid phase frame');
+      }
+      const next = acquire([m.data]);
+      if (m.type === 'nextSample') {
+        x.ms_spectra_next(this.ptr, next.ptr, m.rate, frame);
+        release(this.nextEntry);
+        this.nextEntry = next;
+      } else {
+        x.ms_spectra_set(this.ptr, next.ptr, m.rate, m.type === 'phaseSample' ? 1 : 0);
+        release(this.sampleEntry);
+        release(this.nextEntry);
+        this.nextEntry = null;
+        this.sampleEntry = next;
+      }
+    }
+    destroy() {
+      super.destroy();
+      release(this.sampleEntry);
+      release(this.nextEntry);
+      this.sampleEntry = null;
+      this.nextEntry = null;
     }
   };
   kernels.wavetable = class extends kernels.wavetable {
