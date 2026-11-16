@@ -173,7 +173,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
         if (importTempo && controller < 0) throw new Error('The Output BPM controller is unavailable');
         const param = params[controller];
         const result = parseMidiFile(file.data, file.name, importTempo
-          ? { importTempo: true, minBpm: param.min, maxBpm: param.max }
+          ? { importTempo: true, minBpm: param.min, maxBpm: param.max, bpmStep: param.drivenStep ?? param.step }
           : {});
         if (importTempo) result.tempoClip = midiTempoClip(result, output.id, controller, param);
         return { ...result, name: file.name };

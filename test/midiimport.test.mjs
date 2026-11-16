@@ -79,19 +79,23 @@ const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-1
   assert.equal(without.clips[1].notes[0].start, 0.5);
   assert.equal(without.clips[1].notes[0].length, 1);
   const result = parseMidiFile(bytes, 'song.mid', { importTempo: true });
-  const beatChange = us / 1000000 * 121 / 60;
+  const importedBpm = 120.50;
+  const beatChange = us / 1000000 * importedBpm / 60;
   close(result.tempoEvents[1].t, beatChange);
-  assert.deepEqual(result.tempoEvents.map((e) => e.bpm), [121, 100]);
+  assert.deepEqual(result.tempoEvents.map((e) => e.bpm), [importedBpm, 100]);
+  const legacy = parseMidiFile(bytes, 'song.mid', { importTempo: true, bpmStep: 1 });
+  assert.deepEqual(legacy.tempoEvents.map((e) => e.bpm), [121, 100], 'older projects keep their tempo clock');
+  close(legacy.tempoEvents[1].t, us / 1000000 * 121 / 60);
   const note = result.clips[1].notes[0];
-  close(note.start * 60 / 121, us / 2000000);
+  close(note.start * 60 / importedBpm, us / 2000000);
   close((note.start + note.length - beatChange) * 60 / 100, 0.3);
   const param = out.params.find((p) => p.id === 'bpm');
   const clip = midiTempoClip(result, 0, out.params.indexOf(param), param);
   assert.equal(clip.target, 0);
   assert.equal(clip.controller, 0);
   assert.deepEqual(clip.points.map((p) => [p.t, fromNorm(param, p.v), p.r]),
-    [[0, 121, 0], [beatChange, 121, 0], [beatChange, 100, 0]]);
-  assert.equal(fromNorm(param, autoValue(clip, beatChange - 0.000001)), 121);
+    [[0, importedBpm, 0], [beatChange, importedBpm, 0], [beatChange, 100, 0]]);
+  assert.equal(fromNorm(param, autoValue(clip, beatChange - 0.000001)), importedBpm);
   assert.equal(fromNorm(param, autoValue(clip, beatChange)), 100);
   const song = emptySong();
   song.clips.push({ ...clip, start: 0, y: 0, id: 1 });
@@ -114,7 +118,7 @@ const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-1
   transport.play();
   for (now = 5; now <= 1100; now += 5) {
     transport.tick();
-    if (now === 250) assert.equal(bpm, 121);
+    if (now === 250) assert.equal(bpm, importedBpm);
     if (now === 750) assert.equal(bpm, 100);
   }
   assert.ok(Math.abs(noteOn - 250) <= 5, `note started at ${noteOn} ms`);

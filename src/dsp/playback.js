@@ -204,6 +204,7 @@ export class Playback {
   }
 
   async updateTopology(rt, data, previous) {
+    rt.tempoStep = data.tempoStep === 0.01 ? 0.01 : 1;
     const binding = this.dsp.bindings.get(`${rt.sink.h}:${rt.salt}`);
     for (const e of [...rt.modules.values()]) {
       const wanted = binding.modules.find((m) => m.id === e.id);
@@ -220,6 +221,9 @@ export class Playback {
       if (m.patch) await this.updateTopology(e.inst.patch, m.patch, old?.patch);
     }
     for (const c of data.cables) if (!rt.cables.some((x) => x.from === c.from && x.to === c.to)) rt.connect(c.from, c.to);
+    if (data.tempoStep !== previous?.tempoStep) {
+      for (const e of rt.modules.values()) if (e.def.modulator) rt.updateRoutes(e);
+    }
   }
 
   applyModuleValues(rt, m, old) {
@@ -230,11 +234,15 @@ export class Playback {
   }
 
   applyValues(rt, data, previous) {
+    rt.tempoStep = data.tempoStep === 0.01 ? 0.01 : 1;
     for (const m of data.modules) {
       const e = rt.modules.get(m.id);
       const old = previous.modules.find((p) => p.id === m.id);
       this.applyModuleValues(rt, m, old);
       if (m.patch) for (const child of [e.inst.patch, ...e.inst.clones]) this.applyValues(child, m.patch, old.patch);
+    }
+    if (data.tempoStep !== previous.tempoStep) {
+      for (const e of rt.modules.values()) if (e.def.modulator) rt.updateRoutes(e);
     }
   }
 

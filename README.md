@@ -547,6 +547,12 @@ combined into your own MIDI processor or modulator:
   Output's own controllers (Master volume, BPM, …), and it takes no MIDI. A MULTICTL into an
   Output always drives that Output's controllers.
 
+Output BPM supports 0.01 BPM precision when dragging. Scrolling adds or subtracts
+1 BPM while preserving the fractional part (120.25 → 121.25). Saved fixed tempos
+load unchanged. New projects use hundredths for tempo automation, modulation and
+MIDI tempo imports; older patch levels keep whole-BPM rounding for these driven
+tempos, including after resaving, to preserve their playback timing.
+
 ## Menus and export
 
 MIDI input selection is under **PHILSYNTH > Preferences… > MIDI > MIDI Input**.

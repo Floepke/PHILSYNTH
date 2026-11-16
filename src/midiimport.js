@@ -18,7 +18,7 @@ export function midiTempoClip(result, target, controller, param) {
 
 // Standard MIDI Files use tick deltas and running status; all positions below remain in ticks
 // until the entire tempo map is known (needed for SMPTE time divisions).
-export function parseMidiFile(data, filename = 'MIDI', { importTempo = false, minBpm = 20, maxBpm = 1000 } = {}) {
+export function parseMidiFile(data, filename = 'MIDI', { importTempo = false, minBpm = 20, maxBpm = 1000, bpmStep = 0.01 } = {}) {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
   if (bytes.length > MAX_MIDI_BYTES) throw new Error('MIDI file is too large (maximum 32 MB)');
   let pos = 0;
@@ -157,7 +157,7 @@ export function parseMidiFile(data, filename = 'MIDI', { importTempo = false, mi
   let clampedTempos = 0;
   let convertedTimes = null;
   if (importTempo) {
-    if (!Number.isInteger(minBpm) || !Number.isInteger(maxBpm) || minBpm <= 0 || maxBpm < minBpm) {
+    if (!Number.isInteger(minBpm) || !Number.isInteger(maxBpm) || minBpm <= 0 || maxBpm < minBpm || (bpmStep !== 0.01 && bpmStep !== 1)) {
       throw new Error('Invalid BPM controller range');
     }
     // SMF format 2 tracks are independent sequences. Their source clocks are mapped through
@@ -191,7 +191,7 @@ export function parseMidiFile(data, filename = 'MIDI', { importTempo = false, mi
     const outputClock = [];
     for (const event of events) {
       const rawBpm = 60000000 / event.tempo;
-      const rounded = Math.round(rawBpm);
+      const rounded = +(Math.round(rawBpm / bpmStep) * bpmStep).toFixed(2);
       const bpm = Math.max(minBpm, Math.min(maxBpm, rounded));
       if (rounded !== bpm) clampedTempos++;
       const prev = outputClock.at(-1);

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { dspTestHost } from './dsphost.mjs';
 import { patchControllersView } from '../src/mapdialog.js';
 import { createPatchMonitor } from '../src/patchmonitor.js';
-import { paramsOf, controllerAt, controllerNumber, fromNorm } from '../src/params.js';
+import { paramsOf, controllerAt, controllerNumber, fromNorm, toNorm } from '../src/params.js';
 
 {
   const previousDocument = globalThis.document;
@@ -2014,6 +2014,43 @@ const set = (e, x) => { hold(e, x); render(1); };
   assert.deepEqual(await r.pasteMany(null), []);
   r.destroy();
   r2.destroy();
+}
+
+// ---- Output: fractional BPM and legacy tempo automation ----
+{
+  const r = await PatchRuntime.create(engine, dsp.destination);
+  const bpm = paramsOf(r.modules.get(0))[0];
+  r.setParam(0, 'bpm', 137);
+  const saved = JSON.parse(JSON.stringify(r.toJSON()));
+  r.automate('tempo', 0, 0, toNorm(bpm, 120.25));
+  assert.equal(r.bpm, 120.25);
+  assert.equal(r.routesTo(0, 'bpm')[0].step, 0.01);
+  const copy = await PatchRuntime.create(engine, dsp.destination);
+  await copy.load(saved);
+  assert.equal(copy.bpm, 137, 'integer tempos still load exactly');
+  copy.setParam(0, 'bpm', 137.25);
+  await r.load(JSON.parse(JSON.stringify(copy.toJSON())));
+  assert.equal(r.bpm, 137.25, 'fractional BPM survives save/load');
+  delete saved.tempoStep;
+  await copy.load(saved);
+  assert.equal(copy.bpm, 137, 'legacy fixed tempo is unchanged');
+  copy.automate('tempo', 0, 0, toNorm(bpm, 120.25));
+  assert.equal(copy.bpm, 120, 'legacy tempo curves still round to whole BPM');
+  assert.equal(copy.routesTo(0, 'bpm')[0].step, 1, 'legacy modulation keeps its quantisation');
+  copy.setParam(0, 'bpm', fromNorm(paramsOf(copy.modules.get(0))[0], toNorm(bpm, 137.25)));
+  assert.equal(copy.bpm, 137.25, 'manual edits allow hundredths in legacy projects too');
+  const folder = await r.addModule('PATCH');
+  await folder.inst.patch.load(saved);
+  r.setState(folder.id, { maps: [{ key: 'map1', module: 0, param: 'bpm' }] });
+  r.automate('mapped', folder.id, 11, toNorm(bpm, 130.25));
+  assert.equal(folder.inst.patch.bpm, 130, 'mapped legacy tempo retains rounding');
+  const reloaded = await PatchRuntime.create(engine, dsp.destination);
+  await reloaded.load(JSON.parse(JSON.stringify(copy.toJSON())));
+  reloaded.automate('tempo', 0, 0, toNorm(bpm, 125.75));
+  assert.equal(reloaded.bpm, 126, 'legacy rounding survives resaving');
+  r.destroy();
+  copy.destroy();
+  reloaded.destroy();
 }
 
 // ---- Output: song comments, BPM up to 1000 ----

@@ -24,7 +24,7 @@ export default {
   acceptsMidi: false,
   params: [
     // tempo of this patch level; LFO, DELAY and ECHO sync to it
-    { id: 'bpm', label: 'BPM (♩/min)', min: 20, max: 1000, default: 120, step: 1, wheelStep: 1 }, // 1 BPM per wheel click
+    { id: 'bpm', label: 'BPM (♩/min)', min: 20, max: 1000, default: 120, step: 0.01, wheelStep: 1, format: (v) => String(+v.toFixed(2)) }, // 1 BPM per wheel click
     // per level: shift every note entering this level while it is the current one, see PatchRuntime.pitchOffset
     { id: 'transpose', dsp: false, label: 'Global Transpose', min: -48, max: 48, default: 0, step: 1, wheelStep: 1, format: (v) => `${v > 0 ? '+' : ''}${v} st` },
     { id: 'cents', dsp: false, label: 'Global Cents Offset', min: -100, max: 100, default: 0, step: 1, wheelStep: 1, format: (v) => `${v > 0 ? '+' : ''}${v} ct` },
@@ -102,12 +102,16 @@ export default {
     const input = host.dsp.create('out'); // DSP: out.dsp.js (sum × Master volume)
     const noDsp = new Set(def.params.filter((p) => p.dsp === false).map((p) => p.id));
     let rt = null; // the patch this Output belongs to
+    const params = def.params.map((p) => p.id === 'bpm'
+      ? { ...p, get drivenStep() { return rt?.tempoStep ?? p.step; } }
+      : p);
     // notes cabled into the Output inside a Patch go out through the Patch module (rt.outer)
     const pass = (fn) => (...args) => rt?.outer?.[fn](...args);
     return {
       input,
       node: null,
       attach: (_entry, runtime) => { rt = runtime; },
+      params: () => params,
       noteOn: pass('noteOn'),
       noteMod: pass('noteMod'),
       noteOff: pass('noteOff'),

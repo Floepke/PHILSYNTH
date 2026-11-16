@@ -1,6 +1,6 @@
 // Run: node test/params.test.mjs   (controller value math: wheel nudging)
 import assert from 'node:assert/strict';
-import { nudge, wheelNotches, toNorm, wheelAccumulator, wheelDelta, snapNearest, snapStep, controllerAt, controllerNumber, pctNum } from '../src/params.js';
+import { nudge, wheelNotches, toNorm, fromNorm, wheelAccumulator, wheelDelta, snapNearest, snapStep, controllerAt, controllerNumber, pctNum } from '../src/params.js';
 
 const numbered = [{ id: 'native' }, { id: 'mapped', number: 11 }, { id: 'second', number: 12 }];
 assert.deepEqual(numbered.map(controllerNumber), [0, 11, 12]);
@@ -106,6 +106,12 @@ assert.ok(Math.abs(wheelNotches(-10, 0) - 0.1) < 1e-9, 'trackpad: small fraction
   assert.equal(nudgeBy(bpm, 120, -3), 117);
   assert.equal(nudgeBy(bpm, 120, 1, true), 121, 'Shift: still 1 BPM');
   assert.equal(nudgeBy(bpm, 1000, 1), 1000, 'clamped to the range');
+  assert.equal(fromNorm(bpm, toNorm(bpm, 120.254)), 120.25, 'BPM drag rounds to hundredths');
+  assert.equal(nudgeBy(bpm, 120.25, 1), 121.25, 'wheel preserves the fractional BPM');
+  assert.equal(nudgeBy(bpm, 120.25, -1, 'extra'), 119.25, 'fine wheel still subtracts one BPM');
+  assert.equal(nudgeBy(bpm, 999.75, 1), 1000);
+  assert.equal(nudgeBy(bpm, 20.25, -1), 20);
+  assert.deepEqual([120, 120.5, 120.25].map(bpm.format), ['120', '120.5', '120.25']);
   // REVERB Seed: one seed per click
   const reverbSeed = getModule('REVERB').params.find((x) => x.id === 'seed');
   assert.equal(nudgeBy(reverbSeed, 1, 1), 2);

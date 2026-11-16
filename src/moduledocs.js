@@ -37,7 +37,7 @@ export const DOCS = {
     summary: 'The Output of the patch level: every audio cable into it is summed and played (at the top level) or sent out of the Patch module (inside a Patch). It also holds the tempo and the global tuning of this level. It cannot be deleted.',
     params: {
       volume: 'Master volume: scales the summed audio before it leaves this level.',
-      bpm: 'Tempo in beats per minute, where one beat = 1/4 (a quarter note). The sequencer plays at this tempo when this patch level is played, and synced LFOs, DELAY and ECHO times on this level follow it.',
+      bpm: 'Tempo in beats per minute, where one beat = 1/4 (a quarter note). Drag with 0.01 BPM precision; scrolling adds or subtracts 1 BPM and keeps the fraction. The sequencer plays at this tempo when this patch level is played, and synced LFOs, DELAY and ECHO times on this level follow it. Older projects retain whole-BPM rounding for tempo automation and modulation.',
       transpose: 'Shifts every note entering this patch level by whole semitones (−48…+48).',
       cents: 'Fine-tunes every note entering this patch level by up to ±100 cents.',
     },

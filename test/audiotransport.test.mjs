@@ -11,6 +11,7 @@ import { instantiateDsp, wasmKernels } from '../src/dsp/wasm.js';
 import { modules } from '../src/modules/index.js';
 import { addSample, addImage } from '../src/samples.js';
 import { newNoteId, useAudioNoteIds } from '../src/modmidi.js';
+import { paramsOf, toNorm } from '../src/params.js';
 
 const RATE = 48000;
 const DT = 128 / RATE;
@@ -48,6 +49,42 @@ async function harness(options = {}) {
     }
   };
   return { root, dsp, graph, ctx, playback, song, events, update, start, run };
+}
+
+// Fractional tempo survives the worklet model, including a legacy load with unchanged bindings.
+{
+  const h = await harness();
+  const bpm = paramsOf(h.root.modules.get(0))[0];
+  const clip = addAutoClip(h.song, {
+    target: 0, controller: 0, length: 8,
+  });
+  clip.points.push({ t: 0, v: toNorm(bpm, 120.25), r: 0 });
+  await h.update();
+  h.start();
+  h.run(0.1);
+  assert.equal(h.playback.root.bpm, 120.25, 'worklet automation keeps fractional BPM');
+  assert.ok(Math.abs(h.playback.transport.pos - h.ctx.currentTime * 120.25 / 60) < DT * 3,
+    'audio clock advances at the fractional tempo');
+  h.playback.command({ type: 'stop', revision: 2, pos: 0 });
+  const legacy = structuredClone(h.root.toJSON());
+  delete legacy.tempoStep;
+  legacy.modules[0].values.bpm = 137;
+  await h.root.load(legacy);
+  await h.update();
+  assert.equal(h.playback.root.bpm, 137, 'legacy integer tempo reaches existing worklet bindings');
+  h.start();
+  h.run(DT * 3);
+  assert.equal(h.playback.root.bpm, 120, 'legacy automation retains integer rounding on the audio thread');
+  h.playback.command({ type: 'stop', revision: 3, pos: 0 });
+  clip.points[0].v = toNorm(bpm, 137.75);
+  legacy.tempoStep = 0.01;
+  await h.root.load(legacy);
+  await h.update();
+  h.start();
+  h.run(DT * 3);
+  assert.equal(h.playback.root.bpm, 137.75, 'precision is restored when loading a new-format patch');
+  h.root.destroy();
+  h.playback.root.destroy();
 }
 
 // Metronome commands reach the worklet without cancelling a pending asynchronous playback start.

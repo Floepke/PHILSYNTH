@@ -267,6 +267,7 @@ export default {
         get disabledReason() { return p.disabledReason; },
         default: p.default ?? p.min,
         ...(p.step !== undefined ? { step: p.step } : {}),
+        get drivenStep() { return p.drivenStep; },
         ...(p.wheelStep ? { wheelStep: p.wheelStep } : {}),
         ...(p.wheelSingleStep ? { wheelSingleStep: p.wheelSingleStep } : {}),
         ...(p.scale ? { scale: p.scale } : {}),

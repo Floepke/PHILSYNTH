@@ -1877,7 +1877,7 @@ async function exportAudio() {
 }
 function emptyProject() {
   const values = Object.fromEntries(getModule('OUT').params.map((p) => [p.id, p.default]));
-  return { format: PROJECT_FORMAT, version: 1, patch: { modules: [{ id: 0, type: 'OUT', x: 560, y: 180, values }], cables: [] }, song: newSong() };
+  return { format: PROJECT_FORMAT, version: 1, patch: { tempoStep: 0.01, modules: [{ id: 0, type: 'OUT', x: 560, y: 180, values }], cables: [] }, song: newSong() };
 }
 
 // ---- boot ----

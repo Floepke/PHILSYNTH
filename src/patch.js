@@ -73,6 +73,7 @@ export class PatchRuntime {
     this.midiLock = null; // module number live MIDI is locked onto in this layer (saved), or null
     this.outer = null; // set by the Patch module this runtime is inside of: what its Output passes out to
     this._song = null;
+    this.tempoStep = 0.01;
   }
 
   // Every layer (a Patch's inside) has its own TimeLine: clips that play / automate modules of this
@@ -492,7 +493,7 @@ export class PatchRuntime {
   // controllers inside it (p.routes) is modulated right on those inner kernels, every instance.
   routesOf(t, p) {
     if (p.routes) return p.routes();
-    return t?.ctl ? [{ to: t.ctl.h, id: p.id, min: p.min, max: p.max, scale: p.scale, step: p.step }] : [];
+    return t?.ctl ? [{ to: t.ctl.h, id: p.id, min: p.min, max: p.max, scale: p.scale, step: p.drivenStep ?? p.step }] : [];
   }
 
   // routes of controller id `pid` of module `id` (used by a parent Patch, see routesOf)
@@ -549,7 +550,7 @@ export class PatchRuntime {
     const t = targetId === null || norm === null ? null : this.modules.get(targetId);
     const p = t ? controllerAt(paramsOf(t), controller | 0) : null;
     if (!p) return false;
-    this.drive(t, p.id, fromNorm(p, norm));
+    this.drive(t, p.id, fromNorm(p.drivenStep === undefined ? p : { ...p, step: p.drivenStep }, norm));
     return true;
   }
 
@@ -678,6 +679,7 @@ export class PatchRuntime {
   // ---- persistence (nested Patch modules are embedded recursively) ----
   toJSON() {
     return {
+      ...(this.tempoStep === 0.01 ? { tempoStep: 0.01 } : {}),
       modules: [...this.modules.values()].map((e) => ({
         id: e.id, type: e.def.type, x: e.x, y: e.y, values: { ...e.values },
         color: e.color ?? null,
@@ -723,6 +725,8 @@ export class PatchRuntime {
 
   async load(data) {
     this.validateInstanceTree(data);
+    // Files without the precision marker retain their original tempo-curve quantisation.
+    this.tempoStep = data.tempoStep === 0.01 ? 0.01 : 1;
     [...this.modules.keys()].forEach((id) => this.removeModule(id));
     this.midiLock = Number.isInteger(data.midiLock) ? data.midiLock : null;
     this.song = data.song ?? null;
