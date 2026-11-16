@@ -31,7 +31,7 @@ struct Filter : Kernel {
   // identical to computing them every sample, which the JS twin did before it got the same caches)
   double cLogF = NAN, fc = 0, wd = 0;
   double cDrive = NAN, driveGain = 1, driveNorm = 1;
-  double cRes = NAN, cGain = NAN;
+  double cRes = NAN, cGain = NAN, Q = 1, sqrtA = 1;
   int cType = -1;
   bool svfDirty = true;
   double k = 0, a1 = 0, a2 = 0, a3 = 0, kB = 0, b1 = 0, b2 = 0, b3 = 0, A = 1;
@@ -148,17 +148,22 @@ struct Filter : Kernel {
       }
 
       if (type <= HSHELF && (svfDirty || sRes != cRes || sGain != cGain || type != cType)) {
+        if (sRes != cRes || type != cType) {
+          cRes = sRes;
+          cType = type;
+          Q = type == LSHELF || type == HSHELF ? 0.5 + sRes * 1.5 : 0.5 * pow(80, sRes);
+        }
+        if (sGain != cGain) {
+          cGain = sGain;
+          A = pow(10, sGain / 40);
+          sqrtA = sqrt(A);
+        }
         svfDirty = false;
-        cRes = sRes;
-        cGain = sGain;
-        cType = type;
-        const double Q = type == LSHELF || type == HSHELF ? 0.5 + sRes * 1.5 : 0.5 * pow(80, sRes);
-        A = pow(10, sGain / 40);
         double g = wd;
         k = 1 / Q;
         if (type == BELL) k = 1 / (Q * A);
-        else if (type == LSHELF) g = wd / sqrt(A);
-        else if (type == HSHELF) g = wd * sqrt(A);
+        else if (type == LSHELF) g = wd / sqrtA;
+        else if (type == HSHELF) g = wd * sqrtA;
         a1 = 1 / (1 + g * (g + k));
         a2 = g * a1;
         a3 = g * a2;

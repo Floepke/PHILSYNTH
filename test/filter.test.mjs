@@ -164,4 +164,48 @@ Math.random = realRandom;
   assert.ok(Number.isFinite(g1));
 }
 
+// Cutoff movement reuses settled Q/gain work, but edits and type changes invalidate it.
+{
+  const optimized = make({ lfoDepth: 2, lfoRate: 20 });
+  const reference = make({ lfoDepth: 2, lfoRate: 20 });
+  reference.c = new Proxy(reference.c, {
+    get(target, key) {
+      return ['res', 'gain', 'type'].includes(key) ? NaN : target[key];
+    },
+  });
+  const input = [Float32Array.from({ length: 128 }, (_, i) => 0.2 * Math.sin(i * 0.17)),
+    Float32Array.from({ length: 128 }, (_, i) => 0.2 * Math.cos(i * 0.11))];
+  const a = [new Float32Array(128), new Float32Array(128)];
+  const b = [new Float32Array(128), new Float32Array(128)];
+  const edits = new Map([
+    [4, { resonance: 0.8 }], [12, { gain: 12 }], [20, { type: 6 }],
+    [28, { type: 7 }], [36, { gain: -18 }], [44, { type: 8 }],
+    [52, { resonance: 0.2 }], [60, { type: 9 }], [68, { type: 0, slope: 3 }],
+  ]);
+  for (let block = 0; block < 100; block++) {
+    for (const [id, value] of Object.entries(edits.get(block) ?? {})) {
+      optimized.param(id, value);
+      reference.param(id, value);
+    }
+    optimized.process([input], [a]);
+    reference.process([input], [b]);
+    assert.deepEqual(a, b, `cached coefficients preserve every sample at block ${block}`);
+  }
+
+  const settled = make({ lfoDepth: 2, lfoRate: 20 });
+  settled.process([input], [a]);
+  const pow = Math.pow;
+  let redundant = 0;
+  try {
+    Math.pow = (base, exponent) => {
+      if (base === 80 || base === 10) redundant++;
+      return pow(base, exponent);
+    };
+    settled.process([input], [a]);
+  } finally {
+    Math.pow = pow;
+  }
+  assert.equal(redundant, 0, 'cutoff LFO does not recalculate settled resonance or gain powers');
+}
+
 console.log('all filter tests passed');

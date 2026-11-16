@@ -64,7 +64,7 @@ export default class FilterKernel extends Kernel {
     // same values as computing them every sample; cpp/filter.h does the same)
     this.c = {
       logF: NaN, fc: 0, wd: 0, drive: NaN, driveGain: 1, driveNorm: 1, res: NaN, gain: NaN, type: -1, svfDirty: true,
-      k: 0, a1: 0, a2: 0, a3: 0, kB: 0, b1: 0, b2: 0, b3: 0, A: 1,
+      k: 0, a1: 0, a2: 0, a3: 0, kB: 0, b1: 0, b2: 0, b3: 0, Q: 1, A: 1, sqrtA: 1,
       vowel: NaN, oct: NaN, resF: NaN, kF: 0, fmG: [0, 0, 0], fmC1: [0, 0, 0], fmAmp: [0, 0, 0],
     };
   }
@@ -166,21 +166,25 @@ export default class FilterKernel extends Kernel {
 
       // per-sample coefficients shared by all channels
       if (type <= T.HSHELF && (c.svfDirty || s.res !== c.res || s.gain !== c.gain || type !== c.type)) {
+        if (s.res !== c.res || type !== c.type) {
+          c.res = s.res;
+          c.type = type;
+          // Shelves use a gentler Q range than the other SVF types.
+          c.Q = type === T.LSHELF || type === T.HSHELF ? 0.5 + s.res * 1.5 : qFromRes(s.res);
+        }
+        if (s.gain !== c.gain) {
+          c.gain = s.gain;
+          c.A = Math.pow(10, s.gain / 40);
+          c.sqrtA = Math.sqrt(c.A);
+        }
         c.svfDirty = false;
-        c.res = s.res;
-        c.gain = s.gain;
-        c.type = type;
-        let k, A;
-        // shelves only use a gentle Q range; high Q would add a large resonant bump
-        const Q = type === T.LSHELF || type === T.HSHELF ? 0.5 + s.res * 1.5 : qFromRes(s.res);
-        A = Math.pow(10, s.gain / 40);
+        const { Q, A } = c;
         let g = wd;
-        k = 1 / Q;
+        let k = 1 / Q;
         if (type === T.BELL) k = 1 / (Q * A);
-        else if (type === T.LSHELF) g = wd / Math.sqrt(A);
-        else if (type === T.HSHELF) g = wd * Math.sqrt(A);
+        else if (type === T.LSHELF) g = wd / c.sqrtA;
+        else if (type === T.HSHELF) g = wd * c.sqrtA;
         c.k = k;
-        c.A = A;
         c.a1 = 1 / (1 + g * (g + k));
         c.a2 = g * c.a1;
         c.a3 = g * c.a2;

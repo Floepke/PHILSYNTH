@@ -716,6 +716,17 @@ compare('filter', {
   input: signal, blocks: 60,
   script: [[0, param('type', 0)], [20, param('type', 9)], [40, param('type', 10)], [50, param('type', 3)]],
 });
+// Independent Q/gain caches must follow edits and SVF/EQ type changes during cutoff modulation.
+compare('filter', {
+  input: signal, blocks: 140, tol: 2e-5, inHeap: true,
+  script: [
+    [0, param('lfoDepth', 2)], [0, param('lfoRate', 20)],
+    [4, param('resonance', 0.8)], [12, param('gain', 12)], [20, param('type', 6)],
+    [28, param('type', 7)], [36, param('gain', -18)], [44, param('type', 8)],
+    [52, param('resonance', 0.2)], [60, param('type', 9)], [68, param('type', 0)],
+    [68, param('slope', 3)],
+  ],
+});
 
 // REVERB: sleeping, waking, seed swap (with fade), salt, freeze, size/predelay glides, mono-ish input
 compare('reverb', {

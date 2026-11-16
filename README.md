@@ -251,6 +251,11 @@ It verifies actual note onset and release during a 200 ms GUI-thread stall in a
 
 ## Module CPU benchmarks
 
+FILTER caches resonance/Q and EQ-gain powers independently of cutoff, in both
+DSP backends. Cutoff LFOs still update every sample, but no longer repeat these
+calculations while resonance and gain are settled. Smoothing and filter maths
+are unchanged; there is no reduced-rate coefficient interpolation.
+
 OPERATOR retains its 4x oversampling and 65-tap anti-aliasing FIR. Both playback
 backends traverse the FIR history in two contiguous spans, avoiding per-tap
 modulo operations while preserving coefficients and summation order.
@@ -730,6 +735,16 @@ Every module's panel ends with a reference (About, Controllers, Usage) from
 `BENCH_WORKERS=auto,0,2` compares automatic selection, no workers, and two forced
 `npm test` checks that every controller is documented.
 macOS packaging uses `npm run build:mac` on macOS.
+
+```sh
+npm run build:mac -- --arch=x64       # Intel
+npm run build:mac -- --arch=arm64     # Apple Silicon
+npm run build:mac -- --arch=universal # Both architectures in one app
+```
+
+Add `--zip` to create a distribution ZIP. Builds use separate architecture
+directories under `release/`. Universal builds retain both architecture-specific
+Koffi binaries; Koffi selects the matching one at runtime.
 
 ## Windows executables
 

@@ -46,6 +46,10 @@ const [appDir] = await packager({
   overwrite: true,
   prune: true,
   asar: { unpack: '**/*.node' }, // native binaries (koffi) can't load from inside the archive
+  osxUniversal: {
+    // Koffi selects its prebuilt binary at runtime; keep both instead of merging them.
+    x64ArchFiles: 'Contents/Resources/app.asar.unpacked/node_modules/@koromix/koffi-darwin-{arm64,x64}/darwin_{arm64,x64}/koffi.node',
+  },
   ignore: (path) => path !== '' && !KEEP.test(path) && !/^\/(src|electron|node_modules)$/.test(path),
   extendInfo: {
     NSHighResolutionCapable: true,
