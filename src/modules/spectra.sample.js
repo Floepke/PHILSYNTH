@@ -13,6 +13,10 @@ export function defaultSpectraState() {
 
 export const randomSpectraPhases = () => Array.from({ length: SPECTRA_PARTIALS }, () => Math.random() * 100);
 
+export function validateSpectraLength(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 1 || seconds > 16) throw new RangeError('SPECTRA sample length must be between 1 and 16 seconds');
+}
+
 export function normalizeSpectraState(state) {
   const defaults = defaultSpectraState();
   return Object.fromEntries(['levels', 'detunes'].map((key) => [
@@ -23,14 +27,15 @@ export function normalizeSpectraState(state) {
   ]));
 }
 
-export function generateSpectraSample(sampleRate, levels, detunes, phases = Array(SPECTRA_PARTIALS).fill(0)) {
+export function generateSpectraSample(sampleRate, levels, detunes, phases = Array(SPECTRA_PARTIALS).fill(0), seconds = SPECTRA_SAMPLE_SECONDS) {
   if (!Number.isFinite(sampleRate) || sampleRate <= 0) throw new RangeError('SPECTRA sample rate must be positive');
+  validateSpectraLength(seconds);
   if ([levels, detunes, phases].some((values) => values?.length !== SPECTRA_PARTIALS)) throw new TypeError(`SPECTRA needs ${SPECTRA_PARTIALS} levels, detunes and phases`);
   for (let i = 0; i < SPECTRA_PARTIALS; i++) {
     if (![levels[i], detunes[i], phases[i]].every(Number.isFinite)) throw new TypeError('SPECTRA controls must be finite');
   }
 
-  const length = Math.round(sampleRate * SPECTRA_SAMPLE_SECONDS);
+  const length = Math.round(sampleRate * seconds);
   const data = new Float32Array(length);
 
   for (let partial = 0; partial < SPECTRA_PARTIALS; partial++) {
@@ -47,7 +52,7 @@ export function generateSpectraSample(sampleRate, levels, detunes, phases = Arra
     let tailSin = Math.sin(phase + step * length);
     let tailCos = Math.cos(phase + step * length);
     for (let i = 0; i < length; i++) {
-      // Overlap the second 15 seconds with the first: both ends meet at raw time 15 s.
+      // Overlap consecutive segments: both loop ends meet at the raw segment boundary.
       const blend = i / length;
       data[i] += level * (tailSin * (1 - blend) + headSin * blend);
       const nextHead = headSin * stepCos + headCos * stepSin;

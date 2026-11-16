@@ -14,7 +14,7 @@ import { curveTable, defaultCurve } from '../curve.js';
 import { imageCache } from './imagecache.js';
 import { BLOCK_SIZES, DEFAULT_FRAME, builtinTable } from '../modules/wavetable.dsp.js';
 
-export const WASM_VERSION = 23;
+export const WASM_VERSION = 24;
 
 // kind = Kind in cpp/engine.cpp; params in the order of the kernel's enum
 export const SPECS = {
@@ -31,7 +31,7 @@ export const SPECS = {
   distortion: { kind: 15, params: ['type', 'power', 'bits', 'frequency'] },
   vibrato: { kind: 16, params: ['wave', 'unit', 'freq', 'phase', 'amp'] },
   sampler: { kind: 17, params: ['polyphony', 'selStart', 'selLength', 'playMode', 'transpose', 'finetune', 'interpolation', 'attack', 'decay', 'sustain', 'release', 'gain'] },
-  spectra: { kind: 20, params: ['polyphony', 'attack', 'decay', 'sustain', 'release', 'atkCurve', 'decCurve', 'relCurve', 'gain'] },
+  spectra: { kind: 20, params: ['polyphony', 'attack', 'decay', 'sustain', 'release', 'atkCurve', 'decCurve', 'relCurve', 'gain', 'sampleLength'] },
   wavetable: { kind: 18, params: ['polyphony', 'block', 'position', 'interpolation', 'attack', 'decay', 'sustain', 'release', 'gain'] },
   bus: { kind: 5, params: [], passive: true },
   amp: { kind: 6, params: ['amp', 'inverse', 'pan', 'fine'], passive: true },

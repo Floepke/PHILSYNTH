@@ -1,6 +1,6 @@
 import { PolyKernel, curveEnv, curveStart, curveRelease, curveBlock, curveTick } from './poly.dsp.js';
 import { startPhase } from './osc.dsp.js';
-import { SPECTRA_ROOT_HZ, SPECTRA_ROOT_KEY, SPECTRA_SAMPLE_SECONDS, SPECTRA_TABLE_ROOT_HZ, SPECTRA_CYCLE_FADE_SECONDS } from './spectra.sample.js';
+import { SPECTRA_ROOT_HZ, SPECTRA_ROOT_KEY, SPECTRA_TABLE_ROOT_HZ, SPECTRA_CYCLE_FADE_SECONDS } from './spectra.sample.js';
 
 const SAMPLE_SWAP_SECONDS = 0.02;
 
@@ -61,6 +61,11 @@ export default class SpectraKernel extends PolyKernel {
   applySample(next, seconds) {
     this.oldSample = this.sample;
     this.sample = next;
+    for (const v of this.voices) {
+      if (!v.stage) continue;
+      v.oldPos = v.pos;
+      v.pos %= next.data.length;
+    }
     this.sampleBlend = this.oldSample ? 0 : 1;
     this.sampleBlendStep = 1 / Math.max(1, Math.round(seconds * sampleRate));
   }
@@ -72,6 +77,7 @@ export default class SpectraKernel extends PolyKernel {
   start(v, phase) {
     if (!this.sample) { v.stage = 0; return; }
     v.pos = startPhase(phase) * this.sample.data.length;
+    v.oldPos = this.oldSample ? v.pos / this.sample.data.length * this.oldSample.data.length : 0;
     v.step = this.speedOf(v.pitch);
     curveStart(v);
   }
@@ -107,7 +113,6 @@ export default class SpectraKernel extends PolyKernel {
     }
 
     const loopStart = 0;
-    const loopLength = Math.round(SPECTRA_SAMPLE_SECONDS * this.sample.rate);
     for (let i = 0; i < n; i++) {
       if (this.oldSample) {
         this.sampleBlend = Math.min(1, this.sampleBlend + this.sampleBlendStep);
@@ -129,7 +134,7 @@ export default class SpectraKernel extends PolyKernel {
         if (!v.stage) continue;
 
         const current = readSample(this.sample, v.pos, loopStart);
-        const previous = this.oldSample ? readSample(this.oldSample, v.pos, loopStart) : current;
+        const previous = this.oldSample ? readSample(this.oldSample, v.oldPos, loopStart) : current;
         const value = previous + (current - previous) * blend;
         const velocity = v.velStart + v.velStep * (i + 1);
         const sample = value * level * velocity * this.p.gain;
@@ -138,8 +143,11 @@ export default class SpectraKernel extends PolyKernel {
 
         v.step += v.stepStep;
         v.pos += v.step;
+        if (this.oldSample) {
+          v.oldPos = (v.oldPos + v.step * this.oldSample.rate / this.sample.rate) % this.oldSample.data.length;
+        }
         if (v.pos >= this.sample.data.length) {
-          v.pos = loopStart + ((v.pos - this.sample.data.length) % loopLength);
+          v.pos %= this.sample.data.length;
           if (vi === leader) wrapped = true;
         }
       }

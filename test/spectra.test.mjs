@@ -29,6 +29,18 @@ for (const i of [0, 1, SR * 7, length / 2, length - 1]) {
 const seamStep = raw(length) - raw(length - 1);
 assert.ok(Math.abs((sample[0] - sample.at(-1)) - seamStep) < 2e-6, 'loop boundary continues the sine without a discontinuity');
 
+for (const seconds of [1, 3.7, 16]) {
+  const data = generateSpectraSample(SR, state.levels, state.detunes, phases, seconds);
+  assert.equal(data.length, Math.round(SR * seconds), 'requested duration determines PCM length');
+  for (const i of [0, Math.floor(data.length / 2), data.length - 1]) {
+    const t = i / data.length;
+    assert.ok(Math.abs(data[i] - (raw(i + data.length) * (1 - t) + raw(i) * t)) < 1e-6, 'variable duration preserves full-length overlap');
+  }
+}
+for (const seconds of [0, 0.9, 16.1, NaN, Infinity]) {
+  assert.throws(() => generateSpectraSample(SR, state.levels, state.detunes, phases, seconds), RangeError);
+}
+
 const silent = defaultSpectraState();
 silent.levels.fill(0);
 assert.ok(generateSpectraSample(SR, silent.levels, silent.detunes).every((v) => v === 0), 'zero amplitudes produce silence');
@@ -165,6 +177,32 @@ for (const pitch of [48, 60, 72]) {
   assert.equal(cycleKernel.pendingSample, null);
 }
 
+// Changing duration preserves the old read position while the new loop wraps independently.
+{
+  const k = new Proc();
+  const old = Float32Array.from({ length: SR * 16 }, (_, i) => 0.3 * Math.sin(i * 0.17));
+  const short = Float32Array.from({ length: SR }, (_, i) => 0.2 * Math.cos(i * 0.11));
+  k.message({ type: 'sample', rate: SR, data: old });
+  k.noteOn('held', 60, 1, 0.9);
+  for (let i = 0; i < 3; i++) k.process([], outputs);
+  const oldPos = k.voices[0].pos;
+  k.message({ type: 'sample', rate: SR, data: short });
+  assert.equal(k.voices[0].oldPos, oldPos);
+  assert.equal(k.voices[0].pos, oldPos % short.length);
+  const single = new Float32Array(1);
+  k.process([], [[single]]);
+  const blend = 1 / Math.round(SR * 0.02);
+  const expected = (old[oldPos] * (1 - blend) + short[oldPos % short.length] * blend) * k.p.gain;
+  assert.ok(Math.abs(single[0] - expected) < 1e-7, 'shortening starts the fade from the uninterrupted old waveform');
+  k.message({ type: 'sample', rate: SR, data: old });
+  for (let i = 0; i < 100; i++) {
+    k.process([], outputs);
+    assert.ok(left.every(Number.isFinite), 'shortening, queued expansion and wrapping stay finite');
+  }
+  assert.equal(k.sample.data.length, SR * 16);
+  assert.equal(k.oldSample, null);
+}
+
 const sent = [];
 const node = { send: (m) => sent.push(m), destroy() {} };
 const instance = spectra.create({ sampleRate: SR }, spectra, { dsp: { create: () => node } });
@@ -206,8 +244,9 @@ const playbackInstance = spectra.create({ sampleRate: SR }, spectra, {
 });
 playbackInstance.setState?.(state);
 playbackInstance.setState?.(changed);
+playbackInstance.setParam('sampleLength', 1);
 playbackInstance.noteOn('playback', 60, 1);
-assert.deepEqual(playbackMessages.map((m) => m.type), ['noteOn'], 'audio-thread playback binds the existing loop without generation or timers');
+assert.deepEqual(playbackMessages.map((m) => m.type), ['param', 'noteOn'], 'audio-thread playback binds the existing loop without generation or timers');
 playbackInstance.destroy();
 
 const offlineMessages = [];
@@ -220,6 +259,11 @@ offline.setState(changed);
 assert.equal(offlineMessages.length, beforeEdit + 2, 'offline edits synchronously rebuild current and upcoming frames');
 assert.equal(offlineMessages.at(-2).type, 'sample');
 assert.equal(offlineMessages.at(-1).type, 'nextSample');
+offline.setParam('sampleLength', 1);
+assert.equal(offlineMessages.filter(m => m.type === 'sample').at(-1).data.length, SPECTRA_RENDER_RATE);
+offline.onModulated('sampleLength', 16);
+assert.equal(offlineMessages.at(-1).data.length, SPECTRA_RENDER_RATE * 16, 'offline modulation rebuilds at the requested length');
+assert.throws(() => offline.setParam('sampleLength', NaN), RangeError);
 offline.destroy();
 
 const hadWorker = Object.hasOwn(globalThis, 'Worker');
@@ -332,6 +376,41 @@ try {
   });
   assert.equal(workers.length, 3, 'removed modules cannot leave stale shared generators');
   fresh.destroy();
+
+  {
+    const shared = new Map(), messages = [];
+    const make = () => spectra.create({ sampleRate: SR }, spectra, {
+      shared, dsp: { create: () => ({ send: m => messages.push(m), destroy() {} }) },
+    });
+    const a = make();
+    a.setParam('sampleLength', 1);
+    a.setState(state);
+    assert.equal(messages.filter(m => m.type === 'sample').at(-1).data.length, SPECTRA_RENDER_RATE, 'saved length is applied synchronously before state loading');
+    const b = make();
+    b.setParam('sampleLength', 1);
+    b.setState(state);
+    const w = worker;
+    const reply = (request) => w.onmessage({ data: {
+      revision: request.revision, mode: request.mode,
+      sample: new Float32Array(Math.round(request.rate * request.seconds)),
+    } });
+    a.setParam('sampleLength', 16);
+    b.setParam('sampleLength', 16);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    reply(w.requests[0]);
+    assert.equal(w.requests.length, 2, 'shared copies queue a single length rebuild');
+    assert.equal(w.requests[1].seconds, 16);
+    reply(w.requests[1]);
+    assert.equal(w.requests[2].seconds, 16, 'upcoming phases use the new length too');
+    reply(w.requests[2]);
+    assert.ok(messages.filter(m => m.type === 'nextSample').every(m => m.data.length === SPECTRA_RENDER_RATE * 16));
+    a.onModulated('sampleLength', 2.5);
+    b.onModulated('sampleLength', 2.5);
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(w.requests.length, 4, 'modulation updates the one shared generator');
+    assert.equal(w.requests[3].seconds, 2.5);
+    a.destroy(); b.destroy();
+  }
 
   const previousIsolated = globalThis.crossOriginIsolated;
   globalThis.crossOriginIsolated = true;

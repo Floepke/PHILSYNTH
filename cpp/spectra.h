@@ -7,15 +7,15 @@ namespace ms {
 
 struct Spectra : Osc {
   enum { POLY, SP_ATTACK, SP_DECAY, SP_SUSTAIN, SP_RELEASE,
-    SP_ATK_CURVE, SP_DEC_CURVE, SP_REL_CURVE, SP_GAIN, PARAMS };
+    SP_ATK_CURVE, SP_DEC_CURVE, SP_REL_CURVE, SP_GAIN, SP_SAMPLE_LENGTH, PARAMS };
   SampleBank* sample = nullptr;
   SampleBank* oldSample = nullptr;
   SampleBank* nextSample = nullptr;
   SampleBank* pendingSample = nullptr;
   double nextRate = 0, pendingRate = 0, pendingSeconds = 0.02;
   int cycle = 0, nextFrame = 0;
-  double rate = 0, blend = 1, blendStep = 1;
-  double pos[MAX_VOICES] = {}, velStart[MAX_VOICES] = {}, velStep[MAX_VOICES] = {}, stepStep[MAX_VOICES] = {};
+  double rate = 0, oldRate = 0, blend = 1, blendStep = 1;
+  double pos[MAX_VOICES] = {}, oldPos[MAX_VOICES] = {}, velStart[MAX_VOICES] = {}, velStep[MAX_VOICES] = {}, stepStep[MAX_VOICES] = {};
 
   explicit Spectra(double sr) : Osc(sr, 1) {
     p[ATTACK] = p[DECAY] = 0.003;
@@ -65,7 +65,13 @@ struct Spectra : Osc {
   void applySample(SampleBank* bank, double sampleRate, double seconds) {
     oldSample = sample;
     sample = bank;
+    oldRate = rate;
     rate = sampleRate;
+    for (int vi = 0; vi < MAX_VOICES; vi++) {
+      if (!voices[vi].stage) continue;
+      oldPos[vi] = pos[vi];
+      pos[vi] = fmod(pos[vi], sample->size);
+    }
     blend = oldSample ? 0 : 1;
     blendStep = 1 / maxd(1, jsRound(seconds * sr));
   }
@@ -81,6 +87,7 @@ struct Spectra : Osc {
       case SP_DEC_CURVE: p[DEC_CURVE] = value; break;
       case SP_REL_CURVE: p[REL_CURVE] = value; break;
       case SP_GAIN: p[GAIN] = value; break;
+      case SP_SAMPLE_LENGTH: break; // Main-side generation controls the supplied PCM length.
     }
   }
 
@@ -93,6 +100,7 @@ struct Spectra : Osc {
     if (!v) return;
     if (!sample) { v->stage = 0; return; }
     pos[v - voices] = v->phase * sample->size;
+    oldPos[v - voices] = oldSample ? v->phase * oldSample->size : 0;
     v->inc = speed(v->pitch);
   }
 
@@ -120,7 +128,6 @@ struct Spectra : Osc {
       velStep[vi] = (v.vel - velStart[vi]) / n;
       stepStep[vi] = (targetStep - v.inc) / n;
     }
-    const double loopLength = jsRound(15 * rate);
     for (int i = 0; i < n; i++) {
       if (oldSample) {
         blend = mind(1, blend + blendStep);
@@ -158,7 +165,7 @@ struct Spectra : Osc {
         }
         if (!v.stage) continue;
         const double current = sampleRead(sample->samples, sample->size, pos[vi], 1, true);
-        const double previous = oldSample ? sampleRead(oldSample->samples, oldSample->size, pos[vi], 1, true) : current;
+        const double previous = oldSample ? sampleRead(oldSample->samples, oldSample->size, oldPos[vi], 1, true) : current;
         const double value = previous + (current - previous) * blend;
         const double velocity = velStart[vi] + velStep[vi] * (i + 1);
         const double output = value * v.level * velocity * p[GAIN];
@@ -166,8 +173,9 @@ struct Spectra : Osc {
         if (R != L) R[i] = (float)(R[i] + output);
         v.inc += stepStep[vi];
         pos[vi] += v.inc;
+        if (oldSample) oldPos[vi] = fmod(oldPos[vi] + v.inc * oldRate / rate, oldSample->size);
         if (pos[vi] >= sample->size) {
-          pos[vi] = fmod(pos[vi] - sample->size, loopLength);
+          pos[vi] = fmod(pos[vi], sample->size);
           if (vi == leader) wrapped = true;
         }
       }

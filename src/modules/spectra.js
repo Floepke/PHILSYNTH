@@ -3,12 +3,13 @@ import { createAdsrView } from './adsrview.js';
 import { curveParams } from './adsrcurve.js';
 import { linkDecayRelease } from './envlink.js';
 import { createSpectraEditor } from './spectraview.js';
-import { defaultSpectraState, normalizeSpectraState, generateSpectraSample, randomSpectraPhases, SPECTRA_RENDER_RATE } from './spectra.sample.js';
+import { defaultSpectraState, normalizeSpectraState, generateSpectraSample, randomSpectraPhases, validateSpectraLength, SPECTRA_SAMPLE_SECONDS, SPECTRA_RENDER_RATE } from './spectra.sample.js';
 
 function createSamples(ctx, host) {
   const rate = Math.max(SPECTRA_RENDER_RATE, Number.isFinite(ctx?.sampleRate) && ctx.sampleRate > 0 ? ctx.sampleRate : 48000);
   const nodes = new Set();
   let state = defaultSpectraState();
+  let seconds = SPECTRA_SAMPLE_SECONDS;
   let current = null;
   let next = null;
   let frame = 0;
@@ -41,15 +42,15 @@ function createSamples(ctx, host) {
     }
     const phases = randomSpectraPhases();
     if (!worker) {
-      deliver(generateSpectraSample(rate, state.levels, state.detunes, phases), mode);
+      deliver(generateSpectraSample(rate, state.levels, state.detunes, phases, seconds), mode);
       if (mode === 'current') prepareNext();
       return;
     }
     workerBusy = true;
-    worker.postMessage({ revision, mode, rate, ...state, phases });
+    worker.postMessage({ revision, mode, rate, ...state, phases, seconds });
   };
   const prepareNext = () => render('next');
-  const buildCurrent = () => deliver(generateSpectraSample(rate, state.levels, state.detunes, randomSpectraPhases()), 'current');
+  const buildCurrent = () => deliver(generateSpectraSample(rate, state.levels, state.detunes, randomSpectraPhases(), seconds), 'current');
   const scheduleCurrent = () => {
     revision++;
     pending = null;
@@ -118,6 +119,13 @@ function createSamples(ctx, host) {
       if (initial) { revision++; buildCurrent(); prepareNext(); }
       else scheduleCurrent();
     },
+    setLength(value) {
+      validateSpectraLength(value);
+      if (value === seconds) return;
+      seconds = value;
+      if (firstState) { revision++; buildCurrent(); }
+      else scheduleCurrent();
+    },
     restoreValues(values) {
       const migrated = defaultSpectraState();
       for (let i = 0; i < 8; i++) {
@@ -150,6 +158,7 @@ export default {
     { id: 'sustain', label: 'Sustain', min: 0, max: 1, default: 1, step: 0.01 },
     { id: 'release', label: 'Release (s)', min: 0.001, max: 10, default: 0.02, step: 0.001 },
     ...curveParams(100),
+    { id: 'sampleLength', label: 'Sample Length', min: 1, max: 16, default: SPECTRA_SAMPLE_SECONDS, step: 0.1, format: (v) => `${+v.toFixed(1)} s` },
     { id: 'gain', label: 'Gain', min: 0, max: 1, default: 0.45, step: 0.01 },
   ],
   linked: linkDecayRelease,
@@ -184,7 +193,11 @@ export default {
       node,
       input: null,
       attach(value) { entry = value; },
-      setParam: (id, value) => send({ type: 'param', id, value }),
+      setParam(id, value) {
+        if (id === 'sampleLength') samples.setLength(value);
+        send({ type: 'param', id, value });
+      },
+      onModulated(id, value) { if (id === 'sampleLength') samples.setLength(value); },
       setState: (value) => samples.setState(value),
       restoreValues(values) {
         if (!values || !Object.hasOwn(values, 'amp1')) return;

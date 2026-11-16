@@ -147,6 +147,7 @@ function compare(kind, { opts = {}, script = [], input = null, gaps = () => fals
     const rj = js.process(ins, outJ) !== false;
     if (outPtrs && outW[0][0].buffer !== heap.memory.buffer) outW[0] = outPtrs.map((p) => heap.f32(p, N));
     const rw = wa.process(ins, outW) !== false;
+    if (outPtrs && outW[0][0].buffer !== heap.memory.buffer) outW[0] = outPtrs.map((p) => heap.f32(p, N));
     if (kind === 'spectra') assert.equal(wa.meter, js.meter, `SPECTRA cycle reports match at block ${b}`);
     assert.equal(rw, rj, `${kind}: same silent flag at block ${b}`);
     if (!rj) continue; // silent outputs are undefined
@@ -209,6 +210,23 @@ compare('spectra', {
     [170, { type: 'sample', rate: 22050, data: sampleR.slice() }],
     [190, { type: 'nextSample', rate: 22050, data: sampleL, frame: 8 }],
     [320, { type: 'nextSample', rate: 22050, data: sampleR, frame: 11 }],
+  ],
+});
+
+compare('spectra', {
+  inHeap: true, blocks: 360, tol: 1e-6,
+  script: [
+    [0, { type: 'sample', rate: 48000, data: Float32Array.from({ length: 48000 * 16 }, (_, i) => 0.3 * Math.sin(i * 0.17)) }],
+    [0, noteOn(1, 60, 1, 0.9)],
+    [4, { type: 'sample', rate: 48000, data: sampleL }],
+    [5, { type: 'sample', rate: 48000, data: sampleR }],
+    [6, noteOn(2, 79.3, 0.6, 0.9)],
+    [20, { type: 'sample', rate: 48000, data: new Float32Array(48000 * 16).fill(0.2) }],
+    [35, { type: 'sample', rate: 48000, data: sampleL }],
+    [36, { type: 'nextSample', rate: 48000, data: sampleR }],
+    [44, { type: 'noteMod', notes: [[1, 87.6, 0.8], [2, 43.2, 0.3]] }],
+    [80, param('sampleLength', 1)],
+    [85, { type: 'phaseSample', rate: 48000, data: new Float32Array(48000 * 2).fill(-0.2) }],
   ],
 });
 
@@ -435,7 +453,7 @@ for (const type of ['SAMPLER', 'WAVETABLE', 'SPECTRA']) {
     const folder = await root.addModule('PATCH');
     const midi = await folder.inst.patch.addModule('MULTIMIDI');
     const nested = await folder.inst.patch.addModule('PATCH');
-    const entry = await nested.inst.patch.addModule('SPECTRA');
+    const entry = await nested.inst.patch.addModule('SPECTRA', { values: { sampleLength: 15 } });
     nested.inst.patch.connect(entry.id, 0);
     folder.inst.patch.connect(midi.id, nested.id);
     folder.inst.patch.connect(nested.id, 0);
@@ -447,6 +465,8 @@ for (const type of ['SAMPLER', 'WAVETABLE', 'SPECTRA']) {
     assert.equal(copies().length, 16);
     assert.equal(workers.length, 1, 'nested copies share one generation worker');
     assert.equal(workers[0].requests.length, 1);
+    assert.equal(workers[0].requests[0].seconds, 15, 'saved length reaches shared generation');
+    assert.equal(nested.inst.patch.toJSON().modules.find(m => m.id === entry.id).values.sampleLength, 15, 'sample length is serialized as a controller');
     assert.equal(counts.banks, 1, '16 native kernels allocate only one initial PCM bank');
     assert.equal(new Set(copies().map(e => h.kernel(e.inst.node).sampleEntry)).size, 1);
     const request = workers[0].requests[0];
