@@ -84,11 +84,11 @@ for (const type of ['LFO', 'VIBRATO']) {
   let value = 6;
   const ctl = createController(p, { index: 0, value, format: p.format, onInput: (v) => { value = v; } });
   fire(ctl.el, 'wheel', { deltaY: -100, timeStamp: 1000 });
-  assert.equal(value, 6.01, 'Drift: scroll up increases depth by one cent');
+  assert.equal(value, 6.0001, 'Drift: scroll up increases depth by 0.01 cent');
   fire(ctl.el, 'wheel', { deltaY: 100, timeStamp: 2000 });
-  assert.equal(value, 6, 'Drift: scroll down decreases depth by one cent');
+  assert.equal(value, 6, 'Drift: scroll down decreases depth by 0.01 cent');
   fire(ctl.el, 'wheel', { deltaY: -100, shiftKey: true, timeStamp: 3000 });
-  assert.equal(value, 6.01, 'Drift: Shift also moves one cent');
+  assert.equal(value, 6.0001, 'Drift: Shift also moves 0.01 cent');
   value = p.max;
   ctl.show(value);
   fire(ctl.el, 'wheel', { deltaY: -100, timeStamp: 4000 });

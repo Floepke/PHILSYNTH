@@ -114,7 +114,7 @@ export class Drifter {
 
 const wrapPhase = (p) => p - Math.floor(p); // into [0, 1)
 const st = (v) => `${v > 0 ? '+' : ''}${v} st`;
-const cents = (v) => `${v > 0 ? '+' : ''}${Math.round(v * 100)} ct`;
+const cents = (v) => `${v > 0 ? '+' : ''}${(v * 100).toFixed(2)} ct`;
 const hz = (v) => (v ? `${v < 10 ? v.toFixed(2) : v.toFixed(1)} Hz` : 'Hold');
 
 // Overtone n = harmonic n + 1: n + 1 times the fundamental's frequency (1 = octave, 2 = octave +
@@ -152,9 +152,9 @@ export default {
   params: [
     { id: 'routeMode', label: 'Route Mode', min: 0, max: ROUTE_MODES.length - 1, default: 0, step: 1, options: ROUTE_MODES },
     { id: 'transpose', label: 'Transpose', min: -48, max: 48, default: 0, step: 1, format: st },
-    { id: 'finetune', label: 'Finetune', min: -1, max: 1, default: 0, step: 0.01, format: cents },
+    { id: 'finetune', label: 'Finetune', min: -1, max: 1, default: 0, step: 0.0001, wheelStep: 0.0001, format: cents },
     { id: 'overtone', label: 'Overtone', min: 0, max: 128, default: 0, step: 1, format: overtoneLabel },
-    { id: 'drift', label: 'Drift', min: 0, max: 12, default: 0, step: 0.01, wheelStep: 0.01, format: (v) => `±${Math.round(v * 100)} ct` },
+    { id: 'drift', label: 'Drift', min: 0, max: 12, default: 0, step: 0.0001, wheelStep: 0.0001, format: (v) => `±${(v * 100).toFixed(2)} ct` },
     { id: 'driftFreq', label: 'Drift Frequency', min: 0, max: 20, default: 1, step: 0.01, format: hz },
     { id: 'velSense', label: 'Velocity Sense', min: 0, max: 1, default: 1, step: 1, options: VEL_SENSE },
     { id: 'velocity', label: 'Velocity', min: 0, max: 1, default: 1, step: 0.0001, format: (v) => `${pctNum(v * 100)} %` },
@@ -198,7 +198,7 @@ export default {
       mapNote(n);
       const pitch = pitchOf(n);
       const velocity = velocityOf(n);
-      if (Math.abs(pitch - n.outPitch) < 1e-4 && Math.abs(velocity - n.outVelocity) < 1e-4) return;
+      if (Math.abs(pitch - n.outPitch) < 1e-6 && Math.abs(velocity - n.outVelocity) < 1e-4) return;
       n.outPitch = pitch;
       n.outVelocity = velocity;
       midi.noteMod(inId, pitch, velocity);

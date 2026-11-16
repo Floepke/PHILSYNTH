@@ -201,8 +201,8 @@ export const DOCS = {
     summary: 'MIDI note processor: transposes, detunes, drifts, scales and distributes incoming notes, and sends them through its MIDI cables to sound modules (OSC, SAMPLER, Patch, …) or other MIDI modules. It makes no sound itself.',
     params: {
       transpose: 'Shifts every outgoing note by whole semitones (−48…+48).',
-      finetune: 'Detunes every outgoing note by up to ±100 cents.',
-      drift: 'Depth of a slow random pitch wander per note, up to ±1200 cents (±12 semitones), in 1-cent steps; each mouse-wheel notch changes it by 1 cent. Every note starts at its own random offset and keeps moving, so chords drift apart like analog voices.',
+      finetune: 'Detunes every outgoing note by up to ±100 cents, shown with two decimals in 0.01-cent steps; each mouse-wheel notch changes it by 0.01 cent. Existing saved tuning values keep the same pitch.',
+      drift: 'Depth of a slow random pitch wander per note, up to ±1200 cents (±12 semitones), shown with two decimals in 0.01-cent steps; each mouse-wheel notch changes it by 0.01 cent. Every note starts at its own random offset and keeps moving, so chords drift apart like analog voices. Existing saved drift values keep the same depth.',
       driftFreq: 'Speed of the pitch drift: how often (per second) it heads for a new random value. 0 holds each note\'s initial offset.',
       velDrift: 'Depth of a random velocity (loudness) wander per note: reduces the velocity by up to this percentage.',
       velDriftFreq: 'Speed of the velocity drift. 0 holds each note\'s initial offset.',

@@ -107,6 +107,45 @@ function setup() {
   assert.equal(transport.pos, 3, 'plain stop keeps the position');
 }
 
+// Leaving a clip loop continues the same clock, notes and automation into the rest of the song.
+{
+  const { song, selected, transport, events, run, starts, stops } = setup();
+  const later = addClip(song, { start: 5, length: 1, target: 3 });
+  later.notes.push(note(90));
+  const auto = addAutoClip(song, { start: 4, length: 2 });
+  auto.points.push({ t: 0, v: 0.5, r: 0 });
+  const automation = [];
+  transport.setAuto = (id, clip) => automation.push([id, clip]);
+  transport.playClip(selected.id);
+  run(100);
+  const before = { pos: transport.pos, elapsed: transport.elapsed, generation: transport.generation, last: transport.last };
+  const active = transport.active.map(n => n.id);
+  const eventCount = events.length;
+  assert.ok(transport.autoActive.size);
+  assert.equal(transport.play(), true);
+  assert.equal(transport.clipId, null);
+  assert.equal(transport.clipSong, null);
+  assert.deepEqual({ pos: transport.pos, elapsed: transport.elapsed, generation: transport.generation, last: transport.last }, before);
+  assert.deepEqual(transport.active.map(n => n.id), active);
+  assert.equal(events.length, eventCount, 'switch does not release or retrigger held notes');
+  assert.ok(!automation.some(([id, clip]) => id === auto.id && clip === null), 'automation is not released by the switch');
+  assert.equal(starts(), 1);
+  assert.equal(stops(), 0);
+  run(300);
+  near(transport.pos, 5.05);
+  assert.equal(events.filter(e => e.type === 'on' && e.pitch === 60).length, 1, 'former loop does not repeat');
+  assert.equal(events.filter(e => e.type === 'on' && e.pitch === 80).length, 1, 'overlapping sustained notes are not retriggered');
+  assert.ok(events.some(e => e.type === 'on' && e.pitch === 90), 'notes beyond the selected clip now play');
+  transport.stop();
+  transport.playClip(selected.id);
+  run(50);
+  const generation = transport.generation;
+  transport.play({ fromStart: true });
+  assert.equal(transport.pos, 0, 'comma still explicitly restarts at the beginning');
+  assert.equal(transport.generation, generation + 1);
+  transport.stop();
+}
+
 // Every loop chases overlapping clips and left-trimmed notes, not just the first pass.
 {
   const { song, selected, other, transport, events, run } = setup();
@@ -721,6 +760,12 @@ console.log('transport mode tests passed');
   run(200);
   assert.ok(events.some((e) => e.type === 'on' && e.pitch === 80), 'auditioning an idea plays it');
   assert.ok(!events.some((e) => e.type === 'on' && e.target !== 2), 'solo: the lane clips around it stay silent');
+  const ideaVoice = transport.active[0].id;
+  transport.play();
+  run(5);
+  near(transport.pos, 4.66);
+  assert.ok(events.some(e => e.type === 'off' && e.id === ideaVoice), 'leaving idea audition releases its voice');
+  assert.ok(events.some(e => e.type === 'on' && e.pitch === 60), 'song notes are chased when leaving a solo idea');
   transport.stop();
   // a lane clip auditioned with / keeps its neighbours sounding
   other.y = LANE_H;

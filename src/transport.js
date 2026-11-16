@@ -109,7 +109,9 @@ export class Transport {
       return false;
     }
     const sameScope = JSON.stringify(this.scope) === JSON.stringify(this.getScope());
-    if (this.playing && this.clipId === null && !fromStart && !countIn && sameScope) return true;
+    if (this.playing && !fromStart && !countIn && sameScope) {
+      return this.clipId === null ? true : this.continueSong();
+    }
     this.clipId = null;
     return this.start(fromStart || this.pos < start || this.pos >= end ? start : this.pos, { countIn, endAt, continuous, fromStart });
   }
@@ -120,6 +122,16 @@ export class Transport {
     this.clipId = clip.id;
     this.clipSong = song;
     return this.start(clip.start, options);
+  }
+
+  continueSong() {
+    if (!this.playing || this.clipId === null) return false;
+    const clip = this.loopClip();
+    if (clip && isIdea(clip)) this.chasePending = true;
+    this.clipId = null;
+    this.clipSong = null;
+    this.onState?.(this);
+    return true;
   }
 
   get countingIn() { return this.playing && this.elapsed < 0; }

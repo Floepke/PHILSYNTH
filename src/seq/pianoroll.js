@@ -827,6 +827,28 @@ export function createPianoRoll(host, ctx) {
       g.beginPath(); g.moveTo(0, top - 0.5); g.lineTo(fullW, top - 0.5); g.stroke();
       paintThumb(g, hScrollbar(), false, 0, hbActive ? 2 : hbHover ? 1 : 0);
     }
+    if (clip && pointer && pointer.x >= 0 && pointer.x < fullW
+      && pointer.y >= top && pointer.y < bottom && timeAt(pointer.y) >= 0) {
+      const y = Math.round(yOf(snapFloor(timeAt(pointer.y), step()))) + 0.5;
+      if (y >= top && y < bottom) {
+        g.save();
+        g.beginPath();
+        g.rect(gridX(), top, Math.max(0, w - gridX()), bottom - top);
+        g.clip();
+        g.strokeStyle = STAVE;
+        g.lineWidth = TIME_GRID.width;
+        g.lineCap = 'round';
+        g.setLineDash([4, 12]);
+        g.lineDashOffset = 0;
+        g.beginPath();
+        const left = clamp(gridLeft, gridX(), w);
+        const right = clamp(gridRight, gridX(), w);
+        if (left > gridX()) { g.moveTo(gridX(), y); g.lineTo(left, y); }
+        if (right < w) { g.moveTo(right, y); g.lineTo(w, y); }
+        g.stroke();
+        g.restore();
+      }
+    }
   }
 
   // ---- hit testing: circles first (they sit on top), then bodies ----
@@ -1622,13 +1644,14 @@ export function createPianoRoll(host, ctx) {
   }
   registerShortcutMenu('pianoroll', () => pianoMenuItems(pointer, true), { active: () => document.activeElement === cv && !drag && cv.isConnected });
 
+  cv.addEventListener('pointerenter', (e) => { pointer = s.local(e); s.redraw(); });
   cv.addEventListener('pointermove', (e) => {
     pointer = s.local(e);
-    if (drag || e.buttons) return;
+    if (drag || e.buttons) { s.redraw(); return; }
     const { x, y } = s.local(e);
     updateHover(x, y);
   });
-  cv.addEventListener('pointerleave', () => { pointer = null; vel.leave(); if (!drag) { hover = null; hoverPitch = null; sbHover = false; hbHover = false; s.redraw(); } });
+  cv.addEventListener('pointerleave', () => { pointer = null; vel.leave(); if (!drag) { hover = null; hoverPitch = null; sbHover = false; hbHover = false; } s.redraw(); });
 
   cv.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();

@@ -289,7 +289,8 @@ export class Playback {
       tr.setMetronome(data.metronome ?? false);
       if (data.fromStart) this.graph.songStart();
       tr.start(data.pos, { countIn: data.countIn, endAt: data.endAt ?? null, continuous: data.continuous ?? false });
-    } else if (data.type === 'seek') tr.seek(data.pos);
+    } else if (data.type === 'song') tr.continueSong();
+    else if (data.type === 'seek') tr.seek(data.pos);
     else if (data.type === 'stop') tr.stop({ to: data.pos });
     else if (data.type === 'continuous') tr.setContinuous(data.continuous);
     else if (data.type === 'metronome') {

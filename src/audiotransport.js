@@ -20,11 +20,15 @@ export class AudioTransport extends Transport {
       metronome: this.metronome, fromStart: type === 'start' && this.fromStart,
     };
     if (type !== 'start') {
+      if (type !== 'continuous' && type !== 'metronome') this.pendingStart = null;
       this.dsp.post(['playback', 'command', data]);
       return;
     }
+    this.pendingStart = revision;
     this.sync().then(() => {
-      if (revision === this.revision) this.dsp.post(['playback', 'command', { ...data, continuous: this.continuous, metronome: this.metronome }]);
+      if (revision !== this.revision) return;
+      this.pendingStart = null;
+      this.dsp.post(['playback', 'command', { ...data, continuous: this.continuous, metronome: this.metronome }]);
     }).catch((error) => {
       if (revision !== this.revision) return;
       this.stop();
@@ -36,6 +40,12 @@ export class AudioTransport extends Transport {
     const result = super.start(pos, options);
     this.send('start');
     return result;
+  }
+  continueSong() {
+    const pending = this.pendingStart != null;
+    if (!super.continueSong()) return false;
+    this.send(pending ? 'start' : 'song');
+    return true;
   }
   setContinuous(value) {
     if (this.continuous === value) return;

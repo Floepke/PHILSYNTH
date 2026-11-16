@@ -637,6 +637,44 @@ const assertNoOverlap = (song) => {
   assert.equal(roll.getPointerTime(), null, 'no selected note clip');
 }
 
+// The cursor-time guide stays outside the stave, including over notes, and follows the current view.
+{
+  const { song, clip, roll } = setup();
+  const cv = roll.surface.cv;
+  const guide = () => {
+    const i = cv.drawing.findLastIndex(([op, dash]) => op === 'setLineDash' && JSON.stringify(dash) === '[4,12]');
+    return i < 0 ? [] : cv.drawing.slice(i + 1, i + 6);
+  };
+  const move = (type, x, y, props) => {
+    cv.drawing.length = 0;
+    point(cv, type, x, y, props);
+    return guide();
+  };
+  assert.deepEqual(guide(), [], 'hidden until the pointer enters');
+  clip.notes.push(note(60, 0, 4));
+  const expected = y => [
+    ['beginPath'],
+    ['moveTo', 120, y], ['lineTo', nx(22), y],
+    ['moveTo', nx(106), y], ['lineTo', ROLL_WIDTH - ROLL_SB, y],
+  ];
+  assert.deepEqual(move('pointerenter', nx(60), ny(1.4)), expected(60.5));
+  assert.deepEqual(cv.drawing.at(-2), ['stroke', '#111216', 4], 'guide matches the grid colour and thickness');
+  assert.equal(cv.context.lineCap, 'round', 'guide dashes have round caps');
+  assert.deepEqual(move('pointermove', nx(60), ny(1.4)), expected(60.5), 'hovering a note does not hide the guide');
+  song.snap.free = true;
+  assert.deepEqual(move('pointermove', nx(60), 73), expected(73.5), 'free timing follows the exact pointer time');
+  roll.setView({ sy: 96, ppq: 96 });
+  flush();
+  assert.deepEqual(move('pointermove', 20, 73), expected(73.5), 'guide also follows the pointer over the velocity strip');
+  song.snap.free = false;
+  assert.deepEqual(move('pointermove', nx(60), 73), expected(72.5), 'scroll and time zoom use the current snap');
+  assert.deepEqual(move('pointermove', nx(60), 390), [], 'not drawn over the keyboard');
+  assert.ok(move('pointermove', nx(60), 73, { buttons: 1 }).length, 'drawn while a mouse button is held');
+  assert.deepEqual(move('pointerleave', nx(60), 73), [], 'leaving clears the guide');
+  song.selected = null;
+  assert.deepEqual(move('pointermove', nx(60), 73), [], 'no stave without a selected clip');
+}
+
 // The keyboard auditions white/black keys without inserting notes or changing the selection.
 // clip playback: keys of the notes under the playhead light up in the clip's note colour
 {

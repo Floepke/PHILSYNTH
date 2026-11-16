@@ -456,6 +456,71 @@ for (const type of ['DELAY', 'STRUM', 'TRILL']) {
   assert.equal(h.events.length, count, 'panic requires a new Off -> On transition');
 }
 
+// Leaving a running loop uses the audio thread's position, not a delayed UI report or a new start.
+{
+  const h = await harness();
+  const osc = await h.root.addModule('OSC');
+  const loop = addClip(h.song, { start: 1, length: 1, target: osc.id });
+  loop.notes.push(note(60, 0, 1));
+  const sustained = addClip(h.song, { start: 1, length: 3, target: osc.id });
+  sustained.notes.push(note(67, 0, 3));
+  const later = addClip(h.song, { start: 2, length: 2, target: osc.id });
+  later.notes.push(note(72, 0, 1));
+  h.song.selected = loop.id;
+  await h.update();
+  const ops = [];
+  let syncs = 0;
+  const tr = new AudioTransport({
+    getScope: () => [], getSong: () => h.song, getBpm: () => 120, getTarget: () => null,
+  }, {
+    dsp: { post: op => { ops.push(op); h.playback.command(op[2]); } },
+    sync: async () => { syncs++; }, audioTime: () => h.ctx.currentTime,
+    onError: error => { throw error; },
+  });
+  tr.playClip(loop.id, h.song);
+  await Promise.resolve();
+  h.run(0.2);
+  const audio = h.playback.transport;
+  const before = { pos: audio.pos, elapsed: audio.elapsed, generation: audio.generation, last: audio.last };
+  const ids = audio.active.map(n => n.id);
+  const count = h.events.length;
+  assert.equal(tr.pos, 1, 'UI position intentionally lags behind the audio thread');
+  tr.play();
+  assert.equal(ops.at(-1)[2].type, 'song');
+  assert.equal(syncs, 1, 'changing mode does not rebuild or synchronize playback');
+  assert.equal(audio.clipId, null);
+  assert.deepEqual({ pos: audio.pos, elapsed: audio.elapsed, generation: audio.generation, last: audio.last }, before);
+  assert.deepEqual(audio.active.map(n => n.id), ids);
+  assert.equal(h.events.length, count, 'held notes remain untouched by the mode command');
+  h.run(0.5);
+  assert.ok(audio.pos > 2, 'audio proceeds beyond the former loop end');
+  assert.equal(h.events.filter(e => e.type === 'noteOn' && e.pitch === 67).length, 1);
+  assert.ok(h.events.some(e => e.type === 'noteOn' && e.pitch === 72));
+  tr.receive(h.playback.report());
+  assert.equal(tr.clipId, null);
+  assert.equal(tr.pos, audio.pos);
+  tr.stop();
+  h.root.destroy();
+}
+
+// Exiting loop mode while its asynchronous start is pending starts the song once, without a loop.
+{
+  const song = emptySong();
+  const clip = addClip(song, { start: 1, length: 2 });
+  const ops = [];
+  let resolve;
+  const pending = new Promise(r => { resolve = r; });
+  const tr = new AudioTransport({
+    getScope: () => [], getSong: () => song, getBpm: () => 120, getTarget: () => null,
+  }, { dsp: { post: op => ops.push(op) }, sync: () => pending, audioTime: () => 0, onError: error => { throw error; } });
+  tr.playClip(clip.id);
+  tr.play();
+  resolve();
+  await pending;
+  await Promise.resolve();
+  assert.deepEqual(ops.map(op => [op[2].type, op[2].clipId, op[2].pos]), [['start', null, 1]]);
+}
+
 // The facade ignores stale reports and does not resurrect a cancelled asynchronous start.
 {
   const song = emptySong();

@@ -38,12 +38,12 @@ assert.equal(strum.params.find(p => p.id === 'duration').max, 5000);
 assert.equal(multimidi.params.find(p => p.id === 'randomDelay').max, 5000);
 assert.equal(multimidi.params.find(p => p.id === 'randomDelay').default, 0);
 
-// Drift spans a full octave either way with 1200 one-cent increments.
+// Drift spans a full octave either way with hundredth-cent increments.
 {
   const p = multimidi.params.find(p => p.id === 'drift');
-  assert.equal((p.max - p.min) / p.step, 1200);
-  assert.equal(p.format(p.step), '±1 ct');
-  assert.equal(p.format(p.max), '±1200 ct');
+  assert.equal((p.max - p.min) / p.step, 120000);
+  assert.equal(p.format(p.step), '±0.01 ct');
+  assert.equal(p.format(p.max), '±1200.00 ct');
   for (const [random, offset] of [[0, -12], [0.5, 0], [1, 12]]) {
     const s = setup(multimidi, () => random);
     s.inst.setParam('drift', p.max);

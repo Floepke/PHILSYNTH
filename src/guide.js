@@ -285,6 +285,7 @@ export const GUIDE = [
         title: 'Read the pianoroll',
         items: [
           'Time runs <b>down</b>, and pitch runs left to right across all 128 MIDI notes; the strip on the left shows note velocity. The stave and the noteheads are explained in <b>Pianoroll — The Concept</b>.',
+          'While the pointer is over the time-editing area, round-capped dashed horizontal guides match the grid lines and mark its snapped time on both sides of the stave, excluding the velocity editor. They remain visible when hovering over a note. Free timing lets the guides follow the pointer without snapping.',
           'Selecting a note also makes the pianoroll the active editor: Delete then removes selected notes, and the arrow keys move them, rather than editing modules or clips in another pane.',
         ],
       },
@@ -390,6 +391,7 @@ export const GUIDE = [
           `${k('.')} plays / resumes the song, ${k(',')} restarts it at zero, ${k('/')} loops the time range of the selected clip with everything else that plays there, ${k("'")} stops (pressed again: panic, all notes and tails off).`,
           'The lower divider, left of the clock, has matching buttons: bar + play starts from the beginning, play resumes from the playhead, play + c loops the selected clip, and the square stops playback (press again for panic).',
           'While looping a clip, select another clip to switch to it when the current clip finishes. The selection at the loop boundary is the one that plays next.',
+          `Press ${k('.')} during a clip loop to leave loop mode and continue the song from the current playhead position, without restarting playback or held notes.`,
           'Starting in the middle of a note plays it for the rest of its length.',
           'The round <b>Record</b> button arms MIDI recording and flashes red at the project BPM. Create and select a MIDI clip first; recording never creates clips. Existing notes are kept.',
           'The <b>Metronome</b> toggle next to Record clicks during playback and recording: the same short sine sound as the count-in, 880 Hz at each barline and 440 Hz on the other beats. It follows the playing TimeLine’s tempo, time signatures and loops, including beats hidden from the editor grid. Switch it off to silence it; recording’s one-measure count-in still sounds independently. The metronome is a monitoring aid and is not included in exported audio.',

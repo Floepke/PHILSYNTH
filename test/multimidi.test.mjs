@@ -5,6 +5,7 @@ import { dspTestHost } from './dsphost.mjs';
 import { PatchRuntime } from '../src/patch.js';
 import { emptySong, addClip } from '../src/song.js';
 import { renderSong } from '../src/render.js';
+import { fromNorm, toNorm, nudge } from '../src/params.js';
 
 const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-8, `${a} != ${b}`);
 
@@ -32,13 +33,13 @@ const customState = () => {
   return state;
 };
 
-function setup() {
+function setup({ rand = () => 0.5 } = {}) {
   const clocks = new Set(), events = [];
   const ctx = { currentTime: 0 };
   const inst = multimidi.create(ctx, multimidi, { dsp: {
     create: () => ({ param() {}, destroy() {} }),
     onClock(fn) { clocks.add(fn); return () => clocks.delete(fn); },
-  } }, { rand: () => 0.5 });
+  } }, { rand });
   inst.getMidiTargets = () => [{
     noteOn(id, pitch, velocity) { events.push({ type: 'on', id, pitch, velocity }); },
     noteMod(id, pitch, velocity) { events.push({ type: 'mod', id, pitch, velocity }); },
@@ -58,6 +59,41 @@ assert.deepEqual(repaired.velocityCurve, defaultCurve());
 const independent = multimidi.defaultState();
 independent.velocityMap[60] = 0;
 assert.equal(multimidi.defaultState().velocityMap[60], 1, 'defaults are not shared');
+
+// Sub-cent edits, modulation and wheel steps preserve the semitone storage used by old projects.
+{
+  const fine = multimidi.params.find(p => p.id === 'finetune');
+  const drift = multimidi.params.find(p => p.id === 'drift');
+  for (const [p, legacy, precise] of [[fine, -0.37, -0.1234], [drift, 0.25, 0.1234]]) {
+    near(fromNorm(p, toNorm(p, legacy)), legacy, 'old normalized automation keeps its depth');
+    near(fromNorm(p, toNorm(p, precise)), precise);
+    near(nudge(p, 0, 1), 0.0001);
+    near(nudge(p, precise, -1), precise - 0.0001);
+  }
+  assert.equal(fine.format(-0.1234), '-12.34 ct');
+  assert.equal(fine.format(0.0001), '+0.01 ct');
+  assert.equal(fine.format(0), '0.00 ct');
+  assert.equal(drift.format(0.1234), '±12.34 ct');
+  const { inst, events, tick } = setup({ rand: () => 0.75 });
+  inst.setParam('driftFreq', 0);
+  inst.noteOn(1, 60, 0.8);
+  inst.setParam('finetune', 0.0001);
+  tick(0.01);
+  assert.equal(events.at(-1).type, 'mod', 'one hundredth-cent edit reaches a held note');
+  near(events.at(-1).pitch, 60.0001);
+  inst.onModulated('finetune', 0);
+  tick(0.02);
+  near(events.at(-1).pitch, 60);
+  inst.onModulated('drift', 0.0001);
+  tick(0.03);
+  near(events.at(-1).pitch, 60.00005, 'fractional drift reaches a held note');
+  inst.setParam('finetune', -0.37);
+  inst.setParam('drift', 0.25);
+  tick(0.04);
+  near(events.at(-1).pitch, 60 - 0.37 + 0.125);
+  assert.equal(events.filter(e => e.type === 'on').length, 1, 'precision edits do not retrigger notes');
+  inst.destroy();
+}
 
 {
   const { inst, events, tick, clocks } = setup();
@@ -158,10 +194,17 @@ assert.equal(multimidi.defaultState().velocityMap[60], 1, 'defaults are not shar
   await folder.inst.sync();
   assert.deepEqual(folder.inst.clones[0].modules.get(mm.id).state, changed);
   const copy = await root.addModule('MULTIMIDI', { state: changed });
+  root.setParam(copy.id, 'finetune', -0.37);
+  root.setParam(copy.id, 'drift', 0.25);
+  const precise = await root.addModule('MULTIMIDI', { values: { finetune: -0.1234, drift: 0.0001 } });
   const saved = JSON.parse(JSON.stringify(root.toJSON()));
   const loaded = await PatchRuntime.create(engine, dsp.destination);
   await loaded.load(saved);
   assert.deepEqual(loaded.modules.get(copy.id).state, changed);
+  assert.equal(loaded.modules.get(copy.id).values.finetune, -0.37);
+  assert.equal(loaded.modules.get(copy.id).values.drift, 0.25);
+  assert.equal(loaded.modules.get(precise.id).values.finetune, -0.1234);
+  assert.equal(loaded.modules.get(precise.id).values.drift, 0.0001);
   assert.deepEqual(loaded.modules.get(folder.id).inst.patch.modules.get(mm.id).state, changed);
   const legacy = await loaded.addModule('MULTIMIDI');
   assert.deepEqual(legacy.state, multimidi.defaultState());
