@@ -357,6 +357,46 @@ for (const modKind of ['multictl', 'sound2ctl']) {
   src.destroy(); mod.destroy(); h.dsp.destination.destroy();
 }
 
+// Render-time allocations must refresh views before publishing worker audio or reading it
+// in the next graph step, in both the native runner and per-kernel render paths.
+for (const native of [true, false]) {
+  const exports = instantiateDsp(bytes);
+  let grow = false;
+  const afterRender = (fn, args) => {
+    const result = fn(...args);
+    if (grow) { grow = false; exports.memory.grow(1); }
+    return result;
+  };
+  const opts = wasmKernels({
+    ...exports,
+    ms_run: (...args) => afterRender(exports.ms_run, args),
+    ms_process: (...args) => afterRender(exports.ms_process, args),
+  }, 48000);
+  const h = dspTestHost({ ...opts, native });
+  const source = h.dsp.create('osc');
+  source.connect(h.dsp.destination);
+  const published = [new Float32Array(128), new Float32Array(128)];
+  h.graph.setTaps(source.h, [{
+    slot: 0,
+    io: { publish(_slot, channels, silent) {
+      assert.equal(silent, false);
+      published[0].set(channels[0]);
+      published[1].set(channels[1]);
+    } },
+  }]);
+  source.send(noteOn(1, 60));
+  h.render();
+  grow = true;
+  const previous = exports.memory.buffer;
+  const output = h.render();
+  assert.notEqual(exports.memory.buffer, previous, 'render grew the heap');
+  assert.ok(output.L.some(v => v !== 0), 'render still produces audio after growth');
+  assert.deepEqual(published[0], output.L, 'worker export uses current audio buffers');
+  assert.deepEqual(published[1], output.R);
+  source.destroy();
+  h.dsp.destination.destroy();
+}
+
 // OPERATOR: stereo PM, monophonic note ownership, fractional tuning, curves, smoothing and panic.
 for (const feedback of [0, 2]) {
   compare('operator', {

@@ -578,7 +578,7 @@ export class Graph {
     for (let i = 0; i < BLOCK; i++) {
       const prev = i ? i - 1 : BLOCK - 1;
       for (const n of members) {
-        const o = n.one;
+        let o = n.one;
         const carrier = n.carrierInputs ? n.srcs[n.k.carrier] : null;
         let live = 0;
         let carried = false;
@@ -598,6 +598,7 @@ export class Graph {
           on = n.k.process(n.carrierInputs, o.outs) !== false;
         } else if (!live && (n.passive || n.k.dormant)) on = false;
         else on = n.k.process(live ? o.ins : NO_INPUT, o.outs) !== false;
+        if (this.heap?.grown()) { this.remap(); o = n.one; }
         const [L, R] = n.outs[0];
         L[i] = on ? o.outL[0] : 0;
         R[i] = on ? o.outR[0] : 0;
@@ -656,8 +657,14 @@ export class Graph {
     if (this.pool) this.pool.begin(++this.block);
     const x = this.x;
     for (const st of this.steps) {
-      if (st.prog) x.ms_run(st.prog, BLOCK);
-      else if (st.js) for (const n of st.js) this.renderEntry(n);
+      if (st.prog) {
+        x.ms_run(st.prog, BLOCK);
+        // First-use voice tables can grow WASM memory while rendering, before worker exports.
+        if (this.heap.grown()) this.remap();
+      } else if (st.js) for (const n of st.js) {
+        this.renderEntry(n);
+        if (this.heap?.grown()) this.remap();
+      }
       else if (st.fetch) for (const n of st.fetch) {
         n.silent = n.stand.io.fetch(n.stand.slot, n.outs[0]);
         if (this.native && n.rec) x.ms_node_set_silent(n.rec, n.silent ? 1 : 0);

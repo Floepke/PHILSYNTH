@@ -134,6 +134,11 @@ threads goes through shared memory, and the output is sample-identical to
 single-thread rendering (`node test/instancepool.test.mjs`). With 16 heavy
 instances the audio thread's load drops by about half.
 
+Wasm audio-buffer views are refreshed after render-time memory growth, before
+the next processing step or worker export. This includes first-use private
+IMAGE SAMPLER propellor tables, so starting new voices cannot stop playback
+with a detached-buffer error.
+
 The app picks the worker count from the CPU. Browsers report logical processors
 (two per core with hyperthreading). The app keeps one core for the audio thread
 and one for the interface, and uses up to 6 workers:
