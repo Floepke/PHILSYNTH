@@ -328,6 +328,35 @@ const assertNoOverlap = (song) => {
   }
 };
 
+// The ruler follows the primary clip's exact time span, independently of its lane and color.
+{
+  const { song, clip, arranger } = setup();
+  const cv = arranger.surface.cv;
+  const highlight = () => {
+    cv.drawing.length = 0;
+    arranger.redraw(); flush();
+    return cv.drawing.filter(([op, , y, , height, color]) =>
+      op === 'fillRect' && y === CLIP_H && height === CLIP_H && color === '#607c69');
+  };
+  clip.start = 1.125;
+  clip.length = 2.5;
+  clip.y = 68;
+  assert.deepEqual(highlight(), [['fillRect', ax(1.125), CLIP_H, 40, CLIP_H, '#607c69']]);
+  clip.start = 2;
+  clip.length = 1.25;
+  assert.deepEqual(highlight(), [['fillRect', ax(2), CLIP_H, 20, CLIP_H, '#607c69']], 'move and resize update both edges');
+  const other = addClip(song, { start: 5, length: 1, y: 34 });
+  song.selected = other.id;
+  assert.deepEqual(highlight(), [['fillRect', ax(5), CLIP_H, 16, CLIP_H, '#607c69']], 'selection follows the active clip');
+  other.start = -1;
+  other.length = 2;
+  assert.deepEqual(highlight(), [['fillRect', 70, CLIP_H, 16, CLIP_H, '#607c69']], 'highlight is clipped at the left edge');
+  other.start = 100;
+  assert.deepEqual(highlight(), [], 'offscreen clips do not fill the ruler');
+  song.selected = null;
+  assert.deepEqual(highlight(), [], 'no selected clip leaves the ruler unhighlighted');
+}
+
 // Clip type symbols fit the visible clip height and leave room for the name.
 {
   const { song, clip, arranger, ctx } = setup();
@@ -2720,6 +2749,45 @@ for (const snap of [{ base: 1, div: 1 }, { base: 16, div: 3 }]) {
   assert.ok(menus.at(-1).items.find((i) => i.label === 'Split at playhead').disabled, 'playhead outside the clip');
 }
 
+// Seeking in the signature row leaves clip audition and continues the song at the chosen position.
+{
+  const { song, clip, arranger, ctx } = setup();
+  const cv = arranger.surface.cv;
+  clip.length = 2;
+  addClip(song, { start: 6, length: 4, target: 7 });
+  setSig(song, 8, 3, 4);
+  const transport = ctx.transport = new Transport({
+    getSong: () => song, getBpm: () => 120, getTarget: () => null,
+    now: () => 0, ticker: () => ({ start() {}, stop() {} }),
+  });
+  transport.playClip(clip.id);
+  click(cv, ax(6), 8);
+  assert.equal(transport.clipId, null);
+  assert.equal(transport.pos, 6);
+  assert.equal(song.selected, clip.id, 'seeking does not change the selected clip');
+  transport.tick(100);
+  assert.ok(transport.pos > 6 && transport.pos < 7, 'song playback advances from the chosen position');
+
+  transport.playClip(clip.id);
+  click(cv, ax(1), 8);
+  assert.equal(transport.clipId, null, 'seeking inside the clip also exits audition');
+  assert.equal(transport.pos, 1);
+  transport.playClip(clip.id);
+  drag(cv, ax(5), 8, ax(7), 8);
+  assert.equal(transport.clipId, null);
+  assert.equal(transport.pos, 7, 'scrubbing continues outside the auditioned clip');
+
+  transport.playClip(clip.id);
+  arranger.redraw(); flush();
+  click(cv, ax(8) + 1, 8);
+  assert.equal(transport.clipId, null, 'clicking a movable signature also exits audition');
+  assert.equal(transport.pos, 8);
+  transport.stop();
+  click(cv, ax(6), 8);
+  assert.equal(transport.playing, false, 'seeking while stopped does not start playback');
+  assert.equal(transport.pos, 6);
+}
+
 // Context menu: Save Clip(s)… hands the selected clips to ctx.saveClips; Load Clip… on empty
 // space places the opened clips at the pointer with fresh ids.
 {
@@ -3138,6 +3206,18 @@ for (const cancelled of [false, true]) {
   redraw();
   assert.ok(cv.drawing.some(([op]) => op === 'quadraticCurveTo'), 'arrow from the selected clone');
   assert.equal(cv.drawing.filter(([op, , w]) => op === 'stroke' && w === 4).length, 1, 'only the clone is hatched');
+  assert.ok(cv.drawing.some(([op, color, width]) => op === 'stroke' && color === '#743829' && width === 4), 'light inherited color gets darker hatch');
+  clone.color = '#a13c08';
+  redraw();
+  assert.ok(cv.drawing.some(([op, color, width]) => op === 'stroke' && color === '#d09e84' && width === 4), 'dark custom color gets lighter hatch');
+  clone.color = '#aaa';
+  redraw();
+  assert.ok(cv.drawing.some(([op, color, width]) => op === 'stroke' && color === '#555555' && width === 4), 'hatch handles short stock colors');
+  for (const [color, hatch] of [['#000000', '#808080'], ['#ffffff', '#808080']]) {
+    clone.color = color;
+    redraw();
+    assert.ok(cv.drawing.some(([op, c, width]) => op === 'stroke' && c === hatch && width === 4), `hatch contrasts with ${color}`);
+  }
   click(cv, ax(1), ay(68));
   redraw();
   assert.ok(!cv.drawing.some(([op]) => op === 'quadraticCurveTo'), 'no arrow when the source is selected');

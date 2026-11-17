@@ -125,6 +125,45 @@ async function harness(options = {}) {
   h.root.destroy();
 }
 
+// Timeline seeking switches an audition to song playback on the audio thread, including
+// when the initial clip start is still waiting for synchronization.
+for (const pending of [false, true]) {
+  const h = await harness();
+  const osc = await h.root.addModule('OSC');
+  h.root.connect(osc.id, 0);
+  const clip = addClip(h.song, { start: 0, length: 2, target: osc.id });
+  addClip(h.song, { start: 6, length: 4, target: osc.id }).notes.push(note(64, 0, 2));
+  h.song.selected = clip.id;
+  await h.update();
+  const waiting = [];
+  const transport = new AudioTransport({
+    getScope: () => [], getSong: () => h.song, getBpm: () => 120, getTarget: () => null,
+    now: () => h.ctx.currentTime * 1000,
+  }, {
+    dsp: { post: ([, , data]) => h.playback.command(data) },
+    sync: () => new Promise(resolve => waiting.push(resolve)),
+    onError: (error) => { throw error; }, audioTime: () => h.ctx.currentTime,
+  });
+  transport.playClip(clip.id);
+  if (!pending) {
+    waiting.shift()();
+    await Promise.resolve();
+    h.run(0.1);
+  }
+  transport.seek(6.5, { song: true });
+  for (const resolve of waiting) resolve();
+  await Promise.resolve();
+  assert.equal(transport.clipId, null);
+  assert.equal(h.playback.transport.clipId, null);
+  assert.equal(h.playback.transport.pos, 6.5);
+  h.run(0.1);
+  assert.ok(h.playback.transport.pos > 6.5, 'audio playhead advances from the requested position');
+  assert.ok(h.events.some((event) => event.type === 'noteOn' && event.pitch === 64), 'notes at the new position are chased');
+  transport.stop();
+  h.root.destroy();
+  h.playback.root.destroy();
+}
+
 // Recording's continuous mode reaches the worklet even when its song snapshot still has
 // the old clip length; stopping finalizes the held note before parking the playhead.
 {

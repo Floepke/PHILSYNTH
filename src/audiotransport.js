@@ -70,7 +70,7 @@ export class AudioTransport extends Transport {
     this.clock = null;
     this.send('stop');
   }
-  seek(pos) { this.clock = null; super.seek(pos); this.send(this.playing ? 'start' : 'seek'); }
+  seek(pos, options) { this.clock = null; super.seek(pos, options); this.send(this.playing ? 'start' : 'seek'); }
   receive(state) {
     if (state.revision !== this.revision) return;
     const changed = this.playing !== state.playing || this.clipId !== state.clipId || this.countingIn !== (state.playing && state.elapsed < 0);

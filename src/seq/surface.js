@@ -2,6 +2,8 @@
 // redraws on resize, plus middle-mouse panning and wheel handling.
 import { wheelNotches, wheelDelta } from '../params.js';
 
+export const SELECT_COLOR = '#607c69';
+
 export function createSurface(host, paint, { onResize } = {}) {
   const cv = document.createElement('canvas');
   cv.tabIndex = 0; // focusable, so Backspace / Delete reach the view that was clicked last

@@ -55,7 +55,7 @@ import { FONT, WEIGHT } from '../font.js';
 import { basePitch, centsOf, bendPolyline, notePitchAt, BEND_MAX, withCents, centsLabel, isBlack, inPiano, clipSilent, isIdea, snapStep, pianoTimeStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, withVelEnd, velsForLength, clean, meter, segAt, barLines, beatLines, barLength, gridBeatEnabled } from '../song.js';
 import {
   createSurface, capture, rulerDrag, startPan, onWheel, clamp, snapBands, mutedMark, edgeScroll, RIGHT_HOLD_MS, RIGHT_HOLD_SLOP,
-  SB, SB_TRACK, scrollThumb, scrollValue, paintThumb,
+  SB, SB_TRACK, scrollThumb, scrollValue, paintThumb, SELECT_COLOR as SELECT,
 } from './surface.js';
 import { createVelocityStrip, VEL_W } from './velocity.js';
 import { clipResizeBounds } from './clipplacement.js';
@@ -97,7 +97,6 @@ const VEL_MIN = 0; // the ruler drags the velocity strip between these widths; t
 const VEL_MAX_SHARE = 0.5; // of the roll width
 const BG = '#45464e';
 const PLAYHEAD = '#ff916e';
-const SELECT = '#607c69';
 const STAVE = TIME_GRID.color;
 const isThree = (p) => [6, 8, 10].includes(p % 12);
 const BEAT = STAVE;

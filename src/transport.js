@@ -180,7 +180,11 @@ export class Transport {
 
   toggle() { return this.playing ? (this.stop(), false) : this.play(); }
 
-  seek(q) {
+  seek(q, { song = false } = {}) {
+    if (song && this.playing) {
+      this.clipId = null;
+      this.clipSong = null;
+    }
     if (this.clipId !== null) {
       const clip = this.loopClip();
       if (!clip) { this.stop(); return; }

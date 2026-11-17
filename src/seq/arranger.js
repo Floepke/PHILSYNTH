@@ -54,11 +54,12 @@ import {
 } from '../song.js';
 import {
   createSurface, capture, rulerDrag, startPan, onWheel, clamp, snapBands, rightHold, edgeScroll, MUTE_COLOR,
-  SB, SB_TRACK, scrollThumb, scrollValue, paintThumb, roundRect,
+  SB, SB_TRACK, scrollThumb, scrollValue, paintThumb, roundRect, SELECT_COLOR,
 } from './surface.js';
 import { CLIP_H, clipsOverlap, findClipPosition, clipResizeBounds } from './clipplacement.js';
 import { showMenu, shortcut } from './menu.js';
 import { registerShortcutMenu } from '../shortcuts.js';
+import { hexToRgb, rgbToHex, stockColor } from '../modcolor.js';
 
 const SIG_H = CLIP_H; // time signature row on top of the ruler
 const RULER = 2 * CLIP_H; // signature row and bar numbers
@@ -71,7 +72,6 @@ const IDEA_LABEL = 'Playback of clips in this area is ignored except if you loop
 const LABEL = 'TimeLine:';
 const EDGE = 6;
 const PLAYHEAD = '#ff5a36';
-const CLONE_HATCH = 'rgba(132, 132, 140, 0.45)'; // stripes in linked clones: neutral grey on any clip colour
 const RESTART = '#607c69'; // muted green matching the active play button's border
 const RESTART_LABEL = 'restart:';
 
@@ -193,6 +193,7 @@ export function createArranger(host, ctx) {
     else sel = new Set([...sel].filter((id) => ids.has(id)));
   }
   const selectedClips = () => { syncSel(); return ctx.song().clips.filter((c) => sel.has(c.id)); };
+  const seekTimeline = (time) => ctx.transport.seek(time, { song: true });
   // primary: the clip the piano roll shows (default: keep the current one, else the first)
   function setSelection(clips, primary = null) {
     const song = ctx.song();
@@ -454,7 +455,7 @@ export function createArranger(host, ctx) {
       g.globalAlpha = 1;
       const linked = isLinked(song, clip);
       const clone = linked && isClone(song, clip);
-      if (clone) hatch(g, x, y, cw, w);
+      if (clone) hatch(g, x, y, cw, w, color);
       g.strokeStyle = selected ? (primary ? (lit ? '#f2f2f4' : '#a9a9b0') : (lit ? 'rgba(242, 242, 244, 0.7)' : 'rgba(169, 169, 176, 0.7)')) : 'rgba(0, 0, 0, 0.6)';
       g.lineWidth = primary ? 2 : selected ? 1.5 : 1;
       roundRect(g, x + 0.5, y + 0.5, Math.max(2, cw - 1), CLIP_H - 1, 4);
@@ -590,6 +591,17 @@ export function createArranger(host, ctx) {
     g.beginPath();
     g.rect(x0, 0, w - x0, RULER);
     g.clip();
+    const selectedClip = getClip(song, song.selected);
+    if (selectedClip) {
+      const left = Math.max(x0, xOf(selectedClip.start));
+      const right = Math.min(w, xOf(selectedClip.start + selectedClip.length));
+      if (right > left) {
+        g.fillStyle = SELECT_COLOR;
+        g.globalAlpha = 0.4;
+        g.fillRect(left, SIG_H, right - left, RULER - SIG_H);
+        g.globalAlpha = 1;
+      }
+    }
     g.font = `${WEIGHT} 20px ${FONT}`;
     g.textBaseline = 'middle';
     const barY = SIG_H + (RULER - SIG_H) / 2;
@@ -664,11 +676,13 @@ export function createArranger(host, ctx) {
   }
 
   // diagonal stripes inside a linked clone (the source stays plain)
-  function hatch(g, x, y, cw, w) {
+  function hatch(g, x, y, cw, w, color) {
     g.save();
     roundRect(g, x + 0.5, y + 0.5, Math.max(2, cw - 1), CLIP_H - 1, 4);
     g.clip();
-    g.strokeStyle = CLONE_HATCH;
+    const rgb = hexToRgb(stockColor({ color }));
+    const light = rgb[0] * 0.299 + rgb[1] * 0.587 + rgb[2] * 0.114 >= 128;
+    g.strokeStyle = rgbToHex(...rgb.map((v) => v * 0.5 + (light ? 0 : 255 * 0.5)));
     g.lineWidth = 4;
     g.beginPath();
     const from = Math.max(-CLIP_H, Math.floor((x0 - x - CLIP_H) / 10) * 10);
@@ -867,7 +881,7 @@ export function createArranger(host, ctx) {
       dragging = false;
       if (ev.type === 'pointercancel') song.sigs = before;
       else if (song.sigs !== before) ctx.changed();
-      else if (!moved) ctx.transport.seek(Math.max(0, snapRound(timeAt(initial.x), step())));
+      else if (!moved) seekTimeline(Math.max(0, snapRound(timeAt(initial.x), step())));
       ctx.live?.();
       s.redraw();
     });
@@ -968,7 +982,7 @@ export function createArranger(host, ctx) {
       const signature = sigAt(x, y);
       if (signature?.at > 0) { signatureDrag(e, signature.at); return; }
       let p = { x, y };
-      const seek = () => { ctx.transport.seek(Math.max(0, snapRound(timeAt(clamp(p.x, x0, right())), st))); s.redraw(); };
+      const seek = () => { seekTimeline(Math.max(0, snapRound(timeAt(clamp(p.x, x0, right())), st))); s.redraw(); };
       const auto = areaScroll(seek, { vertical: false });
       seek();
       dragging = true;
