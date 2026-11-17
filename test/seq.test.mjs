@@ -5463,6 +5463,27 @@ for (const notes of [
     seq.reload(); flush();
   }
 
+  // Send to sorts module numbers numerically, independently of insertion order.
+  {
+    const savedModules = engine.root.modules;
+    engine.root.modules = new Map([12, 2, 9].map((id) => [id, {
+      id, def: { type: 'OSC', acceptsMidi: true, params: [{ id: 'gain', label: 'Gain', min: 0, max: 1 }] },
+      inst: {}, values: { gain: 1 },
+    }]));
+    const midi = addClip(song, { target: 9 });
+    const auto = addAutoClip(song, { target: 2 });
+    for (const c of [midi, auto]) {
+      song.selected = c.id;
+      seq.reload(); flush();
+      assert.deepEqual(elements.get('seq-target').children.map((o) => o.value), ['', 2, 9, 12]);
+      assert.equal(elements.get('seq-target').value, c.target, 'selected destination is preserved');
+    }
+    engine.root.modules = savedModules;
+    song.clips = [];
+    song.selected = null;
+    seq.reload(); flush();
+  }
+
   // Send to and the automation controller are shared by linked clones
   {
     const src = addClip(song, { start: 0, length: 1 });

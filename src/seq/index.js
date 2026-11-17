@@ -269,7 +269,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     restoreClipView();
     const auto = isAuto(c);
     const opts = [new Option('— none —', '')];
-    for (const e of patch().modules.values()) {
+    for (const e of [...patch().modules.values()].sort((a, b) => a.id - b.id)) {
       if (auto ? paramsOf(e).length : e.def.acceptsMidi) opts.push(new Option(`#${e.id} ${nameOf(e)}`, e.id));
     }
     if (c?.target !== null && c?.target !== undefined && !entryOf(c.target)) opts.push(new Option(`#${c.target} (missing)`, c.target));
