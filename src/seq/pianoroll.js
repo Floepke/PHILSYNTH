@@ -55,7 +55,7 @@ import { FONT, WEIGHT } from '../font.js';
 import { basePitch, centsOf, bendPolyline, notePitchAt, BEND_MAX, withCents, centsLabel, isBlack, inPiano, clipSilent, isIdea, snapStep, pianoTimeStep, snapFloor, snapRound, noteName, PIANO_LOW, PIANO_HIGH, PITCH_MAX, BAR, DEFAULT_VEL, withVelEnd, velsForLength, clean, meter, segAt, barLines, beatLines, barLength, gridBeatEnabled } from '../song.js';
 import {
   createSurface, capture, rulerDrag, startPan, onWheel, clamp, snapBands, mutedMark, edgeScroll, RIGHT_HOLD_MS, RIGHT_HOLD_SLOP,
-  SB, SB_TRACK, scrollThumb, scrollValue, paintThumb, SELECT_COLOR as SELECT,
+  SB, SB_TRACK, scrollThumb, scrollValue, paintThumb, roundRect, SELECT_COLOR as SELECT,
 } from './surface.js';
 import { createVelocityStrip, VEL_W } from './velocity.js';
 import { clipResizeBounds } from './clipplacement.js';
@@ -316,12 +316,12 @@ export function createPianoRoll(host, ctx) {
     const height = gridBottom() - gridTop();
     return scrollThumb(gridTop(), height, height, -TOP_MARGIN, scrollMax(end), view.sy);
   }
+  const scrollbarOffset = (b, y) => y >= b.pos && y <= b.pos + b.thumb ? y - b.pos : b.thumb / 2;
   // drag the thumb (grabbed where pressed), or press the track: the thumb centres there and follows
   function scrollbarDrag(e, p) {
     e.preventDefault();
     const b = scrollbar();
-    const inside = p.y >= b.pos && p.y <= b.pos + b.thumb;
-    const offset = inside ? p.y - b.pos : b.thumb / 2;
+    const offset = scrollbarOffset(b, p.y);
     const scrollTo = (q) => {
       view.sy = scrollValue(b, q.y - offset);
       ctx.viewChanged?.();
@@ -601,6 +601,23 @@ export function createPianoRoll(host, ctx) {
       line(0, BOUNDARY, 1, true);
       line(clip.length, endHover || drag?.kind === 'clipEnd' ? SELECT : BOUNDARY, 2, true);
 
+      g.font = `${WEIGHT} ${SIG_SIZE}px ${FONT}`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      let labelY = -Infinity;
+      for (const b of spacedBars(m, off, off + t0, off + t1)) {
+        const y = Math.round(yOf(b.t - off)) + 0.5;
+        if (y - labelY < SIG_SIZE + 4) continue;
+        labelY = y;
+        const label = String(b.bar + 1);
+        const x = (Math.max(gridX(), gridRight) + w) / 2;
+        g.strokeStyle = BG;
+        g.lineWidth = 3;
+        g.strokeText(label, x, y);
+        g.fillStyle = STAVE;
+        g.fillText(label, x, y);
+      }
+
       // note bodies
       // Lift the module hue off the charcoal background without changing its identity.
       const color = `color-mix(in srgb, ${ctx.color(clip)} 75%, #fff)`;
@@ -769,9 +786,6 @@ export function createPianoRoll(host, ctx) {
       g.beginPath();
       g.rect(velW(), 0, GUTTER, bottom);
       g.clip();
-      g.font = `${WEIGHT} 10px ${FONT}`;
-      g.textAlign = 'right';
-      g.textBaseline = 'top';
       const m = meter(ctx.song());
       const off = clip.start;
       const t0 = off + Math.max(0, timeAt(0));
@@ -783,16 +797,10 @@ export function createPianoRoll(host, ctx) {
         for (const t of beatLines(null, t0, t1, m)) { const y = Math.round(yOf(t - off)) + 0.5; g.moveTo(gridX() - 6, y); g.lineTo(gridX(), y); }
       }
       g.stroke();
-      let lastY = -Infinity;
       for (const b of spacedBars(m, off, t0, t1)) {
         const y = Math.round(yOf(b.t - off)) + 0.5;
         g.strokeStyle = BAR_LINE;
         g.beginPath(); g.moveTo(velW(), y); g.lineTo(gridX(), y); g.stroke();
-        if (y - lastY < 13) continue; // no overlapping labels when zoomed out
-        lastY = y;
-        g.fillStyle = '#c3c7d0';
-        g.font = `${WEIGHT} 10px ${FONT}`;
-        g.fillText(String(b.bar + 1), gridX() - 4, y + 2);
       }
       g.restore();
     }
@@ -847,6 +855,29 @@ export function createPianoRoll(host, ctx) {
         g.stroke();
         g.restore();
       }
+    }
+    if (clip && pointer && !drag && onScrollbar(pointer.x, pointer.y)) {
+      const b = scrollbar();
+      const sy = scrollValue(b, pointer.y - scrollbarOffset(b, pointer.y));
+      const time = clip.start + Math.max(0, ((gridTop() + gridBottom()) / 2 + sy) / view.ppq);
+      const seg = segAt(meter(ctx.song()), time);
+      const label = `Measure ${seg.bar + Math.floor((time - seg.at) / seg.len + 1e-9) + 1}`;
+      g.save();
+      g.font = `${WEIGHT} 12px ${FONT}`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      const width = Math.min(fullW - 8, g.measureText(label).width + 20);
+      const left = Math.max(4, w - width - 8);
+      const y = clamp(pointer.y - 15, top + 4, Math.max(top + 4, bottom - 34));
+      g.fillStyle = 'rgba(20, 21, 26, 0.96)';
+      g.strokeStyle = SELECT;
+      g.lineWidth = 1;
+      roundRect(g, left, y, width, 30, 6);
+      g.fill();
+      g.stroke();
+      g.fillStyle = '#e8e9ee';
+      g.fillText(label, left + width / 2, y + 15);
+      g.restore();
     }
   }
 
@@ -913,7 +944,7 @@ export function createPianoRoll(host, ctx) {
     const bar = onScrollbar(x, y);
     sbHover = bar;
     hbHover = onHScrollbar(x, y);
-    if (bar) { cv.style.cursor = 'default'; cv.title = 'Drag to scroll the clip, or click the track to jump there'; }
+    if (bar) { cv.style.cursor = 'default'; cv.title = ''; }
     if (hbHover) { cv.style.cursor = 'default'; cv.title = 'Drag to scroll the zoomed keys sideways, or click the track to jump there (Shift + wheel zooms)'; }
     if (onKeyboardCell(x, y)) { cv.style.cursor = 'ns-resize'; cv.title = 'Drag up or down to set the keyboard height — double-click resets it'; }
     else if (inRuler(x, y)) { cv.style.cursor = 'move'; cv.title = 'Drag sideways to resize the velocity editor, up to zoom time in, down to zoom out — double-click resets width'; }

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fsPromises from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { mkdtemp, mkdir, writeFile, readFile, lstat, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
@@ -69,6 +71,31 @@ try {
   await assert.rejects(deleteEntry(renamed, true), /entry type has changed/);
   await deleteEntry(renamed, false);
   await assert.rejects(lstat(renamed), /ENOENT/);
+
+  // Some cloud-backed filesystems do not implement hard links.
+  const originalLink = fsPromises.link;
+  let linkAttempts = 0;
+  fsPromises.link = async () => {
+    linkAttempts++;
+    throw Object.assign(new Error('function not implemented'), { code: 'ENOSYS' });
+  };
+  syncBuiltinESMExports();
+  try {
+    const source = join(root, 'cloud.phproject');
+    const destination = join(root, 'cloud-renamed.phproject');
+    await writeFile(source, 'cloud project');
+    assert.equal(await transferEntry(source, false, root, true, 'cloud-renamed.phproject'), destination);
+    assert.equal(await readFile(destination, 'utf8'), 'cloud project');
+    await assert.rejects(lstat(source), /ENOENT/);
+    await writeFile(source, 'keep original');
+    await assert.rejects(transferEntry(source, false, root, true, 'cloud-renamed.phproject'), /EEXIST/);
+    assert.equal(await readFile(source, 'utf8'), 'keep original');
+    assert.equal(await readFile(destination, 'utf8'), 'cloud project');
+    assert.equal(linkAttempts, 2, 'both renames exercised the unsupported-hard-link fallback');
+  } finally {
+    fsPromises.link = originalLink;
+    syncBuiltinESMExports();
+  }
 
   // Directory operations include hidden and non-listed files, but not a linked directory's target.
   await mkdir(join(root, 'Songs', 'Sub'));

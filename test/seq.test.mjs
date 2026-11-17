@@ -384,9 +384,15 @@ const assertNoOverlap = (song) => {
       const metrics = cv.context.measureText(symbol);
       assert.ok(Math.abs(icon.y - metrics.actualBoundingBoxAscent - (top + 2)) < 1e-9, 'glyph has 2px top padding');
       assert.ok(Math.abs(icon.y + metrics.actualBoundingBoxDescent - (top + CLIP_H - 2)) < 1e-9, 'glyph has 2px bottom padding');
-      const label = texts.find((t) => t.y === top + CLIP_H / 2);
+      const label = texts.find((t) => t.text.includes(`${c.name}  ${ctx.targetLabel(c)}`) && t.y >= top && t.y < top + CLIP_H);
       assert.ok(label.text.includes(`${c.name}  ${ctx.targetLabel(c)}`), 'name and target are preserved');
-      assert.equal(label.baseline, 'middle', 'label is vertically centered');
+      assert.equal(label.baseline, 'alphabetic');
+      assert.ok(label.font.includes(`${CLIP_H - 8}px`), 'current clip font size is preserved');
+      cv.context.font = label.font;
+      const labelMetrics = cv.context.measureText(label.text);
+      const inkTop = label.y - labelMetrics.actualBoundingBoxAscent;
+      const inkBottom = label.y + labelMetrics.actualBoundingBoxDescent;
+      assert.ok(Math.abs((inkTop + inkBottom) / 2 - (top + CLIP_H / 2)) < 1e-9, 'visible text is centered in the clip height');
       assert.ok(label.x >= icon.x + metrics.width + 4, 'label does not overlap the icon');
       assert.equal(label.x, icon.x + metrics.width + 4, 'label starts immediately after the icon');
       if (c === clip) assert.ok(label.text.startsWith('⧉ '), 'linked source marker is preserved');
@@ -4645,6 +4651,35 @@ for (const width of [300, 480, 900, 1912]) {
   }
 }
 
+// Large bar numbers sit to the right of the stave, not in the velocity divider.
+{
+  const { song, clip, roll } = setup();
+  const cv = roll.surface.cv;
+  clip.start = 8;
+  setSig(song, 8, 3, 4);
+  const labels = [];
+  cv.context.fillText = (text, x, y) => labels.push({ text, x, y, font: cv.context.font, color: cv.context.fillStyle, baseline: cv.context.textBaseline });
+  roll.setView({ sy: 0, ppq: 48 });
+  flush();
+  const three = labels.find((label) => label.text === '3' && label.font.includes('56px') && label.x > nx(106));
+  const four = labels.find((label) => label.text === '4' && label.font.includes('56px') && label.x > nx(106));
+  assert.ok(three && four, 'bar labels follow the song meter and clip position');
+  assert.equal(three.color, '#111216', 'bar numbering uses the stave line color');
+  assert.equal(three.x, (nx(106) + ROLL_WIDTH - ROLL_SB) / 2, 'number is centered between A#7 and the viewport edge');
+  assert.equal(three.baseline, 'middle', 'number is vertically centered on its barline');
+  assert.equal(three.y, 0.5);
+  assert.equal(four.y, 3 * 48 + 0.5, 'number follows its barline');
+  assert.ok(!labels.some((label) => /^\d+$/.test(label.text) && label.x >= 84 && label.x < 120),
+    'velocity divider has no bar numbering');
+  clip.notes.push(note(110, 0, 2));
+  cv.context.fillText = (...args) => cv.drawing.push(['fillText', ...args]);
+  cv.drawing.length = 0;
+  roll.redraw(); flush();
+  const numbering = cv.drawing.findIndex(([op, text]) => op === 'fillText' && text === '3');
+  const body = cv.drawing.findIndex(([op, , y]) => op === 'roundRect' && y === 0);
+  assert.ok(numbering >= 0 && body > numbering, 'note bodies are drawn over background numbering');
+}
+
 // A vertical scrollbar (the TimeLine's look) right of the note grid scrolls the clip.
 {
   const { clip, roll, changes } = setup();
@@ -4666,6 +4701,59 @@ for (const width of [300, 480, 900, 1912]) {
   assert.equal(changes(), 0, 'scrolling is no undo step');
   const keys = cv.drawing.filter(([op, , y, , h]) => op === 'roundRect' && y === 377 && h === 15);
   assert.ok(keys.every(([, kx, , kw]) => kx + kw <= ROLL_WIDTH - ROLL_SB), 'the keyboard ends at the scrollbar');
+}
+
+// Timeline scrollbar scanner previews the clicked viewport center without moving it.
+{
+  const { song, clip, arranger, changes } = setup();
+  const cv = arranger.surface.cv;
+  clip.length = 256;
+  setSig(song, 8, 3, 4);
+  for (const x of [72, 180, 300, 440]) {
+    arranger.setView({ sx: 0, ppq: 16 }); flush();
+    cv.drawing.length = 0;
+    point(cv, 'pointermove', x, 384);
+    const label = cv.drawing.find(([op, text]) => op === 'fillText' && String(text).startsWith('Measure '))?.[1];
+    assert.equal(arranger.getView().sx, 0, 'hover never scrolls');
+    click(cv, x, 384);
+    const time = (arranger.getView().sx + (480 - 32 - 70) / 2) / 16;
+    const measure = time < 8 ? Math.floor(time / 4) + 1 : Math.floor((time - 8) / 3 + 1e-9) + 3;
+    assert.equal(label, `Measure ${measure}`, 'timeline preview matches clicked viewport center');
+  }
+  cv.drawing.length = 0;
+  fire(cv, 'pointerleave');
+  assert.ok(!cv.drawing.some(([op, text]) => op === 'fillText' && String(text).startsWith('Measure ')));
+  assert.equal(changes(), 0, 'scanner never edits the song');
+}
+
+// Scrollbar hover previews the actual click destination, including clip offsets and meter changes.
+{
+  const { song, clip, roll, changes } = setup();
+  const cv = roll.surface.cv;
+  clip.start = 8;
+  clip.length = 256;
+  setSig(song, 8, 3, 4);
+  const x = ROLL_WIDTH - ROLL_SB / 2;
+  const preview = (y) => {
+    cv.drawing.length = 0;
+    point(cv, 'pointermove', x, y);
+    return cv.drawing.find(([op, text]) => op === 'fillText' && String(text).startsWith('Measure '))?.[1];
+  };
+  for (const y of [2, 100, 220, 370]) {
+    roll.setView({ sy: -128 }); flush();
+    const before = roll.getView().sy;
+    const label = preview(y);
+    assert.equal(roll.getView().sy, before, 'hover never scrolls');
+    assert.equal(cv.title, '', 'native tooltip does not cover the styled scanner');
+    click(cv, x, y);
+    const time = clip.start + Math.max(0, (roll.getView().sy + (400 - 24) / 2) / 48);
+    const expected = 3 + Math.floor((time - 8) / 3 + 1e-9);
+    assert.equal(label, `Measure ${expected}`, 'preview matches the measure at the clicked view center');
+  }
+  cv.drawing.length = 0;
+  fire(cv, 'pointerleave');
+  assert.ok(!cv.drawing.some(([op, text]) => op === 'fillText' && String(text).startsWith('Measure ')));
+  assert.equal(changes(), 0, 'scanner never edits the clip');
 }
 
 // Automation uses the same jump-to-click scrollbar without editing points or their values.

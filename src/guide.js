@@ -345,7 +345,8 @@ export const GUIDE = [
       {
         title: 'Pianoroll: navigate',
         items: [
-          `The wheel or trackpad scrolls smoothly (scroll up past beat zero for some free room; with the pitch zoomed in, swiping sideways pans the keys); ${k(CMD)} + wheel zooms time, ${k('Middle mouse')} + drag pans. The scrollbar on the right (the TimeLine\'s look) spans the clip: drag it, or click its track to jump there.`,
+          'Large measure numbers appear at barlines to the right of the stave. The velocity divider keeps its drag and zoom controls without number labels.',
+          `The wheel or trackpad scrolls smoothly (scroll up past beat zero for some free room; with the pitch zoomed in, swiping sideways pans the keys); ${k(CMD)} + wheel zooms time, ${k('Middle mouse')} + drag pans. The scrollbar on the right (the TimeLine\'s look) spans the clip: drag it, or click its track to jump there. Hover it to preview the song measure at the center of the destination view.`,
           `${k('Shift')} + wheel zooms pitch around the pointer: the stave and the keyboard widen together, so micropitch leans and bends are easier to place. Zoomed in, a horizontal scrollbar shows at the top of the pianoroll, ${k('Middle mouse')} + drag also pans sideways, and moving notes, bend points or a selection rectangle past the left / right edge scrolls along. Notes stop growing at 48 px wide. Zoom fully out to see all keys again; the view is saved with the project and restored on startup.`,
         ],
       },
@@ -375,7 +376,7 @@ export const GUIDE = [
       {
         title: 'Timeline: ruler, restart point and time signatures',
         items: [
-          'The measure ruler highlights the selected clip’s exact start and end in the pianoroll selection colour.',
+          'The measure ruler highlights the selected clip’s exact start and end in the pianoroll selection colour. Hover the horizontal scrollbar to preview the measure at the center of the viewport after clicking.',
           'Drag the timeline measure ruler left/right to pan horizontally and up/down to zoom around the grabbed time; both axes act together without moving the playhead. Clicking it leaves the playhead unchanged. In Electron the cursor locks during the drag and returns to its press position on release; web browsers use ordinary cursor dragging without pointer lock. Escape cancels navigation. Restart markers still drag to change their position.',
           'Click the time signature row to set the play position; dragging there scrubs. During clip-loop playback this switches to song playback from the chosen position.',
           `${k('Double-click')} the time signature row to insert a time signature change at the nearest bar line (or edit it). Right-click the first marker at time zero to edit it; right-click any later change to remove it.`,

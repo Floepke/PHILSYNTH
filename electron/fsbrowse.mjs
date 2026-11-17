@@ -133,7 +133,7 @@ async function moveEntry(entry, destination) {
       catch (err) { throw new Error(`Linked to "${destination}", but could not remove the original: ${err.message}`); }
       return;
     } catch (err) {
-      if (!['EXDEV', 'EPERM', 'ENOTSUP'].includes(err.code)) throw err;
+      if (!['EXDEV', 'EPERM', 'ENOTSUP', 'ENOSYS'].includes(err.code)) throw err;
     }
   }
   await copyEntry(entry, destination);

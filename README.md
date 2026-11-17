@@ -718,6 +718,9 @@ the first module of the same type, otherwise the default MIDI module.
 The file dialogs remember the last folder per kind: opening projects, saving projects,
 clips and modules (`.phmod`). The desktop app stores these folders in `dialog-dirs.json`
 in its user data folder. Chromium browsers remember them per site.
+File renames and moves fall back to copying and removing the source when hard
+links are unsupported (including filesystems returning `ENOSYS`), without
+overwriting an existing destination.
 
 On Linux the desktop app sends KDE's "folder changed" signal (`org.kde.KDirNotify.FilesAdded`
 via `dbus-send`) for the start folder before each dialog opens and after each save. KDE's

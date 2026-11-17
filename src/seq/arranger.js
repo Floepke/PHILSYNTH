@@ -49,7 +49,7 @@ import { FONT, WEIGHT } from '../font.js';
 import { MOUSE_FORWARD } from '../mousebuttons.js';
 import {
   snapStep, snapFloor, snapRound, loopEnd, getClip, addClip, addAutoClip, isAuto, autoPolyline, duplicateClip, removeClip, trimClipStart, stretchClip, BAR, clean,
-  meter, barLines, barRound, barLength, removeSig, moveSig, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource,
+  meter, segAt, barLines, barRound, barLength, removeSig, moveSig, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource,
   canConsolidate, consolidateClips, splitClip, setRestart, laneMuted, laneSoloed, laneSilent, clipSilent, setLaneFlag, laneY, isIdea, ideaY,
 } from '../song.js';
 import {
@@ -493,17 +493,20 @@ export function createArranger(host, ctx) {
       const iconScale = iconHeight / (metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent);
       g.font = `${WEIGHT} ${iconHeight * iconScale}px ${FONT}`;
       g.fillText(icon, x + 4, y + 2 + metrics.actualBoundingBoxAscent * iconScale);
-      g.font = `${WEIGHT} 10.5px ${FONT}`;
-      g.textBaseline = 'middle';
+      g.font = `${WEIGHT} ${CLIP_H - 8}px ${FONT}`;
+      g.textBaseline = 'alphabetic';
       g.textAlign = 'left';
       const label = `${linked && !clone ? '⧉ ' : ''}${clip.name}  ${ctx.targetLabel(clip)}`;
+      const labelMetrics = g.measureText(label);
+      const labelY = y + (CLIP_H + labelMetrics.actualBoundingBoxAscent - labelMetrics.actualBoundingBoxDescent) / 2;
       const labelLeft = Math.max(x + 2, x0);
       const labelRight = Math.min(x + cw - 2, right());
       g.beginPath();
       g.rect(labelLeft, y, Math.max(0, labelRight - labelLeft), CLIP_H);
       g.clip();
       const labelStart = Math.max(x + 8 + metrics.width * iconScale, x0 + 4);
-      g.fillText(label, labelStart, y + CLIP_H / 2);
+      g.fillStyle = 'rgba(255, 255, 255, 0.6)';
+      g.fillText(label, labelStart, labelY);
       g.restore();
     }
     // selected clones point to their source
@@ -673,6 +676,31 @@ export function createArranger(host, ctx) {
       }
     }
     paintScrollbars(g, w, h);
+    if (pointer && !dragging && barAt(pointer.x, pointer.y) === 'h') {
+      const b = scrollbars().h;
+      const inside = pointer.x >= b.pos && pointer.x <= b.pos + b.thumb;
+      const offset = inside ? pointer.x - b.pos : b.thumb / 2;
+      const sx = scrollValue(b, pointer.x - offset);
+      const time = (sx + (right() - x0) / 2) / view.ppq;
+      const seg = segAt(meter(song), time);
+      const label = `Measure ${seg.bar + Math.floor((time - seg.at) / seg.len + 1e-9) + 1}`;
+      g.save();
+      g.font = `${WEIGHT} 12px ${FONT}`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      const width = Math.min(w - 8, g.measureText(label).width + 20);
+      const left = clamp(pointer.x - width / 2, 4, Math.max(4, w - width - 4));
+      const y = bottom() - 38;
+      g.fillStyle = 'rgba(20, 21, 26, 0.96)';
+      g.strokeStyle = SELECT_COLOR;
+      g.lineWidth = 1;
+      roundRect(g, left, y, width, 30, 6);
+      g.fill();
+      g.stroke();
+      g.fillStyle = '#e8e9ee';
+      g.fillText(label, left + width / 2, y + 15);
+      g.restore();
+    }
   }
 
   // diagonal stripes inside a linked clone (the source stays plain)
@@ -816,7 +844,7 @@ export function createArranger(host, ctx) {
   function hoverAt(x, y) {
     const bar = barAt(x, y);
     const sb = bar === 'h' || bar === 'v' ? bar : null;
-    if (sb !== sbHover) { sbHover = sb; s.redraw(); }
+    if (sb !== sbHover || sb === 'h') { sbHover = sb; s.redraw(); }
     const h = hit(x, y);
     const id = h?.clip.id ?? null;
     cv.style.cursor = bar === 'h' ? 'zoom-in' : bar ? 'default'

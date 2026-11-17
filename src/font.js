@@ -1,5 +1,5 @@
 // One weight for all text; matches --font-weight in style.css.
-export const WEIGHT = 600;
+export const WEIGHT = 800;
 
 // Canvas font family; matches --font in style.css (bundled Fira Code).
 export const FONT = "'Fira Code', ui-monospace, 'SF Mono', Menlo, Consolas, monospace";
