@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { createProjectFile, hashText, suggestName, downloadBackend, UNTITLED } from '../src/projectfile.js';
 import { unsavedDialog } from '../src/dialogs.js';
+import { Engine } from '../src/engine.js';
+import { PatchRuntime } from '../src/patch.js';
+import { addAutoClip, addClip, cloneClip, setSig } from '../src/song.js';
+import { addSample, withSamples } from '../src/samples.js';
+import { jsonFileText } from '../src/fileformat.js';
+import { dspTestHost } from './dsphost.mjs';
 
 // a fake project and storage backend
 let project = { patch: 1 };
@@ -178,4 +184,97 @@ assert.equal(again.isDirty(), true);
   dialog.close('');
   assert.equal(await r, 'cancel', 'a key with a modifier is not an answer');
 }
+// Exercise the real project serializer and loader together, not just the file-dialog backend.
+async function projectEngine() {
+  const engine = new Engine();
+  const { dsp } = dspTestHost();
+  engine.ctx = { currentTime: 0 };
+  engine.dsp = dsp;
+  engine.root = await PatchRuntime.create(engine, dsp.destination);
+  return engine;
+}
+
+{
+  const source = await projectEngine();
+  const target = await projectEngine();
+  try {
+    const filter = await source.root.addModule('FILTER', { x: 120, y: 80, color: '#123456', name: 'Tone' });
+    source.root.setParam(filter.id, 'cutoff', 1234);
+    source.root.connect(filter.id, 0);
+    const sampleId = addSample({ rate: 48000, channels: [Float32Array.of(0, 0.25, -0.5)] });
+    const sampler = await source.root.addModule('SAMPLER');
+    source.root.setState(sampler.id, { sampleId, name: 'Test' });
+    const patch = await source.root.addModule('PATCH');
+    const inner = patch.inst.patch;
+    const osc = await inner.addModule('OSC');
+    inner.connect(osc.id, 0);
+    const innerClip = addClip(inner.song, { start: 2, length: 2, target: osc.id });
+    innerClip.notes.push({ pitch: 62.25, start: 0.5, length: 1, vel: 0.7 });
+
+    const clip = addClip(source.song, { start: 1, length: 4, target: sampler.id });
+    clip.name = 'Lead';
+    clip.color = '#aabbcc';
+    clip.notes.push({ pitch: 60.25, start: 0.5, length: 2, vel: 0.8,
+      vels: [{ t: 1, v: 0.4, r: 0 }], bends: [{ t: 1, d: 0.5, r: 0 }] });
+    const clone = cloneClip(source.song, clip);
+    clone.start = 8;
+    const auto = addAutoClip(source.song, { start: 0, length: 4, y: 34, target: filter.id, controller: 2 });
+    auto.points.push({ t: 0, v: 0.25, r: 0 }, { t: 2, v: 0.75, r: 0.5 });
+    source.song.selected = clip.id;
+    setSig(source.song, 0, 3, 4);
+
+    const saved = withSamples(source.saveProject());
+    assert.ok(saved.samples[sampleId], 'referenced sample is embedded in the project');
+    await target.loadProject(JSON.parse(jsonFileText(saved)));
+    const restored = withSamples(target.saveProject());
+    assert.deepEqual(restored, saved, 'modules, nested patch, clips, automation and samples survive save/load');
+    const restoredFilter = target.root.modules.get(filter.id);
+    assert.equal(restoredFilter.values.cutoff, 1234);
+    assert.equal(restoredFilter.name, 'Tone');
+    assert.equal(restoredFilter.color, '#123456');
+    assert.ok(target.root.cables.some((c) => c.from === filter.id && c.to === 0));
+    assert.deepEqual(target.root.modules.get(sampler.id).state, { sampleId, name: 'Test' });
+    const restoredSource = target.song.clips.find((c) => c.id === clip.id);
+    const restoredClone = target.song.clips.find((c) => c.id === clone.id);
+    assert.deepEqual(restoredSource.notes, clip.notes, 'note pitch, velocity and curves survive');
+    assert.deepEqual(target.song.clips.find((c) => c.id === auto.id).points, auto.points, 'automation survives');
+    assert.equal(restoredSource.notes, restoredClone.notes, 'loaded linked clones share their notes');
+    assert.deepEqual(target.root.modules.get(patch.id).inst.patch.song.clips[0].notes, innerClip.notes);
+  } finally {
+    source.root.destroy();
+    target.root.destroy();
+  }
+}
+
+// Old-format projects without later optional fields keep their sound-relevant defaults.
+{
+  const engine = await projectEngine();
+  try {
+    const old = {
+      format: 'modsynth', version: 1,
+      patch: { modules: [
+        { id: 0, type: 'OUT', x: 560, y: 180, values: { bpm: 137 } },
+        { id: 1, type: 'FILTER', x: 0, y: 0, values: { cutoff: 2500 } },
+      ], cables: [{ from: 1, to: 0 }] },
+      song: { clips: [{ id: 1, start: 0, length: 4, y: 0, target: 1,
+        notes: [{ pitch: 60, start: 0, length: 1, vel: 0.8 }] }] },
+    };
+    await engine.loadProject(old);
+    assert.equal(engine.root.modules.get(0).values.bpm, 137);
+    assert.equal(engine.root.modules.get(1).values.cutoff, 2500);
+    assert.equal(engine.root.tempoStep, 1, 'old tempo automation keeps integer precision');
+    assert.equal(engine.song.clips[0].color, null);
+    assert.deepEqual(engine.song.clips[0].notes, old.song.clips[0].notes);
+    const saved = engine.saveProject();
+    assert.equal(saved.format, 'philsynth');
+    assert.equal('tempoStep' in saved.patch, false, 'resaving does not switch legacy tempo behavior');
+    await engine.loadProject(JSON.parse(jsonFileText(saved)));
+    assert.equal(engine.root.tempoStep, 1);
+    assert.equal(engine.root.modules.get(0).values.bpm, 137);
+    assert.deepEqual(engine.song.clips[0].notes, old.song.clips[0].notes);
+  } finally {
+    engine.root.destroy();
+  }
+}
+
 console.log('project file tests passed');

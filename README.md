@@ -4,6 +4,9 @@ Modular synthesizer for the browser and Electron.
 
 Choose PHILSYNTH > Version to see the current app version.
 
+For the saved project model, compatibility rules, and field-change checklist,
+see [Project data format](PROJECT_FORMAT.md).
+
 The frame, dividers, toolbar controls, menus, and dialogs default to dark
 wood. Main menu > Preferences > Interface > Wood Tint opens live RGB controls for any tint, preserving
 grain and bevel shading while keeping signal and module colors unchanged.
