@@ -91,6 +91,7 @@ export const TOP_MARGIN = 128;
 const TILT = -Math.PI / 6;
 const HEAD_STRETCH = 1.25; // noteheads are stretched along the time (y) axis
 const SIG_SIZE = 56; // px, time signature digits next to the stave
+const MEASURE_SIZE = 40;
 const SIG_SLANT = Math.PI / 18; // 10°, tilt of the time signature divider
 const GUTTER = 36; // bar / beat ruler (right of the velocity strip)
 const VEL_MIN = 0; // the ruler drags the velocity strip between these widths; the grid scales
@@ -369,7 +370,7 @@ export function createPianoRoll(host, ctx) {
       }
       g.stroke();
     }
-    g.lineCap = 'butt';
+    g.lineCap = 'round';
     g.globalAlpha = 1;
   }
 
@@ -601,7 +602,7 @@ export function createPianoRoll(host, ctx) {
       line(0, BOUNDARY, 1, true);
       line(clip.length, endHover || drag?.kind === 'clipEnd' ? SELECT : BOUNDARY, 2, true);
 
-      g.font = `${WEIGHT} ${SIG_SIZE}px ${FONT}`;
+      g.font = `${WEIGHT} ${MEASURE_SIZE}px ${FONT}`;
       g.textAlign = 'center';
       g.textBaseline = 'middle';
       let labelY = -Infinity;
@@ -781,29 +782,6 @@ export function createPianoRoll(host, ctx) {
     // bar / beat ruler, right of the velocity strip
     g.fillStyle = '#292b31';
     g.fillRect(velW(), 0, GUTTER, bottom);
-    if (clip) {
-      g.save();
-      g.beginPath();
-      g.rect(velW(), 0, GUTTER, bottom);
-      g.clip();
-      const m = meter(ctx.song());
-      const off = clip.start;
-      const t0 = off + Math.max(0, timeAt(0));
-      const t1 = off + timeAt(bottom);
-      g.strokeStyle = BEAT;
-      g.lineWidth = 2;
-      g.beginPath();
-      if (beatsShown(m)) {
-        for (const t of beatLines(null, t0, t1, m)) { const y = Math.round(yOf(t - off)) + 0.5; g.moveTo(gridX() - 6, y); g.lineTo(gridX(), y); }
-      }
-      g.stroke();
-      for (const b of spacedBars(m, off, t0, t1)) {
-        const y = Math.round(yOf(b.t - off)) + 0.5;
-        g.strokeStyle = BAR_LINE;
-        g.beginPath(); g.moveTo(velW(), y); g.lineTo(gridX(), y); g.stroke();
-      }
-      g.restore();
-    }
     g.strokeStyle = '#34363e';
     g.lineWidth = 2;
     g.beginPath(); g.moveTo(gridX(), 0); g.lineTo(gridX(), h); g.moveTo(0, keysY); g.lineTo(fullW, keysY); g.stroke();

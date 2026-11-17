@@ -230,16 +230,23 @@ assert.deepEqual(log.at(-1).slice(0, 4), ['on', 'B', 72, 0.5]);
 log.length = 0;
 run(4900); run(5100);
 assert.deepEqual(log.map((l) => l[0]), ['off']);
-// loop: wraps at bar 3 (8 quarters) and plays the first note again
+// without a restart marker, playback stops at bar 3 (8 quarters)
 log.length = 0;
 run(8050);
+assert.equal(t.pos, 8);
+assert.equal(t.playing, false);
+assert.deepEqual(log, []);
+assert.deepEqual(states, [true, false]);
+// playing again starts from zero
+assert.ok(t.play());
+run(8100);
 assert.ok(Math.abs(t.pos - 0.05) < 1e-9);
 assert.deepEqual(log.map((l) => l.slice(0, 3)), [['on', 'A', 60]]);
 // stop releases sounding notes
 log.length = 0;
 t.stop();
 assert.deepEqual(log.map((l) => l[0]), ['off']);
-assert.deepEqual(states, [true, false]);
+assert.deepEqual(states, [true, false, true, false]);
 // a missing target is skipped; an empty song does not play
 c1.target = 99;
 t.seek(0); log.length = 0; t.play(); t.stop();
@@ -247,8 +254,10 @@ assert.equal(log.length, 0);
 assert.equal(new Transport({ getSong: emptySong, getBpm: () => 120, getTarget: () => null, ticker }).play(), false);
 // note ids are unique even for the same pitch
 c1.target = 1;
-t.seek(0); log.length = 0; t.play(); run(now + 16000);
+t.seek(0); log.length = 0; t.play(); run(now + 8100);
+t.play(); run(now + 8100);
 const ids = log.filter((l) => l[0] === 'on').map((l) => l[4]);
+assert.equal(log.filter((l) => l[0] === 'on' && l[2] === 60).length, 2);
 assert.equal(new Set(ids).size, ids.length);
 t.stop();
 

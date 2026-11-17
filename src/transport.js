@@ -1,8 +1,8 @@
 // Plays the song: the position runs in quarter notes at the main patch's BPM; clip notes are sent
-// as MODMIDI (see modmidi.js) to the module number each clip targets. Loops at loopEnd(song),
-// or at the exact bounds of a single clip when clipId is set (the / audition: every other clip
-// sounding in that time range plays along). Song playback continues at the restart point
-// (song.restart, see song.js) instead of zero when it reaches the end.
+// as MODMIDI (see modmidi.js) to the module number each clip targets. Song playback stops at
+// loopEnd(song) unless a restart point is set; clip playback loops at the exact bounds of a single
+// clip (the / audition: every other clip sounding in that time range plays along).
+// Song playback with a restart point (song.restart, see song.js) continues there at the end.
 // Note chasing: when playback starts or jumps (play, clip play, seek) into the middle of a note,
 // that note is triggered right away and plays for the rest of its length.
 // Velocity curves (note.vels, see song.js): every tick each sounding note's velocity is
@@ -242,7 +242,7 @@ export class Transport {
     let [start, end] = clip ? [clip.start, clip.start + clip.length] : this.songBounds();
     if (!clip && this.continuous) end = Infinity;
     if (end <= start) { this.stop(); return; }
-    // song playback continues at the restart point at the end of the song
+    // a restart point makes song playback wrap there; without one, it stops at the song end
     const restart = clip ? null : this.getSong().restart;
     const back = Number.isFinite(restart) && restart > start && restart < end ? restart : start;
     let span = end - back;
@@ -276,6 +276,11 @@ export class Transport {
       this.advance(this.from, this.endAt);
       this.pos = this.from = this.endAt;
       this.stop();
+      return;
+    }
+    if (!clip && back === start && to >= end) {
+      this.advance(this.from, end);
+      this.stop({ to: end });
       return;
     }
     for (let guard = 0; to >= end && guard < 4; guard++) {

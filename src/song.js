@@ -658,7 +658,7 @@ export function splitClip(song, clip, at) {
 }
 
 export const songEnd = (song) => song.clips.reduce((m, c) => (isIdea(c) ? m : Math.max(m, c.start + c.length)), 0);
-// Playback loops at the end of the last clip, rounded up to a whole bar.
+// Song playback ends at the last clip, rounded up to a whole bar.
 export const loopEnd = (song) => {
   const end = songEnd(song);
   return end > 0 ? barCeil(song, end) : 0;

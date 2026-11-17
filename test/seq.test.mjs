@@ -4661,8 +4661,8 @@ for (const width of [300, 480, 900, 1912]) {
   cv.context.fillText = (text, x, y) => labels.push({ text, x, y, font: cv.context.font, color: cv.context.fillStyle, baseline: cv.context.textBaseline });
   roll.setView({ sy: 0, ppq: 48 });
   flush();
-  const three = labels.find((label) => label.text === '3' && label.font.includes('56px') && label.x > nx(106));
-  const four = labels.find((label) => label.text === '4' && label.font.includes('56px') && label.x > nx(106));
+  const three = labels.find((label) => label.text === '3' && label.font.includes('40px') && label.x > nx(106));
+  const four = labels.find((label) => label.text === '4' && label.font.includes('40px') && label.x > nx(106));
   assert.ok(three && four, 'bar labels follow the song meter and clip position');
   assert.equal(three.color, '#111216', 'bar numbering uses the stave line color');
   assert.equal(three.x, (nx(106) + ROLL_WIDTH - ROLL_SB) / 2, 'number is centered between A#7 and the viewport edge');

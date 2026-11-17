@@ -631,6 +631,7 @@ function setup() {
   a2.points.push({ t: 0, v: 0.9, r: 0 }, { t: 1, v: 0.9, r: 0 });
   const c = addClip(song, { start: 0, length: 4, target: 1 });
   c.notes.push(note(60, 0, 0.5), note(62, 2, 0.5));
+  setRestart(song, 2);
   let now = 0;
   let value = null;
   const heard = [];
@@ -642,7 +643,7 @@ function setup() {
   });
   transport.play({ fromStart: true });
   for (let i = 0; i < 300; i++) { now += 7; transport.tick(); } // 2.1 s: wraps once
-  assert.deepEqual(heard, [[60, 0.2], [62, 0.9], [60, 0.2]]);
+  assert.deepEqual(heard, [[60, 0.2], [62, 0.9], [62, 0.9]]);
 }
 
 // Velocity curves are followed with noteMod while notes sound; chased notes start on the curve.
@@ -785,8 +786,7 @@ console.log('transport mode tests passed');
 }
 console.log('idea transport tests passed');
 
-// Restart point: song playback continues there at the end of the song (not in clip loop mode);
-// a restart point at time zero removes it.
+// Restart points wrap song playback; without one playback stops at the song end. Clip loops ignore it.
 {
   const { song, selected, transport, events, run } = setup();
   setRestart(song, 4);
@@ -800,11 +800,21 @@ console.log('idea transport tests passed');
   assert.ok(ons.includes(60) && !ons.includes(48), `wrapped to the restart point, not to zero: ${ons}`);
   near(transport.pos, 4.8);
   transport.stop();
-  setRestart(song, 20); // past the end: wraps to zero as usual
+  setRestart(song, 0);
   transport.seek(7.5);
   transport.play();
   run(1000);
-  near(transport.pos, 1.5);
+  assert.equal(transport.playing, false, 'song playback stops when it reaches the end without a restart point');
+  near(transport.pos, 8);
+  transport.play();
+  near(transport.pos, 0, 'playing again from the end restarts the song');
+  transport.stop();
+  setRestart(song, 20); // an out-of-range restart point is not used
+  transport.seek(7.5);
+  transport.play();
+  run(1000);
+  assert.equal(transport.playing, false);
+  near(transport.pos, 8);
   transport.stop();
   setRestart(song, 4);
   transport.playClip(selected.id);
