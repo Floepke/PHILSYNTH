@@ -3,11 +3,19 @@ import { readFile } from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readProjectArchive } from '../src/projectarchive.js';
+import { importSamples, withSamples } from '../src/samples.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.whenReady().then(async () => {
-const project = JSON.parse(await readFile(path.resolve(process.argv[2] ?? 'HornSound.phproject'), 'utf8'));
+const { data, version } = await readProjectArchive(await readFile(path.resolve(process.argv[2] ?? 'HornSound.phproject')));
+let project = data;
+if (version === 2) {
+  const { samples, ...model } = data;
+  importSamples(samples);
+  project = withSamples(model); // the benchmark injects the model into the renderer as JSON
+}
 const seconds = Number(process.env.BENCH_SECONDS ?? 15);
 const skipRealtime = process.env.BENCH_SKIP_REALTIME === '1';
 const nodeWorkers = process.env.BENCH_NODE_WORKERS !== '0';

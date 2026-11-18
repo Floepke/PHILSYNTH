@@ -1,40 +1,50 @@
 import assert from 'node:assert/strict';
-import { createProjectFile, hashText, suggestName, downloadBackend, UNTITLED } from '../src/projectfile.js';
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createProjectFile, hashText, suggestName, downloadBackend, fsaBackend, UNTITLED } from '../src/projectfile.js';
 import { unsavedDialog } from '../src/dialogs.js';
 import { Engine } from '../src/engine.js';
 import { PatchRuntime } from '../src/patch.js';
 import { addAutoClip, addClip, cloneClip, setSig } from '../src/song.js';
-import { addSample, withSamples } from '../src/samples.js';
+import { addImage, addSample, getSample, importSamples, withSamples } from '../src/samples.js';
+import { prepareProjectArchive, readProjectArchive } from '../src/projectarchive.js';
+import { readZip, writeZip } from '../src/projectzip.js';
+import { createHistory } from '../src/history.js';
 import { jsonFileText } from '../src/fileformat.js';
 import { dspTestHost } from './dsphost.mjs';
 
 // a fake project and storage backend
+const encode = (text) => new TextEncoder().encode(text);
+const makeProject = (marker) => ({ format: 'philsynth', version: 1, patch: { modules: [], marker } });
 let project = { patch: 1 };
 const files = new Map(); // ref -> text
 const calls = [];
-let nextOpen = null; // { name, ref, text } | null
+let nextOpen = null;
 let saveAsAnswer = 'file.phproject'; // name chosen in the dialog, null = cancelled
 let saveWritable = true;
 const backend = {
   async open() { calls.push('open'); return nextOpen; },
-  async save(ref, text) {
+  async save(ref, serialize) {
     calls.push(`save:${ref}`);
     if (!saveWritable) return null;
-    files.set(ref, text);
+    files.set(ref, await serialize());
     return { name: ref.split('/').pop(), ref };
   },
-  async saveAs(name, text) {
+  async saveAs(name, serialize) {
     calls.push(`saveAs:${name}`);
     if (!saveAsAnswer) return null;
     const ref = `/docs/${saveAsAnswer}`;
-    files.set(ref, text);
+    files.set(ref, await serialize());
     return { name: saveAsAnswer, ref };
   },
 };
 const changes = [];
 const doc = createProjectFile({
   fingerprint: () => project,
-  serialize: () => JSON.stringify(project),
+  serialize: () => prepareProjectArchive(makeProject(project.patch)),
   backend,
   onChange: (info) => changes.push(info),
 });
@@ -65,7 +75,7 @@ assert.equal(doc.isDirty(), true);
 saveAsAnswer = 'song.phproject';
 assert.equal(await doc.save(), 'song.phproject');
 assert.deepEqual(calls.splice(0), [`saveAs:${UNTITLED}.phproject`]);
-assert.equal(files.get('/docs/song.phproject'), '{"patch":3}');
+assert.equal((await readProjectArchive(files.get('/docs/song.phproject'))).data.patch.marker, 3);
 assert.equal(doc.isDirty(), false);
 assert.equal(doc.name, 'song.phproject');
 
@@ -73,7 +83,7 @@ assert.equal(doc.name, 'song.phproject');
 project = { patch: 4 };
 assert.equal(await doc.save(), 'song.phproject');
 assert.deepEqual(calls.splice(0), ['save:/docs/song.phproject']);
-assert.equal(files.get('/docs/song.phproject'), '{"patch":4}');
+assert.equal((await readProjectArchive(files.get('/docs/song.phproject'))).data.patch.marker, 4);
 assert.equal(doc.isDirty(), false);
 
 // a file that can no longer be written falls back to Save As
@@ -92,7 +102,7 @@ assert.deepEqual(calls.splice(0), ['saveAs:other.phproject']);
 let finish;
 const slow = createProjectFile({
   fingerprint: () => project,
-  serialize: () => JSON.stringify(project),
+  serialize: () => prepareProjectArchive(makeProject(project.patch)),
   backend: { saveAs: () => new Promise((resolve) => { finish = resolve; }) },
 });
 project = { patch: 6 };
@@ -105,17 +115,26 @@ assert.equal(slow.isDirty(), true);
 // Open: loads the data and is clean; a cancelled dialog changes nothing
 nextOpen = null;
 assert.equal(await doc.open(() => assert.fail('nothing to load')), null);
-nextOpen = { name: 'loaded.phproject', ref: '/docs/loaded.phproject', text: '{"patch":8}' };
+nextOpen = { name: 'loaded.phproject', ref: '/docs/loaded.phproject', bytes: await prepareProjectArchive(makeProject(8))() };
 let loaded = null;
-assert.equal(await doc.open(async (data) => { loaded = data; project = data; }), 'loaded.phproject');
-assert.deepEqual(loaded, { patch: 8 });
+assert.equal(await doc.open(async (data) => { loaded = data; project = { patch: data.patch.marker }; }), 'loaded.phproject');
+assert.equal(loaded.patch.marker, 8);
 assert.equal(doc.isDirty(), false);
 assert.equal(doc.ref, '/docs/loaded.phproject');
 calls.splice(0);
 
 // older .mds / .json projects are not overwritten: Save asks for a new .phproject file
-nextOpen = { name: 'old.mds', ref: '/docs/old.mds', text: '{"patch":9}' };
-await doc.open(async (data) => { project = data; });
+for (const name of ['old.phproject', 'old.mds']) {
+  nextOpen = { name, ref: `/docs/${name}`, bytes: encode(JSON.stringify({ ...makeProject(9), format: 'modsynth', version: undefined })) };
+  await doc.open(async (data) => { project = { patch: data.patch.marker }; });
+  assert.equal(doc.ref, null);
+  if (name === 'old.phproject') {
+    calls.splice(0);
+    saveAsAnswer = null;
+    assert.equal(await doc.save(), null);
+    assert.deepEqual(calls.splice(0), ['saveAs:old (v2).phproject']);
+  }
+}
 assert.equal(doc.ref, null);
 saveAsAnswer = 'old.phproject';
 calls.splice(0);
@@ -123,8 +142,10 @@ await doc.save();
 assert.deepEqual(calls.splice(0), ['saveAs:old.phproject']);
 
 // invalid files do not change the document
-nextOpen = { name: 'bad.phproject', ref: '/bad.phproject', text: 'not json' };
-await assert.rejects(doc.open(async () => {}));
+const corrupted = files.get('/docs/old.phproject').slice();
+corrupted[42] ^= 1;
+nextOpen = { name: 'bad.phproject', ref: '/bad.phproject', bytes: corrupted };
+await assert.rejects(doc.open(async () => assert.fail('damaged projects must not reach the engine')), /Corrupt project entry/);
 assert.equal(doc.name, 'old.phproject');
 
 // the autosave keeps name, file and saved state; old autosaves without it count as unsaved
@@ -141,17 +162,52 @@ again.restore(undefined);
 assert.equal(again.name, UNTITLED);
 assert.equal(again.ref, null);
 assert.equal(again.isDirty(), true);
+again.restore({ name: 'legacy.phproject', ref: '/docs/legacy.phproject', savedHash: stored.savedHash });
+assert.equal(again.ref, null, 'a pre-v2 autosave must not overwrite its original file');
 
 // fallback: a download for every save
 {
   const clicks = [];
-  globalThis.URL.createObjectURL = () => 'blob:x';
+  const blobs = [];
+  globalThis.URL.createObjectURL = (blob) => { blobs.push(blob); return 'blob:x'; };
   globalThis.URL.revokeObjectURL = () => {};
   const fakeDoc = { createElement: () => ({ click() { clicks.push(this.download); } }) };
   const dl = downloadBackend({}, fakeDoc);
-  assert.deepEqual(await dl.saveAs('a.phproject', '{}'), { name: 'a.phproject', ref: 'download:a.phproject' });
-  assert.deepEqual(await dl.save('download:a.phproject', '{}'), { name: 'a.phproject', ref: 'download:a.phproject' });
+  const archive = prepareProjectArchive(makeProject(10));
+  assert.deepEqual(await dl.saveAs('a.phproject', archive), { name: 'a.phproject', ref: 'download:a.phproject' });
+  assert.deepEqual(await dl.save('download:a.phproject', archive), { name: 'a.phproject', ref: 'download:a.phproject' });
   assert.deepEqual(clicks, ['a.phproject', 'a.phproject']);
+  assert.equal((await readProjectArchive(new Uint8Array(await blobs[0].arrayBuffer()))).data.patch.marker, 10);
+  const input = Object.assign(new EventTarget(), {
+    files: [new File([blobs[0]], 'a.phproject')], click() { this.dispatchEvent(new Event('change')); },
+  });
+  assert.equal((await readProjectArchive((await downloadBackend(input, fakeDoc).open()).bytes)).version, 2);
+}
+
+// File System Access opens bytes, writes ZIP, and will not replace a legacy project.
+{
+  const legacy = new File([JSON.stringify(makeProject(8))], 'legacy.phproject');
+  let file = legacy, written;
+  const handle = {
+    name: file.name,
+    async getFile() { return file; },
+    async createWritable() {
+      return {
+        async write(bytes) { written = bytes; },
+        async close() { file = new File([written], handle.name); },
+      };
+    },
+    async queryPermission() { return 'granted'; },
+  };
+  const fsa = fsaBackend({ showOpenFilePicker: async () => [handle], showSaveFilePicker: async () => handle });
+  assert.equal((await readProjectArchive((await fsa.open()).bytes)).version, 1);
+  await assert.rejects(fsa.saveAs(handle.name, prepareProjectArchive(makeProject(9))), /preserve the existing project/);
+  assert.equal(file, legacy);
+  file = new File([], handle.name);
+  const { ref } = await fsa.saveAs(handle.name, prepareProjectArchive(makeProject(10)));
+  assert.equal((await readProjectArchive((await fsa.open()).bytes)).data.patch.marker, 10);
+  await fsa.save(ref, prepareProjectArchive(makeProject(11)));
+  assert.equal((await readProjectArchive(written)).data.patch.marker, 11);
 }
 
 // Yes / No / Cancel dialog: Escape cancels; Enter = Yes, Backspace = No
@@ -201,11 +257,16 @@ async function projectEngine() {
     const filter = await source.root.addModule('FILTER', { x: 120, y: 80, color: '#123456', name: 'Tone' });
     source.root.setParam(filter.id, 'cutoff', 1234);
     source.root.connect(filter.id, 0);
-    const sampleId = addSample({ rate: 48000, channels: [Float32Array.of(0, 0.25, -0.5)] });
+    const sampleId = addSample({ rate: 48000.25, channels: [Float32Array.of(0, 0.25, -0.5), Float32Array.of(-1, 0.5, 1)] });
     const sampler = await source.root.addModule('SAMPLER');
     source.root.setState(sampler.id, { sampleId, name: 'Test' });
     const patch = await source.root.addModule('PATCH');
     const inner = patch.inst.patch;
+    const shared = await inner.addModule('SAMPLER');
+    inner.setState(shared.id, { sampleId, name: 'Shared' });
+    const imageId = addImage({ width: 2, height: 2, rgb: Uint8Array.of(1, 2, 3, 4, 5, 6, 250, 128, 0, 255, 0, 128) });
+    const image = await inner.addModule('IMAGESAMPLER');
+    inner.setState(image.id, { imageId, name: 'Pixels' });
     const osc = await inner.addModule('OSC');
     inner.connect(osc.id, 0);
     const innerClip = addClip(inner.song, { start: 2, length: 2, target: osc.id });
@@ -228,6 +289,40 @@ async function projectEngine() {
     await target.loadProject(JSON.parse(jsonFileText(saved)));
     const restored = withSamples(target.saveProject());
     assert.deepEqual(restored, saved, 'modules, nested patch, clips, automation and samples survive save/load');
+    const archive = await prepareProjectArchive({ ...source.saveProject(), view: { path: [patch.id] } })();
+    const entries = readZip(archive);
+    assert.equal(entries.size, 3, 'shared media is written once');
+    const manifest = JSON.parse(new TextDecoder().decode(entries.get('project.json')));
+    assert.equal(manifest.version, 2);
+    assert.equal('samples' in manifest, false, 'no Base64 data in the manifest');
+    const reopened = (await readProjectArchive(archive)).data;
+    assert.deepEqual(reopened.view, { path: [patch.id] });
+    assert.equal(reopened.samples.get(sampleId).rate, 48000.25);
+    assert.deepEqual(reopened.samples.get(sampleId).pcm, getSample(sampleId).pcm);
+    assert.deepEqual(reopened.samples.get(imageId).rgb, getSample(imageId).rgb);
+    importSamples(new Map([['archive-test-audio', reopened.samples.get(sampleId)], ['archive-test-image', reopened.samples.get(imageId)]]));
+    assert.deepEqual(getSample('archive-test-audio').channels, getSample(sampleId).channels);
+    assert.deepEqual(getSample('archive-test-image').rgb, getSample(imageId).rgb);
+    await target.loadProject(reopened);
+    assert.deepEqual(withSamples(target.saveProject()), saved);
+    const history = createHistory({ capture: () => target.saveProject(), restore: (state) => target.loadProject(state) });
+    history.reset();
+    target.root.setState(sampler.id, { sampleId: null, name: '' });
+    history.record();
+    assert.equal(await history.travel(-1), true);
+    assert.deepEqual(target.root.modules.get(sampler.id).state, { sampleId, name: 'Test' });
+    assert.equal(await history.travel(1), true);
+    assert.equal(target.root.modules.get(sampler.id).state.sampleId, null);
+    assert.equal(await history.travel(-1), true);
+    const imagePath = manifest.assets[imageId].path;
+    const badPng = entries.get(imagePath).slice();
+    badPng[0] = 0;
+    entries.set(imagePath, badPng);
+    await assert.rejects(readProjectArchive(writeZip(entries)), /Invalid project PNG/);
+    entries.delete(imagePath);
+    await assert.rejects(readProjectArchive(writeZip(entries)), /Project media is missing/);
+    entries.set('project.json', encode(JSON.stringify({ ...manifest, version: 3 })));
+    await assert.rejects(readProjectArchive(writeZip(entries)), /Unsupported PHILSYNTH project version: 3/);
     const restoredFilter = target.root.modules.get(filter.id);
     assert.equal(restoredFilter.values.cutoff, 1234);
     assert.equal(restoredFilter.name, 'Tone');
@@ -275,6 +370,54 @@ async function projectEngine() {
   } finally {
     engine.root.destroy();
   }
+}
+
+// Batch conversion preserves paths and reads samples from each individual project.
+{
+  const dir = await mkdtemp(join(tmpdir(), 'philsynth-convert-test-'));
+  try {
+    const source = join(dir, 'Old Projects'), output = join(dir, 'New Projects');
+    await mkdir(join(source, 'Nested'), { recursive: true });
+    await mkdir(output);
+    const legacy = (pcm) => JSON.stringify({
+      format: 'modsynth',
+      patch: { modules: [{ state: { sampleId: 'shared-id', imageId: 'picture' } }] },
+      samples: {
+        'shared-id': { rate: 48000, channels: 2, length: 1, data: Buffer.from(new Int16Array(pcm).buffer).toString('base64') },
+        picture: { kind: 'image', width: 1, height: 1, data: Buffer.from([8, 193, 21]).toString('base64') },
+      },
+    });
+    const first = legacy([-32768, 32767]), second = legacy([12, -42]);
+    await writeFile(join(source, 'First.phproject'), first);
+    await writeFile(join(source, 'Nested', 'Second.PHPROJECT'), second);
+    await writeFile(join(source, 'Already.phproject'), await prepareProjectArchive(makeProject(1))());
+    await writeFile(join(source, 'Blocked.phproject'), first);
+    await writeFile(join(output, 'Blocked.phproject'), 'do not overwrite');
+    await writeFile(join(source, 'Broken.phproject'), JSON.stringify({
+      ...makeProject(1), patch: { modules: [{ state: { sampleId: 'absent' } }] },
+    }));
+
+    const script = fileURLToPath(new URL('../convert-projects.mjs', import.meta.url));
+    const run = (...args) => spawnSync(process.execPath, [script, ...args, source, output], { encoding: 'utf8' });
+    const preview = run('--dry-run');
+    assert.match(preview.stdout, /2 would convert, 2 skipped, 1 failed/);
+    assert.deepEqual(await readdir(output), ['Blocked.phproject']);
+    const result = run();
+    assert.equal(result.status, 1, 'a failed project is reported without stopping the others');
+    assert.match(result.stderr, /Broken\.phproject.*Project media is missing: absent/);
+    assert.match(result.stdout, /2 converted, 2 skipped, 1 failed/);
+    assert.equal(await readFile(join(source, 'First.phproject'), 'utf8'), first);
+    assert.equal(await readFile(join(source, 'Nested', 'Second.PHPROJECT'), 'utf8'), second);
+    assert.equal(await readFile(join(output, 'Blocked.phproject'), 'utf8'), 'do not overwrite');
+    assert.deepEqual((await readdir(output)).sort(), ['Blocked.phproject', 'First.phproject', 'Nested']);
+    for (const [path, pcm] of [['First.phproject', [-32768, 32767]], ['Nested/Second.PHPROJECT', [12, -42]]]) {
+      const { version, data } = await readProjectArchive(await readFile(join(output, path)));
+      assert.equal(version, 2);
+      assert.deepEqual([...data.samples.get('shared-id').pcm], pcm);
+      assert.deepEqual([...data.samples.get('picture').rgb], [8, 193, 21]);
+    }
+    assert.match(run().stdout, /0 converted, 4 skipped, 1 failed/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 }
 
 console.log('project file tests passed');

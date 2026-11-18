@@ -28,8 +28,8 @@ contextBridge.exposeInMainWorld('modsynthFiles', {
   deleteEntry: (path, isDir) => ipcRenderer.invoke('fs:delete', path, isDir),
   // projects
   open: (path) => ipcRenderer.invoke('project:open', path),
-  save: (ref, text) => ipcRenderer.invoke('project:save', ref, text),
-  saveAs: (path, text) => ipcRenderer.invoke('project:saveAs', path, text),
+  save: (ref, bytes) => ipcRenderer.invoke('project:save', ref, bytes),
+  saveAs: (path, bytes) => ipcRenderer.invoke('project:saveAs', path, bytes),
   // clips / modules / Scala tunings (see src/filedialog.js); kind: 'clip' | 'module' | 'scala'
   saveFile: (kind, path, text) => ipcRenderer.invoke('file:save', kind, path, text),
   openFile: (kind, path) => ipcRenderer.invoke('file:open', kind, path),

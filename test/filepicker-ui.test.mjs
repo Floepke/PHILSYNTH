@@ -9,6 +9,7 @@ import http from 'node:http';
 import { registerProjectFiles } from '../electron/projectfiles.mjs';
 import { exportMidi } from '../src/midiexport.js';
 import { emptySong } from '../src/song.js';
+import { readProjectArchive } from '../src/projectarchive.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 app.on('window-all-closed', () => {});
@@ -45,6 +46,9 @@ try {
       import { dspTestHost } from '/test/dsphost.mjs';
       import { initMidi } from '/src/midi.js';
       import { AUDIO_FORMATS, encodeAudio } from '/src/audioformat.js';
+      import { prepareProjectArchive, readProjectArchive } from '/src/projectarchive.js';
+      window.projectBytes = (marker) => prepareProjectArchive({ patch: { modules: [], marker } })();
+      window.openTestProject = async (path) => (await readProjectArchive((await window.modsynthFiles.open(path)).bytes)).data.patch.marker;
       window.encodeAudio = encodeAudio;
       window.saveAudioPicker = () => { window.audioSaveResult = pickFile(window.modsynthFiles,
         { mode: 'save', dialog: 'audio', formats: AUDIO_FORMATS, exts: AUDIO_FORMATS.map(f => f.ext), saveExt: '.wav', suggestedName: 'song.wav' }); };
@@ -136,7 +140,17 @@ try {
 
   await wait(() => run("typeof window.openPicker === 'function' && typeof window.openModulePicker === 'function'"));
   await open('open');
-  await run(`window.modsynthFiles.saveAs(${JSON.stringify(join(files, 'one.phproject'))}, 'original')`);
+  const projectPath = JSON.stringify(join(files, 'one.phproject'));
+  await assert.rejects(run(`window.projectBytes(1).then(bytes => window.modsynthFiles.saveAs(${projectPath}, bytes))`),
+    /preserve the existing project/);
+  const v2 = join(files, 'archive.phproject');
+  await run(`window.projectBytes(2).then(bytes => window.modsynthFiles.saveAs(${JSON.stringify(v2)}, bytes))`);
+  assert.equal(await run(`window.openTestProject(${JSON.stringify(v2)})`), 2);
+  await run(`window.projectBytes(3).then(bytes => window.modsynthFiles.save(${JSON.stringify(v2)}, bytes))`);
+  assert.equal((await readProjectArchive(await readFile(v2))).data.patch.marker, 3);
+  await rm(v2);
+  assert.equal(await run(`window.projectBytes(4).then(bytes => window.modsynthFiles.save(${JSON.stringify(v2)}, bytes))`), null,
+    'saving a deleted project asks for a new file');
   await writeFile(join(files, 'Folder', 'one.phproject'), 'do not overwrite');
   await context('one.phproject');
   await choose('Cut');
@@ -207,7 +221,6 @@ try {
   await confirm(/Permanently delete file/, 'ok');
   await wait(async () => !(await visible('one.phproject')));
   assert.equal(await run("document.querySelector('#confirm-dialog').open"), false, 'file deletion needs only one confirmation');
-  assert.equal(await run(`window.modsynthFiles.save(${JSON.stringify(join(files, 'one.phproject'))}, 'recreated')`), null, 'saving a deleted project asks for a new file');
   assert.equal(await readFile(join(files, 'one.phproject'), 'utf8').catch(() => null), null);
   await run("document.querySelector('#fd-cancel').click(); window.pickResult");
   await run('window.openMidi(); true');

@@ -3,7 +3,7 @@
 // types: projects, clips, modules, Scala tunings (open only), exported WAV/MIDI and the audio /
 // pictures modules load (open only).
 import { app, ipcMain, BrowserWindow } from 'electron';
-import { readFile, stat } from 'node:fs/promises';
+import { open, readFile, stat } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import { notifyFolderChanged } from './kdirnotify.mjs';
 import { atomicWrite } from './atomicwrite.mjs';
@@ -11,6 +11,7 @@ export { atomicWrite } from './atomicwrite.mjs';
 import { checkPath, cleanExts, deleteEntry, hasExt, listDir, makeDir, places, target, transferEntry } from './fsbrowse.mjs';
 import { PROJECT_EXT, PROJECT_OPEN_EXTS, CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS, AUDIO_OPEN_EXTS, WAVETABLE_OPEN_EXTS, IMAGE_OPEN_EXTS, MIDI_OPEN_EXTS, MAX_MIDI_BYTES } from '../src/fileformat.js';
 import { AUDIO_FORMATS } from '../src/audioformat.js';
+import { MAX_PROJECT_BYTES, isProjectZip } from '../src/projectzip.js';
 
 const bare = (ext) => ext.replace(/^\./, '');
 const PROJECT = bare(PROJECT_EXT);
@@ -30,7 +31,6 @@ export const MEDIA_KINDS = {
   midi: { open: MIDI_OPEN_EXTS, max: MAX_MIDI_BYTES },
 };
 const MAX_PATHS = 100;
-const MAX_BYTES = 512 * 1024 * 1024;
 const MAX_AUDIO = 2 * 1024 * 1024 * 1024;
 // remembered start folder per dialog
 const DIALOG_KINDS = new Set(['project-open', 'project-save', 'clip', 'module', 'scala', 'audio', 'sample', 'wavetable', 'image', 'midi']);
@@ -96,9 +96,27 @@ export function registerProjectFiles(isLocal) {
     if (!isLocal(e.senderFrame?.url)) throw new Error('Not allowed');
     return BrowserWindow.fromWebContents(e.sender) ?? undefined;
   };
-  const textOf = (text) => {
-    if (typeof text !== 'string' || text.length > MAX_BYTES) throw new Error('Invalid project data');
-    return text;
+  const projectBytes = (data) => {
+    if (!(data instanceof Uint8Array) || data.byteLength > MAX_PROJECT_BYTES || !isProjectZip(data)) {
+      throw new Error('Invalid project data');
+    }
+    return data;
+  };
+  // Save As can select an existing file, even when opened through an alias.
+  async function checkProjectDestination(path) {
+    const handle = await open(path, 'r').catch((err) => {
+      if (err.code === 'ENOENT') return null;
+      throw err;
+    });
+    if (!handle) return false;
+    try {
+      const { size } = await handle.stat();
+      const header = new Uint8Array(4);
+      if (size && ((await handle.read(header, 0, 4, 0)).bytesRead !== 4 || !isProjectZip(header))) {
+        throw new Error('Choose a different file name to preserve the existing project');
+      }
+      return true;
+    } finally { await handle.close(); }
   };
   const kindOf = (kind) => {
     if (!Object.hasOwn(FILE_KINDS, kind)) throw new Error(`Unknown file kind "${kind}"`);
@@ -155,17 +173,19 @@ export function registerProjectFiles(isLocal) {
   ipcMain.handle('project:open', async (e, path) => {
     check(e);
     const p = fileOf(path, cleanExts(PROJECT_OPEN_EXTS));
-    const text = await readSmall(p, MAX_BYTES);
-    await allow(p);
+    if ((await stat(p)).size > MAX_PROJECT_BYTES) throw new Error('Project file is too large');
+    const bytes = await readFile(p);
+    if (isProjectZip(bytes) && hasExt(p, [PROJECT_EXT])) await allow(p);
     await dirs.remember('project-open', p);
-    return { name: basename(p), ref: p, text };
+    return { name: basename(p), ref: p, bytes };
   });
 
-  ipcMain.handle('project:saveAs', async (e, path, text) => {
+  ipcMain.handle('project:saveAs', async (e, path, data) => {
     check(e);
-    textOf(text);
+    const bytes = projectBytes(data);
     const p = fileOf(withExtension(checkPath(path)), [PROJECT_EXT]);
-    await atomicWrite(p, text);
+    await checkProjectDestination(p);
+    await atomicWrite(p, bytes);
     written(p);
     await allow(p);
     await dirs.remember('project-save', p);
@@ -173,13 +193,12 @@ export function registerProjectFiles(isLocal) {
   });
 
   // Save to a file opened / saved before; null makes the page ask with Save As.
-  ipcMain.handle('project:save', async (e, ref, text) => {
+  ipcMain.handle('project:save', async (e, ref, data) => {
     check(e);
-    textOf(text);
-    if (typeof ref !== 'string' || !(await load()).includes(ref)) return null;
-    try { await stat(ref); }
-    catch (err) { if (err.code === 'ENOENT') return null; throw err; }
-    await atomicWrite(ref, text);
+    const bytes = projectBytes(data);
+    if (typeof ref !== 'string' || !hasExt(ref, [PROJECT_EXT]) || !(await load()).includes(ref)) return null;
+    if (!(await checkProjectDestination(ref))) return null;
+    await atomicWrite(ref, bytes);
     written(ref);
     return { name: basename(ref), ref };
   });

@@ -6,30 +6,50 @@ Keep it and the persistence tests up to date when adding or changing fields.
 
 ## Project envelope
 
-A `.phproject` is compact JSON. The saved project has this general shape:
+New `.phproject` saves are ZIP archives with a `project.json` manifest:
 
 ```text
 {
-  format: "philsynth", version: 1,
+  format: "philsynth", version: 2,
   patch: { modules, cables, ... },
   song: { clips, sigs, selected, snap, nextId, mutes, solos, ... },
   view: { path, cams, cameraSize, seq, analyse, layers, panelScrolls },
-  samples: { ... }  // only when referenced media exists
+  assets: { "<asset id>": { kind: "image", path: "media/images/1.png" }, ... }
 }
 ```
 
 The diagram omits many fields and uses JavaScript notation, not valid JSON.
 [`Engine.saveProject()`](src/engine.js) constructs `format`, `version`,
-`patch`, and `song`. The save path in [`main.js`](src/main.js) adds the view and
-referenced media before serializing with [`jsonFileText`](src/fileformat.js).
-Autosaves also add document metadata (`doc`); that is not part of a normal
-project save. Preferences are stored separately, not in the project.
+`patch`, and `song` for the runtime model; the manual save path in
+[`projectarchive.js`](src/projectarchive.js) adds the disk version and asset
+index. PNG stores the prepared RGB8 pixels without color conversion; WAV
+stores interleaved little-endian Int16 PCM. Audio index entries also carry
+`rate`, so the pool rate is preserved even if the WAV header rounds it.
+Each referenced ID is written once. The v2 profile uses stored ZIP entries
+(the PNG itself is compressed), with size, path and checksum checks; it is
+not a general-purpose ZIP importer. Saves are buffered, with a 512 MiB archive
+limit. This is not a streaming format implementation for long audio tracks.
+
+Open detects the container by its bytes, not its extension. Standalone JSON
+is v1 (including older files with no version and the `modsynth` format name).
+Its first save uses **Save As** to preserve the original. Older app versions
+cannot open v2. Undo keeps model snapshots in memory; autosave and `.phmod`
+remain JSON with inline Base64 media when needed (`samples`). Autosave also
+stores document metadata (`doc`), which is not part of a manual save.
+Preferences are stored separately.
 
 On load, [`Engine.loadProject()`](src/engine.js) checks the format and patch,
 imports samples, reconstructs the patch, normalizes the song, and synchronizes
-playback. The UI applies `view` separately. The loader also accepts the older
-`modsynth` format name. A `version` value is written, but the current project
-loader does not use it as a general migration system.
+playback. The UI applies `view` separately. The disk reader checks the version
+and decodes and validates archive media before handing it to the engine.
+
+To batch-convert v1 projects, run `node convert-projects.mjs --dry-run`
+from the repository, then omit `--dry-run` to write the converted files.
+The [converter](convert-projects.mjs) defaults to `pCloud Drive/PHILSYNTH`
+and `pCloud Drive/PHILSYNTH2` inside your home directory; you can also pass a
+source and destination folder as two arguments. Both must exist. It preserves
+subfolders and filenames, skips v2 files and existing output files, and
+reports failed conversions without stopping the rest of the batch.
 
 ## Patch and modules
 
@@ -50,8 +70,7 @@ their defaults. Patch creation initializes each value from the saved ID or the
 parameter default. Non-controller data uses a module's `defaultState` and
 `normalizeState`, and is saved as `state`. Nested patches serialize recursively.
 For samples and images, module state stores IDs; [`samples.js`](src/samples.js)
-embeds referenced data under the project `samples` object. It imports the pool
-before module state is restored.
+imports media into the pool before module state is restored.
 
 ## Song, clips, and notes
 

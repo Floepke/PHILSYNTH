@@ -41,6 +41,7 @@ import { AUDIO_FORMATS, audioFormat } from './audioformat.js';
 import { exportMidi } from './midiexport.js';
 import { withSamples, importSamples } from './samples.js';
 import { createProjectFile, pickBackend } from './projectfile.js';
+import { prepareProjectArchive } from './projectarchive.js';
 import { initStatusTips } from './statustips.js';
 import { registerShortcutPreferences, initShortcuts, registerShortcutMenu, registerShortcutAction, parseShortcut } from './shortcuts.js';
 import { saveTextFile, openTextFile } from './filedialog.js';
@@ -311,7 +312,7 @@ function projectEdits(project = engine.saveProject()) {
 }
 const projectFile = createProjectFile({
   fingerprint: () => JSON.parse(projectEdits()),
-  serialize: () => jsonFileText(withSamples({ ...engine.saveProject(), view: viewState() })),
+  serialize: () => prepareProjectArchive({ ...engine.saveProject(), view: viewState() }),
   backend: pickBackend(window, $('file')),
   onChange: showDocument,
 });
@@ -1559,8 +1560,7 @@ engine.onDrive = (entry) => {
 };
 
 // ---- main menu: New / Open / Save / Save As / Export ----
-// Project files are .phproject (PHILSYNTH project: JSON text inside). Older .mds / .json projects
-// still open; Save then asks for a new .phproject file instead of overwriting them.
+// Open also accepts legacy JSON projects; their first save uses Save As.
 let fileBusy = false;
 async function fileCommand(label, fn) {
   if (fileBusy) return;

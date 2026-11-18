@@ -2,7 +2,7 @@
 // Module state only names a sample ({ sampleId, name, ... }), so undo snapshots, copies and Patch
 // instances stay small; the audio itself lives here, keyed by a hash of its content (the same file
 // loaded twice is stored once). Audio is kept as 16-bit (what is saved is what plays).
-// Saved files (autosave, .phproject projects, .phmod modules) carry the samples they use under
+// JSON files (autosaves, legacy projects, .phmod modules) carry the samples they use under
 // `samples: { id: { rate, channels, length, data } }` (data = base64 of the planar Int16 audio);
 // withSamples() adds them, importSamples() puts them back into the pool before the modules load.
 // Images of IMAGE SAMPLER modules (state { imageId }) share the pool and the `samples` entry:
@@ -100,12 +100,14 @@ export const getImage = (id) => {
   return s?.kind === 'image' ? s : null;
 };
 
-function sampleIds(data, ids = new Set()) {
-  if (Array.isArray(data)) data.forEach((d) => sampleIds(d, ids));
-  else if (data && typeof data === 'object') {
-    for (const [k, v] of Object.entries(data)) {
-      if ((k === 'sampleId' || k === 'imageId') && typeof v === 'string') ids.add(v);
-      else if (v && typeof v === 'object') sampleIds(v, ids);
+export function sampleIds(data) {
+  const ids = new Set(), pending = [data];
+  while (pending.length) {
+    const item = pending.pop();
+    if (!item || typeof item !== 'object') continue;
+    for (const [key, value] of Object.entries(item)) {
+      if ((key === 'sampleId' || key === 'imageId') && typeof value === 'string' && value) ids.add(value);
+      else if (value && typeof value === 'object') pending.push(value);
     }
   }
   return ids;
@@ -133,27 +135,48 @@ export const withSamples = (data) => {
   return Object.keys(samples).length ? { ...data, samples } : data;
 };
 
-// Samples of a loaded file into the pool (bad entries are skipped: those modules stay silent).
+export function decodeLegacySample(sample) {
+  const bytes = fromBase64(sample.data);
+  if (sample.kind === 'image') {
+    const width = sample.width | 0, height = sample.height | 0;
+    if (width < 1 || height < 1 || width > MAX_IMAGE || height > MAX_IMAGE || bytes.length !== width * height * 3) {
+      throw new Error('Invalid legacy image dimensions or data');
+    }
+    return { kind: 'image', width, height, rgb: bytes };
+  }
+  const { rate } = sample;
+  const count = sample.channels | 0, length = sample.length | 0;
+  if (!(rate > 0) || count < 1 || count > 2 || length < 1 || bytes.length !== count * length * 2) {
+    throw new Error('Invalid legacy audio metadata or data');
+  }
+  return { rate, count, length, pcm: new Int16Array(bytes.buffer) };
+}
+
+// v2 archives pass already validated binary media. JSON files keep the legacy import path.
 export function importSamples(samples) {
+  if (samples instanceof Map) {
+    for (const [id, sample] of samples) {
+      if (pool.has(id)) continue;
+      if (sample.kind === 'image') pool.set(id, sample);
+      else {
+        const { rate, length, count, pcm } = sample;
+        pool.set(id, { rate, length, pcm, channels: fromInt16(pcm, count, length) });
+      }
+      listeners.forEach((fn) => fn(id));
+    }
+    return;
+  }
+  // Bad legacy entries are skipped: those modules stay silent.
   if (!samples || typeof samples !== 'object') return;
   for (const [id, s] of Object.entries(samples)) {
     if (pool.has(id)) continue;
     try {
-      if (s.kind === 'image') {
-        const width = s.width | 0;
-        const height = s.height | 0;
-        const rgb = fromBase64(s.data);
-        if (width < 1 || height < 1 || width > MAX_IMAGE || height > MAX_IMAGE || rgb.length !== width * height * 3) continue;
-        pool.set(id, { kind: 'image', width, height, rgb, b64: s.data });
-        listeners.forEach((fn) => fn(id));
-        continue;
+      const sample = decodeLegacySample(s);
+      if (sample.kind === 'image') pool.set(id, { ...sample, b64: s.data });
+      else {
+        const { rate, count, length, pcm } = sample;
+        pool.set(id, { rate, channels: fromInt16(pcm, count, length), length, pcm, b64: s.data });
       }
-      const count = s.channels | 0;
-      const length = s.length | 0;
-      const bytes = fromBase64(s.data);
-      if (!(s.rate > 0) || count < 1 || count > 2 || length < 1 || bytes.length !== count * length * 2) continue;
-      const pcm = new Int16Array(bytes.buffer, 0, count * length);
-      pool.set(id, { rate: s.rate, channels: fromInt16(pcm, count, length), length, pcm, b64: s.data });
       listeners.forEach((fn) => fn(id));
     } catch { /* corrupt entry */ }
   }

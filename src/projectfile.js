@@ -3,12 +3,13 @@
 //   - desktop app: the app's own file dialog (src/filepicker.js) + real files (window.modsynthFiles)
 //   - browsers with the File System Access API: file handles, kept in IndexedDB across reloads
 //   - other browsers: file input to open, download to save
-// A backend: { open() -> { name, ref, text } | null, saveAs(name, text) -> { name, ref } | null,
-//              save(ref, text) -> { name, ref } | null (null: no longer writable, use Save As) }
+// A backend opens { name, ref, bytes } and saves through a lazy encode() function.
 // `ref` identifies the file for later saves (a string, so it survives in the autosave).
 
 import { PROJECT_EXT, PROJECT_OPEN_EXTS, fileAccept } from './fileformat.js';
 import { pickFile } from './filepicker.js';
+import { readProjectArchive, readProjectBytes } from './projectarchive.js';
+import { isProjectZip } from './projectzip.js';
 
 export const UNTITLED = 'Untitled';
 export const EXT = PROJECT_EXT;
@@ -34,10 +35,10 @@ export function suggestName(name) {
 }
 
 // fingerprint(): what counts as a change (the project without view / selection state)
-// serialize(): the text written to the file
+// serialize(): captures the file state, returning an async encoder
 // onChange(doc): name or dirty state may have changed
 export function createProjectFile({ fingerprint, serialize, backend, onChange = () => {} }) {
-  let doc = { name: UNTITLED, ref: null, savedHash: null };
+  let doc = { name: UNTITLED, ref: null, savedHash: null, diskVersion: null };
   const current = () => hashText(JSON.stringify(fingerprint()));
   const changed = () => onChange(api.info());
   const set = (next) => {
@@ -49,7 +50,7 @@ export function createProjectFile({ fingerprint, serialize, backend, onChange = 
     const hash = current(); // what is being written, even if edits happen while the dialog is open
     const result = await save(serialize());
     if (!result) return null;
-    set({ name: result.name, ref: result.ref ?? null, savedHash: hash });
+    set({ name: result.name, ref: result.ref ?? null, savedHash: hash, diskVersion: 2 });
     return result.name;
   }
 
@@ -60,38 +61,41 @@ export function createProjectFile({ fingerprint, serialize, backend, onChange = 
     info() { return { name: doc.name, ref: doc.ref, dirty: api.isDirty() }; },
     // a fresh, unchanged document (New, or nothing restored on start)
     reset(name = UNTITLED) {
-      set({ name, ref: null, savedHash: current() });
+      set({ name, ref: null, savedHash: current(), diskVersion: null });
     },
     // Open a file: load(data) puts it in the app. Returns the name, or null when cancelled.
     async open(load) {
       const file = await backend.open();
       if (!file) return null;
-      const data = JSON.parse(file.text);
+      const { data, version } = await readProjectArchive(file.bytes);
       await load(data);
-      // older .mds / .json projects are not overwritten: Save asks for a new .phproject file
-      const ref = file.name.toLowerCase().endsWith(EXT) ? file.ref ?? null : null;
-      set({ name: file.name, ref, savedHash: current() });
+      const ref = version === 2 && file.name.toLowerCase().endsWith(EXT) ? file.ref ?? null : null;
+      set({ name: file.name, ref, savedHash: current(), diskVersion: version });
       return file.name;
     },
     // Save to the current file (Save As when it has none). Returns the name, or null when cancelled.
     async save() {
       if (doc.ref === null || doc.ref === undefined) return api.saveAs();
-      const name = await write((text) => backend.save(doc.ref, text));
+      const name = await write((encode) => backend.save(doc.ref, encode));
       return name ?? api.saveAs();
     },
     saveAs() {
-      return write((text) => backend.saveAs(suggestName(doc.name), text));
+      const name = doc.diskVersion === 1 && doc.name.toLowerCase().endsWith(EXT)
+        ? `${doc.name.slice(0, -EXT.length)} (v2)${EXT}` : suggestName(doc.name);
+      return write((encode) => backend.saveAs(name, encode));
     },
     // stored in the autosave, so a restart restores the file name and the unsaved state
     toJSON() {
-      return { name: doc.name, ref: typeof doc.ref === 'string' ? doc.ref : null, savedHash: doc.savedHash };
+      return { name: doc.name, ref: doc.ref, savedHash: doc.savedHash, diskVersion: doc.diskVersion };
     },
     // from an autosave; one without document info counts as unsaved
     restore(saved) {
+      const diskVersion = saved?.diskVersion === 2 ? 2 : saved?.diskVersion === 1 || typeof saved?.ref === 'string' ? 1 : null;
       set({
         name: typeof saved?.name === 'string' && saved.name ? saved.name : UNTITLED,
-        ref: typeof saved?.ref === 'string' ? saved.ref : null,
+        ref: diskVersion === 2 && typeof saved?.ref === 'string' ? saved.ref : null,
         savedHash: typeof saved?.savedHash === 'string' ? saved.savedHash : null,
+        diskVersion,
       });
     },
   };
@@ -108,10 +112,10 @@ export function electronBackend(files, pick = pickFile) {
       const f = await pick(files, { mode: 'open', dialog: 'project-open', title: 'Open PHILSYNTH project', types: `PHILSYNTH projects (${PROJECT_OPEN_EXTS.join(', ')})`, exts: PROJECT_OPEN_EXTS });
       return f ? files.open(f.path) : null;
     },
-    save: (ref, text) => files.save(ref, text),
-    async saveAs(name, text) {
+    save: async (ref, encode) => files.save(ref, await encode()),
+    async saveAs(name, encode) {
       const f = await pick(files, { mode: 'save', dialog: 'project-save', title: 'Save PHILSYNTH project', types: `PHILSYNTH projects (${EXT})`, exts: [EXT], saveExt: EXT, suggestedName: name });
-      return f ? files.saveAs(f.path, text) : null;
+      return f ? files.saveAs(f.path, await encode()) : null;
     },
   };
 }
@@ -153,10 +157,19 @@ export function fsaBackend(win = window) {
     return ref;
   };
   const cancelled = (err) => err?.name === 'AbortError';
-  async function writeTo(handle, text) {
+  async function writeTo(handle, bytes) {
+    const file = await handle.getFile();
+    if (file.size && !isProjectZip(new Uint8Array(await file.slice(0, 4).arrayBuffer()))) {
+      throw new Error('Choose a different file name to preserve the existing project');
+    }
     const writable = await handle.createWritable();
-    await writable.write(text);
-    await writable.close();
+    try {
+      await writable.write(bytes);
+      await writable.close();
+    } catch (err) {
+      await writable.abort().catch(() => {}); // write/close may have already closed the stream
+      throw err;
+    }
   }
   return {
     async open() {
@@ -169,9 +182,10 @@ export function fsaBackend(win = window) {
         throw err;
       }
       const file = await handle.getFile();
-      return { name: file.name, ref: await remember(handle), text: await file.text() };
+      const bytes = await readProjectBytes(file);
+      return { name: file.name, ref: isProjectZip(bytes) ? await remember(handle) : null, bytes };
     },
-    async save(ref, text) {
+    async save(ref, encode) {
       let handle = handles.get(ref);
       if (!handle) {
         try { handle = await store.get(ref); } catch { handle = null; }
@@ -181,14 +195,20 @@ export function fsaBackend(win = window) {
       try {
         if ((await handle.queryPermission?.({ mode: 'readwrite' })) !== 'granted'
           && (await handle.requestPermission?.({ mode: 'readwrite' })) === 'denied') return null;
-        await writeTo(handle, text);
+      } catch (err) {
+        console.warn('Saving to the project file failed, asking for a new one:', err);
+        return null;
+      }
+      const bytes = await encode();
+      try {
+        await writeTo(handle, bytes);
       } catch (err) {
         console.warn('Saving to the project file failed, asking for a new one:', err);
         return null;
       }
       return { name: handle.name, ref };
     },
-    async saveAs(name, text) {
+    async saveAs(name, encode) {
       let handle;
       try {
         handle = await win.showSaveFilePicker({ id: 'project-save', suggestedName: name, types: TYPES });
@@ -196,7 +216,7 @@ export function fsaBackend(win = window) {
         if (cancelled(err)) return null;
         throw err;
       }
-      await writeTo(handle, text);
+      await writeTo(handle, await encode());
       return { name: handle.name, ref: await remember(handle) };
     },
   };
@@ -204,8 +224,8 @@ export function fsaBackend(win = window) {
 
 // Any browser: a file input opens, a download saves (each Save downloads the file again).
 export function downloadBackend(fileInput, doc = document) {
-  const download = (name, text) => {
-    const blob = new Blob([text], { type: 'application/octet-stream' });
+  const download = async (name, encode) => {
+    const blob = new Blob([await encode()], { type: 'application/octet-stream' });
     const a = Object.assign(doc.createElement('a'), { href: URL.createObjectURL(blob), download: name });
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 10000);
@@ -221,7 +241,7 @@ export function downloadBackend(fileInput, doc = document) {
           const file = fileInput.files[0];
           fileInput.value = '';
           if (!file) return resolve(null);
-          try { resolve({ name: file.name, ref: null, text: await file.text() }); } catch (err) { reject(err); }
+          try { resolve({ name: file.name, ref: null, bytes: await readProjectBytes(file) }); } catch (err) { reject(err); }
         };
         const cancel = () => {
           fileInput.removeEventListener('change', done);

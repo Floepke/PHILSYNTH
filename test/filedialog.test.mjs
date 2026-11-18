@@ -112,24 +112,25 @@ const abort = () => Object.assign(new Error('cancelled'), { name: 'AbortError' }
 {
   const { electronBackend } = await import('../src/projectfile.js');
   const calls = [];
+  const first = Uint8Array.of(1), second = Uint8Array.of(2);
   const files = {
-    open: async (path) => { calls.push(['open', path]); return { name: 'a.phproject', ref: path, text: '{}' }; },
-    save: async (ref, text) => { calls.push(['save', ref, text]); return { name: 'a.phproject', ref }; },
-    saveAs: async (path, text) => { calls.push(['saveAs', path, text]); return { name: 'b.phproject', ref: path }; },
+    open: async (path) => { calls.push(['open', path]); return { name: 'a.phproject', ref: path, bytes: first }; },
+    save: async (ref, bytes) => { calls.push(['save', ref, bytes]); return { name: 'a.phproject', ref }; },
+    saveAs: async (path, bytes) => { calls.push(['saveAs', path, bytes]); return { name: 'b.phproject', ref: path }; },
   };
   const picks = [];
   let chosen = { path: '/p/a.phproject', name: 'a.phproject' };
   const b = electronBackend(files, async (_f, opts) => { picks.push(opts); return chosen; });
   assert.equal((await b.open()).ref, '/p/a.phproject');
   chosen = { path: '/p/b.phproject', name: 'b.phproject' };
-  assert.equal((await b.saveAs('Song.phproject', 'T')).ref, '/p/b.phproject');
-  await b.save('/p/b.phproject', 'U');
-  assert.deepEqual(calls, [['open', '/p/a.phproject'], ['saveAs', '/p/b.phproject', 'T'], ['save', '/p/b.phproject', 'U']]);
+  assert.equal((await b.saveAs('Song.phproject', async () => first)).ref, '/p/b.phproject');
+  await b.save('/p/b.phproject', async () => second);
+  assert.deepEqual(calls, [['open', '/p/a.phproject'], ['saveAs', '/p/b.phproject', first], ['save', '/p/b.phproject', second]]);
   assert.deepEqual(picks.map((o) => [o.mode, o.dialog, o.suggestedName]), [['open', 'project-open', undefined], ['save', 'project-save', 'Song.phproject']]);
   assert.ok(picks[0].exts.includes('.mds'), 'older projects open too');
   chosen = null;
   assert.equal(await b.open(), null);
-  assert.equal(await b.saveAs('x', 'y'), null);
+  assert.equal(await b.saveAs('x', () => assert.fail('do not encode a cancelled save')), null);
   assert.equal(calls.length, 3);
 }
 
@@ -139,16 +140,17 @@ const abort = () => Object.assign(new Error('cancelled'), { name: 'AbortError' }
   const win = {
     async showOpenFilePicker(opts) {
       ids.push(opts.id);
-      return [{ getFile: async () => ({ name: 'a.phproject', text: async () => '{}' }) }];
+      return [{ getFile: async () => new File(['{}'], 'a.phproject') }];
     },
     async showSaveFilePicker(opts) {
       ids.push(opts.id);
-      return { name: 'b.phproject', async createWritable() { return { write: async () => {}, close: async () => {} }; } };
+      return { name: 'b.phproject', getFile: async () => new File([], 'b.phproject'),
+        async createWritable() { return { write: async () => {}, close: async () => {} }; } };
     },
   };
   const backend = fsaBackend(win);
   assert.equal((await backend.open()).name, 'a.phproject');
-  assert.equal((await backend.saveAs('b.phproject', '{}')).name, 'b.phproject');
+  assert.equal((await backend.saveAs('b.phproject', async () => Uint8Array.of(1))).name, 'b.phproject');
   assert.deepEqual(ids, ['project-open', 'project-save']);
 }
 
