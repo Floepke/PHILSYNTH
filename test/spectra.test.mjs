@@ -8,6 +8,22 @@ import { attackLevel, decayLevel, releaseLevel } from '../src/modules/adsrcurve.
 import { KERNELS } from '../src/dsp/kernels.js';
 import { SPECS } from '../src/dsp/wasm.js';
 import { loadKernel } from './kernelproc.mjs';
+import { levelsToWaveform, waveformToLevels, WAVE_SAMPLES } from '../src/modules/spectrawave.js';
+
+{
+  const samples = (fn) => Float64Array.from({ length: WAVE_SAMPLES }, (_, i) => fn(2 * Math.PI * i / WAVE_SAMPLES));
+  const expected = Array(SPECTRA_PARTIALS).fill(0);
+  expected[0] = 50;
+  expected[127] = 25;
+  assert.deepEqual(waveformToLevels(samples(t => 0.1 + 0.5 * Math.cos(t) + 0.25 * Math.sin(128 * t + 0.2))), expected,
+    'conversion ignores DC and phase while retaining the highest overtone');
+  const preview = levelsToWaveform(expected);
+  const expectedPreview = samples(t => 0.5 * Math.sin(t) + 0.25 * Math.sin(128 * t));
+  assert.ok(preview.every((v, i) => Math.abs(v - expectedPreview[i]) < 1e-10));
+  assert.deepEqual(waveformToLevels(preview), expected, 'reconstructed wave keeps the Amp levels');
+  const scaled = waveformToLevels(samples(t => 2 * Math.sin(t) + Math.cos(2 * t)));
+  assert.deepEqual(scaled.slice(0, 3), [100, 50, 0], 'over-range harmonics are scaled together');
+}
 
 const SR = 8000;
 const length = SR * SPECTRA_SAMPLE_SECONDS;
@@ -439,8 +455,9 @@ try {
   else delete globalThis.Worker;
 }
 
-// Only Amp and Pitch remain; keyboard tab cycling cannot select the removed Phase graph.
+// Waveform strokes write Amp only; Amp changes rebuild the reference waveform.
 {
+  let path;
   class Element extends EventTarget {
     constructor() {
       super();
@@ -451,13 +468,21 @@ try {
     }
     append(...children) { this.children.push(...children); }
     setAttribute(key, value) { this.attributes[key] = value; }
-    getContext() { return {}; }
+    getContext() {
+      return {
+        setTransform() {}, fillRect() {}, fillText() {}, stroke() {},
+        beginPath() { path = []; }, moveTo(...p) { path.push(p); }, lineTo(...p) { path.push(p); },
+      };
+    }
+    getBoundingClientRect() { return { left: 0, top: 0, width: this.clientWidth, height: this.clientHeight }; }
     focus() {}
   }
   const previousDocument = globalThis.document;
   const previousObserver = globalThis.ResizeObserver;
+  const previousWindow = globalThis.window;
   globalThis.document = { createElement: () => new Element() };
   globalThis.ResizeObserver = class { observe() {} };
+  globalThis.window = { devicePixelRatio: 1 };
   try {
     const entry = { state: normalizeSpectraState(state) };
     const before = structuredClone(entry.state);
@@ -469,21 +494,52 @@ try {
       endEdit: () => edits.push('end'),
     });
     const [tabs, panel] = editor.el.children;
-    assert.deepEqual(tabs.children.map((button) => button.textContent), ['Amp', 'Pitch']);
-    assert.equal(panel.children[1].children.length, 3, 'manual phase randomizer is removed');
+    const [canvas, tools] = panel.children;
+    const [, valueLabel, reset] = tools.children;
+    canvas.clientWidth = 562;
+    canvas.clientHeight = 238;
+    assert.deepEqual(tabs.children.map((button) => button.textContent), ['Amp', 'Pitch', 'Waveform']);
     tabs.children[1].dispatchEvent(new Event('click'));
     assert.equal(panel.attributes['aria-label'], 'Pitch overtone graph');
     const key = new Event('keydown', { cancelable: true });
     key.key = 'ArrowRight';
     tabs.children[1].dispatchEvent(key);
-    assert.equal(panel.attributes['aria-label'], 'Amp overtone graph', 'keyboard navigation wraps after two tabs');
+    assert.equal(panel.attributes['aria-label'], 'Waveform editor');
+    tabs.children[2].dispatchEvent(key);
+    assert.equal(panel.attributes['aria-label'], 'Amp overtone graph', 'keyboard navigation wraps after Waveform');
     assert.deepEqual(entry.state, before);
     assert.deepEqual(edits, [], 'switching graphs does not create state edits');
+
+    tabs.children[2].dispatchEvent(new Event('click'));
+    reset.dispatchEvent(new Event('click'));
+    assert.ok(entry.state.levels.every(v => v === 0), 'clearing the waveform silences Amp');
+    edits.length = 0;
+    const pointer = (type, x, y) => canvas.dispatchEvent(Object.assign(new Event(type), { button: 0, clientX: x, clientY: y }));
+    pointer('pointerdown', 40, 112);
+    pointer('pointermove', 168, 12);
+    pointer('pointermove', 424, 212);
+    pointer('pointermove', 552, 112);
+    pointer('pointerup', 552, 112);
+    assert.ok(Math.abs(entry.state.levels[0] - 81.06) < 0.1, 'a drawn triangle produces the expected fundamental');
+    assert.ok(Math.abs(entry.state.levels[2] - 9.01) < 0.1, 'the drawing sets upper harmonics too');
+    assert.deepEqual(entry.state.detunes, before.detunes, 'drawing and clearing do not alter Pitch');
+    assert.deepEqual(edits, ['begin', 'state', 'state', 'state', 'state', 'end'], 'one undo group per stroke');
+    reset.dispatchEvent(new Event('click'));
+    tabs.children[0].dispatchEvent(new Event('click'));
+    const amp = valueLabel.children[1];
+    amp.valueAsNumber = 25;
+    amp.dispatchEvent(new Event('change'));
+    tabs.children[2].dispatchEvent(new Event('click'));
+    const [peakX, peakY] = path[WAVE_SAMPLES / 4];
+    assert.equal(peakX, 168);
+    assert.ok(Math.abs(peakY - 87) < 1e-9, 'an Amp change redraws the quarter-cycle peak');
   } finally {
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;
     if (previousObserver === undefined) delete globalThis.ResizeObserver;
     else globalThis.ResizeObserver = previousObserver;
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
   }
 }
 console.log('SPECTRA tests passed');

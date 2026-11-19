@@ -1,8 +1,10 @@
 import { defaultSpectraState, normalizeSpectraState, SPECTRA_PARTIALS } from './spectra.sample.js';
+import { levelsToWaveform, waveformToLevels, WAVE_SAMPLES } from './spectrawave.js';
 
 const TABS = [
   { key: 'levels', label: 'Amp', min: 0, max: 100, unit: '%' },
   { key: 'detunes', label: 'Pitch', min: -100, max: 100, unit: '%' },
+  { key: 'waveform', label: 'Waveform' },
 ];
 const PAD = { left: 40, right: 10, top: 12, bottom: 26 };
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
@@ -14,6 +16,8 @@ export function createSpectraEditor(entry, api) {
   let painting = false;
   let last = null;
   let erase = false;
+  let wave = null;
+  const isWaveform = () => TABS[tab].key === 'waveform';
   const el = document.createElement('div');
   el.className = 'spectra-editor';
   el.dataset.editorTitle = 'Overtone editor';
@@ -39,7 +43,6 @@ export function createSpectraEditor(entry, api) {
     return button;
   });
   const canvas = document.createElement('canvas');
-  canvas.title = 'Drag to draw overtones. Right-drag resets values to zero.';
   const tools = document.createElement('div');
   tools.className = 'spectra-tools';
   const partialLabel = document.createElement('label');
@@ -58,13 +61,21 @@ export function createSpectraEditor(entry, api) {
   valueLabel.append(valueText, value);
   const reset = document.createElement('button');
   reset.type = 'button';
-  reset.textContent = 'Reset tab';
   tools.append(partialLabel, valueLabel, reset);
   const hint = document.createElement('p');
   hint.className = 'hint';
   panel.append(canvas, tools, hint);
   el.append(tabs, panel);
   const g = canvas.getContext('2d');
+
+  function currentWave() {
+    if (!wave || !wave.levels.every((level, i) => level === state.levels[i])) {
+      const samples = levelsToWaveform(state.levels);
+      const range = samples.reduce((peak, sample) => Math.max(peak, Math.ceil(Math.abs(sample))), 1);
+      wave = { samples, range, levels: state.levels };
+    }
+    return wave;
+  }
 
   function selectTab(i) {
     endStroke();
@@ -74,6 +85,17 @@ export function createSpectraEditor(entry, api) {
       button.tabIndex = index === tab ? 0 : -1;
     });
     const item = TABS[tab];
+    partialLabel.hidden = valueLabel.hidden = isWaveform();
+    reset.textContent = isWaveform() ? 'Clear waveform' : 'Reset tab';
+    if (isWaveform()) {
+      panel.setAttribute('aria-label', 'Waveform editor');
+      canvas.setAttribute('aria-label', 'Draw one waveform cycle from left to right');
+      canvas.title = 'Drag to draw one cycle. Right-drag flattens the trace to zero.';
+      hint.textContent = 'Draw one cycle to set the 128 Amp values. Amp edits rebuild a reference shape. Pitch is unchanged; playback still uses random phases and may not match the drawn shape.';
+      draw();
+      return;
+    }
+    canvas.title = 'Drag to draw overtones. Right-drag resets values to zero.';
     panel.setAttribute('aria-label', `${item.label} overtone graph`);
     canvas.setAttribute('aria-label', `${item.label}: overtone 1 to ${SPECTRA_PARTIALS} horizontally, ${item.min} to ${item.max} percent vertically`);
     valueText.textContent = `${item.label} (%) `;
@@ -85,8 +107,11 @@ export function createSpectraEditor(entry, api) {
   }
 
   function draw() {
-    partial.value = String(selected + 1);
-    value.value = String(state[TABS[tab].key][selected]);
+    const waveform = isWaveform();
+    if (!waveform) {
+      partial.value = String(selected + 1);
+      value.value = String(state[TABS[tab].key][selected]);
+    }
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
     if (!w || !h) return;
@@ -96,7 +121,8 @@ export function createSpectraEditor(entry, api) {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     const pw = w - PAD.left - PAD.right;
     const ph = h - PAD.top - PAD.bottom;
-    const item = TABS[tab];
+    const trace = waveform ? currentWave() : null;
+    const item = trace ? { min: -trace.range, max: trace.range } : TABS[tab];
     const yOf = (v) => PAD.top + ph * (1 - (v - item.min) / (item.max - item.min));
     g.fillStyle = '#17191e';
     g.fillRect(0, 0, w, h);
@@ -110,6 +136,19 @@ export function createSpectraEditor(entry, api) {
       g.fillStyle = '#b7bac2';
       g.textAlign = 'right';
       g.fillText(`${v}`, PAD.left - 6, y);
+    }
+    if (trace) {
+      g.strokeStyle = api.color;
+      g.beginPath();
+      g.moveTo(PAD.left, yOf(trace.samples[0]));
+      for (let i = 1; i <= WAVE_SAMPLES; i++) {
+        g.lineTo(PAD.left + pw * i / WAVE_SAMPLES, yOf(trace.samples[i % WAVE_SAMPLES]));
+      }
+      g.stroke();
+      g.fillStyle = '#b7bac2';
+      g.textAlign = 'left'; g.fillText('0', PAD.left, h - 10);
+      g.textAlign = 'right'; g.fillText('1 cycle', w - PAD.right, h - 10);
+      return;
     }
     const bw = pw / SPECTRA_PARTIALS;
     const zero = yOf(0);
@@ -139,6 +178,13 @@ export function createSpectraEditor(entry, api) {
     if (pw <= 0 || ph <= 0) return null;
     const x = event.clientX - rect.left - PAD.left;
     const y = event.clientY - rect.top - PAD.top;
+    if (isWaveform()) {
+      const { range } = currentWave();
+      return {
+        index: clamp(Math.round(x / pw * WAVE_SAMPLES), 0, WAVE_SAMPLES - 1),
+        value: erase ? 0 : range * clamp(1 - 2 * y / ph, -1, 1),
+      };
+    }
     const item = TABS[tab];
     return {
       index: clamp(Math.floor(x / pw * SPECTRA_PARTIALS), 0, SPECTRA_PARTIALS - 1),
@@ -149,15 +195,24 @@ export function createSpectraEditor(entry, api) {
   function paint(event) {
     const point = pointAt(event);
     if (!point) return;
-    const values = [...state[TABS[tab].key]];
+    const trace = isWaveform() ? currentWave() : null;
+    const key = TABS[tab].key;
+    const values = trace ? trace.samples : [...state[key]];
     const start = last ?? point;
     const steps = Math.max(1, Math.abs(point.index - start.index));
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
-      values[Math.round(start.index + (point.index - start.index) * t)] = Math.round((start.value + (point.value - start.value) * t) * 10) / 10;
+      const v = start.value + (point.value - start.value) * t;
+      values[Math.round(start.index + (point.index - start.index) * t)] = trace ? v : Math.round(v * 10) / 10;
     }
-    selected = point.index;
-    state = { ...state, [TABS[tab].key]: values };
+    if (trace) {
+      trace.levels = waveformToLevels(values);
+      state = { ...state, levels: trace.levels };
+    } else {
+      if (key === 'levels') wave = null;
+      selected = point.index;
+      state = { ...state, [key]: values };
+    }
     last = point;
     commit();
   }
@@ -169,7 +224,7 @@ export function createSpectraEditor(entry, api) {
     api.endEdit();
   }
   canvas.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0 && event.button !== 2) return;
+    if (painting || (event.button !== 0 && event.button !== 2)) return;
     event.preventDefault();
     if (event.isTrusted) canvas.setPointerCapture(event.pointerId);
     api.beginEdit();
@@ -188,17 +243,22 @@ export function createSpectraEditor(entry, api) {
     draw();
   });
   value.addEventListener('change', () => {
+    if (isWaveform()) return;
     if (!Number.isFinite(value.valueAsNumber)) { draw(); return; }
     api.beginEdit();
     state = normalizeSpectraState(entry.state);
     const item = TABS[tab];
+    if (item.key === 'levels') wave = null;
     state[item.key][selected] = clamp(value.valueAsNumber, item.min, item.max);
     commit();
     api.endEdit();
   });
   reset.addEventListener('click', () => {
     api.beginEdit();
-    state = { ...normalizeSpectraState(entry.state), [TABS[tab].key]: defaultSpectraState()[TABS[tab].key] };
+    const key = isWaveform() ? 'levels' : TABS[tab].key;
+    if (key === 'levels') wave = null;
+    const values = isWaveform() ? Array(SPECTRA_PARTIALS).fill(0) : defaultSpectraState()[key];
+    state = { ...normalizeSpectraState(entry.state), [key]: values };
     commit();
     api.endEdit();
   });
