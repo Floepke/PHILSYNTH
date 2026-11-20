@@ -34,14 +34,15 @@ TimeLine playhead in minutes and seconds, calculated from its musical position
 and the current BPM; it follows seeking and loop playback.
 
 Audio > Audio Latency offers Interactive (the default) and requested output
-latencies of 20, 40, 80, or 160 ms. Save with OK, then restart the Electron app
+latencies of 10, 20, 40, 80, or 160 ms. Save with OK, then restart the Electron app
 or reload the browser to apply it. Larger requests increase live keyboard/MIDI
 response latency. Web Audio and the audio device may choose a different actual
 latency. Electron now renders complete engine blocks on a dedicated worker,
 then the AudioWorklet plays them from a shared queue without waiting for DSP.
-Interactive uses 20 ms of rendering headroom; numeric options request at least
-that much headroom. The queue also includes a margin for device-buffer callback
-bursts, and both are rounded to 128-sample blocks. Queue delay is additional to
+Interactive uses 20 ms of rendering headroom; numeric options use the selected
+headroom. Lower headroom can cause dropouts under load. The queue also includes a
+margin for device-buffer callback bursts; the total is rounded to 128-sample
+blocks. Queue delay is additional to
 device latency and affects live keyboard/MIDI and microphone monitoring.
 The DSP block remains 128 samples. Patch workers in buffered mode can wait for
 70% of the selected headroom rather than 70% of one tiny block; those waits

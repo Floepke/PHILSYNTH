@@ -117,7 +117,7 @@ export class Engine {
     await this.ctx.audioWorklet.addModule(new URL('./engine.worklet.js', import.meta.url));
     const wasm = await loadWasm();
     this.wasm = wasm; // kept for offline renders (src/render.js)
-    const headroomMs = typeof latencyHint === 'number' ? Math.max(20, latencyHint * 1000) : 20;
+    const headroomMs = typeof latencyHint === 'number' ? Math.max(10, latencyHint * 1000) : 20;
     const burstMs = Math.max(512 / this.ctx.sampleRate * 1000, (this.ctx.baseLatency ?? 0) * 1000);
     const queue = buffered && globalThis.crossOriginIsolated && typeof SharedArrayBuffer === 'function'
       ? createRenderQueue(this.ctx.sampleRate, headroomMs + burstMs, MIC_SLOTS) : null;
