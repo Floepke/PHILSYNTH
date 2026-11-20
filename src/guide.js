@@ -346,6 +346,7 @@ export const GUIDE = [
         title: 'Pianoroll: navigate',
         items: [
           'Barlines cross over the vertical stave lines. Large measure numbers appear to the right of the stave. The velocity divider keeps its drag and zoom controls without number labels.',
+          'Long pitch-bend and velocity paths and their editing handles are drawn only near the visible viewport; scrolling reveals the remaining curves without changing their points or rounding. The grid, stave and keyboard reuse cached drawing layers until their appearance changes.',
           `The wheel or trackpad scrolls smoothly (scroll up past beat zero for some free room; with the pitch zoomed in, swiping sideways pans the keys); ${k(CMD)} + wheel zooms time, ${k('Middle mouse')} + drag pans. The scrollbar on the right (the TimeLine\'s look) spans the clip: drag it, or click its track to jump there. Hover it to preview the song measure at the center of the destination view.`,
           `${k('Shift')} + wheel zooms pitch around the pointer: the stave and the keyboard widen together, so micropitch leans and bends are easier to place. Zoomed in, a horizontal scrollbar shows at the top of the pianoroll, ${k('Middle mouse')} + drag also pans sideways, and moving notes, bend points or a selection rectangle past the left / right edge scrolls along. Notes stop growing at 48 px wide. Zoom fully out to see all keys again; the view is saved with the project and restored on startup.`,
         ],

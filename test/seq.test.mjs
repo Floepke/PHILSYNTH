@@ -3434,6 +3434,108 @@ for (const cancelled of [false, true]) {
   assert.ok(Math.abs(c.vel - 1) < 1e-6, `selected note snapped: ${c.vel}`);
 }
 
+// Dense bend paths submit only visible geometry, with exact curve values at the clipped edges.
+{
+  const { clip, roll } = setup();
+  const n = note(60, 0, 1000);
+  n.bends = Array.from({ length: 10000 }, (_, i) => ({ t: (i + 1) / 10, d: Math.sin(i) * 3, r: 0.5 }));
+  clip.length = 1000;
+  clip.notes.push(n);
+  const cv = roll.surface.cv;
+  const paths = () => {
+    cv.drawing.length = 0;
+    roll.redraw(); flush();
+    let path = [];
+    return cv.drawing.flatMap(([op, ...args]) => {
+      if (op === 'beginPath') path = [];
+      if (op === 'moveTo' || op === 'lineTo') path.push(args);
+      return op === 'stroke' && args[0].startsWith('color-mix') ? [path] : [];
+    });
+  };
+  roll.setView({ sy: 480 * 48, ppq: 48 });
+  let body = paths()[0];
+  assert.ok(body.length < 2500, 'offscreen bends do not enter the canvas path');
+  for (const [x, y] of [body[0], body.at(-1)]) {
+    const time = (y + roll.getView().sy) / roll.getView().ppq;
+    assert.ok(Math.abs(x - nx(notePitchAt(n, time))) < 1e-8, 'edge pitch follows the original rounded curve');
+    assert.ok(y >= -40 && y <= 416, 'path endpoints stay near the viewport');
+  }
+  n.bends = n.bends.map(b => ({ ...b, d: b.d + 1 }));
+  const changed = paths()[0];
+  assert.ok(Math.abs(changed[0][0] - body[0][0] - 14) < 1e-8, 'bend edits invalidate the cached curve');
+  key(cv, 'a', { ctrlKey: true });
+  paths();
+  assert.ok(cv.drawing.filter(([op]) => op === 'arc').length < 200, 'selected offscreen bend handles are not drawn');
+}
+
+// Velocity drawing is viewport-bounded and cached curves track in-place point edits.
+{
+  const { clip, roll } = setup();
+  const n = note(60, 0, 1000);
+  n.vels = Array.from({ length: 10000 }, (_, i) => ({ t: (i + 1) / 10, v: 0.5 + Math.sin(i) / 4, r: 0.5 }));
+  clip.length = 1000;
+  clip.notes.push(n);
+  const cv = roll.surface.cv;
+  roll.setView({ sy: 480 * 48, ppq: 48 });
+  key(cv, 'a', { ctrlKey: true });
+  const curve = () => {
+    cv.drawing.length = 0;
+    roll.redraw(); flush();
+    let path = [];
+    return cv.drawing.flatMap(([op, ...args]) => {
+      if (op === 'beginPath') path = [];
+      if (op === 'moveTo' || op === 'lineTo') path.push(args);
+      return op === 'stroke' && args[1] === 1.25 ? [path] : [];
+    })[0];
+  };
+  const before = curve();
+  assert.ok(before.length < 2500, 'velocity paths omit offscreen vertices');
+  assert.ok(before.every(([, y]) => y >= -7.001 && y <= 383.001));
+  assert.ok(cv.drawing.filter(([op, x]) => op === 'arc' && x < 84).length < 200,
+    'offscreen selected velocity handles are not submitted');
+  n.vels[4800].v += 0.1;
+  const after = curve();
+  assert.notDeepEqual(after, before, 'in-place velocity edits invalidate the cached curve');
+}
+
+// Raster layers are reused on playback frames and refreshed when their inputs change.
+{
+  const { clip, roll, ctx } = setup();
+  const cv = roll.surface.cv;
+  const images = [];
+  cv.context.drawImage = (canvas) => images.push({ canvas, operations: canvas.drawing.length });
+  const draw = () => {
+    images.length = 0;
+    roll.redraw(); flush();
+    assert.equal(images.length, 3, 'grid, stave and keyboard are separate layers');
+    return [...images];
+  };
+  const first = draw();
+  ctx.transport.playing = true;
+  ctx.transport.pos = 1;
+  const playing = draw();
+  assert.deepEqual(playing, first, 'playhead movement alone reuses all static layers');
+  ctx.pianorollPreferences.alternateStaveColors = false;
+  const uniform = draw();
+  assert.equal(uniform[0].operations, first[0].operations);
+  assert.ok(uniform[1].operations > first[1].operations, 'stave preference rebuilds its layer');
+  assert.equal(uniform[2].operations, first[2].operations);
+  ctx.heldKeys = () => new Set([60]);
+  const held = draw();
+  assert.ok(held[2].operations > uniform[2].operations, 'live keyboard changes rebuild its layer');
+  clip.notes.push(note(64, 0, 4));
+  const sounding = draw();
+  assert.ok(sounding[2].operations > held[2].operations, 'sounding pitches update the cached keyboard');
+  const gridBefore = sounding[0].operations;
+  clip.start = 4;
+  assert.ok(draw()[0].operations > gridBefore, 'clip positioning invalidates grid labels');
+  const scrolled = draw();
+  roll.setView({ sy: 48, ppq: 48 }); flush();
+  const moved = draw();
+  assert.ok(moved[0].operations > scrolled[0].operations, 'scrolling invalidates the grid');
+  assert.ok(moved[1].operations > scrolled[1].operations, 'scrolling invalidates the stave');
+}
+
 // Pitch bend: double-click a selected note's body inserts a bend point that drags at once; points
 // snap pitch and time (Shift frees pitch, Free timing frees time), the body follows the curve, wheel rounds,
 // right-click deletes, the menu resets; tuned notes shift whole (body included).

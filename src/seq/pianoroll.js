@@ -143,6 +143,28 @@ export function createPianoRoll(host, ctx) {
 
   const s = createSurface(host, paint);
   const { cv } = s;
+  const layers = new Map();
+  function drawLayer(g, id, key, bounds, paintLayer) {
+    // Headless canvas hosts can draw directly; browser canvases reuse rasterized static layers.
+    if (!g.drawImage) { paintLayer(g); return; }
+    let layer = layers.get(id);
+    if (!layer) {
+      const canvas = document.createElement('canvas');
+      layer = { canvas, g: canvas.getContext('2d'), key: null };
+      layers.set(id, layer);
+    }
+    if (layer.key !== key) {
+      layer.canvas.width = Math.max(1, Math.round(s.w * s.dpr));
+      layer.canvas.height = Math.max(1, Math.round(s.h * s.dpr));
+      layer.g.setTransform(s.dpr, 0, 0, s.dpr, 0, 0);
+      layer.g.save();
+      layer.g.beginPath(); layer.g.rect(...bounds); layer.g.clip();
+      paintLayer(layer.g);
+      layer.g.restore();
+      layer.key = key;
+    }
+    g.drawImage(layer.canvas, 0, 0, s.w, s.h);
+  }
   const velW = () => clamp(view.velW, VEL_MIN, Math.max(VEL_MIN, s.w * VEL_MAX_SHARE));
   const gridX = () => velW() + GUTTER; // left edge of the note grid
   const inRuler = (x, y) => x >= velW() && x < gridX() && y >= gridTop() && y < s.h;
@@ -160,7 +182,22 @@ export function createPianoRoll(host, ctx) {
   // x of a (fractional) pitch: whole pitches sit in the middle of their column, cents lean sideways
   const centerX = (p) => xOf(p) + keyWidth() / 2;
   const headX = (n) => centerX(n.pitch); // leans by the tuning
-  const bodyX = (n, t) => centerX(notePitchAt(n, t)); // middle of the note body t quarters after its start
+  const bendCurves = new WeakMap();
+  const curveOf = (n) => {
+    if (!n.bends?.length) return null;
+    let poly = bendCurves.get(n.bends);
+    if (!poly) { poly = bendPolyline(n); bendCurves.set(n.bends, poly); }
+    return poly;
+  };
+  const bodyX = (n, t) => centerX(notePitchAt(n, t, curveOf(n))); // middle of the note body t quarters after its start
+  const bendIndex = (bends, t) => {
+    let lo = 0, hi = bends.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (bends[mid].t < t) lo = mid + 1; else hi = mid;
+    }
+    return lo;
+  };
   const pitchAt = (x) => keyWidth() > 0 ? clamp(Math.floor((x - gridX() + view.hx) / keyWidth()), 0, PITCH_MAX) : 0;
   // white key fronts (below the black keys) share each octave's 12 columns equally, 7 per octave
   // shifted left by WHITE_SHIFT so the G|A line runs through the middle of G#
@@ -416,7 +453,7 @@ export function createPianoRoll(host, ctx) {
     const t = playheadTime(clip);
     if (t === null) return out;
     for (const n of clip.notes) {
-      if (n.start >= 0 && n.start < clip.length && n.start <= t && t < n.start + n.length) out.add(basePitch(notePitchAt(n, t - n.start)));
+      if (n.start >= 0 && n.start < clip.length && n.start <= t && t < n.start + n.length) out.add(basePitch(notePitchAt(n, t - n.start, curveOf(n))));
     }
     return out;
   }
@@ -440,16 +477,23 @@ export function createPianoRoll(host, ctx) {
   function bentBody(g, n, poly, bw) {
     const hh = n.length * view.ppq;
     const r = Math.min(bw / 2, hh / 2);
-    const t0 = r / view.ppq;
-    const t1 = n.length - t0;
+    const inset = r / view.ppq;
+    const t0 = Math.max(inset, timeAt(gridTop() - bw) - n.start);
+    const t1 = Math.min(Math.max(inset, n.length - inset), timeAt(gridBottom() + bw) - n.start);
+    if (t0 > t1) return;
     g.lineWidth = Math.min(bw, hh);
     g.lineCap = 'round';
     g.lineJoin = 'round';
     g.moveTo(bodyX(n, t0), yOf(n.start + t0));
-    for (let i = 0; i < poly.length; i += 2) {
-      if (poly[i] > t0 && poly[i] < t1) g.lineTo(bodyX(n, poly[i]), yOf(n.start + poly[i]));
+    let lo = 0, hi = poly.length / 2;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (poly[mid * 2] <= t0) lo = mid + 1; else hi = mid;
     }
-    g.lineTo(bodyX(n, Math.max(t0, t1)), yOf(n.start + Math.max(t0, t1)));
+    for (let i = lo * 2; i < poly.length && poly[i] < t1; i += 2) {
+      g.lineTo(centerX(clamp(n.pitch + poly[i + 1], 0, PITCH_MAX)), yOf(n.start + poly[i]));
+    }
+    g.lineTo(bodyX(n, t1), yOf(n.start + t1));
     g.stroke();
     g.lineCap = 'butt';
     g.lineJoin = 'miter';
@@ -459,16 +503,27 @@ export function createPianoRoll(host, ctx) {
   function paintBends(g, clip) {
     for (const n of clip.notes) {
       if (!n.bends?.length || !selected.has(n)) continue;
+      const first = bendIndex(n.bends, timeAt(gridTop() - 14) - n.start);
+      const end = bendIndex(n.bends, timeAt(gridBottom() + 14) - n.start);
+      const guideStart = Math.max(0, first - 1);
       g.strokeStyle = 'rgba(255, 255, 255, 0.55)';
       g.lineWidth = 1;
       g.setLineDash([3, 3]);
       g.beginPath();
-      g.moveTo(headX(n), yOf(n.start));
-      for (const b of n.bends) { const p = bendXY(n, b); g.lineTo(p.x, p.y); }
+      if (guideStart === 0) g.moveTo(headX(n), yOf(n.start));
+      else {
+        const p = bendXY(n, n.bends[guideStart]);
+        g.moveTo(p.x, p.y);
+      }
+      for (let i = guideStart; i < Math.min(n.bends.length, end + 1); i++) {
+        const p = bendXY(n, n.bends[i]); g.lineTo(p.x, p.y);
+      }
       g.stroke();
       g.setLineDash([]);
-      n.bends.forEach((b, i) => {
+      for (let i = first; i < end; i++) {
+        const b = n.bends[i];
         const { x, y } = bendXY(n, b);
+        if (x < gridX() - 14 || x > rollRight() + 14) continue;
         const active = (drag?.kind === 'bend' && drag.note === n && drag.i === i) || (hoverBend?.note === n && hoverBend.i === i);
         g.beginPath();
         g.arc(x, y, active ? 5.5 : 4.5, 0, Math.PI * 2);
@@ -483,7 +538,7 @@ export function createPianoRoll(host, ctx) {
           g.strokeStyle = SELECT;
           g.stroke();
         }
-      });
+      }
     }
   }
 
@@ -535,6 +590,10 @@ export function createPianoRoll(host, ctx) {
     const keysY = keyTop();
     const gridLeft = xOf(GRID_LOW) + kw / 2;
     const gridRight = xOf(GRID_HIGH) + kw / 2;
+    const noteMargin = Math.max(32, 2 * headSize().height + 8);
+    const visibleNotes = clip ? clip.notes.filter(n =>
+      yOf(n.start) <= bottom + noteMargin && yOf(n.start + n.length) >= top - noteMargin) : [];
+    const geometryKey = JSON.stringify([s.w, s.h, s.dpr, view, keyboardH]);
     g.fillStyle = BG;
     g.fillRect(0, 0, w, h);
     const fullW = w;
@@ -545,6 +604,14 @@ export function createPianoRoll(host, ctx) {
     g.rect(gridX(), top, Math.max(0, w - gridX()), bottom - top);
     g.clip();
     if (clip) {
+      const t0 = Math.max(0, timeAt(top));
+      const t1 = timeAt(bottom);
+      const m = meter(ctx.song());
+      const off = clip.start;
+      const barMarks = spacedBars(m, off, off + t0, off + t1);
+      const drawnBars = barMarks.map(b => b.t - off);
+      drawLayer(g, 'grid', JSON.stringify([geometryKey, clip.start, clip.length, ctx.song().sigs, ctx.song().snap]),
+        [gridX(), top, w - gridX(), bottom - top], (g) => {
       // past the clip end: shaded, notes there do not play
       const yEnd = yOf(clip.length);
       if (yEnd < bottom) {
@@ -553,13 +620,48 @@ export function createPianoRoll(host, ctx) {
       }
       // grid: alternating light/dark snap-step bands, dashed beat lines and solid bar lines
       // of the time signature (taken from the TimeLine at the clip's position)
-      const t0 = Math.max(0, timeAt(top));
-      const t1 = timeAt(bottom);
       const st = gridStep();
       g.fillStyle = TIME_GRID.band;
       snapBands(st, view.ppq, t0, t1, (a, b) => {
         const ya = Math.round(yOf(a));
         g.fillRect(gridLeft, ya, gridRight - gridLeft, Math.round(yOf(b)) - ya);
+      });
+      const gridLine = (t, color) => {
+        const y = Math.round(yOf(t)) + 0.5;
+        g.strokeStyle = color;
+        g.lineWidth = TIME_GRID.width;
+        g.beginPath(); g.moveTo(gridLeft, y); g.lineTo(gridRight, y); g.stroke();
+      };
+      const bars = [...barLines(null, off + t0, off + t1, m)].map((b) => b.t - off);
+      if (beatsShown(m)) {
+        g.setLineDash(TIME_GRID.beatDash);
+        g.lineDashOffset = 0;
+        for (const t of beatLines(null, off + t0, off + t1, m)) {
+          if (!gridBeatEnabled(m, t)) continue;
+          const local = t - off;
+          if (bars.some((b) => Math.abs(b - local) <= TIME_EPSILON)
+            || Math.abs(local) <= TIME_EPSILON || Math.abs(local - clip.length) <= TIME_EPSILON) continue;
+          gridLine(local, BEAT);
+        }
+        g.setLineDash([]);
+        g.lineDashOffset = 0;
+      }
+      g.font = `${WEIGHT} ${MEASURE_SIZE}px ${FONT}`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      let labelY = -Infinity;
+      for (const b of barMarks) {
+        const y = Math.round(yOf(b.t - off)) + 0.5;
+        if (y - labelY < SIG_SIZE + 4) continue;
+        labelY = y;
+        const label = String(b.bar + 1);
+        const x = (Math.max(gridX(), gridRight) + w) / 2;
+        g.strokeStyle = BG;
+        g.lineWidth = 3;
+        g.strokeText(label, x, y);
+        g.fillStyle = STAVE;
+        g.fillText(label, x, y);
+      }
       });
       const line = (t, color, lw = 1, cutNotes = false) => {
         const y = Math.round(yOf(t)) + 0.5;
@@ -569,7 +671,7 @@ export function createPianoRoll(host, ctx) {
         let left = gridLeft;
         if (cutNotes) {
           // Compare musical time, not rounded pixels; starts and ends can drift at triplet boundaries.
-          const gaps = clip.notes
+          const gaps = visibleNotes
             .filter((n) => n.start <= t + TIME_EPSILON && n.start + n.length >= t - TIME_EPSILON)
             .map((n) => { const cx = bodyX(n, t - n.start); return [cx - nw - overlap(), cx + nw + overlap()]; })
             .sort((a, b) => a[0] - b[0]);
@@ -582,50 +684,17 @@ export function createPianoRoll(host, ctx) {
         if (left < gridRight) { g.moveTo(left, y); g.lineTo(gridRight, y); }
         g.stroke();
       };
-      const m = meter(ctx.song());
-      const off = clip.start;
-      const bars = [...barLines(null, off + t0, off + t1, m)].map((b) => b.t - off);
-      const drawnBars = spacedBars(m, off, off + t0, off + t1).map((b) => b.t - off);
-      if (beatsShown(m)) {
-        g.setLineDash(TIME_GRID.beatDash);
-        g.lineDashOffset = 0; // dashes travel with their A#0 anchor
-        for (const t of beatLines(null, off + t0, off + t1, m)) {
-          if (!gridBeatEnabled(m, t)) continue;
-          const local = t - off;
-          if (bars.some((b) => Math.abs(b - local) <= TIME_EPSILON)
-            || Math.abs(local) <= TIME_EPSILON || Math.abs(local - clip.length) <= TIME_EPSILON) continue;
-          line(local, BEAT);
-        }
-        g.setLineDash([]);
-        g.lineDashOffset = 0;
-      }
-      g.font = `${WEIGHT} ${MEASURE_SIZE}px ${FONT}`;
-      g.textAlign = 'center';
-      g.textBaseline = 'middle';
-      let labelY = -Infinity;
-      for (const b of spacedBars(m, off, off + t0, off + t1)) {
-        const y = Math.round(yOf(b.t - off)) + 0.5;
-        if (y - labelY < SIG_SIZE + 4) continue;
-        labelY = y;
-        const label = String(b.bar + 1);
-        const x = (Math.max(gridX(), gridRight) + w) / 2;
-        g.strokeStyle = BG;
-        g.lineWidth = 3;
-        g.strokeText(label, x, y);
-        g.fillStyle = STAVE;
-        g.fillText(label, x, y);
-      }
 
       // note bodies
       // Lift the module hue off the charcoal background without changing its identity.
       const color = `color-mix(in srgb, ${ctx.color(clip)} 75%, #fff)`;
       const blackColor = `color-mix(in srgb, ${color} 76%, #000)`;
       const blackSelected = `color-mix(in srgb, ${SELECT} 76%, #000)`;
-      for (const n of clip.notes) {
+      for (const n of visibleNotes) {
         const y = yOf(n.start);
         const hh = n.length * view.ppq;
         if (y > bottom || y + hh < 0) continue;
-        const poly = bendPolyline(n);
+        const poly = curveOf(n);
         const x = headX(n) - nw / 2;
         if (!poly && (x > w || x + nw < gridX())) continue;
         g.globalAlpha = n.start >= 0 && n.start < clip.length ? 1 : 0.35;
@@ -644,10 +713,12 @@ export function createPianoRoll(host, ctx) {
       }
 
       // Stave lines go over note bodies but under barlines.
+      const alternate = ctx.pianorollPreferences?.alternateStaveColors !== false;
+      drawLayer(g, 'stave', JSON.stringify([geometryKey, alternate]),
+        [gridX(), top, w - gridX(), bottom - top], (g) => {
       g.lineCap = 'round';
       const thin = staveWidth();
       const staveTop = Math.min(bottom, Math.max(0, yOf(0)));
-      const alternate = ctx.pianorollPreferences?.alternateStaveColors !== false;
       const staveColor = (p) => alternate && (Math.floor(p / 12) - 1) % 2 === 0 ? STAVE_LIGHT : STAVE;
       // the group of three (F# G# A#) is thicker than the group of two (C# D#)
       const stave = (dashed, three, color) => {
@@ -673,6 +744,7 @@ export function createPianoRoll(host, ctx) {
       g.setLineDash([]);
       g.lineDashOffset = 0;
       g.lineCap = 'butt';
+      });
       for (const t of drawnBars) if (gridBeatEnabled(m, t + off)) line(t, BAR_LINE, 1, true);
       line(0, BOUNDARY, 1, true);
       line(clip.length, endHover || drag?.kind === 'clipEnd' ? SELECT : BOUNDARY, 2, true);
@@ -680,10 +752,10 @@ export function createPianoRoll(host, ctx) {
     }
 
     if (clip) {
-      for (const n of clip.notes) ledgerLines(g, n.pitch, yOf(n.start), n.start >= 0 && n.start < clip.length ? 1 : 0.4);
+      for (const n of visibleNotes) ledgerLines(g, n.pitch, yOf(n.start), n.start >= 0 && n.start < clip.length ? 1 : 0.4);
       // white heads first: a black one of a neighbouring key overlaps them
       for (const black of [false, true]) {
-        for (const n of clip.notes) {
+        for (const n of visibleNotes) {
           if (isBlack(basePitch(n.pitch)) !== black) continue;
           const y = yOf(n.start);
           if (y < -2 * headSize(basePitch(n.pitch)).height || y > bottom) continue;
@@ -722,9 +794,16 @@ export function createPianoRoll(host, ctx) {
     g.restore();
 
     // keyboard strip
-    g.fillStyle = '#292b31';
     const KEYS_H = keyboardHeight();
     const BLACK_KEY = blackKey();
+    // keys held on the MIDI device / computer keyboard (a tuned pitch lights its base key)
+    const live = new Set([...(ctx.heldKeys?.() ?? [])].map(basePitch));
+    const blackLive = `color-mix(in srgb, ${SELECT} 70%, #000)`;
+    const sounding = soundingKeys(clip); // notes of all playing clips under the playhead
+    const keyboardKey = JSON.stringify([geometryKey, hoverPitch, [...live],
+      [...sounding].map(([p, c]) => [p, ctx.color(c)]), drag?.kind === 'keyboard' ? drag.pitch : null]);
+    drawLayer(g, 'keyboard', keyboardKey, [0, keysY, fullW, KEYS_H], (g) => {
+    g.fillStyle = '#292b31';
     g.fillRect(0, keysY, fullW, KEYS_H);
     g.save();
     g.beginPath();
@@ -734,10 +813,6 @@ export function createPianoRoll(host, ctx) {
     g.textAlign = 'center';
     g.textBaseline = 'bottom';
     const keyGap = Math.min(1, kw * 0.1);
-    // keys held on the MIDI device / computer keyboard (a tuned pitch lights its base key)
-    const live = new Set([...(ctx.heldKeys?.() ?? [])].map(basePitch));
-    const blackLive = `color-mix(in srgb, ${SELECT} 70%, #000)`;
-    const sounding = soundingKeys(clip); // notes of all playing clips under the playhead
     const noteColors = new Map();
     const noteColor = (p) => {
       const c = sounding.get(p);
@@ -781,6 +856,7 @@ export function createPianoRoll(host, ctx) {
       }
     }
     g.restore();
+    });
 
     // bar / beat ruler, right of the velocity strip
     g.fillStyle = '#292b31';
@@ -795,7 +871,7 @@ export function createPianoRoll(host, ctx) {
     g.lineWidth = 1;
     g.beginPath(); g.moveTo(w + 0.5, top); g.lineTo(w + 0.5, bottom); g.stroke();
     paintThumb(g, scrollbar(), true, w, sbActive ? 2 : sbHover ? 1 : 0);
-    vel.paint(g, h);
+    vel.paint(g, h, visibleNotes);
     if (drag?.kind === 'select' && drag.shown && drag.velocity) {
       const x = Math.min(drag.x0, drag.x1);
       const y = Math.max(0, Math.min(drag.y0, drag.y1));
@@ -868,14 +944,18 @@ export function createPianoRoll(host, ctx) {
     if (!clip || !inGrid(x, y)) return null;
     const tolerance = Math.min(1, noteW() * 0.1);
     // black heads are drawn on top: they are hit first
-    const order = [...clip.notes].reverse().sort((a, b) => isBlack(basePitch(b.pitch)) - isBlack(basePitch(a.pitch)));
-    for (const n of order) {
+    for (const black of [true, false]) {
+      for (let i = clip.notes.length - 1; i >= 0; i--) {
+      const n = clip.notes[i];
+      if (isBlack(basePitch(n.pitch)) !== black) continue;
       const { rx, ry, tilt, sx, dx: off } = headSize(basePitch(n.pitch));
       const dx = (x - headX(n) - off) / sx;
       const dy = (y - headY(yOf(n.start), basePitch(n.pitch))) / HEAD_STRETCH;
+      if (Math.abs(dy) > rx + ry + tolerance) continue;
       const u = dx * Math.cos(tilt) + dy * Math.sin(tilt);
       const v = -dx * Math.sin(tilt) + dy * Math.cos(tilt);
       if ((u / (rx + tolerance)) ** 2 + (v / (ry + tolerance)) ** 2 <= 1) return { note: n, part: 'head' };
+      }
     }
     for (let i = clip.notes.length - 1; i >= 0; i--) {
       const n = clip.notes[i];
@@ -894,11 +974,14 @@ export function createPianoRoll(host, ctx) {
     let bd = BEND_HIT;
     for (const n of clip.notes) {
       if (!n.bends?.length || !selected.has(n)) continue;
-      n.bends.forEach((b, i) => {
+      const first = bendIndex(n.bends, timeAt(y - BEND_HIT) - n.start);
+      const end = bendIndex(n.bends, timeAt(y + BEND_HIT) - n.start);
+      for (let i = first; i < end; i++) {
+        const b = n.bends[i];
         const p = bendXY(n, b);
         const d = Math.hypot(p.x - x, p.y - y);
         if (d <= bd) { bd = d; best = { note: n, i }; }
-      });
+      }
     }
     return best;
   }

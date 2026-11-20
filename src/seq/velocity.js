@@ -19,7 +19,7 @@
 //   right-click a curve point           menu: Delete point (not the first)
 import { FONT, WEIGHT } from '../font.js';
 import { pianoTimeStep, snapRound, clean, notePoints, noteVelAt, applyVelLine } from '../song.js';
-import { curvePolyline, NEW_NOTE_POINT_ROUND } from '../curve.js';
+import { curvePolyline, sampleAt, NEW_NOTE_POINT_ROUND } from '../curve.js';
 import { doublePress } from '../doublepress.js';
 import { capture, clamp } from './surface.js';
 import { registerShortcutMenu } from '../shortcuts.js';
@@ -74,6 +74,24 @@ export function createVelocityStrip(o) {
   const contains = (x, y) => x >= 0 && x < W() && y >= o.top() && y < o.bottom();
   const step = () => pianoTimeStep(o.song().snap);
   const sigOf = (notes) => notes.map((n) => `${n.start},${n.length},${n.vel},${JSON.stringify(n.vels ?? [])}`).join(';');
+  const curves = new WeakMap();
+  const curveOf = (n) => {
+    const sig = `${n.vel},${JSON.stringify(n.vels ?? [])}`;
+    let cached = curves.get(n);
+    if (!cached || cached.sig !== sig) {
+      cached = { sig, poly: poly(notePoints(n)) };
+      curves.set(n, cached);
+    }
+    return cached.poly;
+  };
+  const pointIndex = (points, t) => {
+    let lo = 0, hi = points.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (points[mid].t < t) lo = mid + 1; else hi = mid;
+    }
+    return lo;
+  };
 
   // Keep actual point identities for hit testing; never average or rewrite independent curves.
   function sync() {
@@ -129,10 +147,13 @@ export function createVelocityStrip(o) {
     if (!group) return -1;
     let best = -1;
     let bd = HIT;
-    group.points.forEach((p, i) => {
+    const first = pointIndex(group.points, o.timeAt(y - HIT));
+    const end = pointIndex(group.points, o.timeAt(y + HIT) + 1e-9);
+    for (let i = first; i < end; i++) {
+      const p = group.points[i];
       const d = Math.hypot(xv(p.v) - x, o.yOf(p.t) - y);
       if (d <= bd) { bd = d; best = i; }
-    });
+    }
     return best;
   }
 
@@ -150,7 +171,7 @@ export function createVelocityStrip(o) {
 
   const poly = (pts) => curvePolyline(pts.map((p) => ({ x: p.t, y: p.v, r: p.r })));
 
-  function paint(g, h) {
+  function paint(g, h, visibleNotes = null) {
     const bottom = o.bottom();
     g.fillStyle = '#34353c';
     g.fillRect(0, 0, W(), bottom);
@@ -171,7 +192,7 @@ export function createVelocityStrip(o) {
       sync();
       const sel = o.selected();
       const color = `color-mix(in srgb, ${o.color(clip)} 75%, #fff)`;
-      for (const n of clip.notes) {
+      for (const n of visibleNotes ?? clip.notes) {
         const y = o.yOf(n.start);
         const y1 = o.yOf(n.start + n.length);
         if (y > bottom + HIT || y1 < -HIT) continue;
@@ -184,27 +205,38 @@ export function createVelocityStrip(o) {
         // the note's curve while it sounds
         g.lineWidth = 1.25;
         g.beginPath();
-        const pl = poly(notePoints(n));
-        let first = true;
-        for (let i = 0; i < pl.length; i += 2) {
-          if (pl[i] > n.length) break;
+        const pl = curveOf(n);
+        const from = Math.max(0, o.timeAt(o.top() - HIT) - n.start);
+        const to = Math.min(n.length, o.timeAt(bottom + HIT) - n.start);
+        g.moveTo(xv(sampleAt(pl, from)), o.yOf(n.start + from));
+        let lo = 0, hi = pl.length / 2;
+        while (lo < hi) {
+          const mid = (lo + hi) >>> 1;
+          if (pl[mid * 2] <= from) lo = mid + 1; else hi = mid;
+        }
+        for (let i = lo * 2; i < pl.length && pl[i] < to; i += 2) {
           const px = xv(pl[i + 1]);
           const py = o.yOf(n.start + pl[i]);
-          if (first) { g.moveTo(px, py); first = false; } else g.lineTo(px, py);
+          g.lineTo(px, py);
         }
-        g.lineTo(xv(noteVelAt(n, n.length)), y1);
+        g.lineTo(xv(sampleAt(pl, to)), o.yOf(n.start + to));
         g.stroke();
         // handle
         g.globalAlpha = 1;
-        g.beginPath();
-        g.arc(xv(n.vel), y, hover?.note === n || drag?.note === n ? 4 : 3, 0, Math.PI * 2);
-        g.fillStyle = on ? SELECT : color;
-        g.fill();
+        if (y >= o.top() - HIT && y <= bottom + HIT) {
+          g.beginPath();
+          g.arc(xv(n.vel), y, hover?.note === n || drag?.note === n ? 4 : 3, 0, Math.PI * 2);
+          g.fillStyle = on ? SELECT : color;
+          g.fill();
+        }
       }
       if (group) {
         // Selected notes retain their own curves; show handles at their actual points.
         const pts = group.points;
-        pts.forEach((p, i) => {
+        const first = pointIndex(pts, o.timeAt(o.top() - 14));
+        const end = pointIndex(pts, o.timeAt(bottom + 14));
+        for (let i = first; i < end; i++) {
+          const p = pts[i];
           const x = xv(p.v);
           const y = o.yOf(p.t);
           const active = (p.point && drag?.point === p.point) || (hover?.kind === 'point' && hover.i === i);
@@ -221,7 +253,7 @@ export function createVelocityStrip(o) {
             g.strokeStyle = SELECT;
             g.stroke();
           }
-        });
+        }
       }
     }
     // Ctrl+drag: the straight line the velocities snap onto on release
