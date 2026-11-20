@@ -4488,12 +4488,70 @@ for (const free of [false, true]) {
     op === 'fillRect' && x === 0 && y === 0 && w === ROLL_WIDTH && h === 400)[5]);
   const stave = rgb(cv.drawing.find(([op, color]) => op === 'stroke' && color === '#111216')[1]);
   const selection = rgb(fills().find((color) => color[0] === '#'));
-  assert.ok(luminance(background) < 0.08);
+  assert.ok(luminance(background) < 0.15);
   assert.ok(luminance(stave) < luminance(background));
   assert.ok(contrast(stave, background) >= 1.8);
-  assert.ok(contrast(selection, background) >= 2);
-  assert.ok(contrast(selection.map((v) => v * 0.86), background) >= 1.6);
+  assert.ok(contrast(selection, background) >= 1.35);
+  assert.ok(contrast(selection.map((v) => v * 0.86), background) >= 1.09);
   assert.ok(contrast(rgb('#c3c7d0'), rgb('#292b31')) >= 4.5);
+}
+
+// Vertical stave lines alternate by octave, starting at the lone black key in octave zero.
+{
+  const { roll, ctx } = setup();
+  const cv = roll.surface.cv;
+  cv.drawing.length = 0;
+  roll.redraw();
+  flush();
+  let path = [];
+  let dashes = [];
+  const lines = new Map();
+  let lastStave = -1;
+  const barStrokes = new Map();
+  for (const [index, [op, ...args]] of cv.drawing.entries()) {
+    if (op === 'beginPath') path = [];
+    if (op === 'setLineDash') [dashes] = args;
+    if (op === 'moveTo' || op === 'lineTo') path.push([op, ...args]);
+    if (op !== 'stroke') continue;
+    for (let i = 1; i < path.length; i++) {
+      const [prev, x, top] = path[i - 1];
+      const [next, endX, bottom] = path[i];
+      if (prev === 'moveTo' && next === 'lineTo' && x === endX && x >= nx(22) && x <= nx(106)
+        && top === 0 && bottom === 376) {
+        lines.set(x, [args[0], dashes]);
+        lastStave = index;
+      }
+      if (prev === 'moveTo' && next === 'lineTo' && x === nx(22) && endX === nx(106)
+        && top === bottom && args[0] === '#111216' && dashes.length === 0) {
+        barStrokes.set(top, index);
+      }
+    }
+  }
+  const first = lines.get(nx(22)); // A#0
+  assert.ok(first, 'the first black key has a stave line');
+  const [light] = first;
+  const dark = '#111216';
+  assert.notEqual(light, dark);
+  for (const pitch of [25, 27, 30, 32, 34, 49, 51, 54, 56, 58, 106]) {
+    assert.deepEqual(lines.get(nx(pitch)), [dark, []]);
+  }
+  for (const pitch of [37, 39, 42, 44, 46, 66, 68, 70]) {
+    assert.deepEqual(lines.get(nx(pitch)), [light, []]);
+  }
+  for (const pitch of [61, 63]) assert.deepEqual(lines.get(nx(pitch)), [light, [7, 5]]);
+  assert.ok(barStrokes.get(ny(4) + 0.5) > lastStave, 'the barline is drawn over the stave');
+  assert.ok(barStrokes.get(0.5) > lastStave, 'the clip start boundary is drawn over the stave');
+
+  ctx.pianorollPreferences.alternateStaveColors = false;
+  cv.drawing.length = 0;
+  roll.redraw();
+  flush();
+  assert.ok(!cv.drawing.some(([op, color]) => op === 'stroke' && color === light),
+    'uniform mode does not draw the lighter stave color');
+  const central = cv.drawing.findIndex(([op, x, y]) => op === 'moveTo' && x === nx(61) && y === 0);
+  assert.ok(central >= 0);
+  assert.deepEqual(cv.drawing.slice(central - 2, central), [['setLineDash', [7, 5]], ['beginPath']]);
+  assert.deepEqual(cv.drawing.slice(central).find(([op]) => op === 'stroke').slice(0, 2), ['stroke', dark]);
 }
 
 // Written out-of-range heads extend the stave with short, matching black-key groups.

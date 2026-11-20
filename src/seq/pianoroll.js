@@ -96,9 +96,10 @@ const SIG_SLANT = Math.PI / 18; // 10°, tilt of the time signature divider
 const GUTTER = 36; // bar / beat ruler (right of the velocity strip)
 const VEL_MIN = 0; // the ruler drags the velocity strip between these widths; the grid scales
 const VEL_MAX_SHARE = 0.5; // of the roll width
-const BG = '#45464e';
+const BG = '#5d5e6a';
 const PLAYHEAD = '#ff916e';
 const STAVE = TIME_GRID.color;
+const STAVE_LIGHT = '#242529';
 const isThree = (p) => [6, 8, 10].includes(p % 12);
 const BEAT = STAVE;
 const BAR_LINE = STAVE;
@@ -598,10 +599,6 @@ export function createPianoRoll(host, ctx) {
         g.setLineDash([]);
         g.lineDashOffset = 0;
       }
-      for (const t of drawnBars) if (gridBeatEnabled(m, t + off)) line(t, BAR_LINE, 1, true);
-      line(0, BOUNDARY, 1, true);
-      line(clip.length, endHover || drag?.kind === 'clipEnd' ? SELECT : BOUNDARY, 2, true);
-
       g.font = `${WEIGHT} ${MEASURE_SIZE}px ${FONT}`;
       g.textAlign = 'center';
       g.textBaseline = 'middle';
@@ -645,34 +642,40 @@ export function createPianoRoll(host, ctx) {
         }
         g.globalAlpha = 1;
       }
-    }
 
-    // stave lines (black keys of the 88-key piano), on top of the note bodies; none without a clip
-    if (clip) {
-      g.strokeStyle = STAVE;
+      // Stave lines go over note bodies but under barlines.
       g.lineCap = 'round';
       const thin = staveWidth();
       const staveTop = Math.min(bottom, Math.max(0, yOf(0)));
+      const alternate = ctx.pianorollPreferences?.alternateStaveColors !== false;
+      const staveColor = (p) => alternate && (Math.floor(p / 12) - 1) % 2 === 0 ? STAVE_LIGHT : STAVE;
       // the group of three (F# G# A#) is thicker than the group of two (C# D#)
-      const stave = (dashed, three) => {
+      const stave = (dashed, three, color) => {
+        g.strokeStyle = color;
         g.lineWidth = three ? thin * 1.6 : thin;
         g.beginPath();
         for (let p = PIANO_LOW; p <= PIANO_HIGH; p++) {
           if (!isBlack(p) || CENTRAL.includes(p) !== dashed || isThree(p) !== three) continue;
+          if (staveColor(p) !== color) continue;
           const x = xOf(p) + kw / 2;
           g.moveTo(x, staveTop); g.lineTo(x, bottom);
         }
         g.stroke();
       };
-      stave(false, false);
-      stave(false, true);
+      for (const color of alternate ? [STAVE, STAVE_LIGHT] : [STAVE]) {
+        stave(false, false, color);
+        stave(false, true, color);
+      }
       // C#4 + D#4 dashed: marks the central octave; the dashes scroll with the notes
       g.setLineDash([7, 5]);
       g.lineDashOffset = Math.max(0, view.sy);
-      stave(true, false);
+      stave(true, false, staveColor(CENTRAL[0]));
       g.setLineDash([]);
       g.lineDashOffset = 0;
       g.lineCap = 'butt';
+      for (const t of drawnBars) if (gridBeatEnabled(m, t + off)) line(t, BAR_LINE, 1, true);
+      line(0, BOUNDARY, 1, true);
+      line(clip.length, endHover || drag?.kind === 'clipEnd' ? SELECT : BOUNDARY, 2, true);
       paintSignatures(g, clip, gridLeft, bottom);
     }
 

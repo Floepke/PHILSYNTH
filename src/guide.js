@@ -208,7 +208,7 @@ export const GUIDE = [
         items: [
           'The black keys of a piano form a repeating pattern: a group of <b>two</b> (C♯ and D♯) followed by a group of <b>three</b> (F♯, G♯ and A♯). The stave repeats exactly that pattern. The lines of the group of two are <b>thin</b>; the lines of the group of three are <b>slightly thicker</b>.',
           'The difference in weight lets the eye find its place immediately. The group of two marks C, D and E; the group of three marks F, G, A and B. As on the piano, you never count lines, you recognise the groups.',
-          'The two lines of the <b>central octave</b> (C♯4 and D♯4) are <b>dashed</b>, a landmark around middle C. The full stave spans an 88-key piano (A0 to C8). Written notes below A0 or above C8 have short <b>ledger lines</b> around their noteheads, extending back to the stave in complete groups of two and three with the same colour and thin/thick pattern. The cursor preview has no ledger lines. A0 and C8 themselves need no ledger lines. C♯8 adds the C♯8/D♯8 pair; F8 adds the F♯8/G♯8/A♯8 triple as well.',
+          'By default, stave lines alternate between lighter and darker shades by octave, starting with a lighter A♯0 and darker lines from C1 through B1. Turn off <b>Preferences… > Pianoroll > Alternate stave colors by octave</b> for uniformly dark lines. The two lines of the <b>central octave</b> (C♯4 and D♯4) are still <b>dashed</b>, a landmark around middle C. The full stave spans an 88-key piano (A0 to C8). Written notes below A0 or above C8 have short dark <b>ledger lines</b> around their noteheads, extending back to the stave in complete groups of two and three with the same thin/thick pattern. The cursor preview has no ledger lines. A0 and C8 themselves need no ledger lines. C♯8 adds the C♯8/D♯8 pair; F8 adds the F♯8/G♯8/A♯8 triple as well.',
         ],
       },
       {
@@ -345,7 +345,7 @@ export const GUIDE = [
       {
         title: 'Pianoroll: navigate',
         items: [
-          'Large measure numbers appear at barlines to the right of the stave. The velocity divider keeps its drag and zoom controls without number labels.',
+          'Barlines cross over the vertical stave lines. Large measure numbers appear to the right of the stave. The velocity divider keeps its drag and zoom controls without number labels.',
           `The wheel or trackpad scrolls smoothly (scroll up past beat zero for some free room; with the pitch zoomed in, swiping sideways pans the keys); ${k(CMD)} + wheel zooms time, ${k('Middle mouse')} + drag pans. The scrollbar on the right (the TimeLine\'s look) spans the clip: drag it, or click its track to jump there. Hover it to preview the song measure at the center of the destination view.`,
           `${k('Shift')} + wheel zooms pitch around the pointer: the stave and the keyboard widen together, so micropitch leans and bends are easier to place. Zoomed in, a horizontal scrollbar shows at the top of the pianoroll, ${k('Middle mouse')} + drag also pans sideways, and moving notes, bend points or a selection rectangle past the left / right edge scrolls along. Notes stop growing at 48 px wide. Zoom fully out to see all keys again; the view is saved with the project and restored on startup.`,
         ],

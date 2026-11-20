@@ -416,7 +416,7 @@ app.whenReady().then(async () => {
       input.checked = false; input.dispatchEvent(new Event('change'));
     })()`);
     await open(); await pianorollCategory();
-    assert.deepEqual(await run("Array.from(document.querySelectorAll('#preferences-content legend'), el => el.textContent)"), ['Snap velocity values to 16 step grid.']);
+    assert.deepEqual(await run("Array.from(document.querySelectorAll('#preferences-content legend'), el => el.textContent)"), ['Snap velocity values to 16 step grid.', 'Alternate stave colors by octave']);
     assert.equal(await run("document.getElementById('pref-pianoroll-snapVelocity').type"), 'checkbox');
     await unsnapVelocity();
     assert.equal(await run('window.pianorollSettings.snapVelocity'), false);

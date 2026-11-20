@@ -8,7 +8,7 @@ import { registerPreferences, launchFullscreen, showLaunchWindow } from '../elec
 import { atomicWrite } from '../electron/atomicwrite.mjs';
 import { registerInterfacePreferences, PANEL_DIVIDER_WIDTH_ID, LAUNCH_FULLSCREEN_ID } from '../src/interfacepreferences.js';
 import { registerMidiPreferences, migrateMidiInput, MIDI_INPUT_ID } from '../src/midipreferences.js';
-import { registerPianorollPreferences, SNAP_VELOCITY_ID } from '../src/pianorollpreferences.js';
+import { registerPianorollPreferences, SNAP_VELOCITY_ID, ALTERNATE_STAVE_COLORS_ID } from '../src/pianorollpreferences.js';
 import { registerPatcherPreferences, SPECTRUM_FLOW_ID, SPECTRUM_SIZE_ID } from '../src/patcherpreferences.js';
 import { registerAudioPreferences, audioLatencyHint, AUDIO_LATENCY_ID } from '../src/audiopreferences.js';
 import { Engine } from '../src/engine.js';
@@ -99,11 +99,18 @@ import { Engine } from '../src/engine.js';
   assert.equal(redraws, before + 1);
   manager.restore();
   assert.equal(settings.snapVelocity, true, 'Cancel restores velocity snapping');
-  await manager.save({ [SNAP_VELOCITY_ID]: false });
+  const beforeStavePreview = redraws;
+  manager.preview(ALTERNATE_STAVE_COLORS_ID, false);
+  assert.equal(settings.alternateStaveColors, false);
+  assert.equal(redraws, beforeStavePreview + 1);
+  manager.restore();
+  assert.equal(settings.alternateStaveColors, true, 'Cancel restores alternating stave colors');
+  await manager.save({ [SNAP_VELOCITY_ID]: false, [ALTERNATE_STAVE_COLORS_ID]: false });
   const reloaded = createPreferencesManager({ storage: { load: async () => stored } });
   const restored = registerPianorollPreferences(reloaded);
   await reloaded.load();
   assert.equal(restored.snapVelocity, false, 'velocity snapping persists across sessions');
+  assert.equal(restored.alternateStaveColors, false, 'the stave color setting persists across sessions');
   await assert.rejects(manager.save({ [SNAP_VELOCITY_ID]: 0 }), /Invalid value/);
 }
 
