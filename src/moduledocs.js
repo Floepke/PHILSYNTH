@@ -10,7 +10,7 @@ const OUT_MIN = 'Lowest value the controlled controller reaches, in % of that co
 const OUT_MAX = 'Highest value the controlled controller reaches, in % of that controller\'s range. Out Max below Out Min inverts the modulation.';
 const MOD_PARAMS = {
   outController: OUT_CONTROLLER, outMin: OUT_MIN, outMax: OUT_MAX,
-  outSmooth: 'Smooths the controller output after Out Min/Out Max and amplitude mapping (0–5000 ms). 0 is off. A step moves about 63% toward its target in this time, softening MIDI retriggers and trim changes. Each control cable starts from its target controller\'s current value. Does not smooth LFO audio tremolo or replace the converter modules\' source Smooth controls.',
+  outSmooth: 'Smooths the output after Out Min/Out Max and amplitude mapping (0–5000 ms). 0 is off. A step moves about 63% toward its target in this time, softening MIDI retriggers and trim changes. Each control cable starts from its target controller\'s current value. In LFO audio modes it smooths gain or pan, starting from the first audio value. It does not replace the converter modules\' source Smooth controls.',
 };
 const MOD_CABLE = '<kbd>Shift</kbd> + drag from this module to the module to control (control cables are dashed). One modulator can drive several modules; each gets the same controller number.';
 const NOTES_IN = 'Notes trigger it: select it and play the MIDI keyboard, send a clip to it, or <kbd>Shift</kbd> + drag a MULTIMIDI into it.';
@@ -462,7 +462,7 @@ export const DOCS = {
     },
     notes: [
       MOD_CABLE,
-      'For tremolo, select <b>Amp (audio modulation)</b> in MODE, then cable sound into the LFO and its output to an effect or the Output. Amplitude sets the depth, Out Min / Out Max the volume range (0–100 %). For autopan select <b>Panning (audio modulation)</b>; Amplitude sets the depth around the center of the chosen pan range. Out Controller and Out Smooth apply only in Controller Modulation mode.',
+      'For tremolo, select <b>Amp (audio modulation)</b> in MODE, then cable sound into the LFO and its output to an effect or the Output. Amplitude sets the depth, Out Min / Out Max the volume range (0–100 %). For autopan select <b>Panning (audio modulation)</b>; Amplitude sets the depth around the center of the chosen pan range. Out Smooth smooths gain or pan in audio modes; Out Controller applies only in Controller Modulation mode.',
       'Audio modes send audio even when no source is connected yet (silence until sound arrives), never controller modulation. Switching MODE keeps existing cables; destinations without an audio input and cables that would close an audio loop become inactive. A saved LFO without MODE defaults to Controller Modulation; select Amp explicitly for older tremolo setups.',
       'Audio modulation is computed for every sample, so with Frequency Unit <i>MIDI Pitch</i> and notes cabled in, the sound pulses at the note frequency. Square and Saw edges take about 1 ms, so slow ones do not click.',
       'Control cables: modulation is applied once per 128-sample block (~375 times a second), so with MIDI Pitch only low notes (below about 90 Hz, F♯2) give a clean wave; higher notes alias into a slower, stepped movement.',

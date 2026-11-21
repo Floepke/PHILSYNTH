@@ -15,6 +15,7 @@
 // onto Out Min..Out Max (in %, 0..100 = silent..unchanged). The wave is computed per sample here,
 // so with Frequency Unit MIDI Pitch it runs at the note frequency (audio-rate amplitude modulation).
 // Square and Saw edges ramp over EDGE_S (at most a quarter / half cycle) so slow ones do not click.
+// Out Smooth filters the mapped gain/pan per sample, with the same time constant as control routes.
 import { Kernel } from '../dsp/kernel.js';
 
 const BEATS_PER_UNIT = [0, 1, 0.5, 0.25];
@@ -66,6 +67,9 @@ export default class LfoKernel extends Kernel {
     this.amp = 100; // tremolo mapping (the graph maps the same controllers for control cables)
     this.outMin = 0;
     this.outMax = 100;
+    this.outSmooth = 0;
+    this.smoothAlpha = 1;
+    this.audioValue = null;
     // Random uses smoothstep ramps; linear and stepped variants share its targets.
     this.from = 0.5;
     this.to = Math.random();
@@ -78,7 +82,11 @@ export default class LfoKernel extends Kernel {
       this.enabled = v >= 0.5;
       this.value = this.enabled ? this.at() : null;
     }
-    else if (id === 'mode') this.mode = Math.max(0, Math.min(2, Math.round(v)));
+    else if (id === 'mode') {
+      const mode = Math.max(0, Math.min(2, Math.round(v)));
+      if (!this.mode && mode) this.audioValue = null;
+      this.mode = mode;
+    }
     else if (id === 'freq' || id === 'unit') {
       this[id] = id === 'unit' ? v | 0 : v;
       this.updateRate();
@@ -88,6 +96,9 @@ export default class LfoKernel extends Kernel {
       this.wave = v;
     } else if (id === 'amp' || id === 'outMin' || id === 'outMax') {
       this[id] = Number(v) || 0;
+    } else if (id === 'outSmooth') {
+      this.outSmooth = Math.max(0, Number(v) || 0);
+      this.smoothAlpha = this.outSmooth ? -Math.expm1(-1000 / (sampleRate * this.outSmooth)) : 1;
     } else if (id === 'phase') {
       this.startPhase = wrap(Number(v) || 0);
       if (!this.ran) this.restart(0);
@@ -182,6 +193,7 @@ export default class LfoKernel extends Kernel {
     this.meter = tremoloGain(wave, this.amp, this.outMin, this.outMax) * 100;
     const i = inputs[0];
     if (!this.mode || !i || !i.length) {
+      if (this.mode && this.enabled) this.audioValue = null;
       this.advance(n);
       return false;
     }
@@ -198,8 +210,12 @@ export default class LfoKernel extends Kernel {
     const span = ((this.outMax - this.outMin) / 100) * depth;
     const lo = this.outMin / 100 + ((this.outMax - this.outMin) / 100) * 0.5 * (1 - depth);
     const w = Math.min(this.wave === 3 ? 0.25 : 0.5, EDGE_S * this.rate);
+    let value = this.audioValue;
+    const alpha = this.smoothAlpha;
     for (let j = 0; j < n; j++) {
-      const g = lo + span * this.smoothAt(w);
+      const target = lo + span * this.smoothAt(w);
+      value = value === null || alpha === 1 ? target : value + (target - value) * alpha;
+      const g = value;
       if (this.mode === 2) {
         const pan = Math.max(0, Math.min(1, g));
         L[j] = iL[j] * Math.min(1, 2 * (1 - pan));
@@ -210,6 +226,7 @@ export default class LfoKernel extends Kernel {
       }
       this.advance(1);
     }
+    this.audioValue = value;
     return true;
   }
 }

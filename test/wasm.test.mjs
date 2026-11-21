@@ -61,7 +61,14 @@ assert.deepEqual(WebAssembly.Module.imports(new WebAssembly.Module(bytes)), [], 
   assert.ok(Math.abs(s[64]) > 1e-3 && Math.abs(t[64] - 0.5 * s[64]) < 1e-6, 'native sound at 50 % volume');
   const a = graph.nodes.get(amp.h).outs[0][0];
   assert.ok(Math.abs(a[64] - t[64]) < 1e-6, 'into the native AMP');
+  lfo.param('outSmooth', 100);
+  lfo.param('outMin', 100);
+  lfo.param('outMax', 100);
+  render();
+  assert.ok(Math.abs(graph.nodes.get(lfo.h).k.audioValue - (1 - 0.5 * Math.exp(-128 / 4800))) < 1e-9,
+    'smoothing advances per sample in the mixed native graph');
   lfo.param('mode', 2);
+  lfo.param('outSmooth', 0);
   lfo.param('outMin', 100);
   lfo.param('outMax', 100);
   render();

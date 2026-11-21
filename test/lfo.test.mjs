@@ -390,6 +390,110 @@ assert.ok(new Set(ends.map((v) => v.toFixed(3))).size > 30, 'keeps moving to new
   assert.equal(k.process([], output), false, 'audio mode with no input is silent');
 }
 
+// Audio modes smooth the mapped gain/pan with the same time constant as controller routes.
+for (const sr of [44100, 48000, 96000]) for (const mode of [1, 2]) {
+  globalThis.sampleRate = sr;
+  try {
+    const k = new Proc();
+    k.param('mode', mode);
+    k.param('freq', 0);
+    k.param('amp', 0);
+    k.param('outMin', 0);
+    k.param('outMax', 0);
+    k.param('outSmooth', 100);
+    const input = [[new Float32Array(128).fill(1), new Float32Array(128).fill(1)]];
+    const output = [[new Float32Array(128), new Float32Array(128)]];
+    const render = () => k.process(input, output);
+    const value = () => mode === 1 ? output[0][0][127] : output[0][1][127] / 2;
+    render();
+    assert.equal(value(), 0, 'first audio value starts at its mapped target');
+    k.param('outMax', 100);
+    k.param('outMin', 100);
+    const blocks = Math.round(sr * 0.1 / 128);
+    for (let b = 0; b < blocks; b++) render();
+    const expected = 1 - Math.exp(-blocks * 128 / (sr * 0.1));
+    if (mode === 1) assert.ok(Math.abs(value() - expected) < 1e-6);
+    else {
+      assert.equal(output[0][1][127], 1, 'right channel reaches full gain');
+      assert.ok(Math.abs(output[0][0][127] - 2 * (1 - expected)) < 1e-6, 'pan is smoothed before stereo mapping');
+    }
+    const previous = k.audioValue;
+    k.param('enabled', 0);
+    render();
+    assert.equal(k.audioValue, previous, 'Off pauses the smoother');
+    assert.ok(output[0][0].every(v => v === 1) && output[0][1].every(v => v === 1), 'Off bypasses audio');
+    k.param('enabled', 1);
+    render();
+    assert.ok(k.audioValue > previous && k.audioValue < 1, 'On resumes smoothing');
+    k.param('outSmooth', 0);
+    render();
+    assert.equal(k.audioValue, 1, 'turning smoothing off immediately applies the target');
+    k.param('outSmooth', 100);
+    k.param('outMin', 0);
+    k.param('outMax', 0);
+    render();
+    assert.ok(k.audioValue < 1 && k.audioValue > 0.95, 'turning smoothing back on continues from the last value');
+    k.process([], output);
+    render();
+    assert.equal(k.audioValue, 0, 'reconnected audio starts at the current mapped value');
+  } finally { globalThis.sampleRate = SR; }
+}
+
+// Random steps and MIDI phase resets are filtered, including single-sample feedback rendering.
+for (const mode of [1, 2]) {
+  const k = new Proc();
+  k.param('mode', mode);
+  k.param('wave', 5);
+  k.param('freq', 0);
+  k.param('outSmooth', 100);
+  k.to = 0;
+  const one = new Float32Array([1]);
+  const output = [[new Float32Array(1), new Float32Array(1)]];
+  k.process([[one]], output);
+  k.to = 1;
+  k.process([[one]], output);
+  const first = 1 - Math.exp(-1 / (SR * 0.1));
+  assert.ok(Math.abs(k.audioValue - first) < 1e-12, 'a stepped waveform changes smoothly per sample');
+  k.param('wave', 1);
+  k.message({ type: 'noteOn', id: 1, pitch: 60, phase: 0.5 });
+  k.process([[one]], output);
+  assert.ok(Math.abs(k.audioValue - (1 - Math.exp(-2 / (SR * 0.1)))) < 1e-12, 'MIDI retrigger does not reset the smoother');
+}
+
+// Out Smooth may also be driven by another modulator through the graph.
+{
+  const { dspTestHost } = await import('./dsphost.mjs');
+  const { Kernel } = await import('../src/dsp/kernel.js');
+  const { KERNELS } = await import('../src/dsp/kernels.js');
+  class Ones extends Kernel {
+    process(_inputs, outputs) { outputs[0][0].fill(1); outputs[0][1].fill(1); return true; }
+  }
+  KERNELS.lfoTestOnes = Ones;
+  try {
+    const { dsp, graph, render, kernel } = dspTestHost();
+    const source = dsp.create('lfoTestOnes');
+    const lfo = dsp.create('lfo');
+    const mod = dsp.create('lfo');
+    source.connect(lfo);
+    lfo.connect(dsp.destination);
+    lfo.param('mode', 1);
+    lfo.param('amp', 0);
+    lfo.param('outMin', 0);
+    lfo.param('outMax', 0);
+    mod.param('amp', 0);
+    mod.param('outMin', 2);
+    mod.param('outMax', 2);
+    mod.routes([{ to: lfo.h, id: 'outSmooth', min: 0, max: 5000 }]);
+    render(2);
+    assert.equal(graph.nodes.get(lfo.h).depth.outSmooth, 100);
+    assert.equal(kernel(lfo).outSmooth, 100);
+    lfo.param('outMin', 100);
+    lfo.param('outMax', 100);
+    const { L } = render();
+    assert.ok(L[0] > 0 && L[0] < 0.001 && L[127] < 0.03, 'graph modulation reaches per-sample audio smoothing');
+  } finally { delete KERNELS.lfoTestOnes; }
+}
+
 // play from start: periodic waves restart at Phase, Random waves keep running
 for (const wave of [0, 1, 2, 3, 4, 5, 6]) {
   const k = new Proc();
