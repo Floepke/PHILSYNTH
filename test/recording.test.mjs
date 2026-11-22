@@ -4,8 +4,67 @@ import { Transport } from '../src/transport.js';
 import { AudioTransport } from '../src/audiotransport.js';
 import { Playback } from '../src/dsp/playback.js';
 import { emptySong, addClip, addAutoClip, cloneClip, setSig } from '../src/song.js';
+import { createRecordingFile, readRecordingPeaks, recoverRecordingFile, MAX_RECORDING_CHUNK_FRAMES } from '../src/audioeditor/recordingfile.js';
+import { createRecordingBuffer, RecordingBuffer, RECORDING_STOPPED, RECORDING_OVERRUN, RECORDING_TEMPO_CHANGED } from '../src/audioeditor/recordingbuffer.js';
+import { parseWav } from '../src/samples.js';
+import { mkdtempSync, openSync, closeSync, readSync, writeSync, fstatSync, ftruncateSync, fsyncSync, readFileSync, unlinkSync, rmdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Graph } from '../src/dsp/graph.js';
+import { RecordingSchedule } from '../src/audioeditor/recordingschedule.js';
 
 const near = (a, b, message) => assert.ok(Math.abs(a - b) < 1e-7, message ?? `${a} != ${b}`);
+
+// Audio-clock count-in and lane collisions gate the capture at exact sample boundaries.
+{
+  const graph = new Graph({ kernels: { constant: class {
+    process(_input, output) { output[0][0].fill(0.5); output[0][1].fill(-0.5); return true; }
+  } } });
+  graph.add(1, 'bus');
+  graph.add(2, 'constant');
+  graph.connect(2, 1);
+  const song = emptySong();
+  addClip(song, { start: 0.5, length: 1, y: 0 });
+  const tr = { playing: true, generation: 1, scope: [], pos: 0, elapsed: -0.25,
+    getBpm: () => 60, layers: () => [{ song }] };
+  const schedule = new RecordingSchedule(graph, tr, 128);
+  const buffer = createRecordingBuffer(257, 2), ring = new RecordingBuffer(buffer);
+  schedule.add({ handle: 1, buffer, lane: 0, scope: [], from: 0 });
+  schedule.start([]);
+  schedule.process();
+  graph.render(new Float32Array(128), new Float32Array(128));
+  const samples = [new Float32Array(128), new Float32Array(128)];
+  assert.equal(ring.read(samples), 64, 'only samples between count-in and the existing clip are captured');
+  assert.ok(samples[0].subarray(0, 64).every((value) => value === 0.5));
+  assert.ok(samples[1].subarray(0, 64).every((value) => value === -0.5));
+  assert.equal(ring.state, RECORDING_STOPPED);
+  assert.equal(ring.tempo, 60);
+}
+
+// Capture uses the tempo at the end of count-in and stops before a later tempo change.
+{
+  const graph = new Graph({ kernels: { constant: class {
+    process(_input, output) { output[0][0].fill(0.5); output[0][1].fill(0.5); return true; }
+  } } });
+  graph.add(1, 'bus'); graph.add(2, 'constant'); graph.connect(2, 1);
+  const song = emptySong();
+  let bpm = 120;
+  const tr = { playing: true, generation: 1, scope: [], pos: 0, elapsed: -2,
+    getBpm: () => bpm, layers: () => [{ song }] };
+  const schedule = new RecordingSchedule(graph, tr, 128);
+  const buffer = createRecordingBuffer(257, 1), ring = new RecordingBuffer(buffer);
+  schedule.add({ handle: 1, buffer, lane: 0, scope: [], from: 0 });
+  schedule.start([]);
+  schedule.process(); graph.render(new Float32Array(128), new Float32Array(128));
+  bpm = 60; tr.elapsed = 0;
+  schedule.process(); graph.render(new Float32Array(128), new Float32Array(128));
+  assert.equal(ring.tempo, 60);
+  assert.equal(ring.read([new Float32Array(128)]), 128);
+  bpm = 90; tr.pos = 1;
+  schedule.process(); graph.render(new Float32Array(128), new Float32Array(128));
+  assert.equal(ring.read([new Float32Array(128)]), 0);
+  assert.equal(ring.state, RECORDING_TEMPO_CHANGED);
+}
 
 function setup({ start = 4, length = 4 } = {}) {
   const song = emptySong();
@@ -368,4 +427,88 @@ for (const action of ['selection', 'seek']) {
   }
 }
 
-console.log('MIDI recording and count-in tests passed');
+// The producer never overwrites unread frames; a full queue ends the take explicitly.
+{
+  const settings = createRecordingBuffer(8, 2);
+  const producer = new RecordingBuffer(settings), consumer = new RecordingBuffer(settings);
+  const input = (l, r) => [Float32Array.from(l), Float32Array.from(r)];
+  const output = [new Float32Array(2), new Float32Array(2)];
+  assert.equal(producer.write(input([1, 2, 3], [4, 5, 6])), true);
+  assert.equal(consumer.read(output), 2);
+  assert.deepEqual([...output[0]], [1, 2]);
+  assert.deepEqual([...output[1]], [4, 5]);
+  assert.equal(producer.write(input([7, 8, 9, 10, 11], [12, 13, 14, 15, 16])), true);
+  const rest = [new Float32Array(6), new Float32Array(6)];
+  assert.equal(consumer.read(rest), 6);
+  assert.deepEqual([...rest[0]], [3, 7, 8, 9, 10, 11]);
+  assert.deepEqual([...rest[1]], [6, 12, 13, 14, 15, 16]);
+  assert.equal(producer.write(input([1, 2, 3, 4, 5, 6, 7], [1, 2, 3, 4, 5, 6, 7])), true);
+  assert.equal(producer.write(input([8], [8])), false);
+  assert.equal(consumer.state, RECORDING_OVERRUN);
+  producer.stop();
+  assert.equal(consumer.state, RECORDING_OVERRUN, 'stop does not hide an overrun');
+  assert.equal(consumer.read(rest), 6, 'existing frames remain available after an overrun');
+  const stopped = new RecordingBuffer(createRecordingBuffer(4, 1));
+  stopped.stop();
+  assert.equal(stopped.state, RECORDING_STOPPED);
+  assert.equal(stopped.write([Float32Array.of(1)]), false);
+}
+
+// The recording writer uses bounded chunks and produces ordinary 24-bit WAV on disk.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'philsynth-recording-test-'));
+  const path = join(dir, 'take.wav');
+  let fd;
+  const access = (fd) => ({
+    getSize: () => fstatSync(fd).size,
+    read: (bytes, { at }) => readSync(fd, bytes, 0, bytes.length, at),
+    write: (bytes, { at }) => writeSync(fd, bytes, 0, bytes.length, at),
+    truncate: (size) => ftruncateSync(fd, size),
+    flush: () => fsyncSync(fd),
+    close: () => closeSync(fd),
+  });
+  try {
+    fd = openSync(path, 'w+');
+    const writer = createRecordingFile(access(fd), { sampleRate: 48000, channels: 2 });
+    assert.throws(() => writer.append([new Float32Array(2)]), /Invalid recording chunk/);
+    assert.throws(() => writer.append([new Float32Array(MAX_RECORDING_CHUNK_FRAMES + 1), new Float32Array(MAX_RECORDING_CHUNK_FRAMES + 1)]), /Invalid recording chunk/);
+    assert.throws(() => writer.append([Float32Array.of(NaN), Float32Array.of(0)]), /invalid audio/);
+    writer.append([Float32Array.of(-1, 0.5), Float32Array.of(1, -0.5)]);
+    writer.checkpoint();
+    writer.append([Float32Array.of(0.25), Float32Array.of(-0.25)]);
+    assert.deepEqual(writer.finish(), { sampleRate: 48000, channels: 2, frames: 3 });
+    fd = undefined;
+    const data = readFileSync(path);
+    const audio = parseWav(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
+    assert.equal(audio.rate, 48000);
+    assert.equal(audio.channels.length, 2);
+    for (const [actual, expected] of [[audio.channels[0], [-1, 0.5, 0.25]], [audio.channels[1], [1, -0.5, -0.25]]]) {
+      expected.forEach((value, i) => assert.ok(Math.abs(actual[i] - value) < 2e-7));
+    }
+
+    fd = openSync(path, 'r+');
+    const file = access(fd);
+    const peaks = readRecordingPeaks(file, 0, 3, 6);
+    assert.deepEqual([...peaks[0].slice(0, 4)], [-1, -1, -1, -1]);
+    assert.ok(Math.abs(peaks[1][10] + 0.25) < 2e-7);
+    assert.throws(() => readRecordingPeaks(file, 0, 4, 3), /Invalid waveform range/);
+    assert.throws(() => createRecordingFile(file, { sampleRate: 48000, channels: 2 }), /must be empty/);
+    // Simulate a crash after a partially written stereo frame and stale WAV size fields.
+    const stale = new Uint8Array(4);
+    file.write(stale, { at: 40 });
+    file.write(Uint8Array.of(1, 2), { at: file.getSize() });
+    assert.deepEqual(recoverRecordingFile(file), { sampleRate: 48000, channels: 2, frames: 3 });
+    assert.equal(file.getSize(), 44 + 3 * 6);
+    file.close();
+    fd = undefined;
+    const recovered = readFileSync(path);
+    assert.equal(recovered.readUInt32LE(40), 18);
+    assert.equal(recovered.readUInt32LE(4), recovered.length - 8);
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+    unlinkSync(path);
+    rmdirSync(dir);
+  }
+}
+
+console.log('Recording and count-in tests passed');

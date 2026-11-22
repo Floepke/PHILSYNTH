@@ -10,11 +10,12 @@ New `.phproject` saves are ZIP archives with a `project.json` manifest:
 
 ```text
 {
-  format: "philsynth", version: 2,
+  format: "philsynth", version: 3,
   patch: { modules, cables, ... },
   song: { clips, sigs, selected, snap, nextId, mutes, solos, ... },
   view: { path, cams, cameraSize, seq, analyse, layers, panelScrolls },
-  assets: { "<asset id>": { kind: "image", path: "media/images/1.png" }, ... }
+  assets: { "<asset id>": { kind: "image", path: "media/images/1.png" }, ... },
+  audioFiles: { "<audio id>": { path: "media/audioFiles/1.wav" }, ... }
 }
 ```
 
@@ -25,12 +26,22 @@ The diagram omits many fields and uses JavaScript notation, not valid JSON.
 index. PNG stores the prepared RGB8 pixels without color conversion; WAV
 stores interleaved little-endian Int16 PCM. Audio index entries also carry
 `rate`, so the pool rate is preserved even if the WAV header rounds it.
-Each referenced ID is written once. The v2 profile uses stored ZIP entries
-(the PNG itself is compressed), with size, path and checksum checks; it is
-not a general-purpose ZIP importer. Saves are buffered, with a 512 MiB archive
-limit. This is not a streaming format implementation for long audio tracks.
+Each referenced ID is written once. All new saves use **version 3**, a
+stored-entry ZIP64 archive, whether or not they contain audio clips.
+Audio clips play through their selected audio destination and may be recorded from a RECORDER module.
+The `audioFiles` index maps each referenced audio ID to a WAV under
+`media/audioFiles/`; linked and independent clips using the same audio file
+store it once. Imported and recorded audio are 24-bit mono or stereo PCM WAVs. The
+[`projectzipstream.js`](src/projectzipstream.js) profile validates paths, offsets
+and checksums and streams these files in bounded chunks. Opening a v3 project
+copies its audio files into working storage and remaps their IDs. Desktop saves
+and File System Access saves stream to the destination; desktop opens stage the
+archive in origin-private storage. Browsers without File System Access can
+download audio-free v3 projects (buffered, limited to 512 MiB) but cannot yet
+save projects containing audio clips. Older app versions cannot read v3.
 
-Open detects the container by its bytes, not its extension. Standalone JSON
+Open detects the container by its bytes, not its extension. Version 2 stored ZIP
+archives remain readable. Standalone JSON
 is v1 (including older files with no version and the `modsynth` format name).
 Its first save uses **Save As** to preserve the original. Older app versions
 cannot open v2. Undo keeps model snapshots in memory; autosave and `.phmod`
@@ -48,7 +59,7 @@ from the repository, then omit `--dry-run` to write the converted files.
 The [converter](convert-projects.mjs) defaults to `pCloud Drive/PHILSYNTH`
 and `pCloud Drive/PHILSYNTH2` inside your home directory; you can also pass a
 source and destination folder as two arguments. Both must exist. It preserves
-subfolders and filenames, skips v2 files and existing output files, and
+subfolders and filenames, skips v2/v3 files and existing output files, writes v3, and
 reports failed conversions without stopping the rest of the batch.
 
 ## Patch and modules
@@ -86,9 +97,14 @@ idea storage.
   `start`, `length`, and `vel`; optional `vels` and `bends` hold curves.
 - An automation clip adds `kind: "auto"`, `controller`, and `points`, with an
   empty notes array. `editorView` is optional per-clip editor view state.
+- An audio clip has `kind: "audio"` and an `audio` object with `id`, `sampleRate`,
+  `channels`, `frames`, `span`, and `offset`. `span` is the full asset's length
+  in quarter notes; `offset` is the clip start's position in that asset, in
+  quarter notes. The ID refers to an immutable working WAV. The standalone
+  `.clip` format does not yet support audio.
 - Linked clips have a `link` identifying their source. Each clip's content is
-  present in the file; `normalizeSong()` restores shared notes or points in
-  memory. Positions and lengths remain per clip.
+  present in the file; `normalizeSong()` restores shared notes, points, or audio
+  content in memory. Positions and lengths remain per clip.
 
 `emptySong()` and `addClip()` create defaults; `normalizeSong()` rebuilds and
 validates loaded data rather than copying all unknown fields. Consequently, a

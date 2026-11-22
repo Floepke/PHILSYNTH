@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PatchRuntime } from '../src/patch.js';
 import { addImage, addSample } from '../src/samples.js';
+import { createRecordingBuffer, RecordingBuffer } from '../src/audioeditor/recordingbuffer.js';
 
 globalThis.sampleRate = 48000;
 const { KERNELS } = await import('../src/dsp/kernels.js');
@@ -15,6 +16,27 @@ const bytes = readFileSync(new URL('../src/dsp/modsynth.wasm', import.meta.url))
 const x = instantiateDsp(bytes);
 const { heap, kernels: WASM } = wasmKernels(x, 48000);
 assert.deepEqual(WebAssembly.Module.imports(new WebAssembly.Module(bytes)), [], 'no imports');
+
+// Recording a native-only branch does not route it to the master or disable native rendering.
+{
+  const { dsp, graph, render } = dspTestHost({ kernels: WASM, heap });
+  const src = dsp.create('osc');
+  const tap = dsp.create('bus');
+  src.connect(tap);
+  src.send({ type: 'noteOn', id: 1, pitch: 60, velocity: 1 });
+  const settings = createRecordingBuffer(257, 2);
+  const recorded = new RecordingBuffer(settings);
+  dsp.post(['record', tap.h, settings]);
+  const out = render();
+  assert.ok(graph.prog, 'recording retains native graph rendering');
+  assert.ok(out.L.every((v) => v === 0));
+  const block = [new Float32Array(128), new Float32Array(128)];
+  assert.equal(recorded.read(block), 128);
+  assert.deepEqual(block[0], graph.nodes.get(tap.h).outs[0][0]);
+  assert.ok(block[0].some((v) => v !== 0));
+  tap.destroy();
+  src.destroy();
+}
 
 // SOUND2CTL reads native audio buffers; adding/removing its routes switches render paths safely.
 {

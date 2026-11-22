@@ -9,9 +9,11 @@ import { notifyFolderChanged } from './kdirnotify.mjs';
 import { atomicWrite } from './atomicwrite.mjs';
 export { atomicWrite } from './atomicwrite.mjs';
 import { checkPath, cleanExts, deleteEntry, hasExt, listDir, makeDir, places, target, transferEntry } from './fsbrowse.mjs';
-import { PROJECT_EXT, PROJECT_OPEN_EXTS, CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS, AUDIO_OPEN_EXTS, WAVETABLE_OPEN_EXTS, IMAGE_OPEN_EXTS, MIDI_OPEN_EXTS, MAX_MIDI_BYTES } from '../src/fileformat.js';
+import { PROJECT_EXT, PROJECT_OPEN_EXTS, CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS, AUDIO_OPEN_EXTS, AUDIO_CLIP_OPEN_EXTS, WAVETABLE_OPEN_EXTS, IMAGE_OPEN_EXTS, MIDI_OPEN_EXTS, MAX_MIDI_BYTES } from '../src/fileformat.js';
 import { AUDIO_FORMATS } from '../src/audioformat.js';
 import { MAX_PROJECT_BYTES, isProjectZip } from '../src/projectzip.js';
+import { createProjectStreamWriter, openProjectStreamReader } from './projectstream.mjs';
+import { randomUUID } from 'node:crypto';
 
 const bare = (ext) => ext.replace(/^\./, '');
 const PROJECT = bare(PROJECT_EXT);
@@ -33,7 +35,7 @@ export const MEDIA_KINDS = {
 const MAX_PATHS = 100;
 const MAX_AUDIO = 2 * 1024 * 1024 * 1024;
 // remembered start folder per dialog
-const DIALOG_KINDS = new Set(['project-open', 'project-save', 'clip', 'module', 'scala', 'audio', 'sample', 'wavetable', 'image', 'midi']);
+const DIALOG_KINDS = new Set(['project-open', 'project-save', 'clip', 'module', 'scala', 'audio', 'sample', 'wavetable', 'image', 'midi', 'audio-clip']);
 // extensions a save dialog may add / check (fs:target)
 const SAVE_EXTS = new Set([PROJECT_EXT, CLIP_EXT, MODULE_EXT, ...AUDIO_FORMATS.map(format => format.ext), '.mid']);
 
@@ -134,6 +136,41 @@ export function registerProjectFiles(isLocal) {
   };
   const written = (path) => notifyFolderChanged(dirname(path));
   const audioWrites = new Map();
+  const projectStreams = new Map();
+  const releaseStream = (stream) => {
+    projectStreams.delete(stream.id);
+    stream.sender.removeListener('destroyed', stream.destroyedListener);
+  };
+  const cleanupStream = async (stream) => {
+    if (!projectStreams.has(stream.id)) return;
+    releaseStream(stream);
+    if (stream.kind === 'write') await stream.resource.abort();
+    else await stream.resource.close();
+  };
+  const trackStream = (e, kind, resource, path) => {
+    if ([...projectStreams.values()].filter((stream) => stream.sender === e.sender).length >= 8) {
+      throw new Error('Too many open project streams');
+    }
+    const stream = { id: randomUUID(), sender: e.sender, kind, resource, path, busy: false, destroyed: false };
+    stream.destroyedListener = () => {
+      stream.destroyed = true;
+      if (!stream.busy) cleanupStream(stream).catch((error) => console.error('Could not clean up project stream:', error));
+    };
+    e.sender.once('destroyed', stream.destroyedListener);
+    projectStreams.set(stream.id, stream);
+    return stream;
+  };
+  const withStream = async (e, id, kind, fn) => {
+    check(e);
+    const stream = projectStreams.get(id);
+    if (!stream || stream.sender !== e.sender || stream.kind !== kind || stream.busy) throw new Error('Invalid project stream');
+    stream.busy = true;
+    try { return await fn(stream); }
+    finally {
+      stream.busy = false;
+      if (stream.destroyed) await cleanupStream(stream);
+    }
+  };
   const audioKey = (e, id) => {
     if (typeof id !== 'string' || !/^[a-zA-Z0-9-]{1,100}$/.test(id)) throw new Error('Invalid audio export id');
     return `${e.sender.id}:${id}`;
@@ -170,6 +207,81 @@ export function registerProjectFiles(isLocal) {
   });
 
   // ---- projects ----
+  ipcMain.handle('project:streamOpen', async (e, path) => {
+    check(e);
+    const p = fileOf(path, cleanExts(PROJECT_OPEN_EXTS));
+    const resource = await openProjectStreamReader(p);
+    let stream = null;
+    try {
+      const header = resource.size ? await resource.read(0, Math.min(6, resource.size)) : new Uint8Array();
+      stream = trackStream(e, 'read', resource, p);
+      if (isProjectZip(header) && hasExt(p, [PROJECT_EXT])) await allow(p);
+      await dirs.remember('project-open', p);
+      return { id: stream.id, name: basename(p), ref: p, size: resource.size, header };
+    } catch (error) {
+      if (stream) await cleanupStream(stream);
+      else await resource.close();
+      throw error;
+    }
+  });
+  ipcMain.handle('project:streamRead', (e, id, at, length) =>
+    withStream(e, id, 'read', (stream) => stream.resource.read(at, length)));
+  ipcMain.handle('project:streamClose', (e, id) => withStream(e, id, 'read', async (stream) => {
+    await stream.resource.close();
+    releaseStream(stream);
+  }));
+  ipcMain.handle('project:streamStart', async (e, path, saveAs) => {
+    check(e);
+    if (typeof saveAs !== 'boolean') throw new Error('Invalid project save mode');
+    const p = saveAs ? fileOf(withExtension(checkPath(path)), [PROJECT_EXT]) : fileOf(path, [PROJECT_EXT]);
+    if (!saveAs && !(await load()).includes(p)) return null;
+    const exists = await checkProjectDestination(p);
+    if (!saveAs && !exists) return null;
+    const resource = await createProjectStreamWriter(p);
+    try {
+      const stream = trackStream(e, 'write', resource, p);
+      return { id: stream.id };
+    } catch (error) {
+      await resource.abort();
+      throw error;
+    }
+  });
+  ipcMain.handle('project:streamWrite', (e, id, bytes) =>
+    withStream(e, id, 'write', (stream) => stream.resource.write(bytes)));
+  ipcMain.handle('project:streamFinish', (e, id) => withStream(e, id, 'write', async (stream) => {
+    try {
+      await stream.resource.finish();
+      written(stream.path);
+      await allow(stream.path);
+      await dirs.remember('project-save', stream.path);
+      return { name: basename(stream.path), ref: stream.path };
+    } finally { releaseStream(stream); }
+  }));
+  ipcMain.handle('project:streamAbort', (e, id) => withStream(e, id, 'write', async (stream) => {
+    try { await stream.resource.abort(); } finally { releaseStream(stream); }
+  }));
+  ipcMain.handle('audio-clip:streamOpen', async (e, path) => {
+    check(e);
+    const p = fileOf(path, cleanExts(AUDIO_CLIP_OPEN_EXTS));
+    const resource = await openProjectStreamReader(p);
+    let stream = null;
+    try {
+      stream = trackStream(e, 'audio-read', resource, p);
+      await dirs.remember('audio-clip', p);
+      return { id: stream.id, name: basename(p), size: resource.size };
+    } catch (error) {
+      if (stream) await cleanupStream(stream);
+      else await resource.close();
+      throw error;
+    }
+  });
+  ipcMain.handle('audio-clip:streamRead', (e, id, at, length) =>
+    withStream(e, id, 'audio-read', (stream) => stream.resource.read(at, length)));
+  ipcMain.handle('audio-clip:streamClose', (e, id) => withStream(e, id, 'audio-read', async (stream) => {
+    await stream.resource.close();
+    releaseStream(stream);
+  }));
+
   ipcMain.handle('project:open', async (e, path) => {
     check(e);
     const p = fileOf(path, cleanExts(PROJECT_OPEN_EXTS));

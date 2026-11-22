@@ -185,6 +185,18 @@ export const DOCS = {
     ],
   },
 
+  RECORDER: {
+    summary: 'Records its incoming sound into the TimeLine while passing it through for monitoring.',
+    params: {
+      armed: 'Enable this recorder for the TimeLine record button.',
+      lane: 'TimeLine lane to record into, numbered from 1.',
+      channels: 'Record the left input as mono, or record both channels as stereo.',
+    },
+    notes: [
+      'Connect an INPUT or another audio module. Arm one or more RECORDER modules on different lanes, then arm and start TimeLine recording. Recording stops at an existing clip on its lane.',
+    ],
+  },
+
   INPUT: {
     summary: 'Audio input of the computer (microphone, line in, audio interface) as a sound source in the patch.',
     params: {

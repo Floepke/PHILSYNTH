@@ -48,7 +48,7 @@
 import { FONT, WEIGHT } from '../font.js';
 import { MOUSE_FORWARD } from '../mousebuttons.js';
 import {
-  snapStep, snapFloor, snapRound, loopEnd, getClip, addClip, addAutoClip, isAuto, autoPolyline, duplicateClip, removeClip, trimClipStart, stretchClip, BAR, clean,
+  snapStep, snapFloor, snapRound, loopEnd, getClip, addClip, addAutoClip, addAudioClip, isAudio, isAuto, autoPolyline, duplicateClip, removeClip, trimClipStart, stretchClip, BAR, clean,
   meter, segAt, barLines, barRound, barLength, removeSig, moveSig, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource,
   canConsolidate, consolidateClips, splitClip, setRestart, laneMuted, laneSoloed, laneSilent, clipSilent, setLaneFlag, laneY, isIdea, ideaY,
 } from '../song.js';
@@ -484,7 +484,7 @@ export function createArranger(host, ctx) {
       g.rect(x + 2, y, Math.max(0, cw - 4), CLIP_H);
       g.clip();
       g.fillStyle = '#fff';
-      const icon = isAuto(clip) ? '∿' : '♫';
+      const icon = isAudio(clip) ? '≋' : isAuto(clip) ? '∿' : '♫';
       const iconHeight = CLIP_H - 4;
       g.font = `${WEIGHT} ${iconHeight}px ${FONT}`;
       g.textBaseline = 'alphabetic';
@@ -1283,6 +1283,27 @@ export function createArranger(host, ctx) {
     ctx.changed();
     ctx.midiImported?.(result);
   }
+  async function importAudio(p) {
+    const song = ctx.song();
+    const layerVersion = ctx.layerVersion?.();
+    const at = dropAt(p);
+    const result = await ctx.openAudio?.();
+    if (!result) return;
+    if (ctx.song() !== song || ctx.layerVersion?.() !== layerVersion) {
+      await ctx.discardAudio(result);
+      return;
+    }
+    const span = result.frames / result.sampleRate * ctx.audioBpm() / 60;
+    const clip = addAudioClip(song, {
+      ...at, target: ctx.audioTarget?.() ?? null,
+      name: result.name.replace(/\.[^.]+$/, '') || 'Audio',
+      audio: { ...result, span },
+    });
+    place(clip, at);
+    setSelection([clip], clip);
+    ctx.changed();
+    ctx.audioImported?.(result);
+  }
   // copies (or linked clones) of the selection, right after it on the same rows
   function repeat(linkedCopies) {
     const clips = selectedClips();
@@ -1358,6 +1379,7 @@ export function createArranger(host, ctx) {
         '-',
         { id: 'save-clips', label: clips.length > 1 ? 'Save Clips…' : 'Save Clip…', disabled: !ctx.saveClips, action: () => ctx.saveClips(clips) },
         { label: 'Import MIDI…', disabled: !ctx.openMidi || !inTimeArea(p), action: () => importMidi(p) },
+        { label: 'Import Audio…', disabled: !ctx.openAudio || !inTimeArea(p), action: () => importAudio(p) },
         '-',
         signatureItem(x),
         ...restartItems(),
@@ -1369,6 +1391,7 @@ export function createArranger(host, ctx) {
         '-',
         ...insertionItems,
         { label: 'Import MIDI…', disabled: !ctx.openMidi || !inTimeArea(p), action: () => importMidi(p) },
+        { label: 'Import Audio…', disabled: !ctx.openAudio || !inTimeArea(p), action: () => importAudio(p) },
         '-',
         signatureItem(x),
         ...restartItems(),

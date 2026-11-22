@@ -9,6 +9,8 @@ import { instantiateDsp, wasmKernels } from './dsp/wasm.js';
 import { PatchRuntime, songLayers } from './patch.js';
 import { Transport } from './transport.js';
 import { normalizeSong } from './song.js';
+import { AudioPageCache, createAudioPageMemory } from './audioeditor/pagecache.js';
+import { AudioClipPlayback } from './audioeditor/playback.js';
 
 const BLOCK = 128;
 export const TAIL_MAX_S = 10;
@@ -45,6 +47,9 @@ export async function renderSong(project, { sampleRate = 48000, wasm = null, onP
   const prevRate = globalThis.sampleRate;
   globalThis.sampleRate = sampleRate; // DSP kernels read the AudioWorkletGlobalScope global
   let root = null;
+  let audioWorker = null;
+  let audioPort = null;
+  let audio = null;
   try {
     let graph = null;
     if (wasm) {
@@ -63,6 +68,18 @@ export async function renderSong(project, { sampleRate = 48000, wasm = null, onP
     await prepareInstances(root);
     signal?.throwIfAborted();
     const song = normalizeSong(structuredClone(project.song));
+    let cache = null;
+    if (song.clips.some((clip) => clip.kind === 'audio')) {
+      if (!globalThis.crossOriginIsolated) throw new Error('Audio clip export requires cross-origin isolation');
+      const memory = createAudioPageMemory();
+      const channel = new MessageChannel();
+      audioPort = channel.port1;
+      cache = new AudioPageCache(memory, audioPort);
+      audioWorker = new Worker(new URL('./audioeditor/playbackworker.js', import.meta.url), { type: 'module' });
+      audioWorker.onerror = (event) => cache.fail(new Error(event.message || 'Audio reader failed'));
+      audioWorker.postMessage({ memory, port: channel.port2 }, [channel.port2]);
+      audio = new AudioClipPlayback(graph, cache, sampleRate);
+    }
     const transport = new Transport({
       getSong: () => song,
       getBpm: () => root.bpm,
@@ -93,14 +110,27 @@ export async function renderSong(project, { sampleRate = 48000, wasm = null, onP
     let lastYield = performance.now();
     for (;;) {
       signal?.throwIfAborted();
+      let stopping = false;
       if (playing) {
+        if (audio) {
+          while (!audio.prefetch(transport, transport.layers())) {
+            await cache.waitPending();
+            signal?.throwIfAborted();
+          }
+        }
         if (transport.pos + (dt * root.bpm) / 60 >= end) {
           transport.advance(transport.from, end); // note-offs and note-ons up to the exact end
-          transport.stop();
-          playing = false;
+          if (audio) stopping = true;
+          else { transport.stop(); playing = false; }
         } else transport.tick(time * 1000);
+        audio?.render(transport, transport.layers());
       }
       graph.render(L, R);
+      if (stopping) {
+        transport.stop();
+        playing = false;
+        audio?.destroy();
+      }
       time += dt;
       const r = graph.report(time);
       if (r) dsp.receive(r);
@@ -134,6 +164,9 @@ export async function renderSong(project, { sampleRate = 48000, wasm = null, onP
     signal?.throwIfAborted();
     return { left: left.subarray(0, length), right: right.subarray(0, length), length, sampleRate, peak, seconds: length / sampleRate };
   } finally {
+    audio?.destroy();
+    audioPort?.close();
+    audioWorker?.terminate();
     try { root?.destroy(); } catch { /* the render result is what matters */ }
     if (hadRate) globalThis.sampleRate = prevRate;
     else delete globalThis.sampleRate;

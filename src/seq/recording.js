@@ -1,4 +1,4 @@
-import { barCeil, clean, isAuto, isIdea, meter, segAt } from '../song.js';
+import { barCeil, clean, isAudio, isAuto, isIdea, meter, segAt } from '../song.js';
 
 const EPS = 1e-7;
 
@@ -21,7 +21,7 @@ export class MidiRecorder {
 
   validClip() {
     const clip = this.clip();
-    if (clip && !isAuto(clip) && clip.length > 0) return clip;
+    if (clip && !isAuto(clip) && !isAudio(clip) && clip.length > 0) return clip;
     this.onError('Select a MIDI clip to record into. Double-click empty TimeLine space to create one.');
     return null;
   }

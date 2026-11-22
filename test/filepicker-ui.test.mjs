@@ -23,6 +23,7 @@ await mkdir(join(files, 'Folder'));
 await writeFile(join(files, 'Folder', '.hidden'), 'hidden');
 await writeFile(join(files, 'one.phproject'), 'original');
 await writeFile(join(files, 'song.MIDI'), Buffer.from([0, 128, 255]));
+await writeFile(join(files, 'take.mp4'), Buffer.from([1, 2, 3, 4]));
 const instrument = (wave) => JSON.stringify({
   format: 'philsynth-module', version: 1,
   modules: [{ id: 1, type: 'OSC', x: 0, y: 0, values: { wave } }], cables: [],
@@ -151,6 +152,36 @@ try {
   await rm(v2);
   assert.equal(await run(`window.projectBytes(4).then(bytes => window.modsynthFiles.save(${JSON.stringify(v2)}, bytes))`), null,
     'saving a deleted project asks for a new file');
+  const v3 = join(files, 'streamed.phproject');
+  const streamResult = await run(`(async () => {
+    const files = window.modsynthFiles;
+    const { writeZipStream } = await import('/src/projectzipstream.js');
+    const path = ${JSON.stringify(v3)};
+    const stream = await files.startProjectStream(path, true);
+    await writeZipStream([{ path: 'project.json', blob: new Blob(['{}']) }],
+      bytes => files.writeProjectStream(stream.id, bytes));
+    const saved = await files.finishProjectStream(stream.id);
+    const input = await files.openProjectStream(path);
+    const header = await files.readProjectStream(input.id, 0, 6);
+    await files.closeProjectStream(input.id);
+    const aborted = await files.startProjectStream(path, false);
+    await files.writeProjectStream(aborted.id, Uint8Array.of(80, 75, 3, 4));
+    await files.abortProjectStream(aborted.id);
+    return { saved, header: Array.from(header), size: input.size };
+  })()`);
+  assert.equal(streamResult.saved.name, 'streamed.phproject');
+  assert.deepEqual(streamResult.header, [80, 75, 3, 4, 45, 0]);
+  assert.equal((await readFile(v3)).length, streamResult.size, 'aborting keeps the prior archive');
+  await rm(v3);
+  const audioStream = await run(`(async () => {
+    const files = window.modsynthFiles;
+    const opened = await files.openAudioClipStream(${JSON.stringify(join(files, 'take.mp4'))});
+    const bytes = await files.readAudioClipStream(opened.id, 0, opened.size);
+    await files.closeAudioClipStream(opened.id);
+    return { name: opened.name, bytes: Array.from(bytes) };
+  })()`);
+  assert.deepEqual(audioStream, { name: 'take.mp4', bytes: [1, 2, 3, 4] });
+  await assert.rejects(run(`window.modsynthFiles.openAudioClipStream(${JSON.stringify(join(files, 'one.phproject'))})`), /Not a/);
   await writeFile(join(files, 'Folder', 'one.phproject'), 'do not overwrite');
   await context('one.phproject');
   await choose('Cut');

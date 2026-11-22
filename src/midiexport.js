@@ -1,4 +1,4 @@
-import { bendPolyline, notePitchAt, isAuto, isIdea, normalizeSigs } from './song.js';
+import { bendPolyline, notePitchAt, isAudio, isAuto, isIdea, normalizeSigs } from './song.js';
 import { MAX_MIDI_BYTES } from './fileformat.js';
 import { sampleAt } from './curve.js';
 
@@ -92,7 +92,7 @@ export function exportMidi(song, { bpm = 120, metadata = {}, destinationName = i
   const groups = new Map();
   let end = 0;
   for (const clip of song.clips) {
-    if (isAuto(clip) || isIdea(clip) || clip.start + clip.length <= 0) continue;
+    if (isAudio(clip) || isAuto(clip) || isIdea(clip) || clip.start + clip.length <= 0) continue;
     if (!groups.has(clip.target)) groups.set(clip.target, []);
     end = Math.max(end, tick(clip.start + clip.length));
     const notes = groups.get(clip.target);

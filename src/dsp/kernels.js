@@ -30,6 +30,7 @@ import WavetableKernel from '../modules/wavetable.dsp.js';
 import ImageSamplerKernel from '../modules/imagesampler.dsp.js';
 import InputKernel from '../modules/input.dsp.js';
 import CompressorKernel from '../modules/compressor.dsp.js';
+import { AudioClipKernel } from '../audioeditor/playbackkernel.js';
 
 export const KERNELS = {
   bus: BusKernel,
@@ -63,4 +64,5 @@ export const KERNELS = {
   imagesampler: ImageSamplerKernel,
   input: InputKernel,
   compressor: CompressorKernel,
+  audioClip: AudioClipKernel,
 };

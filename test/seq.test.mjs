@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mock } from 'node:test';
 import { setMaxListeners } from 'node:events';
-import { notePitchAt, setSig, emptySong, addClip, addAutoClip, isAuto, cloneClip, normalizeSong, setLaneMute, snapStep, clipFileText, parseClipFile } from '../src/song.js';
+import { notePitchAt, setSig, emptySong, addAudioClip, addClip, addAutoClip, isAuto, cloneClip, normalizeSong, setLaneMute, snapStep, clipFileText, parseClipFile } from '../src/song.js';
 import { createAutomationLane } from '../src/seq/automation.js';
 import { createPianoRoll, TOP_MARGIN, GRID_MIN_PX } from '../src/seq/pianoroll.js';
 import { createArranger } from '../src/seq/arranger.js';
@@ -12,6 +12,7 @@ import { Transport } from '../src/transport.js';
 import { initMouseNavigation } from '../src/mousebuttons.js';
 import { createPreferencesManager } from '../src/preferences.js';
 import { registerTimelinePreferences, SHOW_INPUT_GRID_ID, SHOW_VERTICAL_BARLINES_ID } from '../src/timelinepreferences.js';
+import { createAudioEditor } from '../src/audioeditor/editor.js';
 
 {
   const target = new EventTarget();
@@ -2873,6 +2874,38 @@ for (const snap of [{ base: 1, div: 1 }, { base: 16, div: 3 }]) {
   assert.equal(song.clips.length, 4, 'cancelling does not change song');
 }
 
+// Audio imports use the clicked lane and discard a completed take if the layer changed.
+{
+  const { song, clip, arranger, ctx, menus, changes } = setup();
+  clip.length = 4;
+  let version = 0, discarded = null;
+  const result = { id: '12345678-1234-4234-8234-123456789abc', sampleRate: 48000, channels: 2, frames: 48000, name: 'Drums.mp3' };
+  ctx.layerVersion = () => version;
+  ctx.openAudio = async () => result;
+  ctx.audioBpm = () => 120;
+  ctx.audioTarget = () => 0;
+  ctx.discardAudio = async (value) => { discarded = value; };
+  holdRightClick(arranger.surface.cv, ax(8), ay(34));
+  assert.ok(labels(menus).includes('Import Audio…'));
+  pick(menus, 'Import Audio…');
+  await new Promise((resolve) => setImmediate(resolve));
+  const imported = song.clips.at(-1);
+  assert.deepEqual([imported.kind, imported.start, imported.y, imported.length, imported.target, imported.name], ['audio', 8, 34, 2, 0, 'Drums']);
+  assert.equal(song.selected, imported.id);
+  assert.equal(changes(), 1);
+  assertNoOverlap(song);
+
+  let resolve;
+  ctx.openAudio = () => new Promise((done) => { resolve = done; });
+  holdRightClick(arranger.surface.cv, ax(12), ay(34));
+  pick(menus, 'Import Audio…');
+  version++;
+  resolve(result);
+  await new Promise((done) => setImmediate(done));
+  assert.equal(discarded, result);
+  assert.equal(song.clips.length, 2);
+}
+
 {
   const { song, arranger, ctx, menus } = setup();
   arranger.setView({ sx: 0, sy: -136, ppq: 16 });
@@ -5330,6 +5363,7 @@ for (const notes of [
   let picked = null; // the module selected in the patcher (main.js selectedTarget)
   const seq = createSequencer({
     engine,
+    getAudioAssets: () => ({ peaks: async (_id, _start, _end, bins) => [new Float32Array(bins * 2)] }),
     transport, getTarget: () => previewTarget, defaultTarget: () => null, selectedTarget: () => picked, onChange() { viewChanges++; },
     onSongChange() { songChanges++; },
   });
@@ -5834,6 +5868,24 @@ for (const notes of [
   }
 
   // S no longer changes pane visibility; it is reserved for timeline splitting.
+  {
+    const audio = addAudioClip(song, { audio: { id: '11111111-1111-4111-8111-111111111111', sampleRate: 48000, channels: 1, frames: 48000, span: 2 } });
+    song.selected = audio.id;
+    engine.root.modules.set(7, { id: 7, def: { type: 'AMP', hasInput: true }, name: 'Audio input' });
+    engine.root.modules.set(8, { id: 8, def: { type: 'OSC', acceptsMidi: true }, name: 'MIDI input' });
+    seq.reload(); flush();
+    assert.equal(elements.get('roll').children[0].style.display, 'none');
+    assert.equal(elements.get('roll').children[1].style.display, 'none');
+    assert.equal(elements.get('roll').children[2].style.display, '');
+    assert.deepEqual(elements.get('seq-target').children.map(option => option.value), ['', 7]);
+    elements.get('seq-record').onclick();
+    assert.equal(seq.recordArmed(), false, 'MIDI recording does not write into audio clips');
+    song.clips = [];
+    song.selected = null;
+    engine.root.modules.clear();
+    seq.reload(); flush();
+  }
+
   seq.applyView({ top: 0.37, bottom: 0.81 });
   assert.equal(press('S').defaultPrevented, false);
   assert.equal(press('s').defaultPrevented, false);
@@ -6203,6 +6255,63 @@ for (const notes of [
     assert.equal(roll.getView().sy, sy0, `piano roll stays put at ${pos}`);
     assert.equal(arranger.getView().sx, sx0, 'the TimeLine stays put');
   }
+}
+
+// The audio editor keeps time vertical and only edits the selected stereo channel when enabled.
+{
+  const clip = { id: 1 };
+  let channels = 2;
+  const edits = [], menus = [], requests = [];
+  const editor = createAudioEditor(host(), {
+    clip: () => clip,
+    audio: () => ({ frames: 1000, rate: 100, channels, revision: 1 }),
+    margin: () => 40,
+    readPeaks: async (_clip, start, end, bins) => {
+      requests.push([start, end, bins]);
+      return Array.from({ length: channels }, () => new Float32Array(bins * 2));
+    },
+    commitStroke: async (...args) => edits.push(args),
+    onError: (error) => { throw error; },
+    menu: (menu) => menus.push(menu),
+  });
+  editor.redraw();
+  flush();
+  await new Promise((resolve) => setImmediate(resolve));
+  flush();
+  assert.ok(requests.length, 'only the visible range is requested');
+  const cv = editor.surface.cv;
+  drag(cv, 80, 188, 120, 248);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(edits.length, 0, 'drawing starts disabled');
+  point(cv, 'pointerdown', 80, 188, { button: 2, buttons: 2 });
+  assert.equal(menus[0].items[0].checked, false);
+  menus[0].items[0].action();
+  drag(cv, 80, 188, 120, 248);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(edits.length, 1);
+  assert.equal(edits[0][0], clip);
+  assert.equal(edits[0][1], 0);
+  assert.deepEqual(edits[0][2][0], { frame: 50, value: -0.6 });
+  assert.equal(edits[0][2].at(-1).frame, 100);
+  assert.ok(Math.abs(edits[0][2].at(-1).value + 0.2) < 1e-9);
+  flush();
+  drag(cv, 400, 188, 360, 248, {}, 'pointercancel');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(edits.length, 1, 'cancelled strokes are not committed');
+  drag(cv, 400, 188, 360, 248);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(edits[1][1], 1, 'right channel uses the right-hand editor');
+  assert.equal(edits[1][2][0].frame, 50);
+  assert.ok(Math.abs(edits[1][2][0].value - 0.6) < 1e-9);
+  channels = 1;
+  editor.invalidate();
+  flush();
+  await new Promise((resolve) => setImmediate(resolve));
+  flush();
+  drag(cv, 240, 188, 240, 248);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(edits[2][1], 0);
+  assert.equal(edits[2][2][0].value, 0, 'mono uses the full width between margins');
 }
 
 console.log('sequencer interaction tests passed');

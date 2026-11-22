@@ -34,6 +34,7 @@
 // ['dis', from, to] ['msg', h, message] ['routes', h, [{ to, id, min, max, scale, step }]]
 // ['clock', on] (report the audio time even without modulation changes, for MULTIMIDI drift)
 // ['scope', [h...]] (watch these nodes for the cable display, see scope()).
+// ['record', h, settings | null] captures a node into a bounded shared buffer, or stops it.
 // ['add', h, kind, opts, part]: a node of a PATCH instance copy; with a pool (setPool) it renders
 // on a worker (src/dsp/instancepool.js) and is a remote node here. Step 2 then runs as steps:
 // fetching what workers rendered right before it is needed, publishing what they need right
@@ -50,6 +51,7 @@ import { fromNorm, toNorm } from '../params.js';
 import { filterPhaseDelay } from './loopphase.js';
 import { noteHz } from '../modules/delaytime.js';
 import { AudioAnalysis, ANALYSIS_SIZE } from './analysis.js';
+import { RecordingBuffer } from '../audioeditor/recordingbuffer.js';
 
 const BLOCK = 128;
 const NO_INPUT = [[]];
@@ -76,6 +78,9 @@ export class Graph {
     this.pool = null; // PATCH instance workers (src/dsp/instancepool.js), audio thread only
     this.block = 0;
     this.sinks = new Set(); // worker: exported nodes, rendered like the master bus
+    this.recordings = new Map();
+    const silence = new Float32Array(BLOCK);
+    this.recordSilence = [silence, silence];
     this.nodes = new Map();
     this.order = []; // audio nodes reaching the master bus, sources first
     this.plan = []; // the order with sound loops as groups (see loops())
@@ -110,6 +115,7 @@ export class Graph {
       case 'clock': this.clock = !!a; break;
       case 'scope': this.setScope(a); break;
       case 'analyse': this.setAnalysis(a, b); break;
+      case 'record': this.setRecording(a, b); break;
       case 'panic': this.panic(); break;
       case 'songStart': this.songStart(); break;
     }
@@ -227,6 +233,7 @@ export class Graph {
     if (node.link) { node.link.nodes--; node.link.post(['del', h]); this.pool.drop(node.part); }
     this.meters.delete(node);
     this.sinks.delete(node);
+    this.setRecording(h, null);
     if (node.rec) this.x.ms_node_free(node.rec);
     if (this.heap) {
       this.heap.free(node.outPtr);
@@ -285,6 +292,7 @@ export class Graph {
   // MIDI/audio panic: every kernel drops its sounding state and the last block outputs are cleared
   // (a feedback cable would otherwise feed them back in)
   panic() {
+    this.stopRecordings();
     for (const n of this.nodes.values()) {
       n.k.panic?.();
       for (const bufs of [n.outs, n.sums]) if (bufs) for (const [l, r] of bufs) { l.fill(0); r.fill(0); }
@@ -293,6 +301,40 @@ export class Graph {
       if (n.rec) this.x.ms_node_set_silent(n.rec, 1);
     }
     this.pool?.broadcast(['panic']);
+  }
+
+  setRecording(h, settings) {
+    const current = this.recordings.get(h);
+    if (!settings) {
+      if (current) {
+        current.buffer.stop();
+        this.recordings.delete(h);
+        this.dirty = true;
+      }
+      return;
+    }
+    const node = this.nodes.get(h);
+    if (!node?.audio || node.link) throw new Error(`Cannot record audio from node ${h}`);
+    if (current) throw new Error(`Node ${h} is already recording`);
+    const buffer = new RecordingBuffer(settings);
+    if (buffer.capacity <= BLOCK) throw new Error('Recording buffer is too small');
+    this.recordings.set(h, { node, buffer, mono: [null], stereo: [null, null], window: null });
+    this.dirty = true;
+  }
+
+  setRecordingWindow(h, start, end, stop = false) {
+    const capture = this.recordings.get(h);
+    if (!capture) return;
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end < start || end > BLOCK) {
+      throw new Error('Invalid recording window');
+    }
+    capture.window = { start, end, stop };
+  }
+
+  stopRecordings() {
+    for (const { buffer } of this.recordings.values()) buffer.stop();
+    if (this.recordings.size) this.dirty = true;
+    this.recordings.clear();
   }
 
   // play from start: kernels that follow the song clock restart (LFO phase), so every playback
@@ -348,6 +390,7 @@ export class Graph {
     const monitored = this.nodes.get(this.analysis?.h);
     if (monitored?.audio) visit(monitored);
     for (const n of this.sinks) visit(n);
+    for (const { node } of this.recordings.values()) visit(node);
     visit(this.master);
     // Audio-driven controllers need their sources even if no audio cable reaches the Output.
     for (const n of this.nodes.values()) if (n.audioInput && n.routes.length) visit(n);
@@ -683,6 +726,20 @@ export class Graph {
       const n = this.nodes.get(this.analysis.h);
       const silent = !n || !n.audio || (this.native && n.rec ? this.x.ms_node_silent(n.rec) : n.silent);
       this.analysis.push(silent ? null : n.outs[0][0], silent ? null : n.outs[0][1]);
+    }
+    if (this.recordings.size) for (const [h, capture] of this.recordings) {
+      const { node, buffer, mono, stereo } = capture;
+      const silent = this.native && node.rec ? this.x.ms_node_silent(node.rec) : node.silent;
+      const input = silent ? this.recordSilence : node.outs[0];
+      const { start, end, stop } = capture.window ?? { start: 0, end: BLOCK, stop: false };
+      mono[0] = input[0].subarray(start, end);
+      stereo[0] = mono[0];
+      stereo[1] = input[1].subarray(start, end);
+      if ((end > start && !buffer.write(buffer.channels === 1 ? mono : stereo)) || stop) {
+        if (stop) buffer.stop();
+        this.recordings.delete(h);
+        this.dirty = true;
+      }
     }
     const m = this.master;
     if (m.silent) {

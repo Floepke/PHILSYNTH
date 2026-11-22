@@ -4,6 +4,9 @@ import { LoadMeter } from './loadmeter.js';
 import { Playback } from './playback.js';
 import { InstancePool } from './instancepool.js';
 import { useAudioNoteIds } from '../modmidi.js';
+import { AudioPageCache } from '../audioeditor/pagecache.js';
+import { AudioClipPlayback } from '../audioeditor/playback.js';
+import { RecordingSchedule } from '../audioeditor/recordingschedule.js';
 
 const REPORT_BLOCKS = 2;
 const SCOPE_BLOCKS = Math.max(REPORT_BLOCKS, Math.round(sampleRate / 128 / 60 / REPORT_BLOCKS) * REPORT_BLOCKS);
@@ -39,7 +42,16 @@ export class EngineRenderer {
             if (type === 'model') await this.playback.model(data);
             else if (type === 'song') this.playback.setSong(data);
             else this.playback.command(data);
-          } else if (op[0] === 'pool') this.graph.setPool(new InstancePool(op[1], { budget: op[1].budget ?? null }));
+          } else if (op[0] === 'audioCache') {
+            this.playback.audio?.destroy();
+            const cache = new AudioPageCache(op[1].memory, op[1].port);
+            this.playback.audio = new AudioClipPlayback(this.graph, cache, sampleRate);
+          }
+          else if (op[0] === 'audioRecord') {
+            this.playback.recording ??= new RecordingSchedule(this.graph, this.playback.transport, sampleRate);
+            this.playback.recording.add(op[1]);
+          }
+          else if (op[0] === 'pool') this.graph.setPool(new InstancePool(op[1], { budget: op[1].budget ?? null }));
           else this.graph.op(op);
         }
       }).catch(err => this.fail(err));
@@ -50,6 +62,7 @@ export class EngineRenderer {
   fail(error) {
     this.playback.failed = true;
     this.onReset?.();
+    this.graph.stopRecordings();
     try { this.playback.command({ type: 'panic' }); }
     catch (cleanup) {
       this.graph.panic();

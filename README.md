@@ -703,18 +703,48 @@ their ends. Dragging an existing point creates missing same-time points
 immediately. Select a single note to edit only that note. Cancel restores the
 original curves, including removing points created by a cancelled point drag.
 
-TimeLine clips show full-height beamed eighth notes (♫) for MIDI and a wave (∿) for
-automation, before the clip name and target.
+TimeLine clips show full-height beamed eighth notes (♫) for MIDI, a wave (∿) for
+automation, and ≋ for audio, before the clip name and target.
 Labels are vertically centered and left-aligned, staying clear of the type icon.
 When a clip starts off-screen, its label follows the viewport's left edge,
 remaining clipped inside the clip. MIDI note previews use the full clip height
 with a small inset from the border.
 
-Right-click a clip in the TimeLine and choose **Save Clip…** to store the selected
-clips as a `.clip` file (JSON: `{ "format": "philsynth-clip", "version": 1, "clips": [...] }`).
+Right-click a MIDI or automation clip in the TimeLine and choose **Save Clip…** to
+store the selected clips as a `.clip` file (JSON: `{ "format": "philsynth-clip", "version": 1, "clips": [...] }`).
 Right-click empty TimeLine space and choose **Load Clip…** to place them there again,
 also in another project. A clip plays the same module when it still exists, otherwise
 the first module of the same type, otherwise the default MIDI module.
+
+### Audio clips and recording
+
+Right-click the TimeLine and choose **Import Audio…**. WAV and AIFF PCM files
+and supported compressed audio formats, including MP3 and MP4/M4A, are converted
+to 24-bit WAV; compressed codec support depends on the browser. Select an audio
+clip and use **Send to** to route it to a module with an audio input. Selecting
+the clip opens a vertical waveform editor; right-click it to enable sample
+drawing. Its margin is adjustable in Preferences. Linked clones share their
+waveform and edits. Audio clips cannot currently be exported as `.clip` files.
+
+Connect an INPUT or other source to a RECORDER, arm it, and choose a record lane
+and mono or stereo channels. Arm the TimeLine Record button and start song
+playback. Multiple armed recorders need separate lanes. After the count-in,
+each take stops when stopped, when it reaches another clip on its lane, or
+when the tempo changes. Each take creates a new clip initially routed to Output;
+select its destination afterwards. Audio recording takes precedence over MIDI
+recording while any RECORDER is armed.
+
+Audio is stored in origin-private disk-backed working storage, subject to quota
+and eviction, and included once per shared asset in a saved project archive.
+Save projects to preserve audio; autosaves refer to working storage and are not
+self-contained. Working-storage files are not automatically garbage-collected
+after clips are edited or deleted. Opening a large desktop project temporarily needs extra disk
+space. Individual WAV files are limited to approximately 4 GiB. If the desktop
+app's usual local port is occupied, it uses a different origin and cannot see
+the usual origin's working audio until restarted with the original port free.
+Browsers without file-system access cannot save projects containing audio clips.
+Clip timing is musical: tempo changes and stretching change playback speed and
+pitch.
 
 The file dialogs remember the last folder per kind: opening projects, saving projects,
 clips and modules (`.phmod`). The desktop app stores these folders in `dialog-dirs.json`

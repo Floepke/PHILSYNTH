@@ -30,11 +30,21 @@ contextBridge.exposeInMainWorld('modsynthFiles', {
   open: (path) => ipcRenderer.invoke('project:open', path),
   save: (ref, bytes) => ipcRenderer.invoke('project:save', ref, bytes),
   saveAs: (path, bytes) => ipcRenderer.invoke('project:saveAs', path, bytes),
+  openProjectStream: (path) => ipcRenderer.invoke('project:streamOpen', path),
+  readProjectStream: (id, at, length) => ipcRenderer.invoke('project:streamRead', id, at, length),
+  closeProjectStream: (id) => ipcRenderer.invoke('project:streamClose', id),
+  startProjectStream: (path, saveAs) => ipcRenderer.invoke('project:streamStart', path, saveAs),
+  writeProjectStream: (id, bytes) => ipcRenderer.invoke('project:streamWrite', id, bytes),
+  finishProjectStream: (id) => ipcRenderer.invoke('project:streamFinish', id),
+  abortProjectStream: (id) => ipcRenderer.invoke('project:streamAbort', id),
   // clips / modules / Scala tunings (see src/filedialog.js); kind: 'clip' | 'module' | 'scala'
   saveFile: (kind, path, text) => ipcRenderer.invoke('file:save', kind, path, text),
   openFile: (kind, path) => ipcRenderer.invoke('file:open', kind, path),
   // audio / pictures modules load; kind: 'sample' | 'wavetable' | 'image' -> { name, data }
   openBinary: (kind, path) => ipcRenderer.invoke('file:openBinary', kind, path),
+  openAudioClipStream: (path) => ipcRenderer.invoke('audio-clip:streamOpen', path),
+  readAudioClipStream: (id, at, length) => ipcRenderer.invoke('audio-clip:streamRead', id, at, length),
+  closeAudioClipStream: (id) => ipcRenderer.invoke('audio-clip:streamClose', id),
   saveMidi: (path, data) => ipcRenderer.invoke('midi:save', path, data),
   // Export Audio: WAV bytes (ArrayBuffer)
   saveAudio: (path, data, id) => ipcRenderer.invoke('audio:save', path, data, id),

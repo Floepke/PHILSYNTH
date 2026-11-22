@@ -13,10 +13,12 @@ const crcTable = Uint32Array.from({ length: 256 }, (_, n) => {
   for (let i = 0; i < 8; i++) n = (n >>> 1) ^ ((n & 1) ? 0xedb88320 : 0);
   return n;
 });
-export function crc32(bytes) {
-  let crc = -1;
+export function crc32Update(crc, bytes) {
   for (let i = 0; i < bytes.length; i++) crc = (crc >>> 8) ^ crcTable[(crc ^ bytes[i]) & 255];
-  return (crc ^ -1) >>> 0;
+  return crc;
+}
+export function crc32(bytes) {
+  return (crc32Update(-1, bytes) ^ -1) >>> 0;
 }
 
 export const isProjectZip = (bytes) => bytes.length >= 4 && view(bytes).getUint32(0, true) === LOCAL;

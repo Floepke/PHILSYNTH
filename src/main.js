@@ -17,6 +17,9 @@ import { registerAudioPreferences, audioLatencyHint } from './audiopreferences.j
 import { registerTimelinePreferences } from './timelinepreferences.js';
 import { registerPianorollPreferences } from './pianorollpreferences.js';
 import { registerAutomationPreferences } from './automationpreferences.js';
+import { registerAudioEditorPreferences } from './audioeditor/preferences.js';
+import { AudioAssets } from './audioeditor/assets.js';
+import { recordingReferences } from './audioeditor/references.js';
 import { registerPatcherPreferences } from './patcherpreferences.js';
 import { AudioTransport } from './audiotransport.js';
 import { unsavedDialog, exportLevelDialog, infoDialog } from './dialogs.js';
@@ -41,7 +44,7 @@ import { AUDIO_FORMATS, audioFormat } from './audioformat.js';
 import { exportMidi } from './midiexport.js';
 import { withSamples, importSamples } from './samples.js';
 import { createProjectFile, pickBackend } from './projectfile.js';
-import { prepareProjectArchive } from './projectarchive.js';
+import { prepareCurrentProjectArchive } from './projectarchive.js';
 import { initStatusTips } from './statustips.js';
 import { registerShortcutPreferences, initShortcuts, registerShortcutMenu, registerShortcutAction, parseShortcut } from './shortcuts.js';
 import { saveTextFile, openTextFile } from './filedialog.js';
@@ -69,6 +72,10 @@ let scope = null; // live audio drawn on the cables (created after the engine)
 let patchMonitor = null;
 let analysePanel = null;
 const $ = (id) => document.getElementById(id);
+let audioAssets = null;
+const getAudioAssets = () => (audioAssets ??= new AudioAssets({
+  onError: (error) => { $('status').textContent = `Audio storage failed: ${error.message}`; },
+}));
 const preferencesManager = createPreferencesManager();
 initWoodTheme(preferencesManager);
 registerInterfacePreferences(preferencesManager);
@@ -76,6 +83,7 @@ registerAudioPreferences(preferencesManager);
 const timelineDisplay = registerTimelinePreferences(preferencesManager, () => seq?.redrawTimeline());
 const pianorollPreferences = registerPianorollPreferences(preferencesManager, () => seq?.redrawPianoroll());
 const automationPreferences = registerAutomationPreferences(preferencesManager, () => seq?.redrawAutomation());
+const audioEditorPreferences = registerAudioEditorPreferences(preferencesManager, () => seq?.redrawAudio());
 const patcherPreferences = registerPatcherPreferences(preferencesManager, () => analysePanel?.refresh());
 registerMidiPreferences(preferencesManager, () => midi);
 registerShortcutPreferences(preferencesManager);
@@ -312,7 +320,11 @@ function projectEdits(project = engine.saveProject()) {
 }
 const projectFile = createProjectFile({
   fingerprint: () => JSON.parse(projectEdits()),
-  serialize: () => prepareProjectArchive({ ...engine.saveProject(), view: viewState() }),
+  serialize: () => {
+    const project = { ...engine.saveProject(), view: viewState() };
+    return prepareCurrentProjectArchive(project, recordingReferences(project).size ? getAudioAssets() : null);
+  },
+  getAudioAssets,
   backend: pickBackend(window, $('file')),
   onChange: showDocument,
 });
@@ -1970,6 +1982,8 @@ seq = createSequencer({
   engine,
   pianorollPreferences,
   automationPreferences,
+  audioEditorPreferences,
+  getAudioAssets,
   timelineDisplay,
   transport,
   getSong: () => layerSong(shown()),

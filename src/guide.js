@@ -265,6 +265,16 @@ export const GUIDE = [
         ],
       },
       {
+        title: 'Import and record audio',
+        items: [
+          'Right-click the TimeLine and choose <b>Import Audio…</b> to place a WAV, AIFF, MP3, MP4/M4A, FLAC, Ogg or other supported audio file. Codec support depends on the browser. Audio is converted to 24-bit WAV in working storage; very long files are limited by the WAV size and available disk space.',
+          'Select an audio clip and choose an audio-input module under <b>Send to</b> to route it through your own effects. Audio follows the clip’s musical length: changing tempo or stretching the clip changes its playback speed and pitch.',
+          'The upper editor shows the waveform vertically, with stereo channels side by side. Right-click it to enable drawing, then drag to edit samples; drawing starts off. The audio-editor margin is adjustable in Preferences. Linked clones share their edits and the same stored WAV.',
+          'For recording, connect an INPUT or other audio source to a RECORDER, turn its Arm controller on and choose a Record lane and Mono or Stereo. Arm the TimeLine Record button and start song playback. Multiple armed recorders need different lanes. After the count-in, each records until stopped, until it reaches another clip on its lane, or until the tempo changes; the finished take becomes an audio clip.',
+          'Recordings use origin-private working storage, which is subject to browser quota and eviction. Working files are not automatically removed after editing or deleting clips. Save the project to include its WAVs in the project archive. Browser download-only saves do not yet support projects with audio clips.',
+        ],
+      },
+      {
         title: 'Name a clip',
         items: [
           'The <b>Clip</b> field in the upper divider shows the name of the selected clip. Click it once to select the whole name and type the new one; it updates on the TimeLine as you type.',
@@ -396,7 +406,7 @@ export const GUIDE = [
           'While looping a clip, select another clip to switch to it when the current clip finishes. The selection at the loop boundary is the one that plays next.',
           `Press ${k('.')} during a clip loop to leave loop mode and continue the song from the current playhead position, without restarting playback or held notes.`,
           'Starting in the middle of a note plays it for the rest of its length.',
-          'The round <b>Record</b> button arms MIDI recording and flashes red at the project BPM. Create and select a MIDI clip first; recording never creates clips. Existing notes are kept.',
+          'The round <b>Record</b> button flashes red at the project BPM. When no RECORDER module is armed, it arms MIDI recording: create and select a MIDI clip first. Existing notes are kept. Armed RECORDER modules instead record audio to their chosen lanes.',
           'The <b>Metronome</b> toggle next to Record clicks during playback and recording: the same short sine sound as the count-in, 880 Hz at each barline and 440 Hz on the other beats. It follows the playing TimeLine’s tempo, time signatures and loops, including beats hidden from the editor grid. Switch it off to silence it; recording’s one-measure count-in still sounds independently. The metronome is a monitoring aid and is not included in exported audio.',
           `With Record armed, ${k('Space')} over the pianoroll records from the pointer, or ${k('/')} records from the clip start and overdubs on every loop. Play starts with a one-measure count-in in the time signature at that position, with the metronome sound. The playhead waits until the count-in finishes. Notes pressed early and still held when recording begins are recorded from the recording start; notes released entirely during the count-in are not recorded.`,
           `Play your MIDI controller to record pitches, velocities and durations without quantization. Notes are added on release; notes held across a loop are split at the boundary. The clip's Send to target monitors the input while armed. ${k("'")}, the stop button or ${k('Space')} stops and disarms recording. Normal recording continues past the original clip and song end without looping; the clip grows while recording, then ends at the first barline at or after the final note end (including existing notes). An empty take keeps the original length. Loop recording keeps its fixed clip length and overdubs on every pass. Click Record again to disarm; changing clip or Patch level ends the take. Undo removes the take, including length changes.`,

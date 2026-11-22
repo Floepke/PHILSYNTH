@@ -8,8 +8,9 @@
 
 import { PROJECT_EXT, PROJECT_OPEN_EXTS, fileAccept } from './fileformat.js';
 import { pickFile } from './filepicker.js';
-import { readProjectArchive, readProjectBytes } from './projectarchive.js';
+import { readProjectArchive, readProjectBytes, readStreamedProjectArchive } from './projectarchive.js';
 import { isProjectZip } from './projectzip.js';
+import { stageProjectStream } from './audioeditor/projectstage.js';
 
 export const UNTITLED = 'Untitled';
 export const EXT = PROJECT_EXT;
@@ -37,7 +38,7 @@ export function suggestName(name) {
 // fingerprint(): what counts as a change (the project without view / selection state)
 // serialize(): captures the file state, returning an async encoder
 // onChange(doc): name or dirty state may have changed
-export function createProjectFile({ fingerprint, serialize, backend, onChange = () => {} }) {
+export function createProjectFile({ fingerprint, serialize, backend, getAudioAssets = null, onChange = () => {} }) {
   let doc = { name: UNTITLED, ref: null, savedHash: null, diskVersion: null };
   const current = () => hashText(JSON.stringify(fingerprint()));
   const changed = () => onChange(api.info());
@@ -48,9 +49,10 @@ export function createProjectFile({ fingerprint, serialize, backend, onChange = 
 
   async function write(save) {
     const hash = current(); // what is being written, even if edits happen while the dialog is open
-    const result = await save(serialize());
+    const encode = serialize();
+    const result = await save(encode);
     if (!result) return null;
-    set({ name: result.name, ref: result.ref ?? null, savedHash: hash, diskVersion: 2 });
+    set({ name: result.name, ref: result.ref ?? null, savedHash: hash, diskVersion: encode.diskVersion ?? 2 });
     return result.name;
   }
 
@@ -67,9 +69,29 @@ export function createProjectFile({ fingerprint, serialize, backend, onChange = 
     async open(load) {
       const file = await backend.open();
       if (!file) return null;
-      const { data, version } = await readProjectArchive(file.bytes);
+      let archive, error;
+      try {
+        archive = file.blob
+          ? await readStreamedProjectArchive(file.blob, getAudioAssets)
+          : await readProjectArchive(file.bytes);
+      } catch (cause) { error = cause; }
+      if (file.cleanup) {
+        try { await file.cleanup(); }
+        catch (cause) {
+          if (archive?.imported?.length) {
+            const failures = [cause];
+            for (const id of archive.imported) {
+              try { await getAudioAssets().discard(id); } catch (cleanupError) { failures.push(cleanupError); }
+            }
+            cause = failures.length > 1 ? new AggregateError(failures, 'Project import cleanup failed') : cause;
+          }
+          error = error ? new AggregateError([error, cause], 'Project import and cleanup failed') : cause;
+        }
+      }
+      if (error) throw error;
+      const { data, version } = archive;
       await load(data);
-      const ref = version === 2 && file.name.toLowerCase().endsWith(EXT) ? file.ref ?? null : null;
+      const ref = version >= 2 && file.name.toLowerCase().endsWith(EXT) ? file.ref ?? null : null;
       set({ name: file.name, ref, savedHash: current(), diskVersion: version });
       return file.name;
     },
@@ -81,7 +103,7 @@ export function createProjectFile({ fingerprint, serialize, backend, onChange = 
     },
     saveAs() {
       const name = doc.diskVersion === 1 && doc.name.toLowerCase().endsWith(EXT)
-        ? `${doc.name.slice(0, -EXT.length)} (v2)${EXT}` : suggestName(doc.name);
+        ? `${doc.name.slice(0, -EXT.length)} (v3)${EXT}` : suggestName(doc.name);
       return write((encode) => backend.saveAs(name, encode));
     },
     // stored in the autosave, so a restart restores the file name and the unsaved state
@@ -90,10 +112,10 @@ export function createProjectFile({ fingerprint, serialize, backend, onChange = 
     },
     // from an autosave; one without document info counts as unsaved
     restore(saved) {
-      const diskVersion = saved?.diskVersion === 2 ? 2 : saved?.diskVersion === 1 || typeof saved?.ref === 'string' ? 1 : null;
+      const diskVersion = saved?.diskVersion === 3 ? 3 : saved?.diskVersion === 2 ? 2 : saved?.diskVersion === 1 || typeof saved?.ref === 'string' ? 1 : null;
       set({
         name: typeof saved?.name === 'string' && saved.name ? saved.name : UNTITLED,
-        ref: diskVersion === 2 && typeof saved?.ref === 'string' ? saved.ref : null,
+        ref: diskVersion >= 2 && typeof saved?.ref === 'string' ? saved.ref : null,
         savedHash: typeof saved?.savedHash === 'string' ? saved.savedHash : null,
         diskVersion,
       });
@@ -107,21 +129,46 @@ export function createProjectFile({ fingerprint, serialize, backend, onChange = 
 // Desktop app: the app's own file dialog (src/filepicker.js) picks the path, the main process
 // (electron/preload.cjs) reads / writes it. `pick` is replaceable for tests.
 export function electronBackend(files, pick = pickFile) {
+  async function streamSave(path, encode, saveAs) {
+    if (!files.startProjectStream) throw new Error('Streaming project saves are unavailable');
+    const stream = await files.startProjectStream(path, saveAs);
+    if (!stream) return null;
+    try { await encode.writeTo((bytes) => files.writeProjectStream(stream.id, bytes)); }
+    catch (error) {
+      try { await files.abortProjectStream(stream.id); }
+      catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Project save and cleanup failed'); }
+      throw error;
+    }
+    return files.finishProjectStream(stream.id);
+  }
   return {
     async open() {
       const f = await pick(files, { mode: 'open', dialog: 'project-open', title: 'Open PHILSYNTH project', types: `PHILSYNTH projects (${PROJECT_OPEN_EXTS.join(', ')})`, exts: PROJECT_OPEN_EXTS });
-      return f ? files.open(f.path) : null;
+      if (!f) return null;
+      if (!files.openProjectStream) return files.open(f.path);
+      const info = await files.openProjectStream(f.path);
+      if (isProjectZip(info.header) && info.header.length >= 6 && info.header[4] === 45 && info.header[5] === 0) {
+        return { name: info.name, ref: info.ref, ...await stageProjectStream(files, info) };
+      }
+      await files.closeProjectStream(info.id);
+      return files.open(f.path);
     },
-    save: async (ref, encode) => files.save(ref, await encode()),
+    save: async (ref, encode) => encode.writeTo ? streamSave(ref, encode, false) : files.save(ref, await encode()),
     async saveAs(name, encode) {
       const f = await pick(files, { mode: 'save', dialog: 'project-save', title: 'Save PHILSYNTH project', types: `PHILSYNTH projects (${EXT})`, exts: [EXT], saveExt: EXT, suggestedName: name });
-      return f ? files.saveAs(f.path, await encode()) : null;
+      return f ? encode.writeTo ? streamSave(f.path, encode, true) : files.saveAs(f.path, await encode()) : null;
     },
   };
 }
 
 const TYPES = [{ description: 'PHILSYNTH project', accept: { 'application/x-philsynth': [EXT] } }];
 const OPEN_TYPES = [{ description: 'PHILSYNTH project', accept: { 'application/x-philsynth': PROJECT_OPEN_EXTS } }];
+
+async function fileContents(file) {
+  const header = new Uint8Array(await file.slice(0, 6).arrayBuffer());
+  if (isProjectZip(header) && header.length >= 6 && header[4] === 45 && header[5] === 0) return { blob: file };
+  return { bytes: await readProjectBytes(file) };
+}
 
 // Small IndexedDB store for file handles (they cannot go into JSON / localStorage).
 function handleStore(dbName = 'modsynth-files') {
@@ -157,17 +204,19 @@ export function fsaBackend(win = window) {
     return ref;
   };
   const cancelled = (err) => err?.name === 'AbortError';
-  async function writeTo(handle, bytes) {
+  async function writeTo(handle, encode) {
     const file = await handle.getFile();
     if (file.size && !isProjectZip(new Uint8Array(await file.slice(0, 4).arrayBuffer()))) {
       throw new Error('Choose a different file name to preserve the existing project');
     }
     const writable = await handle.createWritable();
     try {
-      await writable.write(bytes);
+      if (encode.writeTo) await encode.writeTo((bytes) => writable.write(bytes));
+      else await writable.write(await encode());
       await writable.close();
     } catch (err) {
-      await writable.abort().catch(() => {}); // write/close may have already closed the stream
+      try { await writable.abort(); }
+      catch (cleanupError) { throw new AggregateError([err, cleanupError], 'Project save and cleanup failed'); }
       throw err;
     }
   }
@@ -182,8 +231,8 @@ export function fsaBackend(win = window) {
         throw err;
       }
       const file = await handle.getFile();
-      const bytes = await readProjectBytes(file);
-      return { name: file.name, ref: isProjectZip(bytes) ? await remember(handle) : null, bytes };
+      const contents = await fileContents(file);
+      return { name: file.name, ref: contents.blob || isProjectZip(contents.bytes) ? await remember(handle) : null, ...contents };
     },
     async save(ref, encode) {
       let handle = handles.get(ref);
@@ -199,10 +248,10 @@ export function fsaBackend(win = window) {
         console.warn('Saving to the project file failed, asking for a new one:', err);
         return null;
       }
-      const bytes = await encode();
       try {
-        await writeTo(handle, bytes);
+        await writeTo(handle, encode);
       } catch (err) {
+        if (encode.writeTo) throw err;
         console.warn('Saving to the project file failed, asking for a new one:', err);
         return null;
       }
@@ -216,7 +265,7 @@ export function fsaBackend(win = window) {
         if (cancelled(err)) return null;
         throw err;
       }
-      await writeTo(handle, await encode());
+      await writeTo(handle, encode);
       return { name: handle.name, ref: await remember(handle) };
     },
   };
@@ -225,6 +274,7 @@ export function fsaBackend(win = window) {
 // Any browser: a file input opens, a download saves (each Save downloads the file again).
 export function downloadBackend(fileInput, doc = document) {
   const download = async (name, encode) => {
+    if (encode.writeTo && !encode.downloadable) throw new Error('Saving audio clips requires a browser with file system access or the desktop app');
     const blob = new Blob([await encode()], { type: 'application/octet-stream' });
     const a = Object.assign(doc.createElement('a'), { href: URL.createObjectURL(blob), download: name });
     a.click();
@@ -241,7 +291,7 @@ export function downloadBackend(fileInput, doc = document) {
           const file = fileInput.files[0];
           fileInput.value = '';
           if (!file) return resolve(null);
-          try { resolve({ name: file.name, ref: null, bytes: await readProjectBytes(file) }); } catch (err) { reject(err); }
+          try { resolve({ name: file.name, ref: null, ...await fileContents(file) }); } catch (err) { reject(err); }
         };
         const cancel = () => {
           fileInput.removeEventListener('change', done);

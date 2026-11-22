@@ -3,13 +3,16 @@
 // An automation clip shows the automation lane editor in place of the piano roll.
 import { newNoteId } from '../modmidi.js';
 import { heldPitches, onHeldChange } from '../midi.js';
-import { getClip, isAuto, SNAP_BASES, SNAP_NAMES, snapStep, formatPos, DEFAULT_VEL, meter, segAt, setSig, removeSig, linkedClips, normalizeSong, clipFileText, parseClipFile } from '../song.js';
-import { saveTextFile, openTextFile, openMidiFile } from '../filedialog.js';
+import { getClip, isAudio, isAuto, setAudioClipAsset, SNAP_BASES, SNAP_NAMES, snapStep, formatPos, DEFAULT_VEL, meter, segAt, setSig, removeSig, linkedClips, normalizeSong, clipFileText, parseClipFile } from '../song.js';
+import { saveTextFile, openTextFile, openMidiFile, openAudioClipFile } from '../filedialog.js';
 import { parseMidiFile, midiTempoClip } from '../midiimport.js';
 import { confirmDialog, sigDialog } from '../dialogs.js';
 import { createPianoRoll } from './pianoroll.js';
 import { createArranger } from './arranger.js';
 import { createAutomationLane } from './automation.js';
+import { createAudioEditor } from '../audioeditor/editor.js';
+import { AudioAssets } from '../audioeditor/assets.js';
+import { AudioRecorder } from '../audioeditor/recording.js';
 import { paramsOf, fromNorm, controllerAt, controllerNumber } from '../params.js';
 import { colorOf } from '../modcolor.js';
 import { openClipColorDialog } from '../colordialog.js';
@@ -29,7 +32,7 @@ const NO_COLOR = '#8a8a92';
 // defaultAutoTarget() -> module number (or null) for new automation clips; onChange() after every edit.
 // getSong() / getPatch(): the layer shown (a Patch has its own TimeLine for its own modules);
 // default: the main song and patch. Call setLayer() after the shown layer changed.
-export function createSequencer({ engine, transport, timelineDisplay = {}, pianorollPreferences = {}, automationPreferences = {}, getSong = null, getPatch = null, getTarget, liveTarget = () => null, pitchOffset = () => 0, defaultTarget, selectedTarget = () => null, defaultAutoTarget = () => null, onChange, onSongChange = () => {}, undoHistory }) {
+export function createSequencer({ engine, transport, timelineDisplay = {}, pianorollPreferences = {}, automationPreferences = {}, audioEditorPreferences = {}, getAudioAssets = null, getSong = null, getPatch = null, getTarget, liveTarget = () => null, pitchOffset = () => 0, defaultTarget, selectedTarget = () => null, defaultAutoTarget = () => null, onChange, onSongChange = () => {}, undoHistory }) {
   const $ = (id) => document.getElementById(id);
   const seq = $('seq');
   const ui = {
@@ -70,7 +73,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
       const p = controllerAt(paramsOf(e), c.controller);
       return `→ #${c.target} ${nameOf(e)} · ${c.controller} ${p?.label ?? '(missing)'}`;
     },
-    defaultTarget: () => selectedTarget() ?? (isAuto(clip()) ? null : clip()?.target) ?? defaultTarget(),
+    defaultTarget: () => selectedTarget() ?? (isAuto(clip()) || isAudio(clip()) ? null : clip()?.target) ?? defaultTarget(),
     defaultAutoTarget: () => defaultAutoTarget() ?? (isAuto(clip()) ? clip().target : null),
     // the controller an automation clip drives: { p, format(norm) } or null
     autoParam(c) {
@@ -91,7 +94,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
       layout.top = 1;
       layout.bottom = 1;
       applyLayout();
-      const editor = isAuto(clip()) ? lane : roll;
+      const editor = isAudio(clip()) ? audioEditor : isAuto(clip()) ? lane : roll;
       editor.surface.cv.focus();
       onChange();
     },
@@ -103,7 +106,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
       sync();
     },
     viewChanged: () => onChange(), // view-only changes are saved without an undo step
-    live: () => { roll.redraw(); lane.redraw(); }, // arranger drag in progress: keep the piano roll in step
+    live: () => { roll.redraw(); lane.redraw(); audioEditor.redraw(); }, // arranger drag in progress
     // insert / edit / remove the time signature that starts at `at` (a bar line)
     async editSig(at) {
       const sg = song();
@@ -190,6 +193,45 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     midiImportCancelled() {
       $('status').textContent = 'MIDI import cancelled because the project or layer changed.';
     },
+    async openAudio() {
+      let chosen = null, imported = null;
+      try {
+        chosen = await openAudioClipFile();
+        if (!chosen) return null;
+        imported = await assets().importMedia(chosen.file);
+        const { name, cleanup } = chosen;
+        chosen = null;
+        await cleanup();
+        return { ...imported, name };
+      } catch (error) {
+        const failures = [error];
+        if (chosen) {
+          try { await chosen.cleanup(); } catch (cleanupError) { failures.push(cleanupError); }
+        }
+        if (imported) {
+          try { await assets().discard(imported.id); } catch (cleanupError) { failures.push(cleanupError); }
+        }
+        $('status').textContent = `Audio import failed: ${failures.map((failure) => failure.message).join('; ')}`;
+        return null;
+      }
+    },
+    async discardAudio(result) {
+      try {
+        await assets().discard(result.id);
+        $('status').textContent = 'Audio import cancelled because the project or layer changed.';
+      } catch (error) {
+        $('status').textContent = `Could not clean up cancelled audio import: ${error.message}`;
+      }
+    },
+    audioImported(result) {
+      $('status').textContent = `Imported audio from ${result.name}.`;
+    },
+    audioTarget() {
+      const selected = selectedTarget();
+      return patch().modules.get(selected)?.def.hasInput ? selected :
+        [...patch().modules.values()].find((entry) => entry.def.isOutput && entry.def.hasInput)?.id ?? null;
+    },
+    audioBpm: () => patch().bpm,
     preview: {
       on(c, pitch, velocity = DEFAULT_VEL) {
         const inst = getTarget(c.target);
@@ -219,10 +261,10 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
   // live: a clip-length drag in the piano roll keeps the TimeLine in step
   // heldKeys: keys held on the MIDI device / computer keyboard light up blue on its keyboard
   const roll = createPianoRoll($('roll'), {
-    ...ctx, pianorollPreferences, clip: () => (isAuto(clip()) ? null : clip()), live: () => arranger.redraw(), heldKeys: heldPitches,
+    ...ctx, pianorollPreferences, clip: () => (isAuto(clip()) || isAudio(clip()) ? null : clip()), live: () => arranger.redraw(), heldKeys: heldPitches,
     viewChanged: () => {
       const c = clip();
-      if (c && !isAuto(c)) c.editorView = roll.getView();
+      if (c && !isAuto(c) && !isAudio(c)) c.editorView = roll.getView();
       onChange();
     },
   });
@@ -235,28 +277,63 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
       onChange();
     },
   });
+  let audioAssets = null;
+  const audioError = (error) => { $('status').textContent = `Audio editor: ${error.message}`; };
+  const assets = () => getAudioAssets?.() ?? (audioAssets ??= new AudioAssets({ onError: audioError }));
+  const audioEditor = createAudioEditor($('roll'), {
+    clip: () => (isAudio(clip()) ? clip() : null),
+    audio: (c) => ({ frames: c.audio.frames, rate: c.audio.sampleRate, channels: c.audio.channels, revision: c.audio.id }),
+    margin: () => audioEditorPreferences.marginSize ?? 200,
+    color: ctx.color,
+    readPeaks: (c, start, end, bins) => assets().peaks(c.audio.id, start, end, bins),
+    async commitStroke(c, channel, points) {
+      const owner = song(), content = c.audio, id = content.id;
+      const edited = await assets().edit(id, channel, points);
+      if (song() !== owner || !owner.clips.includes(c) || c.audio !== content || content.id !== id) {
+        await assets().discard(edited.id);
+        throw new Error('Audio edit cancelled because the clip changed');
+      }
+      setAudioClipAsset(c, edited.id);
+      ctx.changed();
+    },
+    onError: audioError,
+    viewChanged: () => {
+      const c = clip();
+      if (isAudio(c)) c.editorView = audioEditor.getView();
+      onChange();
+    },
+  });
   const arranger = createArranger($('arranger'), { ...ctx, timelineDisplay });
-  const recorder = new MidiRecorder({
+  const recordState = () => {
+    ui.record.classList.toggle('armed', recorder.armed);
+    ui.record.setAttribute('aria-pressed', String(recorder.armed));
+    const type = recorder === audioRecorder ? 'audio' : 'MIDI';
+    ui.record.setAttribute('aria-label', recorder.armed ? `Disarm ${type} recording` : `Arm ${type} recording`);
+    if (!frame) loop();
+  };
+  const midiRecorder = new MidiRecorder({
     transport, song, clip,
     onNotes: () => { onSongChange(); onChange(); roll.redraw(); arranger.redraw(); },
     onCommit: () => ctx.changed(),
-    onState: () => {
-      ui.record.classList.toggle('armed', recorder.armed);
-      ui.record.setAttribute('aria-pressed', String(recorder.armed));
-      ui.record.setAttribute('aria-label', recorder.armed ? 'Disarm MIDI recording' : 'Arm MIDI recording');
-      if (!frame) loop();
-    },
+    onState: recordState,
     onError: (message) => { $('status').textContent = message; },
   });
+  const audioRecorder = new AudioRecorder({
+    engine, transport, song, patch, assets, onCommit: () => ctx.changed(),
+    onState: recordState, onError: (message) => { $('status').textContent = message; },
+  });
+  let recorder = midiRecorder;
   const defaultRollView = roll.getView();
   const defaultLaneView = lane.getView();
+  const defaultAudioView = audioEditor.getView();
   const defaultArrangerView = arranger.getView();
   let viewClip = null;
   function restoreClipView() {
     const c = clip();
     if (c === viewClip) return;
     viewClip = c;
-    if (isAuto(c)) lane.setView({ ...defaultLaneView, ...c.editorView });
+    if (isAudio(c)) audioEditor.setView({ ...defaultAudioView, ...c.editorView });
+    else if (isAuto(c)) lane.setView({ ...defaultLaneView, ...c.editorView });
     else roll.setView({ ...defaultRollView, ...c?.editorView });
   }
 
@@ -268,9 +345,10 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     const c = clip();
     restoreClipView();
     const auto = isAuto(c);
+    const audio = isAudio(c);
     const opts = [new Option('— none —', '')];
     for (const e of [...patch().modules.values()].sort((a, b) => a.id - b.id)) {
-      if (auto ? paramsOf(e).length : e.def.acceptsMidi) opts.push(new Option(`#${e.id} ${nameOf(e)}`, e.id));
+      if (audio ? e.def.hasInput : auto ? paramsOf(e).length : e.def.acceptsMidi) opts.push(new Option(`#${e.id} ${nameOf(e)}`, e.id));
     }
     if (c?.target !== null && c?.target !== undefined && !entryOf(c.target)) opts.push(new Option(`#${c.target} (missing)`, c.target));
     ui.target.replaceChildren(...opts);
@@ -280,7 +358,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     // automation: which controller of the target
     ui.ctlField.hidden = !auto;
     const where = patch() === engine.root ? 'main patch' : 'this Patch level';
-    ui.targetField.title = auto ? `Module number (${where}) whose controller this automation clip drives` : `Module number (${where}) that plays the notes of all selected MIDI clips`;
+    ui.targetField.title = audio ? `Audio destination (${where}) for selected audio clips` : auto ? `Module number (${where}) whose controller this automation clip drives` : `Module number (${where}) that plays the notes of all selected MIDI clips`;
     if (auto) {
       const e = entryOf(c.target);
       const params = e ? paramsOf(e) : [];
@@ -290,8 +368,9 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
       ui.ctl.value = c.controller;
       ui.ctl.disabled = c.target === null;
     }
-    roll.surface.cv.style.display = auto ? 'none' : '';
+    roll.surface.cv.style.display = auto || audio ? 'none' : '';
     lane.surface.cv.style.display = auto ? '' : 'none';
+    audioEditor.surface.cv.style.display = audio ? '' : 'none';
   }
 
   const fmt = (v) => String(+v.toFixed(6));
@@ -305,11 +384,12 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     ui.div.value = song().snap.div;
     ui.div.title = `Grid step: ${fmt(snapStep(song().snap))} quarter notes`;
     ui.free.checked = song().snap.free === true;
-    ui.free.disabled = isAuto(c);
+    ui.free.disabled = isAuto(c) || isAudio(c);
     refreshTargets();
     showPos();
     roll.redraw();
     lane.redraw();
+    audioEditor.redraw();
     arranger.redraw();
   }
 
@@ -339,7 +419,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     const c = clip();
     if (!c) return;
     const target = ui.target.value === '' ? null : +ui.target.value;
-    const clips = isAuto(c) ? [c] : arranger.selectedClips().filter((l) => !isAuto(l));
+    const clips = isAuto(c) ? [c] : arranger.selectedClips().filter((l) => isAudio(l) === isAudio(c) && !isAuto(l));
     const linked = new Set(clips.flatMap((l) => linkedClips(song(), l)));
     for (const l of linked) { // clones share where they send to
       l.target = target;
@@ -436,7 +516,10 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     const disarm = recorder.armed;
     if ((!disarm && transport.playing) || transport.countingIn) transport.stop();
     if (disarm) recorder.finish();
-    else recorder.arm();
+    else {
+      recorder = audioRecorder.inputs().length ? audioRecorder : midiRecorder;
+      recorder.arm();
+    }
   };
   for (const [button, key] of [[ui.restart, ','], [ui.play, '.'], [ui.loop, '/'], [ui.stop, "'"]]) {
     button.addEventListener('mousedown', (e) => e.preventDefault()); // keep focus (Space) where it is
@@ -452,7 +535,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
       recorder.finish();
       return;
     }
-    const editor = isAuto(clip()) ? lane : roll;
+    const editor = isAudio(clip()) ? audioEditor : isAuto(clip()) ? lane : roll;
     const pointerTime = fromPointer ? editor.getPointerTime() : null;
     if (pointerTime !== null) transport.seek(pointerTime);
     if (recorder.armed) { recorder.start(); return; }
@@ -506,6 +589,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
     showPos();
     roll.redraw();
     lane.redraw();
+    audioEditor.redraw();
     arranger.redraw();
   };
   transport.onState = () => {
@@ -630,7 +714,7 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
   applyLayout();
 
   // module changes in the shown layer update the target lists and clip colours
-  const onModules = () => { refreshTargets(); showPos(); roll.redraw(); lane.redraw(); arranger.redraw(); };
+  const onModules = () => { refreshTargets(); showPos(); roll.redraw(); lane.redraw(); audioEditor.redraw(); arranger.redraw(); };
   let watched = null;
   function watchLayer() {
     if (watched === patch()) return;
@@ -642,10 +726,11 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
 
   return {
     recordArmed: () => recorder.armed,
-    recordTarget: () => (recorder.armed ? entryOf(clip()?.target ?? null) : null),
+    recordTarget: () => (recorder === midiRecorder && recorder.armed ? entryOf(clip()?.target ?? null) : null),
     recordMidi: (event) => recorder.input(event),
     redrawPianoroll: () => roll.redraw(),
     redrawAutomation: () => lane.redraw(),
+    redrawAudio: () => audioEditor.redraw(),
     redrawTimeline: () => arranger.redraw(),
     // after a project was loaded
     reload() {
@@ -693,8 +778,8 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
       lane.setView(v?.lane ?? defaultLaneView);
       const c = clip();
       if (c?.editorView) {
-        const editor = isAuto(c) ? lane : roll;
-        editor.setView({ ...(isAuto(c) ? defaultLaneView : defaultRollView), ...c.editorView });
+        const editor = isAudio(c) ? audioEditor : isAuto(c) ? lane : roll;
+        editor.setView({ ...(isAudio(c) ? defaultAudioView : isAuto(c) ? defaultLaneView : defaultRollView), ...c.editorView });
       }
       arranger.setView(v?.arranger ?? defaultArrangerView);
       sync();

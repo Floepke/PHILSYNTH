@@ -29,7 +29,7 @@ await buildIcon();
 for (const a of ['arm64', 'x64']) ensureKoffi('darwin', a);
 
 // everything outside these is left out of the bundle
-const KEEP = /^\/(package\.json|index\.html|style\.css|server\.mjs|src(\/.*)?|electron(\/.*)?|node_modules\/(wasm-media-encoders|koffi|@koromix\/koffi-darwin-(arm64|x64))(\/.*)?|node_modules\/@koromix)$/;
+const KEEP = /^\/(package\.json|index\.html|style\.css|server\.mjs|src(\/.*)?|electron(\/.*)?|node_modules\/(wasm-media-encoders|mediabunny|koffi|@koromix\/koffi-darwin-(arm64|x64))(\/.*)?|node_modules\/@koromix)$/;
 
 const [appDir] = await packager({
   dir: ROOT,

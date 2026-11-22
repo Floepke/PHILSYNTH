@@ -7,6 +7,8 @@ import { PROJECT_FORMAT, isProject } from './fileformat.js';
 import { playbackModel, playbackSong, preparePlayback } from './playbackmodel.js';
 import { POOL_BYTES, POOL_MAX, poolSize } from './dsp/instancepool.js';
 import { createRenderQueue } from './dsp/renderqueue.js';
+import { createAudioPageMemory } from './audioeditor/pagecache.js';
+import { recordingReferences } from './audioeditor/references.js';
 
 // The C++ DSP kernels (src/dsp/modsynth.wasm, built from cpp/ by `npm run build:wasm`), compiled in
 // the worklet. `?dsp=js` in the URL or localStorage['modsynth.dsp'] = 'js' forces the JS kernels.
@@ -114,6 +116,9 @@ export class Engine {
   // the DSP of every module (src/dsp/graph.js) and the main patch.
   async init({ latencyHint = 'interactive', buffered = desktopApp() } = {}) {
     this.ctx = new AudioContext({ latencyHint });
+    this.ctx.addEventListener('statechange', () => {
+      if (this.ctx.state === 'closed') this.audioReader?.terminate();
+    });
     await this.ctx.audioWorklet.addModule(new URL('./engine.worklet.js', import.meta.url));
     const wasm = await loadWasm();
     this.wasm = wasm; // kept for offline renders (src/render.js)
@@ -146,7 +151,12 @@ export class Engine {
           const fail = error => {
             clearTimeout(timer);
             if (starting) reject(new Error(error));
-            else this.reportError(error);
+            else {
+              worker.terminate();
+              this.audioReader = null;
+              this.audioReaderReady = null;
+              this.reportError(error);
+            }
           };
           this.renderWorker.onmessage = e => {
             if (e.data?.ready) { clearTimeout(timer); starting = false; resolve(); }
@@ -186,6 +196,41 @@ export class Engine {
     this.onError?.(error);
   }
 
+  async ensureAudioReader() {
+    if (this.audioReaderReady) return this.audioReaderReady;
+    this.audioReaderReady = (async () => {
+      if (!globalThis.crossOriginIsolated) throw new Error('Audio clip playback requires cross-origin isolation');
+      const memory = createAudioPageMemory();
+      const channel = new MessageChannel();
+      const worker = new Worker(new URL('./audioeditor/playbackworker.js', import.meta.url), { type: 'module', name: 'Audio clip reader' });
+      this.audioReader = worker;
+      try {
+        await new Promise((resolve, reject) => {
+          let starting = true;
+          const timer = setTimeout(() => reject(new Error('Audio reader startup timed out')), 5000);
+          worker.onmessage = ({ data }) => {
+            if (data.ready && starting) { starting = false; clearTimeout(timer); resolve(); }
+          };
+          worker.onerror = (event) => {
+            const error = new Error(event.message || 'Audio reader failed');
+            if (starting) { starting = false; clearTimeout(timer); reject(error); }
+            else this.reportError(error);
+          };
+          worker.postMessage({ memory, port: channel.port2 }, [channel.port2]);
+        });
+        this.dsp.flush();
+        this.dsp.port.postMessage([['audioCache', { memory, port: channel.port1 }]], [channel.port1]);
+      } catch (error) {
+        worker.terminate();
+        channel.port1.close();
+        channel.port2.close();
+        this.audioReader = null;
+        throw error;
+      }
+    })().catch((error) => { this.audioReaderReady = null; throw error; });
+    return this.audioReaderReady;
+  }
+
   syncPlayback() {
     if (!this.root || this.loadingProject) return Promise.resolve();
     this.playbackDirty = true;
@@ -194,7 +239,9 @@ export class Engine {
       while (this.playbackDirty) {
         this.playbackDirty = false;
         await preparePlayback(this.root);
-        this.dsp.post(['playback', 'model', playbackModel(this.root)]);
+        const model = playbackModel(this.root);
+        if (recordingReferences({ song: this.song, patch: model.patch }).size) await this.ensureAudioReader();
+        this.dsp.post(['playback', 'model', model]);
       }
     }).catch((error) => {
       this.reportError(`Playback synchronization failed: ${error.message}`);

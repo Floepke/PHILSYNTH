@@ -30,7 +30,7 @@ await build({
     appId: 'com.floepke.modsynth',
     productName: 'PHILSYNTH',
     directories: { output: OUT },
-    files: ['package.json', 'index.html', 'style.css', 'server.mjs', 'src/**/*', 'electron/**/*', 'node_modules/wasm-media-encoders/**/*', 'node_modules/koffi/**/*', `node_modules/${koffi}/**/*`],
+    files: ['package.json', 'index.html', 'style.css', 'server.mjs', 'src/**/*', 'electron/**/*', 'node_modules/wasm-media-encoders/**/*', 'node_modules/mediabunny/**/*', 'node_modules/koffi/**/*', `node_modules/${koffi}/**/*`],
     asar: true,
     asarUnpack: ['**/*.node'], // native binaries (koffi) can't load from inside the archive
     npmRebuild: false,

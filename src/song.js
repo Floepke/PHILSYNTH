@@ -31,6 +31,10 @@
 //   Between points the value moves in straight lines; a point with r > 0 gets a rounded corner
 //   (same curve maths as the WAVESHAPER curve, see curve.js). Before the first / after the last
 //   point the value holds.
+// Audio clips have kind: 'audio' and an audio object { id, sampleRate, channels, frames, span,
+// offset }. The WAV is stored separately by id. span is its full length in quarter notes; offset
+// is the source position at the clip start, also in quarters. Linked clips share the object;
+// standalone copies may use the same immutable WAV while keeping independent edit state.
 // Linked clones: clips with the same clip.link share ONE notes array (points for automation clips)
 // in memory, so editing one edits them all. The toolbar keeps their name, Send to and controller
 // equal too, as does the color menu; position and length stay per clip. clip.link is the id of the group's source clip (the original the others were cloned from);
@@ -39,6 +43,7 @@
 import { curvePolyline, sampleAt } from './curve.js';
 import { CLIP_FORMAT, isFormat, jsonFileText } from './fileformat.js';
 import { cleanColor } from './modcolor.js';
+import { isRecordingId } from './audioeditor/id.js';
 
 export const SNAP_BASES = [1, 2, 4, 8, 16, 32, 64, 128]; // whole, half, quarter, eighth, 16th, ... note
 export const SNAP_NAMES = { 1: 'Whole', 2: 'Half', 4: 'Quarter', 8: 'Eighth', 16: '16th', 32: '32nd', 64: '64th', 128: '128th' };
@@ -89,6 +94,17 @@ export const emptySong = () => ({ clips: [], sigs: [{ at: 0, num: 4, den: 4, gri
 const num = (v, d) => (Number.isFinite(v) ? v : d);
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 export const isAuto = (clip) => clip?.kind === 'auto';
+export const isAudio = (clip) => clip?.kind === 'audio';
+
+export function normalizeAudioContent(audio) {
+  if (!isRecordingId(audio?.id) || !Number.isInteger(audio.sampleRate) || audio.sampleRate < 1 ||
+      ![1, 2].includes(audio.channels) || audio.sampleRate * audio.channels * 3 > 0xffffffff ||
+      !Number.isInteger(audio.frames) || audio.frames < 1 || audio.frames * audio.channels * 3 > 0xffffffff - 36 ||
+      !Number.isFinite(audio.span) || audio.span <= 0 || !Number.isFinite(audio.offset)) {
+    throw new Error('Invalid audio clip asset');
+  }
+  return { id: audio.id, sampleRate: audio.sampleRate, channels: audio.channels, frames: audio.frames, span: audio.span, offset: audio.offset };
+}
 
 // ---- time signatures ----
 export const validSig = (n, d) => Number.isInteger(n) && n >= 1 && n <= SIG_NUM_MAX && SIG_DENS.includes(d);
@@ -226,7 +242,7 @@ export function normalizeSong(s) {
       y: num(c.y, 0) < 0 ? ideaY(num(c.y, 0)) : laneY(num(c.y, 0)),
       target: Number.isInteger(c.target) ? c.target : null,
       color: cleanColor(c.color),
-      notes: c.kind === 'auto' ? [] : (Array.isArray(c.notes) ? c.notes : [])
+      notes: c.kind === 'auto' || c.kind === 'audio' ? [] : (Array.isArray(c.notes) ? c.notes : [])
         .filter((n) => Number.isFinite(n?.pitch) && Number.isFinite(n.start) && n.length > 0)
         .map((n) => ({
           pitch: Math.min(PITCH_MAX, Math.max(0, n.pitch)),
@@ -241,9 +257,12 @@ export function normalizeSong(s) {
       clip.kind = 'auto';
       clip.controller = Math.max(0, Math.round(num(c.controller, 0)));
       clip.points = normalizePoints(c.points);
+    } else if (c.kind === 'audio') {
+      clip.kind = 'audio';
+      clip.audio = normalizeAudioContent(c.audio);
     }
     if (c.editorView && typeof c.editorView === 'object') {
-      const keys = c.kind === 'auto' ? ['sy', 'ppq'] : ['sy', 'ppq', 'hx', 'hz', 'velW'];
+      const keys = c.kind === 'audio' ? ['sy', 'pixelsPerSecond'] : c.kind === 'auto' ? ['sy', 'ppq'] : ['sy', 'ppq', 'hx', 'hz', 'velW'];
       const view = Object.fromEntries(keys.filter((k) => Number.isFinite(c.editorView[k])).map((k) => [k, c.editorView[k]]));
       if (Object.keys(view).length) clip.editorView = view;
     }
@@ -256,9 +275,10 @@ export function normalizeSong(s) {
     if (!clip.link) continue;
     const first = groups.get(clip.link);
     if (!first) { groups.set(clip.link, clip); continue; }
-    if (isAuto(first) !== isAuto(clip)) { delete clip.link; continue; }
+    if ((first.kind ?? 'midi') !== (clip.kind ?? 'midi')) { delete clip.link; continue; }
     clip.notes = first.notes;
     if (isAuto(clip)) clip.points = first.points;
+    if (isAudio(clip)) clip.audio = first.audio;
   }
   for (const link of new Set(song.clips.map((c) => c.link).filter(Boolean))) repairLink(song, link);
   for (const clip of song.clips) {
@@ -339,6 +359,20 @@ export function addAutoClip(song, { start = 0, y = 0, length = BAR, target = nul
   clip.controller = controller;
   clip.points = [];
   return clip;
+}
+
+export function addAudioClip(song, { start = 0, y = 0, target = null, audio, name = 'Audio' } = {}) {
+  const content = normalizeAudioContent({ ...audio, offset: audio?.offset ?? 0 });
+  const clip = addClip(song, { start, y, length: content.span, target });
+  clip.name = name;
+  clip.kind = 'audio';
+  clip.audio = content;
+  return clip;
+}
+
+export function setAudioClipAsset(clip, id) {
+  if (!isAudio(clip) || !isRecordingId(id)) throw new Error('Invalid audio clip asset');
+  clip.audio.id = id;
 }
 
 // ---- velocity curves ----
@@ -513,6 +547,7 @@ export function duplicateClip(song, clip) {
 // (module numbers differ per project) so loading can pick a module of the same type.
 export { CLIP_FORMAT };
 export function clipFileText(clips, typeOf = () => null) {
+  if (clips.some(isAudio)) throw new Error('Audio clips cannot yet be saved as .clip files');
   const t0 = Math.min(...clips.map((c) => c.start));
   const y0 = Math.min(...clips.map((c) => c.y));
   const saved = clips.map((c) => {
@@ -533,6 +568,7 @@ export function parseClipFile(text) {
   if (!isFormat(data?.format, CLIP_FORMAT) || !Array.isArray(data.clips)) throw new Error('not a PHILSYNTH .clip file');
   const raw = data.clips.filter((c) => c && typeof c === 'object');
   if (!raw.length) throw new Error('the file has no clips');
+  if (raw.some(isAudio)) throw new Error('Audio clips cannot yet be loaded from .clip files');
   const clips = normalizeSong({ clips: raw.map(({ link, ...c }) => c) }).clips;
   clips.forEach((c, i) => { c.targetType = typeof raw[i].targetType === 'string' ? raw[i].targetType : null; });
   return clips;
@@ -572,6 +608,7 @@ export function detachClip(song, clip) {
   delete clip.link;
   clip.notes = clip.notes.map((n) => ({ ...n }));
   if (clip.points) clip.points = clip.points.map((p) => ({ ...p }));
+  if (clip.audio) clip.audio = { ...clip.audio };
   repairLink(song, link);
   return true;
 }
@@ -589,10 +626,12 @@ export function removeClip(song, id) {
 export function trimClipStart(clip, newStart, original = clip) {
   const end = original.start + original.length;
   const delta = newStart - original.start;
+  const audioOffset = original.audio?.offset;
   clip.start = newStart;
   clip.length = clean(end - newStart);
   clip.notes.forEach((n, i) => (n.start = clean(original.notes[i].start - delta)));
   clip.points?.forEach((p, i) => (p.t = clean(original.points[i].t - delta)));
+  if (isAudio(clip)) clip.audio.offset = clean(audioOffset + delta);
 }
 
 // Time stretch: the clip's content (notes with their velocity / bend curves, automation points)
@@ -609,11 +648,15 @@ export function stretchClip(clip, original, factor) {
     if (o.bends) n.bends = curve(o.bends);
   });
   clip.points?.forEach((p, i) => (p.t = k(original.points[i].t)));
+  if (isAudio(clip)) {
+    clip.audio.span = k(original.audio.span);
+    clip.audio.offset = k(original.audio.offset);
+  }
 }
 
 // Consolidation combines MIDI clips only, regardless of lane or destination.
 export function canConsolidate(song, clips) {
-  return clips.length >= 2 && clips.every((c) => song.clips.includes(c) && !isAuto(c));
+  return clips.length >= 2 && clips.every((c) => song.clips.includes(c) && !isAuto(c) && !isAudio(c));
 }
 
 // Keep note times and clip-end trimming; name, destination and preferred lane come from

@@ -4,13 +4,48 @@ import {
   snapStep, snapRound, snapFloor, normalizeSong, emptySong, addClip, duplicateClip, removeClip, cloneClip, detachClip, linkedClips, isLinked, isClone, linkSource, LANE_H,
   trimClipStart, stretchClip, loopEnd, notesStarting, isBlack, inPiano, formatPos, noteName, clean,
   meter, barLines, beatLines, barRound, barCeil, barLength, setSig, moveSig, removeSig, normalizeSigs, gridBeatEnabled,
-  addAutoClip, isAuto, autoValue, automationAt, pointIndex,
+  addAudioClip, isAudio, setAudioClipAsset, addAutoClip, isAuto, autoValue, automationAt, pointIndex,
   notePoints, noteVelAt, groupVelCurve, applyVelCurve, applyVelLine, withVelEnd, velsForLength, canConsolidate, consolidateClips, splitClip,
   clipFileText, parseClipFile, CLIP_FORMAT,
   basePitch, centsOf, withCents, centsLabel, isIdea, ideaY, clipSilent, songEnd, newSong, nearestClip,
 } from '../src/song.js';
 import { Transport } from '../src/transport.js';
 import { songFacts } from '../src/songfacts.js';
+import { exportMidi } from '../src/midiexport.js';
+
+{
+  const asset = { id: '11111111-1111-4111-8111-111111111111', sampleRate: 48000, channels: 2, frames: 96000, span: 4 };
+  const song = emptySong();
+  const source = addAudioClip(song, { audio: asset });
+  const clone = cloneClip(song, source);
+  clone.y = LANE_H;
+  assert.ok(isAudio(source));
+  assert.equal(clone.audio, source.audio);
+  const standalone = duplicateClip(song, source);
+  standalone.y = LANE_H * 2;
+  assert.notEqual(standalone.audio, source.audio);
+  assert.equal(standalone.audio.id, source.audio.id);
+  const nextId = '22222222-2222-4222-8222-222222222222';
+  setAudioClipAsset(source, nextId);
+  assert.equal(clone.audio.id, nextId, 'edits follow linked clones');
+  assert.equal(standalone.audio.id, asset.id, 'standalone copy keeps its previous asset');
+  const loaded = normalizeSong(JSON.parse(JSON.stringify(song)));
+  assert.equal(loaded.clips[0].audio, loaded.clips[1].audio);
+  assert.notEqual(loaded.clips[0].audio, loaded.clips[2].audio);
+  const original = structuredClone(source);
+  trimClipStart(source, 1, original);
+  assert.equal(clone.audio.offset, 1);
+  stretchClip(source, structuredClone(source), 2);
+  assert.deepEqual([clone.audio.span, clone.audio.offset], [8, 2]);
+  const split = splitClip(song, standalone, 2);
+  assert.equal(split.audio.offset, 2);
+  assert.equal(standalone.audio.offset, 0);
+  assert.equal(split.audio.id, standalone.audio.id);
+  assert.equal(canConsolidate(song, [source, clone]), false);
+  assert.equal(exportMidi(song).tracks, 0, 'audio clips do not create MIDI tracks');
+  assert.throws(() => clipFileText([source]), /Audio clips cannot yet/);
+  assert.throws(() => normalizeSong({ clips: [{ kind: 'audio' }] }), /Invalid audio clip asset/);
+}
 
 {
   const song = emptySong();

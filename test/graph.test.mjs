@@ -5,6 +5,7 @@ import { DspHost } from '../src/dsp/host.js';
 import { KERNELS } from '../src/dsp/kernels.js';
 import { Kernel } from '../src/dsp/kernel.js';
 import { SCOPE_QUIET, SCOPE_PTS, SCOPE_DECIM } from '../src/dsp/graph.js';
+import { createRecordingBuffer, RecordingBuffer, RECORDING_STOPPED, RECORDING_OVERRUN } from '../src/audioeditor/recordingbuffer.js';
 
 // test kernels: a constant source, a counter of process() calls
 class Const extends Kernel {
@@ -23,6 +24,36 @@ class Mod extends Kernel {
 }
 const near = (a, b, eps) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 Object.assign(KERNELS, { const: Const, probe: Probe, mod: Mod });
+
+// Recording taps render even without a path to the master, and preserve silent blocks.
+{
+  const { dsp, graph, kernel, render } = dspTestHost();
+  const src = dsp.create('const', { v: 0.25 });
+  const tap = dsp.create('bus');
+  src.connect(tap);
+  const settings = createRecordingBuffer(513, 2);
+  const recorded = new RecordingBuffer(settings);
+  dsp.post(['record', tap.h, settings]);
+  const out = render();
+  assert.ok(out.L.every((v) => v === 0), 'recording does not monitor through the master');
+  const block = [new Float32Array(128), new Float32Array(128)];
+  assert.equal(recorded.read(block), 128);
+  assert.ok(block[0].every((v) => v === 0.25));
+  assert.ok(block[1].every((v) => v === -0.25));
+  kernel(src).on = false;
+  render();
+  assert.equal(recorded.read(block), 128);
+  assert.ok(block[0].every((v) => v === 0) && block[1].every((v) => v === 0));
+  dsp.post(['record', tap.h, null]);
+  assert.equal(recorded.state, RECORDING_STOPPED);
+  assert.equal(graph.recordings.size, 0);
+
+  const small = new RecordingBuffer(createRecordingBuffer(129, 1));
+  dsp.post(['record', tap.h, { sab: small.control.buffer, capacity: 129, channels: 1 }]);
+  render(2);
+  assert.equal(small.state, RECORDING_OVERRUN);
+  assert.equal(graph.recordings.size, 0, 'an overrun releases the tap');
+}
 
 // Output smoothing happens after trim/depth mapping, in each target controller's slider space.
 for (const sr of [44100, 48000, 96000]) {

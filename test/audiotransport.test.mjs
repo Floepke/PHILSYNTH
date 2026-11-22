@@ -5,13 +5,15 @@ import { playbackModel, playbackSong, preparePlayback } from '../src/playbackmod
 import { Playback } from '../src/dsp/playback.js';
 import { AudioTransport } from '../src/audiotransport.js';
 import { MidiRecorder } from '../src/seq/recording.js';
-import { emptySong, addClip, addAutoClip, notesStarting, notesSounding } from '../src/song.js';
+import { emptySong, addClip, addAutoClip, addAudioClip, notesStarting, notesSounding } from '../src/song.js';
 import { readFileSync } from 'node:fs';
 import { instantiateDsp, wasmKernels } from '../src/dsp/wasm.js';
 import { modules } from '../src/modules/index.js';
 import { addSample, addImage } from '../src/samples.js';
 import { newNoteId, useAudioNoteIds } from '../src/modmidi.js';
 import { paramsOf, toNorm } from '../src/params.js';
+import { AudioClipPlayback } from '../src/audioeditor/playback.js';
+import { AUDIO_PAGE_FRAMES } from '../src/audioeditor/pagecache.js';
 
 const RATE = 48000;
 const DT = 128 / RATE;
@@ -49,6 +51,46 @@ async function harness(options = {}) {
     }
   };
   return { root, dsp, graph, ctx, playback, song, events, update, start, run };
+}
+
+// Audio clips route through the selected input and follow the audio clock.
+{
+  const h = await harness();
+  addAudioClip(h.song, { target: 0, audio: { id: '12345678-1234-4234-8234-123456789abc', sampleRate: 48000, channels: 1, frames: 48000, span: 2 } });
+  const samples = new Float32Array(AUDIO_PAGE_FRAMES * 2);
+  samples.fill(0.5);
+  let pageReads = 0, ready = true;
+  h.playback.audio = new AudioClipPlayback(h.graph, { samples, page: () => { pageReads++; return ready ? 0 : null; } }, RATE);
+  await h.update();
+  h.start();
+  h.run(DT);
+  assert.ok(h.graph.master.outs[0][0].some(value => value > 0.1), 'audio reaches the selected input');
+  h.song.mutes = [0];
+  await h.update();
+  const readsBeforeMute = pageReads;
+  h.run(DT);
+  assert.equal(h.graph.master.silent, true, 'muting the lane silences its audio');
+  assert.equal(pageReads, readsBeforeMute, 'muted audio does not request disk pages');
+  ready = false;
+  h.song.mutes = [];
+  await h.update();
+  const before = h.playback.transport.pos;
+  h.run(DT);
+  assert.equal(h.playback.transport.pos, before, 'unmuting waits for uncached audio');
+  ready = true;
+  h.run(DT);
+  assert.ok(h.graph.master.outs[0][0].some(value => value > 0.1), 'unmuted audio resumes once cached');
+  ready = false;
+  h.playback.command({ type: 'seek', revision: 2, pos: 0.5 });
+  h.run(DT);
+  assert.equal(h.playback.transport.pos, 0.5, 'seeking waits for uncached audio');
+  ready = true;
+  h.run(DT);
+  h.playback.command({ type: 'stop', revision: 2, pos: 0 });
+  h.run(DT);
+  assert.equal(h.playback.audio.sources.size, 0, 'stopping removes playback sources');
+  h.root.destroy();
+  h.playback.root.destroy();
 }
 
 // Fractional tempo survives the worklet model, including a legacy load with unchanged bindings.

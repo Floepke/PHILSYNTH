@@ -15,6 +15,7 @@ const { version: appVersion } = JSON.parse(await readFile(resolve(root, 'package
 await writeFile(resolve(assets, 'package.json'), JSON.stringify({ version: appVersion }) + '\n');
 await mkdir(resolve(assets, 'node_modules'), { recursive: true });
 await cp(resolve(root, 'node_modules/wasm-media-encoders'), resolve(assets, 'node_modules/wasm-media-encoders'), { recursive: true });
+await cp(resolve(root, 'node_modules/mediabunny'), resolve(assets, 'node_modules/mediabunny'), { recursive: true });
 const html = (await readFile(resolve(root, 'index.html'), 'utf8'))
   .replaceAll('href="src/', `href="${prefix}src/`)
   .replace('href="style.css"', `href="${prefix}style.css"`)

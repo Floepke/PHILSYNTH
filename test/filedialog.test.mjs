@@ -1,8 +1,21 @@
 import assert from 'node:assert/strict';
-import { saveTextFile, openTextFile, openMediaFile, openMidiFile, hasMediaDialog } from '../src/filedialog.js';
+import { saveTextFile, openTextFile, openMediaFile, openMidiFile, openAudioClipFile, hasMediaDialog } from '../src/filedialog.js';
 import { fsaBackend } from '../src/projectfile.js';
 
 const abort = () => Object.assign(new Error('cancelled'), { name: 'AbortError' });
+
+{
+  const file = new File(['audio'], 'voice.mp4');
+  let options;
+  const win = { showOpenFilePicker: async (value) => { options = value; return [{ getFile: async () => file }]; } };
+  const result = await openAudioClipFile(win);
+  assert.equal(result.file, file);
+  assert.equal(options.id, 'audio-clip');
+  assert.ok(Object.values(options.types[0].accept)[0].includes('.mp4'));
+  await result.cleanup();
+  win.showOpenFilePicker = async () => { throw abort(); };
+  assert.equal(await openAudioClipFile(win), null);
+}
 
 {
   const bytes = new Uint8Array([0, 128, 255]);

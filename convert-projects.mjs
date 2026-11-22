@@ -3,7 +3,8 @@ import { copyFile, link, lstat, mkdir, mkdtemp, open, readdir, realpath, rmdir, 
 import { homedir } from 'node:os';
 import { basename, extname, isAbsolute, join, relative, sep } from 'node:path';
 import { parseArgs } from 'node:util';
-import { prepareProjectArchive, readProjectArchive } from './src/projectarchive.js';
+import { prepareCurrentProjectArchive, readProjectArchive } from './src/projectarchive.js';
+import { copyZipEntry, readZipStream } from './src/projectzipstream.js';
 import { PROJECT_EXT } from './src/fileformat.js';
 import { MAX_PROJECT_BYTES } from './src/projectzip.js';
 import { decodeLegacySample } from './src/samples.js';
@@ -74,7 +75,18 @@ async function main() {
     try {
       const info = await file.stat();
       if (!info.isFile() || info.size > MAX_PROJECT_BYTES) throw new Error('Not a regular project file or file too large');
-      project = await readProjectArchive(await file.readFile());
+      const bytes = await file.readFile();
+      if (bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 3 && bytes[3] === 4 && bytes[4] === 45 && bytes[5] === 0) {
+        const entries = await readZipStream(new Blob([bytes]));
+        const manifest = entries.get('project.json');
+        if (!manifest || manifest.blob.size > 16 * 1024 * 1024) throw new Error('Invalid project manifest');
+        const chunks = [];
+        await copyZipEntry(manifest, (part) => chunks.push(part.slice()));
+        const data = JSON.parse(await new Blob(chunks).text());
+        if (data.format !== 'philsynth' || data.version !== 3) throw new Error('Unsupported project archive');
+        return skip(name, 'already v3');
+      }
+      project = await readProjectArchive(bytes);
     } finally { await file.close(); }
     if (project.version === 2) return skip(name, 'already v2');
     const dest = join(destDir, filename);
@@ -82,12 +94,12 @@ async function main() {
 
     const { data } = project;
     const legacy = data.samples ?? {};
-    const encode = prepareProjectArchive(data, (id) => {
+    const encode = prepareCurrentProjectArchive(data, null, (id) => {
       if (!Object.hasOwn(legacy, id)) return null;
       try { return decodeLegacySample(legacy[id]); }
       catch (err) { throw new Error(`Invalid project media ${id}: ${err.message}`, { cause: err }); }
     });
-    const bytes = await encode();
+    const bytes = new Uint8Array(await (await encode()).arrayBuffer());
     if (!dryRun) {
       await mkdir(destDir, { recursive: true });
       try { await writeNewProject(destDir, dest, bytes); }

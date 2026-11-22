@@ -42,8 +42,9 @@ import { Engine } from '../src/engine.js';
   let queue;
   try {
     Object.assign(globalThis, {
-      AudioContext: class {
+      AudioContext: class extends EventTarget {
         constructor(value) {
+          super();
           options = value;
           this.sampleRate = 48000;
           this.audioWorklet = { addModule: async () => {} };

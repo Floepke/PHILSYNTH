@@ -139,6 +139,7 @@ export class Playback {
   runtime(ids) { return this.root ? runtimesAt(this.root, ids)[0] : null; }
 
   async model(data) {
+    this.audio?.cache.clearError?.();
     const structure = JSON.stringify(data.bindings);
     if (this.root) {
       this.dsp.setBindings(data.bindings);
@@ -269,6 +270,7 @@ export class Playback {
     });
     this.replace(song, next);
     this.events.update(song);
+    if (this.transport.playing) this.recheckAudio = true;
   }
 
   replace(target, data) {
@@ -289,9 +291,11 @@ export class Playback {
       tr.setMetronome(data.metronome ?? false);
       if (data.fromStart) this.graph.songStart();
       tr.start(data.pos, { countIn: data.countIn, endAt: data.endAt ?? null, continuous: data.continuous ?? false });
+      this.recording?.start(data.scope);
+      this.waitingAudio = true;
     } else if (data.type === 'song') tr.continueSong();
-    else if (data.type === 'seek') tr.seek(data.pos);
-    else if (data.type === 'stop') tr.stop({ to: data.pos });
+    else if (data.type === 'seek') { tr.seek(data.pos); this.recheckAudio = true; }
+    else if (data.type === 'stop') { tr.stop({ to: data.pos }); this.recording?.stop(); }
     else if (data.type === 'continuous') tr.setContinuous(data.continuous);
     else if (data.type === 'metronome') {
       tr.setMetronome(data.metronome);
@@ -299,6 +303,7 @@ export class Playback {
     }
     else if (data.type === 'panic') {
       tr.stop();
+      this.recording?.stop();
       for (const e of this.root?.modules.values() ?? []) e.inst.allOff?.();
     }
     if (!tr.playing) this.blip = null;
@@ -321,7 +326,28 @@ export class Playback {
 
   process() {
     if (!this.root || this.failed) return;
-    this.transport.tick();
+    const tr = this.transport;
+    if (tr.playing) {
+      const layers = tr.layers();
+      const hasAudio = layers.some(({ song }) => song.clips.some((clip) => clip.kind === 'audio' && tr.audible(clip, song)));
+      if (hasAudio && !this.audio) throw new Error('Audio clip reader is not available');
+      if (hasAudio && this.audio) {
+        const ready = this.audio.prefetch(tr, layers);
+        if ((this.waitingAudio || this.recheckAudio) && !ready) {
+          this.waitingAudio = true;
+          tr.last = this.now() * 1000;
+          this.audio.clear();
+          this.recording?.pause();
+          return;
+        }
+        this.recheckAudio = false;
+      }
+      if (this.waitingAudio) tr.last = this.now() * 1000;
+      this.waitingAudio = false;
+    }
+    tr.tick();
+    if (this.audio) this.audio.render(tr, tr.playing ? tr.layers() : []);
+    this.recording?.process();
     for (const fn of this.dsp.clocks) fn(this.now());
     this.midiRoots.clear();
   }

@@ -8,13 +8,15 @@ import { createProjectFile, hashText, suggestName, downloadBackend, fsaBackend, 
 import { unsavedDialog } from '../src/dialogs.js';
 import { Engine } from '../src/engine.js';
 import { PatchRuntime } from '../src/patch.js';
-import { addAutoClip, addClip, cloneClip, setSig } from '../src/song.js';
+import { addAudioClip, addAutoClip, addClip, cloneClip, emptySong, setSig } from '../src/song.js';
 import { addImage, addSample, getSample, importSamples, withSamples } from '../src/samples.js';
-import { prepareProjectArchive, readProjectArchive } from '../src/projectarchive.js';
-import { readZip, writeZip } from '../src/projectzip.js';
+import { prepareCurrentProjectArchive, prepareProjectArchive, readProjectArchive, readStreamedProjectArchive } from '../src/projectarchive.js';
+import { crc32, readZip, writeZip } from '../src/projectzip.js';
+import { copyZipEntry, readZipStream, writeZipStream } from '../src/projectzipstream.js';
 import { createHistory } from '../src/history.js';
 import { jsonFileText } from '../src/fileformat.js';
 import { dspTestHost } from './dsphost.mjs';
+import { createProjectStreamWriter, openProjectStreamReader } from '../electron/projectstream.mjs';
 
 // a fake project and storage backend
 const encode = (text) => new TextEncoder().encode(text);
@@ -132,7 +134,7 @@ for (const name of ['old.phproject', 'old.mds']) {
     calls.splice(0);
     saveAsAnswer = null;
     assert.equal(await doc.save(), null);
-    assert.deepEqual(calls.splice(0), ['saveAs:old (v2).phproject']);
+    assert.deepEqual(calls.splice(0), ['saveAs:old (v3).phproject']);
   }
 }
 assert.equal(doc.ref, null);
@@ -182,6 +184,55 @@ assert.equal(again.ref, null, 'a pre-v2 autosave must not overwrite its original
     files: [new File([blobs[0]], 'a.phproject')], click() { this.dispatchEvent(new Event('change')); },
   });
   assert.equal((await readProjectArchive((await downloadBackend(input, fakeDoc).open()).bytes)).version, 2);
+}
+
+// Current audio-free projects use v3, including in browsers with download-only saves.
+{
+  const project = makeProject(42);
+  const archive = prepareCurrentProjectArchive(project);
+  assert.equal(archive.diskVersion, 3);
+  const blob = await archive();
+  const entries = await readZipStream(blob);
+  const chunks = [];
+  await copyZipEntry(entries.get('project.json'), (part) => chunks.push(part.slice()));
+  const manifest = JSON.parse(await new Blob(chunks).text());
+  assert.equal(manifest.version, 3);
+  assert.deepEqual(manifest.audioFiles, {});
+  assert.equal('recordings' in manifest, false);
+  assert.equal((await readStreamedProjectArchive(blob)).data.patch.marker, 42);
+  const fakeDoc = { createElement: () => ({ click() {} }) };
+  const dl = downloadBackend({}, fakeDoc);
+  assert.equal((await dl.saveAs('v3.phproject', archive)).name, 'v3.phproject');
+  const input = Object.assign(new EventTarget(), {
+    files: [new File([blob], 'v3.phproject')], click() { this.dispatchEvent(new Event('change')); },
+  });
+  const opened = await downloadBackend(input, fakeDoc).open();
+  assert.equal((await readStreamedProjectArchive(opened.blob)).version, 3);
+  const oldManifest = { ...manifest, recordings: manifest.audioFiles };
+  delete oldManifest.audioFiles;
+  const legacyChunks = [];
+  await writeZipStream([{ path: 'project.json', blob: new Blob([JSON.stringify(oldManifest)]) }],
+    (part) => legacyChunks.push(part.slice()));
+  await assert.rejects(readStreamedProjectArchive(new Blob(legacyChunks)), /Invalid PHILSYNTH ZIP manifest/);
+  let saved, loaded;
+  const document = createProjectFile({
+    fingerprint: () => project,
+    serialize: () => prepareCurrentProjectArchive(project),
+    backend: {
+      async saveAs(_name, encoder) {
+        const parts = [];
+        await encoder.writeTo((part) => parts.push(part.slice()));
+        saved = new Blob(parts);
+        return { name: 'v3.phproject', ref: '/v3.phproject' };
+      },
+      async open() { return { name: 'v3.phproject', ref: '/v3.phproject', blob: saved }; },
+    },
+  });
+  await document.saveAs();
+  assert.equal(document.toJSON().diskVersion, 3);
+  await document.open((data) => { loaded = data; });
+  assert.equal(loaded.patch.marker, 42);
+  assert.equal(document.ref, '/v3.phproject');
 }
 
 // File System Access opens bytes, writes ZIP, and will not replace a legacy project.
@@ -391,6 +442,7 @@ async function projectEngine() {
     await writeFile(join(source, 'First.phproject'), first);
     await writeFile(join(source, 'Nested', 'Second.PHPROJECT'), second);
     await writeFile(join(source, 'Already.phproject'), await prepareProjectArchive(makeProject(1))());
+    await writeFile(join(source, 'AlreadyV3.phproject'), new Uint8Array(await (await prepareCurrentProjectArchive(makeProject(1))()).arrayBuffer()));
     await writeFile(join(source, 'Blocked.phproject'), first);
     await writeFile(join(output, 'Blocked.phproject'), 'do not overwrite');
     await writeFile(join(source, 'Broken.phproject'), JSON.stringify({
@@ -400,23 +452,96 @@ async function projectEngine() {
     const script = fileURLToPath(new URL('../convert-projects.mjs', import.meta.url));
     const run = (...args) => spawnSync(process.execPath, [script, ...args, source, output], { encoding: 'utf8' });
     const preview = run('--dry-run');
-    assert.match(preview.stdout, /2 would convert, 2 skipped, 1 failed/);
+    assert.match(preview.stdout, /2 would convert, 3 skipped, 1 failed/);
     assert.deepEqual(await readdir(output), ['Blocked.phproject']);
     const result = run();
     assert.equal(result.status, 1, 'a failed project is reported without stopping the others');
     assert.match(result.stderr, /Broken\.phproject.*Project media is missing: absent/);
-    assert.match(result.stdout, /2 converted, 2 skipped, 1 failed/);
+    assert.match(result.stdout, /2 converted, 3 skipped, 1 failed/);
     assert.equal(await readFile(join(source, 'First.phproject'), 'utf8'), first);
     assert.equal(await readFile(join(source, 'Nested', 'Second.PHPROJECT'), 'utf8'), second);
     assert.equal(await readFile(join(output, 'Blocked.phproject'), 'utf8'), 'do not overwrite');
     assert.deepEqual((await readdir(output)).sort(), ['Blocked.phproject', 'First.phproject', 'Nested']);
     for (const [path, pcm] of [['First.phproject', [-32768, 32767]], ['Nested/Second.PHPROJECT', [12, -42]]]) {
-      const { version, data } = await readProjectArchive(await readFile(join(output, path)));
-      assert.equal(version, 2);
+      const { version, data } = await readStreamedProjectArchive(new Blob([await readFile(join(output, path))]));
+      assert.equal(version, 3);
       assert.deepEqual([...data.samples.get('shared-id').pcm], pcm);
       assert.deepEqual([...data.samples.get('picture').rgb], [8, 193, 21]);
     }
-    assert.match(run().stdout, /0 converted, 4 skipped, 1 failed/);
+    assert.match(run().stdout, /0 converted, 5 skipped, 1 failed/);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+}
+
+// Large media can be written incrementally without buffering the archive.
+{
+  const media = new Uint8Array(2 * 1024 * 1024 + 7);
+  for (let i = 0; i < media.length; i++) media[i] = i % 251;
+  const chunks = [];
+  await writeZipStream([
+    { path: 'project.json', blob: new Blob(['{"version":3}']) },
+    { path: 'media/audio/1.wav', blob: new Blob([media]) },
+  ], async (bytes) => { chunks.push(bytes.slice()); });
+  assert.ok(chunks.every((bytes) => bytes.length <= 1024 * 1024), 'writes have bounded size');
+  const archive = new Uint8Array(await new Blob(chunks).arrayBuffer());
+  const v = new DataView(archive.buffer);
+  const zip64Offset = Number(v.getBigUint64(archive.length - 34, true));
+  assert.equal(v.getUint32(zip64Offset, true), 0x06064b50);
+  const directory = Number(v.getBigUint64(zip64Offset + 48, true));
+  assert.equal(v.getUint32(directory, true), 0x02014b50);
+  const second = directory + 46 + v.getUint16(directory + 28, true) + v.getUint16(directory + 30, true);
+  assert.equal(v.getUint32(second + 16, true), crc32(media), 'streamed CRC covers the full asset');
+  const entries = await readZipStream(new Blob([archive]));
+  const copied = [];
+  await copyZipEntry(entries.get('media/audio/1.wav'), async (bytes) => { copied.push(bytes.slice()); });
+  assert.deepEqual(new Uint8Array(await new Blob(copied).arrayBuffer()), media);
+  assert.ok(copied.every((bytes) => bytes.length <= 1024 * 1024));
+  const corrupt = archive.slice();
+  const firstHeader = 30 + 'project.json'.length + 20;
+  corrupt[firstHeader] ^= 1;
+  const corruptEntries = await readZipStream(new Blob([corrupt]));
+  await assert.rejects(copyZipEntry(corruptEntries.get('project.json'), () => {}), /Corrupt project archive entry/);
+  const malformed = archive.slice();
+  new DataView(malformed.buffer).setBigUint64(second + 46 + 'media/audio/1.wav'.length + 20, 0n, true);
+  await assert.rejects(readZipStream(new Blob([malformed])), /Corrupt or unsupported/);
+  const stop = new AbortController();
+  stop.abort();
+  await assert.rejects(writeZipStream([{ path: 'x', blob: new Blob(['x']) }], () => {}, { signal: stop.signal }), /abort/i);
+  await assert.rejects(writeZipStream([{ path: '../x', blob: new Blob() }], () => {}), /Invalid project archive path/);
+  await assert.rejects(writeZipStream([{ path: 'x', blob: new Blob() }, { path: 'x', blob: new Blob() }], () => {}), /Invalid project archive path/);
+  await assert.rejects(writeZipStream([{ path: 'x', blob: new Blob(['x']) }], () => { throw new Error('disk full'); }), /disk full/);
+}
+
+{
+  const song = emptySong();
+  addAudioClip(song, { audio: { id: '11111111-1111-4111-8111-111111111111', sampleRate: 48000, channels: 1, frames: 48000, span: 2 } });
+  assert.throws(() => prepareProjectArchive({ ...makeProject(1), song }), /Audio clips cannot yet/);
+  assert.throws(() => prepareCurrentProjectArchive({ ...makeProject(1), song }), /Audio storage is unavailable/);
+  const archive = prepareCurrentProjectArchive({ ...makeProject(1), song }, { file() {} });
+  await assert.rejects(archive(), /file system access or the desktop app/);
+  await assert.rejects(downloadBackend({}, { createElement() {} }).saveAs('audio.phproject', archive), /file system access or the desktop app/);
+}
+
+// Stream writes replace the destination only after a complete archive has been written.
+{
+  const dir = await mkdtemp(join(tmpdir(), 'philsynth-stream-'));
+  const path = join(dir, 'song.phproject');
+  try {
+    await writeFile(path, 'original');
+    const failed = await createProjectStreamWriter(path);
+    await assert.rejects(failed.write(new Uint8Array([0, 0, 0, 0])), /Invalid project stream/);
+    await failed.abort();
+    assert.equal(await readFile(path, 'utf8'), 'original');
+    assert.deepEqual(await readdir(dir), ['song.phproject']);
+    const writer = await createProjectStreamWriter(path);
+    await writeZipStream([{ path: 'project.json', blob: new Blob(['{}']) }], part => writer.write(part));
+    assert.equal(await readFile(path, 'utf8'), 'original');
+    await writer.finish();
+    const reader = await openProjectStreamReader(path);
+    const bytes = await reader.read(0, reader.size);
+    assert.deepEqual([...((await readZipStream(new Blob([bytes]))).keys())], ['project.json']);
+    await assert.rejects(reader.read(0, reader.size + 1), /Invalid project read range/);
+    await reader.close();
+    assert.deepEqual(await readdir(dir), ['song.phproject']);
   } finally { await rm(dir, { recursive: true, force: true }); }
 }
 

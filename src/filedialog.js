@@ -5,8 +5,9 @@
 //   Chromium browsers     showSaveFilePicker / showOpenFilePicker with `id: kind`: the browser
 //                         remembers the folder per id (per site, across restarts)
 //   other browsers        a download / a file input (the browser decides where)
-import { fileAccept, CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS, AUDIO_OPEN_EXTS, WAVETABLE_OPEN_EXTS, IMAGE_OPEN_EXTS, MIDI_OPEN_EXTS, MAX_MIDI_BYTES } from './fileformat.js';
+import { fileAccept, CLIP_EXT, MODULE_EXT, MODULE_OPEN_EXTS, AUDIO_OPEN_EXTS, AUDIO_CLIP_OPEN_EXTS, WAVETABLE_OPEN_EXTS, IMAGE_OPEN_EXTS, MIDI_OPEN_EXTS, MAX_MIDI_BYTES } from './fileformat.js';
 import { pickFile } from './filepicker.js';
+import { stageProjectStream } from './audioeditor/projectstage.js';
 
 // ext: saved files; open: extensions the open dialog offers (older ones included)
 export const KINDS = {
@@ -99,6 +100,42 @@ export async function openMediaFile(kind, win = window, pick = pickFile) {
   if (!f) return null;
   const { name, data } = await files.openBinary(kind, f.path);
   return new win.File([data], name, { type: mimeOf(name) });
+}
+
+// Audio clips can be much larger than module samples. Desktop files are staged in bounded chunks.
+export async function openAudioClipFile(win = window, pick = pickFile) {
+  const files = win.modsynthFiles;
+  if (files?.openAudioClipStream) {
+    const chosen = await pick(files, { mode: 'open', dialog: 'audio-clip', title: 'Import audio clip',
+      types: `Audio files (${AUDIO_CLIP_OPEN_EXTS.join(', ')})`, exts: AUDIO_CLIP_OPEN_EXTS });
+    if (!chosen) return null;
+    const info = await files.openAudioClipStream(chosen.path);
+    const staged = await stageProjectStream({
+      readProjectStream: files.readAudioClipStream,
+      closeProjectStream: files.closeAudioClipStream,
+    }, info, win.navigator?.storage, 'audio');
+    return { name: info.name, file: staged.blob, cleanup: staged.cleanup };
+  }
+  if (typeof win.showOpenFilePicker === 'function') {
+    try {
+      const [handle] = await win.showOpenFilePicker({ id: 'audio-clip', multiple: false,
+        types: [{ description: 'Audio file', accept: { 'application/octet-stream': AUDIO_CLIP_OPEN_EXTS } }] });
+      const file = await handle.getFile();
+      return { name: file.name, file, cleanup: async () => {} };
+    } catch (error) {
+      if (cancelled(error)) return null;
+      throw error;
+    }
+  }
+  return new Promise((resolve) => {
+    const input = Object.assign(win.document.createElement('input'), { type: 'file', accept: fileAccept(AUDIO_CLIP_OPEN_EXTS, win.navigator) });
+    input.addEventListener('change', () => {
+      const file = input.files[0];
+      resolve(file ? { name: file.name, file, cleanup: async () => {} } : null);
+    });
+    input.addEventListener('cancel', () => resolve(null));
+    input.click();
+  });
 }
 
 // Binary Standard MIDI File import, using the desktop picker or the browser's file picker.
