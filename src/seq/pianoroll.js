@@ -65,6 +65,8 @@ import { doublePress } from '../doublepress.js';
 import { NEW_NOTE_POINT_ROUND } from '../curve.js';
 import { wheelNotches } from '../params.js';
 import { TIME_GRID, beatsShown as gridBeatsShown, spacedBars as gridSpacedBars } from './timegrid.js';
+import { hexToRgb, rgbToHex, stockColor } from '../modcolor.js';
+import { DEFAULT_STAVE_BRIGHTNESS } from '../pianorollpreferences.js';
 
 const CENTRAL = [61, 63]; // C#4 and D#4, the black keys next to middle C
 const GRID_LOW = 22; // A#0 (American notation)
@@ -99,7 +101,14 @@ const VEL_MAX_SHARE = 0.5; // of the roll width
 const BG = '#5d5e6a';
 const PLAYHEAD = '#ff916e';
 const STAVE = TIME_GRID.color;
-const STAVE_LIGHT = '#242529';
+const alternateStaveColor = (color, brightness) => {
+  const rgb = hexToRgb(stockColor({ color }));
+  const max = Math.max(...rgb);
+  const light = brightness / 100;
+  const low = 16 + 144 * light;
+  const high = 39 + 201 * light;
+  return max ? rgbToHex(...rgb.map((v) => low + (high - low) * v / max)) : rgbToHex(high, high, high);
+};
 const isThree = (p) => [6, 8, 10].includes(p % 12);
 const BEAT = STAVE;
 const BAR_LINE = STAVE;
@@ -714,12 +723,13 @@ export function createPianoRoll(host, ctx) {
 
       // Stave lines go over note bodies but under barlines.
       const alternate = ctx.pianorollPreferences?.alternateStaveColors !== false;
-      drawLayer(g, 'stave', JSON.stringify([geometryKey, alternate]),
+      const staveLight = alternate ? alternateStaveColor(ctx.color(clip), ctx.pianorollPreferences?.staveBrightness ?? DEFAULT_STAVE_BRIGHTNESS) : STAVE;
+      drawLayer(g, 'stave', JSON.stringify([geometryKey, alternate, staveLight]),
         [gridX(), top, w - gridX(), bottom - top], (g) => {
       g.lineCap = 'round';
       const thin = staveWidth();
       const staveTop = Math.min(bottom, Math.max(0, yOf(0)));
-      const staveColor = (p) => alternate && (Math.floor(p / 12) - 1) % 2 === 0 ? STAVE_LIGHT : STAVE;
+      const staveColor = (p) => alternate && (Math.floor(p / 12) - 1) % 2 === 0 ? staveLight : STAVE;
       // the group of three (F# G# A#) is thicker than the group of two (C# D#)
       const stave = (dashed, three, color) => {
         g.strokeStyle = color;
@@ -733,7 +743,7 @@ export function createPianoRoll(host, ctx) {
         }
         g.stroke();
       };
-      for (const color of alternate ? [STAVE, STAVE_LIGHT] : [STAVE]) {
+      for (const color of alternate ? [STAVE, staveLight] : [STAVE]) {
         stave(false, false, color);
         stave(false, true, color);
       }

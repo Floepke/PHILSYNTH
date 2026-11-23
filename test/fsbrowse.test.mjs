@@ -5,6 +5,7 @@ import { mkdtemp, mkdir, writeFile, readFile, lstat, rm, symlink } from 'node:fs
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { checkName, checkPath, cleanExts, crumbsOf, deleteEntry, listDir, makeDir, places, target, transferEntry, withExt } from '../electron/fsbrowse.mjs';
+import { createBookmarkStore } from '../electron/bookmarks.mjs';
 import { sortEntries, formatSize, findPrefix, baseLength, errorText } from '../src/filepicker.js';
 
 const root = await mkdtemp(join(tmpdir(), 'fsbrowse-'));
@@ -38,6 +39,30 @@ try {
   await deleteEntry(midiCopy, false);
   await assert.rejects(listDir('relative/path', ['.phproject']), /Invalid path/);
   await assert.rejects(listDir(join(root, 'nope'), ['.phproject']), /ENOENT/);
+
+  const bookmarkFile = join(root, 'bookmarks.json');
+  const bookmarks = createBookmarkStore(bookmarkFile);
+  assert.deepEqual(await bookmarks.list(), []);
+  await Promise.all([bookmarks.add(songs.path), bookmarks.add(join(songs.path, '..', 'Songs'))]);
+  assert.deepEqual(await bookmarks.list(), [{ name: 'Songs', path: songs.path }], 'normalized duplicates are stored once');
+  await assert.rejects(bookmarks.add(join(root, 'a.phproject')), /Choose a folder/);
+  await assert.rejects(bookmarks.add('relative'), /Invalid path/);
+  assert.deepEqual(await createBookmarkStore(bookmarkFile).list(), [{ name: 'Songs', path: songs.path }], 'bookmarks persist across store instances');
+  const missing = join(root, 'Temporary bookmark');
+  await mkdir(missing);
+  await bookmarks.add(missing);
+  await rm(missing, { recursive: true });
+  assert.ok((await bookmarks.list()).some((item) => item.path === missing), 'missing folders remain removable');
+  await bookmarks.remove(missing);
+  await bookmarks.remove(songs.path);
+  assert.ok((await lstat(songs.path)).isDirectory(), 'removing a bookmark never deletes the folder');
+  await writeFile(bookmarkFile, '{');
+  await assert.rejects(bookmarks.list(), SyntaxError);
+  await assert.rejects(bookmarks.add(songs.path), SyntaxError);
+  await writeFile(bookmarkFile, '[]');
+  await bookmarks.add(songs.path);
+  const unwritable = createBookmarkStore(join(root, 'missing-parent', 'bookmarks.json'));
+  await assert.rejects(unwritable.add(songs.path), /ENOENT/, 'write failures are reported');
 
   // save target: the extension is added; existing files and folders are reported
   assert.deepEqual(await target(root, 'new', '.phproject'), { path: join(root, 'new.phproject'), name: 'new.phproject', exists: false, dir: false });

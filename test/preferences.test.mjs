@@ -8,7 +8,7 @@ import { registerPreferences, launchFullscreen, showLaunchWindow } from '../elec
 import { atomicWrite } from '../electron/atomicwrite.mjs';
 import { registerInterfacePreferences, PANEL_DIVIDER_WIDTH_ID, LAUNCH_FULLSCREEN_ID } from '../src/interfacepreferences.js';
 import { registerMidiPreferences, migrateMidiInput, MIDI_INPUT_ID } from '../src/midipreferences.js';
-import { registerPianorollPreferences, SNAP_VELOCITY_ID, ALTERNATE_STAVE_COLORS_ID } from '../src/pianorollpreferences.js';
+import { registerPianorollPreferences, SNAP_VELOCITY_ID, ALTERNATE_STAVE_COLORS_ID, STAVE_BRIGHTNESS_ID } from '../src/pianorollpreferences.js';
 import { registerPatcherPreferences, SPECTRUM_FLOW_ID, SPECTRUM_SIZE_ID } from '../src/patcherpreferences.js';
 import { registerAudioPreferences, audioLatencyHint, AUDIO_LATENCY_ID } from '../src/audiopreferences.js';
 import { Engine } from '../src/engine.js';
@@ -123,12 +123,26 @@ import { Engine } from '../src/engine.js';
   assert.equal(redraws, beforeStavePreview + 1);
   manager.restore();
   assert.equal(settings.alternateStaveColors, true, 'Cancel restores alternating stave colors');
-  await manager.save({ [SNAP_VELOCITY_ID]: false, [ALTERNATE_STAVE_COLORS_ID]: false });
+  assert.equal(settings.staveBrightness, 10, 'new users default to 10%');
+  const beforeBrightnessPreview = redraws;
+  manager.preview(STAVE_BRIGHTNESS_ID, 100);
+  assert.equal(settings.staveBrightness, 100);
+  assert.equal(redraws, beforeBrightnessPreview + 1);
+  manager.restore();
+  assert.equal(settings.staveBrightness, 10, 'Cancel restores brightness');
+  for (const invalid of [-1, 101, 0.5, '50']) assert.throws(() => manager.preview(STAVE_BRIGHTNESS_ID, invalid), /Invalid value/);
+  await manager.save({ [STAVE_BRIGHTNESS_ID]: 0 });
+  const existing = createPreferencesManager({ storage: { load: async () => stored } });
+  const existingSettings = registerPianorollPreferences(existing);
+  await existing.load();
+  assert.equal(existingSettings.staveBrightness, 0, 'previously saved brightness remains unchanged');
+  await manager.save({ [SNAP_VELOCITY_ID]: false, [ALTERNATE_STAVE_COLORS_ID]: false, [STAVE_BRIGHTNESS_ID]: 75 });
   const reloaded = createPreferencesManager({ storage: { load: async () => stored } });
   const restored = registerPianorollPreferences(reloaded);
   await reloaded.load();
   assert.equal(restored.snapVelocity, false, 'velocity snapping persists across sessions');
   assert.equal(restored.alternateStaveColors, false, 'the stave color setting persists across sessions');
+  assert.equal(restored.staveBrightness, 75, 'brightness persists across sessions');
   await assert.rejects(manager.save({ [SNAP_VELOCITY_ID]: 0 }), /Invalid value/);
 }
 

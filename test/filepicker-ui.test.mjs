@@ -1,7 +1,7 @@
 // Run with Electron: xvfb-run -a node_modules/.bin/electron test/filepicker-ui.test.mjs
 import assert from 'node:assert/strict';
 import { app, BrowserWindow } from 'electron';
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rename, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +20,8 @@ const files = join(temp, 'files');
 await mkdir(data);
 await mkdir(files);
 await mkdir(join(files, 'Folder'));
+await mkdir(join(files, 'Bookmark folder'));
+await writeFile(join(files, 'Bookmark folder', 'inside.phproject'), 'inside');
 await writeFile(join(files, 'Folder', '.hidden'), 'hidden');
 await writeFile(join(files, 'one.phproject'), 'original');
 await writeFile(join(files, 'song.MIDI'), Buffer.from([0, 128, 255]));
@@ -55,6 +57,14 @@ try {
         { mode: 'save', dialog: 'audio', formats: AUDIO_FORMATS, exts: AUDIO_FORMATS.map(f => f.ext), saveExt: '.wav', suggestedName: 'song.wav' }); };
       window.openPicker = mode => { window.pickResult = pickFile(window.modsynthFiles,
         { mode, dialog: 'project-open', exts: ['.phproject'], saveExt: '.phproject' }); };
+      window.openLegacyPicker = () => {
+        const { addBookmark, removeBookmark, pathForFile, ...legacy } = window.modsynthFiles;
+        legacy.start = async kind => {
+          const { bookmarks, ...result } = await window.modsynthFiles.start(kind);
+          return result;
+        };
+        window.pickResult = pickFile(legacy, { dialog: 'project-open', exts: ['.phproject'] });
+      };
       window.openMidi = () => { window.midiResult = openMidiFile(); };
       window.saveMidiPicker = () => { window.midiSaveResult = pickFile(window.modsynthFiles,
         { mode: 'save', dialog: 'midi', exts: ['.mid'], saveExt: '.mid', suggestedName: 'export.mid' }); };
@@ -140,6 +150,62 @@ try {
     new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 200 }))`);
 
   await wait(() => run("typeof window.openPicker === 'function' && typeof window.openModulePicker === 'function'"));
+  await run('window.openLegacyPicker(); true');
+  await wait(async () => await run("document.querySelector('#file-dialog').open") && await visible('one.phproject'));
+  assert.match(await run("document.querySelector('.fd-bookmark-hint').textContent"), /Restart PHILSYNTH/);
+  assert.equal(await run("document.querySelector('#fd-error').textContent"), '', 'legacy desktop backend still browses folders');
+  await run("document.querySelector('#fd-cancel').click(); window.pickResult");
+  await open('open');
+  const drag = (name) => run(`(() => {
+    const row = [...document.querySelectorAll('.fd-row')].find(el => el.querySelector('.fd-file')?.textContent === ${JSON.stringify(name)});
+    const drop = document.querySelector('.fd-bookmarks');
+    const transfer = new DataTransfer();
+    const started = row.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    drop.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    const highlighted = drop.classList.contains('drag-over');
+    drop.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    row.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: transfer }));
+    return { started, highlighted, draggable: row.draggable };
+  })()`);
+  assert.deepEqual(await drag('Bookmark folder'), { started: true, highlighted: true, draggable: true });
+  await wait(() => run("document.querySelectorAll('.fd-bookmark').length === 1"));
+  const bookmarkPath = join(files, 'Bookmark folder');
+  assert.deepEqual(JSON.parse(await readFile(join(data, 'folder-bookmarks.json'), 'utf8')), [bookmarkPath]);
+  await run("window.oldBookmarkArea = document.querySelector('.fd-bookmarks')");
+  await drag('Bookmark folder');
+  await wait(() => run("window.oldBookmarkArea !== document.querySelector('.fd-bookmarks')"));
+  assert.equal(await run("document.querySelectorAll('.fd-bookmark').length"), 1);
+  assert.deepEqual((await run("window.modsynthFiles.start('midi')")).bookmarks, [{ name: 'Bookmark folder', path: bookmarkPath }],
+    'bookmarks are shared across dialog types');
+  assert.deepEqual(await drag('one.phproject'), { started: false, highlighted: false, draggable: false });
+  await wait(() => run("document.querySelector('#fd-error').textContent.includes('Cannot add bookmark')"));
+  assert.equal(await run("document.querySelectorAll('.fd-bookmark').length"), 1);
+  await run("document.querySelector('.fd-bookmark .fd-place').click()");
+  await wait(() => visible('inside.phproject'));
+  await run("document.querySelector('#fd-up').click()");
+  await wait(() => visible('one.phproject'));
+  await run("document.querySelector('#fd-cancel').click(); window.pickResult");
+  await run('window.saveMidiPicker(); true');
+  await wait(() => run("document.querySelector('#file-dialog').open && document.querySelectorAll('.fd-bookmark').length === 1"));
+  assert.equal(await run("document.querySelector('.fd-bookmark-remove').getAttribute('aria-label')"), 'Remove Bookmark folder bookmark');
+  await rename(bookmarkPath, `${bookmarkPath} moved`);
+  await run("document.querySelector('.fd-bookmark .fd-place').click()");
+  await wait(() => run("document.querySelector('#fd-error').textContent.includes('Cannot open')"));
+  assert.equal(await run("document.querySelectorAll('.fd-bookmark').length"), 1, 'a missing folder remains removable');
+  await rename(`${bookmarkPath} moved`, bookmarkPath);
+  await run(`(() => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['data'], 'fake.phproject'));
+    document.querySelector('.fd-bookmarks').dispatchEvent(new DragEvent('drop', {
+      bubbles: true, cancelable: true, dataTransfer: transfer,
+    }));
+  })()`);
+  await wait(() => run("document.querySelector('#fd-error').textContent.includes('Cannot add bookmark')"));
+  assert.equal(await run("document.querySelectorAll('.fd-bookmark').length"), 1, 'untrusted File objects cannot add paths');
+  await run("document.querySelector('.fd-bookmark-remove').click()");
+  await wait(() => run("document.querySelectorAll('.fd-bookmark').length === 0"));
+  assert.equal(await readFile(join(bookmarkPath, 'inside.phproject'), 'utf8'), 'inside');
+  await run("document.querySelector('#fd-cancel').click(); window.midiSaveResult");
   await open('open');
   const projectPath = JSON.stringify(join(files, 'one.phproject'));
   await assert.rejects(run(`window.projectBytes(1).then(bytes => window.modsynthFiles.saveAs(${projectPath}, bytes))`),

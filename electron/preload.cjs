@@ -1,6 +1,6 @@
 // Native project files for the page (CommonJS; uses only contextBridge + ipcRenderer).
 // See the 'project:*' handlers in electron/main.mjs and src/projectfile.js.
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('modsynthPreferences', {
   load: () => ipcRenderer.invoke('preferences:load'),
@@ -19,8 +19,11 @@ contextBridge.exposeInMainWorld('modsynthExit', {
 // mkdir and passes the chosen path to the open / save calls (electron/projectfiles.mjs).
 contextBridge.exposeInMainWorld('modsynthFiles', {
   // dialog: 'project-open' | 'project-save' | 'clip' | 'module' | 'scala' | 'audio' | 'sample' |
-  // 'wavetable' | 'image' -> { dir, places }
+  // 'wavetable' | 'image' -> { dir, places, bookmarks }
   start: (dialog) => ipcRenderer.invoke('fs:start', dialog),
+  addBookmark: (path) => ipcRenderer.invoke('fs:bookmarkAdd', path),
+  removeBookmark: (path) => ipcRenderer.invoke('fs:bookmarkRemove', path),
+  pathForFile: (file) => webUtils.getPathForFile(file),
   list: (dir, exts) => ipcRenderer.invoke('fs:list', dir, exts),
   target: (dir, name, ext) => ipcRenderer.invoke('fs:target', dir, name, ext),
   mkdir: (dir, name) => ipcRenderer.invoke('fs:mkdir', dir, name),

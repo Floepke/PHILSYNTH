@@ -3548,10 +3548,20 @@ for (const cancelled of [false, true]) {
   ctx.transport.pos = 1;
   const playing = draw();
   assert.deepEqual(playing, first, 'playhead movement alone reuses all static layers');
+  clip.color = '#0010ff';
+  const tinted = draw();
+  assert.equal(tinted[0].operations, first[0].operations);
+  assert.ok(tinted[1].operations > first[1].operations, 'note color changes rebuild the cached stave');
+  assert.equal(tinted[2].operations, first[2].operations);
+  ctx.pianorollPreferences.staveBrightness = 100;
+  const bright = draw();
+  assert.equal(bright[0].operations, tinted[0].operations);
+  assert.ok(bright[1].operations > tinted[1].operations, 'brightness changes rebuild the cached stave');
+  assert.equal(bright[2].operations, tinted[2].operations);
   ctx.pianorollPreferences.alternateStaveColors = false;
   const uniform = draw();
   assert.equal(uniform[0].operations, first[0].operations);
-  assert.ok(uniform[1].operations > first[1].operations, 'stave preference rebuilds its layer');
+  assert.ok(uniform[1].operations > bright[1].operations, 'stave preference rebuilds its layer');
   assert.equal(uniform[2].operations, first[2].operations);
   ctx.heldKeys = () => new Set([60]);
   const held = draw();
@@ -4687,6 +4697,56 @@ for (const free of [false, true]) {
   assert.ok(central >= 0);
   assert.deepEqual(cv.drawing.slice(central - 2, central), [['setLineDash', [7, 5]], ['beginPath']]);
   assert.deepEqual(cv.drawing.slice(central).find(([op]) => op === 'stroke').slice(0, 2), ['stroke', dark]);
+}
+
+// Alternate octave lines follow the clip or destination color at the chosen brightness.
+{
+  const { clip, roll, ctx } = setup();
+  const cv = roll.surface.cv;
+  let moduleColor = '#680014';
+  ctx.color = (c) => c.color ?? moduleColor;
+  const tint = () => {
+    cv.drawing.length = 0;
+    roll.redraw(); flush();
+    let path = [];
+    for (const [op, ...args] of cv.drawing) {
+      if (op === 'beginPath') path = [];
+      if (op === 'moveTo' || op === 'lineTo') path.push([op, ...args]);
+      if (op === 'stroke' && path.some(([type, x, y]) => type === 'moveTo' && x === nx(22) && y === 0)) {
+        return args[0].slice(1).match(/../g).map((part) => parseInt(part, 16));
+      }
+    }
+    assert.fail('alternate stave line not drawn');
+  };
+  const defaultTint = tint();
+  ctx.pianorollPreferences.staveBrightness = 10;
+  assert.deepEqual(tint(), defaultTint, 'an unspecified brightness uses the 10% default');
+  ctx.pianorollPreferences.staveBrightness = 0;
+  const red = tint();
+  assert.ok(red[0] > red[2] && red[2] > red[1], 'destination red gives the stave a red tint');
+  ctx.pianorollPreferences.staveBrightness = 50;
+  const medium = tint();
+  ctx.pianorollPreferences.staveBrightness = 100;
+  const bright = tint();
+  assert.ok(bright[0] >= 220 && bright[1] >= 150 && bright[0] > bright[2] && bright[2] > bright[1],
+    'maximum brightness is a light red tint');
+  assert.ok(red.every((value, i) => value < medium[i] && medium[i] < bright[i]), 'brightness increases all channels');
+  ctx.pianorollPreferences.staveBrightness = 0;
+  moduleColor = '#0010ff';
+  const blue = tint();
+  assert.ok(blue[2] > blue[1] && blue[1] > blue[0], 'changing the destination color updates the stave');
+  clip.color = '#f00';
+  const override = tint();
+  assert.ok(override[0] > override[1] && override[1] === override[2], 'clip color takes precedence');
+  clip.color = '#000000';
+  const black = tint();
+  assert.equal(new Set(black).size, 1, 'black uses a visible neutral tint');
+  clip.color = '#ffffff';
+  const white = tint();
+  assert.equal(new Set(white).size, 1, 'white remains neutral');
+  for (const rgb of [red, blue, override, black, white]) {
+    assert.ok(rgb.every((value) => value >= 16 && value <= 39), 'all tints stay dark');
+  }
 }
 
 // Written out-of-range heads extend the stave with short, matching black-key groups.

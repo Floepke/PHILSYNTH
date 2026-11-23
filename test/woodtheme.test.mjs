@@ -177,6 +177,7 @@ app.whenReady().then(async () => {
       ['/', ['text/html', html]],
       ['/style.css', ['text/css', css]],
       ['/src/dsp/analysis.js', ['text/javascript', readFileSync(new URL('../src/dsp/analysis.js', import.meta.url), 'utf8')]],
+      ['/src/audioeditor/id.js', ['text/javascript', readFileSync(new URL('../src/audioeditor/id.js', import.meta.url), 'utf8')]],
       ['/src/seq/menu.js', ['text/javascript', readFileSync(new URL('../src/seq/menu.js', import.meta.url), 'utf8')]],
       ...['woodtheme', 'modcolor', 'preferences', 'preferencesdialog', 'interfacepreferences', 'audiopreferences', 'timelinepreferences', 'pianorollpreferences', 'patcherpreferences', 'midipreferences', 'midi', 'modmidi', 'dialogs', 'song', 'curve', 'fileformat', 'shortcuts'].map(name => [`/src/${name}.js`, ['text/javascript',
         readFileSync(new URL('../src/' + name + '.js', import.meta.url), 'utf8')]]),
@@ -267,7 +268,7 @@ app.whenReady().then(async () => {
     await audioCategory();
     assert.equal(await run("document.querySelector('#preferences-content legend').textContent"), 'Audio Latency');
     assert.equal(await run("document.getElementById('pref-audio-latency').value"), 'interactive');
-    assert.deepEqual(await run("Array.from(document.getElementById('pref-audio-latency').options, option => option.value)"), ['interactive', '20', '40', '80', '160']);
+    assert.deepEqual(await run("Array.from(document.getElementById('pref-audio-latency').options, option => option.value)"), ['interactive', '10', '20', '40', '80', '160']);
     await audioChange('80');
     await submit('cancel'); await flushClose();
     assert.equal(await run("window.preferencesManager.get('audio.latency')"), 'interactive', 'Cancel does not save audio latency');
@@ -416,16 +417,31 @@ app.whenReady().then(async () => {
       input.checked = false; input.dispatchEvent(new Event('change'));
     })()`);
     await open(); await pianorollCategory();
-    assert.deepEqual(await run("Array.from(document.querySelectorAll('#preferences-content legend'), el => el.textContent)"), ['Snap velocity values to 16 step grid.', 'Alternate stave colors by octave']);
+    assert.deepEqual(await run("Array.from(document.querySelectorAll('#preferences-content legend'), el => el.textContent)"), ['Snap velocity values to 16 step grid.', 'Alternate stave colors by octave', 'Alternate stave brightness (%)']);
     assert.equal(await run("document.getElementById('pref-pianoroll-snapVelocity').type"), 'checkbox');
+    const brightness = value => run(`(() => {
+      const input = document.getElementById('pref-pianoroll-staveBrightness');
+      input.value = ${value}; input.dispatchEvent(new Event('change'));
+    })()`);
+    assert.equal(await run("document.getElementById('pref-pianoroll-staveBrightness').value"), '10');
+    await brightness(100);
+    assert.equal(await run('window.pianorollSettings.staveBrightness'), 100, 'brightness previews immediately');
     await unsnapVelocity();
     assert.equal(await run('window.pianorollSettings.snapVelocity'), false);
     await submit('cancel'); await flushClose();
     assert.equal(await run('window.pianorollSettings.snapVelocity'), true);
+    assert.equal(await run('window.pianorollSettings.staveBrightness'), 10, 'Cancel restores brightness');
     await open(); await pianorollCategory(); await unsnapVelocity();
+    await brightness(75);
     await submit('ok'); await flushClose();
     await win.loadURL(url);
     assert.equal(await run('window.pianorollSettings.snapVelocity'), false, 'piano-roll preferences survive reload');
+    assert.equal(await run('window.pianorollSettings.staveBrightness'), 75, 'brightness survives reload');
+    await open(); await pianorollCategory();
+    await run("document.querySelector('[aria-label=\"Reset Alternate stave brightness (%) to default\"]').click()");
+    assert.equal(await run('window.pianorollSettings.staveBrightness'), 10, 'Reset previews the default brightness');
+    await submit('cancel'); await flushClose();
+    assert.equal(await run('window.pianorollSettings.staveBrightness'), 75, 'Cancel restores saved brightness after Reset');
     const patcherCategory = () => run(`(() => {
       const list = document.getElementById('preferences-categories');
       list.value = 'Spectrum Analyser'; list.dispatchEvent(new Event('change'));

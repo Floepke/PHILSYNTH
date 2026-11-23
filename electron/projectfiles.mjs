@@ -14,6 +14,7 @@ import { AUDIO_FORMATS } from '../src/audioformat.js';
 import { MAX_PROJECT_BYTES, isProjectZip } from '../src/projectzip.js';
 import { createProjectStreamWriter, openProjectStreamReader } from './projectstream.mjs';
 import { randomUUID } from 'node:crypto';
+import { createBookmarkStore } from './bookmarks.mjs';
 
 const bare = (ext) => ext.replace(/^\./, '');
 const PROJECT = bare(PROJECT_EXT);
@@ -76,6 +77,7 @@ export function registerProjectFiles(isLocal) {
   const listFile = join(app.getPath('userData'), 'project-paths.json');
   let allowed = null; // paths opened / saved as projects (most recent last), kept across restarts
   const dirs = createDirMemory(join(app.getPath('userData'), 'dialog-dirs.json'));
+  const bookmarks = createBookmarkStore(join(app.getPath('userData'), 'folder-bookmarks.json'));
 
   async function load() {
     if (allowed) return allowed;
@@ -184,8 +186,11 @@ export function registerProjectFiles(isLocal) {
     const stored = await dirs.get(kind);
     const dir = stored && await exists(stored) ? stored : app.getPath('documents');
     const get = (name) => { try { return app.getPath(name); } catch { return null; } };
-    return { dir, places: await places({ home: get('home'), desktop: get('desktop'), documents: get('documents'), downloads: get('downloads'), music: get('music') }) };
+    return { dir, places: await places({ home: get('home'), desktop: get('desktop'), documents: get('documents'), downloads: get('downloads'), music: get('music') }),
+      bookmarks: await bookmarks.list() };
   });
+  ipcMain.handle('fs:bookmarkAdd', (e, path) => { check(e); return bookmarks.add(path); });
+  ipcMain.handle('fs:bookmarkRemove', (e, path) => { check(e); return bookmarks.remove(path); });
   ipcMain.handle('fs:list', (e, dir, exts) => { check(e); return listDir(dir, exts); });
   ipcMain.handle('fs:target', (e, dir, name, ext) => {
     check(e);

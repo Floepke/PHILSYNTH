@@ -73,6 +73,9 @@ export async function pickFile(files, opts, doc = document) {
   const nameInput = $('fd-name');
   const okBtn = $('fd-ok');
   const start = await files.start(dialog);
+  if (start.bookmarks !== undefined && !Array.isArray(start.bookmarks)) throw new Error('Invalid folder bookmarks from desktop app');
+  const bookmarksAvailable = start.bookmarks !== undefined && typeof files.addBookmark === 'function' &&
+    typeof files.removeBookmark === 'function' && typeof files.pathForFile === 'function';
 
   let dir = null;
   let parent = null;
@@ -88,6 +91,8 @@ export async function pickFile(files, opts, doc = document) {
   let finished = false;
   let previewOn = false;
   let previewToken = 0;
+  let draggedFolder = null;
+  let bookmarks = start.bookmarks ?? [];
   const ac = new AbortController();
   const on = (el, type, fn) => el.addEventListener(type, fn, { signal: ac.signal });
 
@@ -144,7 +149,7 @@ export async function pickFile(files, opts, doc = document) {
 
   function renderPlaces() {
     const box = $('fd-places');
-    box.replaceChildren(...start.places.map((p) => {
+    const place = (p) => {
       const b = doc.createElement('button');
       b.type = 'button';
       b.className = 'fd-place';
@@ -153,7 +158,42 @@ export async function pickFile(files, opts, doc = document) {
       b.setAttribute('aria-current', String(p.path === dir));
       b.onclick = () => { if (!busy) go(p.path); };
       return b;
-    }));
+    };
+    const separator = doc.createElement('div');
+    separator.className = 'fd-bookmark-separator';
+    separator.setAttribute('role', 'separator');
+    const drop = doc.createElement('div');
+    drop.className = 'fd-bookmarks';
+    drop.setAttribute('aria-label', 'Folder bookmarks');
+    const hint = doc.createElement('div');
+    hint.className = 'fd-bookmark-hint';
+    hint.textContent = bookmarksAvailable ? 'Drag folders here' : 'Restart PHILSYNTH to enable bookmarks';
+    drop.append(hint);
+    for (const bookmark of bookmarks) {
+      const row = doc.createElement('div');
+      row.className = 'fd-bookmark';
+      const button = place(bookmark);
+      const remove = doc.createElement('button');
+      remove.type = 'button';
+      remove.className = 'fd-bookmark-remove';
+      remove.textContent = '×';
+      remove.title = `Remove ${bookmark.name} bookmark`;
+      remove.setAttribute('aria-label', remove.title);
+      remove.disabled = !bookmarksAvailable;
+      remove.onclick = async () => {
+        if (busy) return;
+        busy = true;
+        try {
+          bookmarks = await files.removeBookmark(bookmark.path);
+          if (!finished) { error(''); renderPlaces(); }
+        } catch (err) {
+          if (!finished) error(`Cannot remove bookmark: ${errorText(err)}`);
+        } finally { busy = false; }
+      };
+      row.append(button, remove);
+      drop.append(row);
+    }
+    box.replaceChildren(...start.places.map(place), separator, drop);
   }
 
   function renderCrumbs(crumbs) {
@@ -184,6 +224,7 @@ export async function pickFile(files, opts, doc = document) {
       row.className = `fd-row${e.dir ? ' fd-dir' : ''}`;
       row.setAttribute('role', 'option');
       row.dataset.i = i;
+      row.draggable = e.dir && bookmarksAvailable;
       row.setAttribute('aria-selected', String(i === sel));
       const icon = doc.createElement('span');
       icon.className = 'fd-icon';
@@ -465,6 +506,50 @@ export async function pickFile(files, opts, doc = document) {
     const entry = row ? entries[+row.dataset.i] : null;
     if (entry) select(+row.dataset.i, { scroll: false });
     menu = showMenu({ x: e.clientX, y: e.clientY, items: fileMenuItems(entry, row), shortcutScope: 'filepicker', container: dlg, className: 'fd-context-menu', onClose: () => { menu = null; } });
+  });
+
+  on(list, 'dragstart', (e) => {
+    const row = e.target.closest('.fd-row[data-i]');
+    const entry = row && entries[+row.dataset.i];
+    if (!bookmarksAvailable || busy || editing || !entry?.dir) { e.preventDefault(); return; }
+    draggedFolder = entry.path;
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData('text/plain', entry.name);
+  });
+  on(list, 'dragend', () => {
+    draggedFolder = null;
+    $('fd-places').querySelector('.fd-bookmarks')?.classList.remove('drag-over');
+  });
+  const placesBox = $('fd-places');
+  on(placesBox, 'dragover', (e) => {
+    const drop = e.target.closest('.fd-bookmarks');
+    if (!drop || !bookmarksAvailable || busy || (!draggedFolder && !Array.from(e.dataTransfer.types).includes('Files'))) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    drop.classList.add('drag-over');
+  });
+  on(placesBox, 'dragleave', (e) => {
+    const drop = e.target.closest('.fd-bookmarks');
+    if (drop && !drop.contains(e.relatedTarget)) drop.classList.remove('drag-over');
+  });
+  on(placesBox, 'drop', async (e) => {
+    const drop = e.target.closest('.fd-bookmarks');
+    if (!drop) return;
+    e.preventDefault();
+    drop.classList.remove('drag-over');
+    if (!bookmarksAvailable || busy) return;
+    const folder = draggedFolder;
+    draggedFolder = null;
+    busy = true;
+    try {
+      if (!folder && e.dataTransfer.files.length !== 1) throw new Error('Drop one folder at a time');
+      const path = folder || files.pathForFile(e.dataTransfer.files[0]);
+      if (!path) throw new Error('Cannot access the dropped folder');
+      bookmarks = await files.addBookmark(path);
+      if (!finished) { error(''); renderPlaces(); }
+    } catch (err) {
+      if (!finished) error(`Cannot add bookmark: ${errorText(err)}`);
+    } finally { busy = false; }
   });
 
   on(list, 'click', (e) => {
