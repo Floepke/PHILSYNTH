@@ -23,8 +23,19 @@ export function crc32(bytes) {
 
 export const isProjectZip = (bytes) => bytes.length >= 4 && view(bytes).getUint32(0, true) === LOCAL;
 
+// ZIP stores local time with two-second precision and years from 1980 to 2107.
+export function zipTimestamp(date = new Date()) {
+  const year = date.getFullYear();
+  if (!Number.isInteger(year) || year < 1980 || year > 2107) throw new Error('Current date is outside the ZIP timestamp range');
+  return {
+    date: ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate(),
+    time: (date.getHours() << 11) | (date.getMinutes() << 5) | (date.getSeconds() >> 1),
+  };
+}
+
 export function writeZip(entries) {
   if (!entries.size || entries.size > MAX_ENTRIES) throw new Error('Invalid project archive entry count');
+  const timestamp = zipTimestamp();
   const files = [], index = [];
   let offset = 0, indexSize = 0;
   for (const [path, bytes] of entries) {
@@ -38,7 +49,8 @@ export function writeZip(entries) {
     const l = view(local), c = view(central);
     l.setUint32(0, LOCAL, true);
     l.setUint16(4, 20, true);
-    l.setUint16(12, 0x21, true); // DOS date: 1980-01-01
+    l.setUint16(10, timestamp.time, true);
+    l.setUint16(12, timestamp.date, true);
     l.setUint32(14, crc32(bytes), true);
     l.setUint32(18, bytes.length, true);
     l.setUint32(22, bytes.length, true);

@@ -759,6 +759,7 @@ In the desktop file dialog, drag a folder from the file list (or the system file
 manager) into the bookmark area under the sidebar separator. Bookmarks are shared
 by all file dialogs and persist across restarts; the × button removes a bookmark,
 not the folder. Missing folders remain listed so they can be removed or reconnected.
+Desktop open and save dialogs expand with the app window.
 File renames and moves fall back to copying and removing the source when hard
 links are unsupported (including filesystems returning `ENOSYS`), without
 overwriting an existing destination.

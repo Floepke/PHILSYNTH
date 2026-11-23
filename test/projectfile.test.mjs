@@ -11,7 +11,7 @@ import { PatchRuntime } from '../src/patch.js';
 import { addAudioClip, addAutoClip, addClip, cloneClip, emptySong, setSig } from '../src/song.js';
 import { addImage, addSample, getSample, importSamples, withSamples } from '../src/samples.js';
 import { prepareCurrentProjectArchive, prepareProjectArchive, readProjectArchive, readStreamedProjectArchive } from '../src/projectarchive.js';
-import { crc32, readZip, writeZip } from '../src/projectzip.js';
+import { crc32, readZip, writeZip, zipTimestamp } from '../src/projectzip.js';
 import { copyZipEntry, readZipStream, writeZipStream } from '../src/projectzipstream.js';
 import { createHistory } from '../src/history.js';
 import { jsonFileText } from '../src/fileformat.js';
@@ -21,6 +21,36 @@ import { createProjectStreamWriter, openProjectStreamReader } from '../electron/
 // a fake project and storage backend
 const encode = (text) => new TextEncoder().encode(text);
 const makeProject = (marker) => ({ format: 'philsynth', version: 1, patch: { modules: [], marker } });
+
+// ZIP headers use local save time, rounded down to the format's two-second precision.
+const timestampMillis = (date, time) => new Date(
+  1980 + (date >> 9), ((date >> 5) & 15) - 1, date & 31,
+  time >> 11, (time >> 5) & 63, (time & 31) * 2,
+).getTime();
+const assertTimestamp = (v, local, central, before, after) => {
+  const time = v.getUint16(local + 10, true), date = v.getUint16(local + 12, true);
+  assert.equal(v.getUint16(central + 12, true), time, 'central and local times agree');
+  assert.equal(v.getUint16(central + 14, true), date, 'central and local dates agree');
+  const saved = timestampMillis(date, time);
+  assert.ok(saved >= before - 2000 && saved <= after, 'ZIP entry reflects the save time');
+};
+{
+  assert.deepEqual(zipTimestamp(new Date(2026, 10, 23, 19, 34, 27)), {
+    date: ((2026 - 1980) << 9) | (11 << 5) | 23, time: (19 << 11) | (34 << 5) | 13,
+  });
+  assert.throws(() => zipTimestamp(new Date(1979, 0, 1)), /ZIP timestamp range/);
+  assert.throws(() => zipTimestamp(new Date(2108, 0, 1)), /ZIP timestamp range/);
+  const before = Date.now();
+  const archive = writeZip(new Map([['project.json', encode('{}')]]));
+  const after = Date.now();
+  const v = new DataView(archive.buffer);
+  const central = v.getUint32(archive.length - 6, true);
+  assertTimestamp(v, 0, central, before, after);
+  assert.equal(new TextDecoder().decode(readZip(archive).get('project.json')), '{}');
+  v.setUint16(10, 0, true); v.setUint16(12, 0x21, true);
+  v.setUint16(central + 12, 0, true); v.setUint16(central + 14, 0x21, true);
+  assert.equal(new TextDecoder().decode(readZip(archive).get('project.json')), '{}', 'old timestamp remains readable');
+}
 let project = { patch: 1 };
 const files = new Map(); // ref -> text
 const calls = [];
@@ -477,10 +507,12 @@ async function projectEngine() {
   const media = new Uint8Array(2 * 1024 * 1024 + 7);
   for (let i = 0; i < media.length; i++) media[i] = i % 251;
   const chunks = [];
+  const before = Date.now();
   await writeZipStream([
     { path: 'project.json', blob: new Blob(['{"version":3}']) },
     { path: 'media/audio/1.wav', blob: new Blob([media]) },
   ], async (bytes) => { chunks.push(bytes.slice()); });
+  const after = Date.now();
   assert.ok(chunks.every((bytes) => bytes.length <= 1024 * 1024), 'writes have bounded size');
   const archive = new Uint8Array(await new Blob(chunks).arrayBuffer());
   const v = new DataView(archive.buffer);
@@ -489,8 +521,18 @@ async function projectEngine() {
   const directory = Number(v.getBigUint64(zip64Offset + 48, true));
   assert.equal(v.getUint32(directory, true), 0x02014b50);
   const second = directory + 46 + v.getUint16(directory + 28, true) + v.getUint16(directory + 30, true);
+  assertTimestamp(v, 0, directory, before, after);
+  const secondLocal = Number(v.getBigUint64(second + 46 + 'media/audio/1.wav'.length + 20, true));
+  assertTimestamp(v, secondLocal, second, before, after);
+  assert.equal(v.getUint32(10, true), v.getUint32(secondLocal + 10, true), 'all entries use the same save time');
   assert.equal(v.getUint32(second + 16, true), crc32(media), 'streamed CRC covers the full asset');
   const entries = await readZipStream(new Blob([archive]));
+  const legacy = archive.slice(), old = new DataView(legacy.buffer);
+  for (const [local, central] of [[0, directory], [secondLocal, second]]) {
+    old.setUint16(local + 10, 0, true); old.setUint16(local + 12, 0x21, true);
+    old.setUint16(central + 12, 0, true); old.setUint16(central + 14, 0x21, true);
+  }
+  assert.equal((await readZipStream(new Blob([legacy]))).size, 2, 'old ZIP64 timestamps remain readable');
   const copied = [];
   await copyZipEntry(entries.get('media/audio/1.wav'), async (bytes) => { copied.push(bytes.slice()); });
   assert.deepEqual(new Uint8Array(await new Blob(copied).arrayBuffer()), media);

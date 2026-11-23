@@ -97,7 +97,7 @@ try {
     }
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  win = new BrowserWindow({ show: false, webPreferences: {
+  win = new BrowserWindow({ show: true, webPreferences: {
     preload: join(root, 'electron', 'preload.cjs'), sandbox: true, contextIsolation: true,
   } });
   win.webContents.on('console-message', (event) => {
@@ -155,6 +155,46 @@ try {
   assert.match(await run("document.querySelector('.fd-bookmark-hint').textContent"), /Restart PHILSYNTH/);
   assert.equal(await run("document.querySelector('#fd-error').textContent"), '', 'legacy desktop backend still browses folders');
   await run("document.querySelector('#fd-cancel').click(); window.pickResult");
+  await open('open');
+  const initialSize = win.getContentSize();
+  const checkLayout = async (label) => {
+    const layout = await run(`(() => {
+      const bounds = selector => {
+        const r = document.querySelector(selector).getBoundingClientRect();
+        return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height };
+      };
+      const list = document.querySelector('#fd-list');
+      return { width: innerWidth, height: innerHeight, dialog: bounds('#file-dialog'),
+        list: bounds('#fd-list'), cancel: bounds('#fd-cancel'), ok: bounds('#fd-ok'),
+        scrollWidth: list.scrollWidth, clientWidth: list.clientWidth };
+    })()`);
+    const { width, height, dialog, list, cancel, ok } = layout;
+    assert.ok(dialog.width >= width - 34 && dialog.height >= height - 34, `${label}: dialog fills available window`);
+    assert.ok(dialog.left >= 0 && dialog.top >= 0 && dialog.right <= width && dialog.bottom <= height, `${label}: dialog fits window`);
+    assert.ok(list.width > 100 && list.height > 60, `${label}: file list has usable space`);
+    for (const button of [cancel, ok]) {
+      assert.ok(button.left >= dialog.left && button.right <= dialog.right && button.top >= dialog.top && button.bottom <= dialog.bottom,
+        `${label}: action buttons remain visible`);
+    }
+    assert.ok(layout.scrollWidth <= layout.clientWidth, `${label}: file rows fit the list`);
+  };
+  for (const [width, height] of [[1200, 760], [800, 500]]) {
+    win.setContentSize(width, height);
+    await wait(() => run(`innerWidth === ${width} && innerHeight === ${height}`));
+    await checkLayout(`${width}x${height} open`);
+  }
+  win.webContents.setZoomFactor(1.5);
+  await wait(() => run('innerWidth < 600'));
+  await checkLayout('zoomed open');
+  await run("document.querySelector('#fd-cancel').click(); window.pickResult");
+  await open('save');
+  await checkLayout('zoomed save');
+  win.webContents.setZoomFactor(1);
+  await wait(() => run('innerWidth === 800 && innerHeight === 500'));
+  await checkLayout('800x500 save');
+  await run("document.querySelector('#fd-cancel').click(); window.pickResult");
+  win.setContentSize(...initialSize);
+  await wait(() => run(`innerWidth === ${initialSize[0]} && innerHeight === ${initialSize[1]}`));
   await open('open');
   const drag = (name) => run(`(() => {
     const row = [...document.querySelectorAll('.fd-row')].find(el => el.querySelector('.fd-file')?.textContent === ${JSON.stringify(name)});

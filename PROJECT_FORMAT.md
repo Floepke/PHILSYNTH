@@ -28,6 +28,8 @@ stores interleaved little-endian Int16 PCM. Audio index entries also carry
 `rate`, so the pool rate is preserved even if the WAV header rounds it.
 Each referenced ID is written once. All new saves use **version 3**, a
 stored-entry ZIP64 archive, whether or not they contain audio clips.
+ZIP entry timestamps record the archive save time in local time (with ZIP's
+two-second precision), not the original import or recording time.
 Audio clips play through their selected audio destination and may be recorded from a RECORDER module.
 The `audioFiles` index maps each referenced audio ID to a WAV under
 `media/audioFiles/`; linked and independent clips using the same audio file

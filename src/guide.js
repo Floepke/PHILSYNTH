@@ -230,7 +230,7 @@ export const GUIDE = [
       {
         title: 'Notes beneath the stave',
         items: [
-          'After its notehead, each note continues as a rectangle that shows its duration, like the bars of a traditional pianoroll. These rectangles are drawn <b>beneath</b> the stave lines, so the notes never cover the stave.',
+          'Each note’s colored body begins at the middle of its notehead and ends at the note’s end time. The body is drawn <b>beneath</b> the stave lines, so the notes never cover the stave.',
           'As a result, a note reveals its key along its whole length, even where the notehead is out of view: a note on a <b>black key</b> has a stave line running over it, and a note on a <b>white key</b> does not. This is how the stave solves the problem of the traditional pianoroll: the notes no longer hide the pattern that gives them their meaning.',
         ],
       },

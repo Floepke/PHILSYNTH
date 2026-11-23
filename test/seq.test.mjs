@@ -1892,7 +1892,7 @@ for (const end of ['lostpointercapture', 'pointercancel']) {
   // the whole note shifts by the tuning: body and circle lean right together
   cv.drawing.length = 0;
   roll.redraw(); flush();
-  assert.ok(cv.drawing.some(([op, x, y]) => op === 'roundRect' && Math.abs(x - (nx(60) - 7.5 + 0.499 * 14)) < 1e-9 && y === ny(1)), 'body shifts with the tuning');
+  assert.ok(cv.drawing.some(([op, x, y, , h]) => op === 'roundRect' && Math.abs(x - (nx(60) - 7.5 + 0.499 * 14)) < 1e-9 && y > ny(1) && Math.abs(y + h - ny(2)) < 1e-9), 'body shifts with the tuning');
   assert.ok(cv.drawing.some(([op, x]) => op === 'translate' && untuned.some((u) => Math.abs(x - (u + 0.499 * 14)) < 1e-9)), 'circle leans by the tuning');
   // the circle is still grabbed where it is drawn; down to -50 cents
   drag(cv, nx(60) + 7, ny(1) + 5, nx(60) + 7 - 4000, ny(1) + 5, { shiftKey: true });
@@ -1930,8 +1930,8 @@ for (const end of ['lostpointercapture', 'pointercancel']) {
   roll.redraw(); flush();
   // the bodies sit at their exact pitch (between the columns), the key still names and colours them
   const near = (a, b) => Math.abs(a - b) < 1e-9;
-  assert.ok(cv.drawing.some(([op, x, y]) => op === 'roundRect' && near(x, nx(59.5) - 7.5) && y === ny(1)), '59.5 drawn at its pitch');
-  assert.ok(cv.drawing.some(([op, x, y]) => op === 'roundRect' && near(x, nx(59.49) - 7.5) && y === ny(3)), '59.49 drawn at its pitch');
+  assert.ok(cv.drawing.some(([op, x, y, , h]) => op === 'roundRect' && near(x, nx(59.5) - 7.5) && y > ny(1) && near(y + h, ny(2))), '59.5 drawn at its pitch');
+  assert.ok(cv.drawing.some(([op, x, y, , h]) => op === 'roundRect' && near(x, nx(59.49) - 7.5) && y > ny(3) && near(y + h, ny(4))), '59.49 drawn at its pitch');
   point(cv, 'pointermove', nx(59.5), ny(1.5));
   assert.match(cv.title, /^C4 /, '59.5 is C4');
   point(cv, 'pointermove', nx(59.49), ny(3.5));
@@ -4428,7 +4428,7 @@ for (const free of [false, true]) {
   click(cv, nx(60), 380, { button: 2 });
   assert.deepEqual(clip.notes, before);
   assert.ok(cv.drawing.some(([op, x, y, w, h]) => op === 'fillRect' && x === 0 && y === 376 && w === ROLL_WIDTH && h === 24));
-  assert.ok(cv.drawing.some(([op, x, y, w, h]) => op === 'roundRect' && x === nx(60) - 7.5 && y === 48 && w === 15 && h === 48));
+  assert.ok(cv.drawing.some(([op, x, y, w, h]) => op === 'roundRect' && x === nx(60) - 7.5 && y > 48 && w === 15 && Math.abs(y + h - 96) < 1e-9));
   // noteheads: tilted ovals stretched 1.25× along time, with a thick (unstretched) outline; a white
   // C head is the black oval widened towards C# (its left edge stays, so its middle moves right)
   const ei = cv.drawing.findIndex(([op, x, y, rx, ry, tilt]) => op === 'ellipse' && x === 0 && y === 0 && rx > ry && tilt < 0);
@@ -4600,6 +4600,39 @@ for (const free of [false, true]) {
   key(cv, 'ArrowDown');
   assert.equal(clip.notes[0].start, 1);
   point(cv, 'pointerup', nx(60), ny(1) + 5);
+}
+
+// Note bodies begin at the head's vertical center while their musical end stays fixed.
+{
+  const { clip, roll } = setup();
+  const cv = roll.surface.cv;
+  const draw = (n) => {
+    clip.notes = [n];
+    cv.drawing.length = 0;
+    roll.redraw(); flush();
+    return cv.drawing;
+  };
+  for (const pitch of [60, 61]) {
+    const drawing = draw(note(pitch, 1, 2));
+    const head = drawing.find(([op]) => op === 'translate');
+    const body = drawing.find(([op, , y]) => op === 'roundRect' && y < 376);
+    assert.ok(head && body);
+    assert.equal(body[2], head[2], 'body begins at the notehead center');
+    assert.equal(body[2] + body[4], ny(3), 'body ends at the note end');
+  }
+  const bent = note(60, 1, 2);
+  bent.bends = [{ t: 1, d: 4, r: 0 }];
+  const drawing = draw(bent);
+  const center = drawing.find(([op]) => op === 'translate')[2];
+  const clipRect = drawing.find(([op, , y, , h]) => op === 'rect' && y === center && Math.abs(y + h - ny(3)) < 1e-9);
+  assert.ok(clipRect, 'bent body is clipped to the head center and note end');
+  assert.deepEqual(drawing.slice(drawing.indexOf(clipRect) + 1, drawing.indexOf(clipRect) + 2), [['clip']]);
+  for (const short of [note(60, 1, 0.01), { ...note(61, 1, 0.01), bends: [{ t: 0.005, d: 2, r: 0 }] }]) {
+    const small = draw(short);
+    assert.ok(small.some(([op]) => op === 'translate'), 'short note retains its head');
+    assert.ok(!small.some(([op, , y]) => op === 'roundRect' && y < 376), 'short note has no negative-height body');
+    assert.ok(!small.some(([op, , y]) => op === 'rect' && y > ny(1) && y < ny(1.01)), 'short bent note has no body clip');
+  }
 }
 
 // Chromatic chords use darker fills for black keys, including selected notes after transposition.
@@ -4929,7 +4962,7 @@ for (const width of [300, 480, 900, 1912]) {
   cv.drawing.length = 0;
   roll.redraw(); flush();
   const numbering = cv.drawing.findIndex(([op, text]) => op === 'fillText' && text === '3');
-  const body = cv.drawing.findIndex(([op, , y]) => op === 'roundRect' && y === 0);
+  const body = cv.drawing.findIndex(([op, , y, , h]) => op === 'roundRect' && y > 0 && Math.abs(y + h - ny(2)) < 1e-9);
   assert.ok(numbering >= 0 && body > numbering, 'note bodies are drawn over background numbering');
 }
 
@@ -5340,7 +5373,7 @@ for (const notes of [
   cv.drawing.length = 0;
   roll.redraw(); flush();
   assert.ok(cv.drawing.some(([op, x, y]) => op === 'arc' && x === 42 && y === 128), 'velocity handle aligns with beat zero');
-  assert.ok(cv.drawing.some(([op, x, y]) => op === 'roundRect' && x === nx(60) - 7.5 && y === 128), 'note starts below the margin');
+  assert.ok(cv.drawing.some(([op, x, y, , h]) => op === 'roundRect' && x === nx(60) - 7.5 && y > 128 && Math.abs(y + h - 176) < 1e-9), 'note body stays below the margin and ends on time');
   drag(cv, nx(59), 8, nx(61), 156, { shiftKey: true });
   key(cv, 'Delete');
   assert.equal(clip.notes.length, 0, 'selection can start in the margin to catch the first note');

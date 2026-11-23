@@ -703,6 +703,9 @@ export function createPianoRoll(host, ctx) {
         const y = yOf(n.start);
         const hh = n.length * view.ppq;
         if (y > bottom || y + hh < 0) continue;
+        const bodyTop = headY(y, basePitch(n.pitch));
+        const bodyHeight = y + hh - bodyTop;
+        if (bodyHeight <= 0) continue;
         const poly = curveOf(n);
         const x = headX(n) - nw / 2;
         if (!poly && (x > w || x + nw < gridX())) continue;
@@ -710,12 +713,17 @@ export function createPianoRoll(host, ctx) {
         g.fillStyle = g.strokeStyle = selected.has(n)
           ? (isBlack(n.pitch) ? blackSelected : SELECT)
           : (isBlack(n.pitch) ? blackColor : color);
-        g.beginPath();
         const edge = overlap();
         const bw = nw + 2 * edge;
-        if (poly) bentBody(g, n, poly, bw);
-        else {
-          g.roundRect(x - edge, y, bw, hh, Math.min(bw / 2, hh / 2));
+        if (poly) {
+          g.save();
+          g.beginPath(); g.rect(gridX(), bodyTop, w - gridX(), bodyHeight); g.clip();
+          g.beginPath();
+          bentBody(g, n, poly, bw);
+          g.restore();
+        } else {
+          g.beginPath();
+          g.roundRect(x - edge, bodyTop, bw, bodyHeight, Math.min(bw / 2, bodyHeight / 2));
           g.fill();
         }
         g.globalAlpha = 1;

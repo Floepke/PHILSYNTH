@@ -1,4 +1,4 @@
-import { crc32Update } from './projectzip.js';
+import { crc32Update, zipTimestamp } from './projectzip.js';
 
 const MAX_ENTRIES = 10000;
 const MAX_CHUNK = 1024 * 1024;
@@ -46,6 +46,7 @@ export async function writeZipStream(entries, write, { signal } = {}) {
     if (!(blob instanceof Blob) || !Number.isSafeInteger(blob.size)) throw new Error('Invalid project archive entry');
     paths.add(path);
   }
+  const timestamp = zipTimestamp();
   const central = [];
   let position = 0n;
   const send = async (bytes) => {
@@ -62,7 +63,8 @@ export async function writeZipStream(entries, write, { signal } = {}) {
     l.setUint32(0, LOCAL, true);
     l.setUint16(4, 45, true);
     l.setUint16(6, 8, true);
-    l.setUint16(12, 0x21, true);
+    l.setUint16(10, timestamp.time, true);
+    l.setUint16(12, timestamp.date, true);
     l.setUint32(18, 0xffffffff, true);
     l.setUint32(22, 0xffffffff, true);
     l.setUint16(26, name.length, true);
@@ -88,7 +90,8 @@ export async function writeZipStream(entries, write, { signal } = {}) {
     c.setUint16(4, 45, true);
     c.setUint16(6, 45, true);
     c.setUint16(8, 8, true);
-    c.setUint16(14, 0x21, true);
+    c.setUint16(12, timestamp.time, true);
+    c.setUint16(14, timestamp.date, true);
     c.setUint32(16, crc, true);
     c.setUint32(20, 0xffffffff, true);
     c.setUint32(24, 0xffffffff, true);
