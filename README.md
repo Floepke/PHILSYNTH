@@ -725,8 +725,14 @@ clip and use **Send to** to route it to a module with an audio input. Selecting
 the clip opens a vertical waveform editor; right-click it to enable sample
 drawing. Its margin is adjustable in Preferences. Linked clones share their
 waveform and edits. Audio clips cannot currently be exported as `.clip` files.
+Each channel has a black center line and thin black side guides. Cached
+waveforms stay visible while resizing the editor.
+The left ruler follows the TimeLine grid, measure numbers and time signatures.
+Drag it up/down to zoom around the grabbed audio position, like the piano roll.
+Maximum zoom gives each sample 16 pixels of vertical space, including high-rate
+audio. Individual samples appear as connected points for precise drawing.
 
-Connect an INPUT or other source to a RECORDER, arm it, and choose a record lane
+Connect an INPUT or other source to a RECORDER (under **Other**), arm it, and choose **Record to lane**
 and mono or stereo channels. Arm the TimeLine Record button and start song
 playback. Multiple armed recorders need separate lanes. After the count-in,
 each take stops when stopped, when it reaches another clip on its lane, or

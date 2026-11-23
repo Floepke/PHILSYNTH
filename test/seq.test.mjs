@@ -6257,14 +6257,202 @@ for (const notes of [
   }
 }
 
+// Audio resizing reuses peaks and retains the waveform while expanded ranges load.
+{
+  const container = host();
+  const clip = { id: 1, start: 0 };
+  let revision = 1, requests = 0, release;
+  const editor = createAudioEditor(container, {
+    song: () => emptySong(),
+    clip: () => clip,
+    audio: () => ({ frames: 10000, rate: 100, channels: 2, revision, span: 200, offset: 0 }),
+    margin: () => 40,
+    readPeaks: async (_clip, _start, _end, bins) => {
+      requests++;
+      if (requests === 2) await new Promise(resolve => { release = resolve; });
+      return Array.from({ length: 2 }, () => Float32Array.from({ length: bins * 2 }, (_, i) => i % 2 ? 0.5 : -0.5));
+    },
+    onError: error => { throw error; },
+  });
+  const images = [];
+  editor.surface.cv.context.drawImage = canvas => images.push(canvas);
+  const draw = () => { editor.redraw(); flush(); return images.at(-1); };
+  draw();
+  await new Promise(resolve => setImmediate(resolve));
+  const layer = draw();
+  const operations = layer.drawing.length;
+  draw();
+  assert.equal(layer.drawing.length, operations, 'unchanged frames reuse the rasterized waveform');
+  assert.deepEqual(layer.drawing.filter(([op, color]) => op === 'stroke' && color === '#000').slice(-6).map(op => op[2]),
+    [1, 2, 1, 1, 2, 1], 'each stereo channel has thin black sides and a stronger center');
+  for (const x of [40, 140, 240, 340, 440]) {
+    assert.ok(layer.drawing.some(([op, px, py]) => op === 'moveTo' && px === x && py === 0), `static guide at ${x}`);
+  }
+  container.clientHeight = 450;
+  draw();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(requests, 1, 'nearby divider sizes reuse the cached peak range');
+  container.clientWidth = 600;
+  draw();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(requests, 1, 'width changes never reread the WAV');
+  container.clientHeight = 900;
+  draw();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(requests, 2);
+  const oldLength = layer.drawing.length;
+  container.clientWidth = 620;
+  draw();
+  assert.ok(layer.drawing.slice(oldLength).some(([op, color]) => op === 'stroke' && color === '#eee'),
+    'cached audio remains visible while an expanded range is pending');
+  release();
+  await new Promise(resolve => setImmediate(resolve));
+  draw();
+  revision++;
+  draw();
+  await new Promise(resolve => setImmediate(resolve));
+  draw();
+  assert.equal(requests, 3, 'audio edits invalidate cached peaks');
+}
+
+// Audio ruler labels follow the song meter, clip position, source offset and stretch.
+{
+  const song = emptySong();
+  setSig(song, 8, 3, 8);
+  const clip = { id: 1, start: 8 };
+  let span = 20, offset = 2, changes = 0, edits = 0;
+  const menus = [];
+  const editor = createAudioEditor(host(), {
+    song: () => song,
+    clip: () => clip,
+    audio: () => ({ frames: 1000, rate: 100, channels: 1, revision: 1, span, offset }),
+    margin: () => 0,
+    readPeaks: async (_clip, _start, _end, bins) => [new Float32Array(bins * 2)],
+    commitStroke: async () => { edits++; },
+    onError: error => { throw error; },
+    viewChanged: () => { changes++; },
+    menu: menu => menus.push(menu),
+  });
+  const cv = editor.surface.cv;
+  const draw = () => { cv.drawing.length = 0; editor.redraw(); flush(); return cv.drawing; };
+  const label = (text, y) => draw().some(([op, value, x, py]) => op === 'fillText' && value === text && x === 32 && py === y);
+  assert.ok(label('3', 250.5), 'measure 3 is aligned with song quarter 8, not the asset start');
+  assert.ok(label('3/8', 261.5), 'song time signature changes appear on the ruler');
+  assert.ok(draw().some(([op, x, y]) => op === 'moveTo' && x === 30 && y === 278.5), 'eighth-note beat ticks follow the meter');
+  const bands = () => draw().filter(([op, x, , w, , color]) =>
+    op === 'fillRect' && x === 0 && w === 36 && color === 'rgba(0, 0, 0, 0.10)');
+  const fineBands = bands().length;
+  song.snap = { base: 4, div: 1 };
+  assert.ok(bands().length < fineBands, 'ruler grid bands follow the timeline snap setting');
+  span = 40;
+  assert.ok(label('3', 190.5), 'stretching keeps musical labels aligned with source frames');
+  offset = 0;
+  assert.ok(label('3', 130.5), 'trimming offset updates ruler positions');
+  clip.start = 9.5;
+  assert.ok(label('4', 130.5), 'moving the clip updates song measure numbers');
+  span = 20; offset = 2; clip.start = 8;
+  draw();
+  point(cv, 'pointerdown', 80, 188, { button: 2, buttons: 2 });
+  menus[0].items[0].action();
+  const before = editor.getView();
+  const anchor = (before.sy + 248) / before.pixelsPerSecond;
+  drag(cv, 18, 248, 18, 200);
+  const after = editor.getView();
+  assert.ok(Math.abs(after.pixelsPerSecond / before.pixelsPerSecond - 1.15) < 1e-9, 'ruler drag uses piano-roll zoom sensitivity');
+  assert.ok(Math.abs((after.sy + 248) / after.pixelsPerSecond - anchor) < 1e-9, 'the grabbed audio time stays anchored');
+  assert.equal(changes, 1, 'a completed ruler drag saves the view once');
+  assert.equal(edits, 0, 'ruler zoom never draws audio, even with drawing mode on');
+  drag(cv, 18, 248, 18, 296, {}, 'pointercancel');
+  assert.deepEqual(editor.getView(), after, 'cancelled zoom restores scroll and scale');
+  assert.equal(changes, 1, 'cancelled zoom does not save the view');
+  drag(cv, 18, 248, 18, 296);
+  assert.ok(Math.abs(editor.getView().pixelsPerSecond - before.pixelsPerSecond) < 1e-9, 'downward ruler drag zooms back out');
+  await new Promise(resolve => setImmediate(resolve));
+  flush();
+}
+
+// The transition from peak bands to sample points never leaves zero-length sample strokes.
+{
+  const clip = { id: 1, start: 0 };
+  const rate = 48000;
+  const editor = createAudioEditor(host(), {
+    song: () => emptySong(),
+    clip: () => clip,
+    audio: () => ({ frames: rate, rate, channels: 1, revision: 1, span: 2, offset: 0 }),
+    margin: () => 40,
+    readPeaks: async (_clip, _start, _end, bins) => [new Float32Array(bins * 2).fill(0.5)],
+    onError: error => { throw error; },
+  });
+  const cv = editor.surface.cv;
+  for (const spacing of [1, 1.5, 2, 3.99, 4, 8, 16]) {
+    editor.setView({ pixelsPerSecond: rate * spacing, sy: 1000 * spacing - 128 }); flush();
+    await new Promise(resolve => setImmediate(resolve));
+    cv.drawing.length = 0;
+    editor.redraw(); flush();
+    const segments = cv.drawing.filter(([op, x]) => op === 'lineTo' && x === 340);
+    assert.ok(segments.length > 1, `${spacing} pixels/sample: samples form a visible connected trace`);
+    const dots = cv.drawing.filter(([op]) => op === 'arc');
+    assert.equal(dots.length > 0, spacing >= 4, 'sample dots appear only when there is room');
+  }
+}
+
+// Audio zoom resolves individual samples at common and high sample rates.
+for (const rate of [44100, 48000, 96000, 192000]) {
+  const clip = { id: 1, start: 0 };
+  const edits = [], menus = [], ranges = [];
+  const editor = createAudioEditor(host(), {
+    song: () => emptySong(),
+    clip: () => clip,
+    audio: () => ({ frames: 1000, rate, channels: 1, revision: 1, span: 2000 / rate, offset: 0 }),
+    margin: () => 40,
+    readPeaks: async (_clip, start, end, bins) => {
+      ranges.push({ start, end, bins });
+      return [new Float32Array(bins * 2).fill(0.25)];
+    },
+    commitStroke: async (...args) => edits.push(args),
+    onError: error => { throw error; },
+    menu: menu => menus.push(menu),
+  });
+  editor.redraw(); flush();
+  const cv = editor.surface.cv;
+  fire(cv, 'wheel', { clientX: 240, clientY: 200, deltaY: -10000, ctrlKey: true });
+  assert.equal(editor.getView().pixelsPerSecond / rate, 16, `${rate} Hz: wheel reaches 16 pixels per sample`);
+  editor.setView({ pixelsPerSecond: 120, sy: -128 }); flush();
+  drag(cv, 18, 200, 18, -10000);
+  assert.equal(editor.getView().pixelsPerSecond / rate, 16, `${rate} Hz: ruler reaches sample zoom`);
+  editor.setView({ pixelsPerSecond: rate * 32, sy: 100 * 16 - 128 }); flush();
+  assert.equal(editor.getView().pixelsPerSecond / rate, 16, 'restored zoom uses the same limit');
+  await new Promise(resolve => setImmediate(resolve));
+  cv.drawing.length = 0;
+  editor.redraw(); flush();
+  const last = ranges.at(-1);
+  assert.equal(last.bins, last.end - last.start, 'each peak bin represents exactly one sample');
+  const dots = cv.drawing.filter(([op]) => op === 'arc');
+  assert.ok(dots.some(([, , y]) => Math.abs(y - 128) < 1e-8), 'sample 100 is drawn at its exact editable position');
+  assert.ok(dots.some(([, , y]) => Math.abs(y - 144) < 1e-8), 'sample 101 is drawn 16 pixels later');
+  point(cv, 'pointerdown', 80, 188, { button: 2, buttons: 2 });
+  menus[0].items[0].action();
+  point(cv, 'pointerdown', 340, 128);
+  point(cv, 'pointerup', 340, 128);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(edits.length, 1);
+  assert.ok(edits[0][2].every(point => point.frame === 100 && point.value === 0.5), 'a sample click edits only the chosen sample');
+  point(cv, 'pointerdown', 140, 144);
+  point(cv, 'pointerup', 140, 144);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(edits[1][2].every(point => point.frame === 101 && point.value === -0.5), 'the adjacent sample can be edited independently');
+  flush();
+}
+
 // The audio editor keeps time vertical and only edits the selected stereo channel when enabled.
 {
-  const clip = { id: 1 };
+  const clip = { id: 1, start: 0 };
   let channels = 2;
   const edits = [], menus = [], requests = [];
   const editor = createAudioEditor(host(), {
+    song: () => emptySong(),
     clip: () => clip,
-    audio: () => ({ frames: 1000, rate: 100, channels, revision: 1 }),
+    audio: () => ({ frames: 1000, rate: 100, channels, revision: 1, span: 20, offset: 0 }),
     margin: () => 40,
     readPeaks: async (_clip, start, end, bins) => {
       requests.push([start, end, bins]);

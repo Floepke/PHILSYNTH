@@ -189,7 +189,7 @@ export const DOCS = {
     summary: 'Records its incoming sound into the TimeLine while passing it through for monitoring.',
     params: {
       armed: 'Enable this recorder for the TimeLine record button.',
-      lane: 'TimeLine lane to record into, numbered from 1.',
+      lane: 'TimeLine lane to record into, numbered from 1. Scroll to move one lane at a time.',
       channels: 'Record the left input as mono, or record both channels as stereo.',
     },
     notes: [

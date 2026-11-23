@@ -39,6 +39,18 @@ const fire = (el, type, props = {}) => {
   el.dispatchEvent(e);
 };
 
+{
+  const p = getModule('RECORDER').params.find((p) => p.id === 'lane');
+  let lane = 12;
+  const ctl = createController(p, { index: 1, value: lane, format: String, onInput: (v) => { lane = v; } });
+  fire(ctl.el, 'wheel', { deltaY: -100, timeStamp: 1000 });
+  assert.equal(lane, 13, 'recorder scroll advances exactly one lane');
+  fire(ctl.el, 'wheel', { deltaY: 500, timeStamp: 2000 });
+  assert.equal(lane, 12, 'accelerated scroll still changes one lane');
+  fire(ctl.el, 'wheel', { deltaY: -100, shiftKey: true, timeStamp: 3000 });
+  assert.equal(lane, 13, 'fine scroll retains whole-lane steps');
+}
+
 for (const type of ['LFO', 'VIBRATO']) {
   const p = getModule(type).params.find((x) => x.id === 'freq');
   const values = { unit: 0, freq: 1 };

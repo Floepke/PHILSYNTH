@@ -7,7 +7,7 @@ export default {
   hasOutput: true,
   params: [
     { id: 'armed', label: 'Arm', min: 0, max: 1, default: 0, step: 1, options: ['Off', 'On'], dsp: false },
-    { id: 'lane', label: 'Record lane', min: 1, max: 256, default: 1, step: 1, dsp: false },
+    { id: 'lane', label: 'Record to lane', min: 1, max: 256, default: 1, step: 1, wheelStep: 1, wheelSingleStep: true, dsp: false },
     { id: 'channels', label: 'Channels', min: 0, max: 1, default: 1, step: 1, options: ['Mono', 'Stereo'], dsp: false },
   ],
   create(_ctx, _def, host) {

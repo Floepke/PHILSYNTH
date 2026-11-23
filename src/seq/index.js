@@ -281,8 +281,10 @@ export function createSequencer({ engine, transport, timelineDisplay = {}, piano
   const audioError = (error) => { $('status').textContent = `Audio editor: ${error.message}`; };
   const assets = () => getAudioAssets?.() ?? (audioAssets ??= new AudioAssets({ onError: audioError }));
   const audioEditor = createAudioEditor($('roll'), {
+    song,
     clip: () => (isAudio(clip()) ? clip() : null),
-    audio: (c) => ({ frames: c.audio.frames, rate: c.audio.sampleRate, channels: c.audio.channels, revision: c.audio.id }),
+    audio: (c) => ({ frames: c.audio.frames, rate: c.audio.sampleRate, channels: c.audio.channels,
+      revision: c.audio.id, span: c.audio.span, offset: c.audio.offset }),
     margin: () => audioEditorPreferences.marginSize ?? 200,
     color: ctx.color,
     readPeaks: (c, start, end, bins) => assets().peaks(c.audio.id, start, end, bins),

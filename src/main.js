@@ -440,7 +440,7 @@ async function openProject(data, view) {
 let insertType = modules[0]?.type ?? null;
 const synths = modules.filter((m) => m.acceptsMidi && !m.midiOut && !m.modulator && m.type !== 'PATCH');
 const synthSet = new Set(synths);
-const effects = modules.filter((m) => !synthSet.has(m) && m.hasInput && m.hasOutput && !m.modulator && m.type !== 'PATCH');
+const effects = modules.filter((m) => !synthSet.has(m) && m.hasInput && m.hasOutput && !m.modulator && !['PATCH', 'RECORDER'].includes(m.type));
 const categorizedModules = new Set([...synths, ...effects]);
 const moduleGroups = [
   ['Synths:', synths],

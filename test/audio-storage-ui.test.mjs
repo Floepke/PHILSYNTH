@@ -332,6 +332,41 @@ app.whenReady().then(async () => {
     assert.equal(client.imported.frames, 3);
     assert.match(client.invalid, /Invalid recording ID/);
     assert.deepEqual(client.errors, []);
+    const zoomVisibility = await win.webContents.executeJavaScript(`(async () => {
+      const { createAudioEditor } = await import('/src/audioeditor/editor.js');
+      const { emptySong } = await import('/src/song.js');
+      const host = document.createElement('div');
+      host.style.cssText = 'width:480px;height:400px';
+      document.body.append(host);
+      const errors = [], clip = { id: 1, start: 0 };
+      const editor = createAudioEditor(host, {
+        song: () => emptySong(), clip: () => clip,
+        audio: () => ({ frames: 48000, rate: 48000, channels: 1, revision: 1, span: 2, offset: 0 }),
+        margin: () => 40,
+        readPeaks: async (_clip, _start, _end, bins) => [new Float32Array(bins * 2).fill(0.5)],
+        onError: error => errors.push(error.message),
+      });
+      const levels = [];
+      try {
+        for (const spacing of [1, 1.5, 2, 3.99, 4, 8, 16]) {
+          editor.setView({ pixelsPerSecond: 48000 * spacing, sy: 1000 * spacing - 128 });
+          editor.surface.draw();
+          await new Promise(resolve => setTimeout(resolve, 0));
+          editor.surface.draw();
+          const dpr = editor.surface.dpr;
+          const pixels = editor.surface.g.getImageData(Math.round(339 * dpr), Math.round(160 * dpr),
+            Math.max(1, Math.round(2 * dpr)), Math.round(160 * dpr)).data;
+          let bright = 0;
+          for (let i = 0; i < pixels.length; i += 4) if (pixels[i] > 150 && pixels[i + 1] > 150 && pixels[i + 2] > 150) bright++;
+          levels.push({ spacing, bright });
+        }
+        return { levels, errors };
+      } finally { host.remove(); }
+    })()`);
+    assert.deepEqual(zoomVisibility.errors, []);
+    for (const { spacing, bright } of zoomVisibility.levels) {
+      assert.ok(bright > 0, `real canvas retains visible audio at ${spacing} pixels per sample`);
+    }
     const live = await win.webContents.executeJavaScript(`(async () => {
       const { Engine } = await import('/src/engine.js');
       const { AudioTransport } = await import('/src/audiotransport.js');
