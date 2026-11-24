@@ -8,6 +8,7 @@ class Element extends EventTarget {
     const classes = new Set();
     this.children = [];
     this.attributes = {};
+    this.isConnected = true;
     this.props = props;
     this.classes = classes;
     this.style = { setProperty: (k, v) => { props[k] = String(v); } };
@@ -37,18 +38,21 @@ const fire = (el, type, props = {}) => {
   Object.defineProperty(e, 'timeStamp', { value: timeStamp });
   Object.assign(e, { button: 0, buttons: 1, pointerId: 1, pointerType: 'mouse', deltaX: 0, deltaY: 0, deltaMode: 0, shiftKey: false, ctrlKey: false, ...rest });
   el.dispatchEvent(e);
+  return e;
 };
 
 {
   const p = getModule('RECORDER').params.find((p) => p.id === 'lane');
   let lane = 12;
   const ctl = createController(p, { index: 1, value: lane, format: String, onInput: (v) => { lane = v; } });
-  fire(ctl.el, 'wheel', { deltaY: -100, timeStamp: 1000 });
-  assert.equal(lane, 13, 'recorder scroll advances exactly one lane');
-  fire(ctl.el, 'wheel', { deltaY: 500, timeStamp: 2000 });
-  assert.equal(lane, 12, 'accelerated scroll still changes one lane');
-  fire(ctl.el, 'wheel', { deltaY: -100, shiftKey: true, timeStamp: 3000 });
-  assert.equal(lane, 13, 'fine scroll retains whole-lane steps');
+  const wheel = fire(ctl.el, 'wheel', { deltaY: -100, timeStamp: 1000 });
+  assert.equal(lane, 12, 'wheel over a controller no longer changes its value');
+  assert.equal(wheel.defaultPrevented, false, 'wheel bubbles through to scroll the controller panel');
+  const buttons = ctl.el.children.find((el) => el.className === 'ctl-buttons').children;
+  fire(buttons[1], 'click');
+  assert.equal(lane, 13, 'increase button advances exactly one custom step');
+  fire(buttons[0], 'click');
+  assert.equal(lane, 12, 'decrease button reverses one custom step');
 }
 
 for (const type of ['LFO', 'VIBRATO']) {
@@ -77,10 +81,11 @@ for (const type of ['LFO', 'VIBRATO']) {
   fire(el, 'pointerup');
   const i = SYNCED_FREQS.indexOf(values.freq);
   assert.ok(i > 0 && i < SYNCED_FREQS.length - 1, `${type}: dragged to an inner value (${values.freq})`);
-  fire(el, 'wheel', { deltaY: -100, timeStamp: 1000 });
-  assert.equal(values.freq, SYNCED_FREQS[i + 1], `${type}: one wheel click = next note value`);
-  fire(el, 'wheel', { deltaY: 100, timeStamp: 2000 });
-  fire(el, 'wheel', { deltaY: 100, timeStamp: 3000 });
+  const buttons = el.children.find((el) => el.className === 'ctl-buttons').children;
+  fire(buttons[1], 'click');
+  assert.equal(values.freq, SYNCED_FREQS[i + 1], `${type}: increase button = next note value`);
+  fire(buttons[0], 'click');
+  fire(buttons[0], 'click');
   assert.equal(values.freq, SYNCED_FREQS[i - 1]);
   // every snapped value plays its own note value
   const rates = SYNCED_FREQS.map((f) => lfoRateHz(f, 1, 120));
@@ -95,16 +100,82 @@ for (const type of ['LFO', 'VIBRATO']) {
   const p = getModule('MULTIMIDI').params.find((x) => x.id === 'drift');
   let value = 6;
   const ctl = createController(p, { index: 0, value, format: p.format, onInput: (v) => { value = v; } });
-  fire(ctl.el, 'wheel', { deltaY: -100, timeStamp: 1000 });
-  assert.equal(value, 6.0001, 'Drift: scroll up increases depth by 0.01 cent');
-  fire(ctl.el, 'wheel', { deltaY: 100, timeStamp: 2000 });
-  assert.equal(value, 6, 'Drift: scroll down decreases depth by 0.01 cent');
-  fire(ctl.el, 'wheel', { deltaY: -100, shiftKey: true, timeStamp: 3000 });
-  assert.equal(value, 6.0001, 'Drift: Shift also moves 0.01 cent');
+  const buttons = ctl.el.children.find((el) => el.className === 'ctl-buttons').children;
+  fire(buttons[1], 'click');
+  assert.equal(value, 6.0001, 'Drift: increase preserves wheelStep (0.01 cent)');
+  fire(buttons[0], 'click');
+  assert.equal(value, 6, 'Drift: decrease preserves wheelStep (0.01 cent)');
   value = p.max;
   ctl.show(value);
-  fire(ctl.el, 'wheel', { deltaY: -100, timeStamp: 4000 });
-  assert.equal(value, p.max, 'Drift cannot scroll above 1200 cents');
+  fire(buttons[1], 'click');
+  assert.equal(value, p.max, 'Drift cannot increase above 1200 cents');
+}
+{
+  const p = { label: 'Amount', min: 0, max: 100, default: 50 };
+  let value = p.default;
+  const ctl = createController(p, { index: 0, value, format: String, onInput: (v) => { value = v; } });
+  const buttons = ctl.el.children.find((el) => el.className === 'ctl-buttons').children;
+  fire(buttons[1], 'click');
+  assert.equal(value, 50.01, '0..100 controllers increment by 0.01');
+  fire(buttons[0], 'click');
+  assert.equal(value, 50);
+}
+{
+  const originalSetTimeout = globalThis.setTimeout;
+  const originalClearTimeout = globalThis.clearTimeout;
+  const timers = new Map();
+  let nextTimer = 0;
+  globalThis.setTimeout = (fn, delay) => { const id = ++nextTimer; timers.set(id, { fn, delay }); return id; };
+  globalThis.clearTimeout = (id) => timers.delete(id);
+  const tick = (expectedDelay) => {
+    assert.equal(timers.size, 1);
+    const [id, timer] = timers.entries().next().value;
+    assert.equal(timer.delay, expectedDelay);
+    timers.delete(id);
+    timer.fn();
+  };
+  try {
+    const p = { label: 'Amount', min: 0, max: 100, step: 0.01 };
+    let value = 50;
+    let begins = 0;
+    let ends = 0;
+    const ctl = createController(p, {
+      index: 0, value, format: String, onInput: (v) => { value = v; },
+      onBegin: () => begins++, onEnd: () => ends++,
+    });
+    const [down, up] = ctl.el.children.find((el) => el.className === 'ctl-buttons').children;
+    fire(up, 'pointerdown');
+    assert.equal(value, 50.01, 'press steps immediately');
+    tick(350);
+    tick(50);
+    assert.equal(value, 50.03, 'holding repeats the configured step');
+    fire(up, 'pointerup');
+    fire(up, 'click', { detail: 1 });
+    assert.equal(value, 50.03, 'pointer release does not add another step');
+    assert.equal(timers.size, 0, 'release cancels repeat');
+    assert.equal(begins, 1);
+    assert.equal(ends, 1, 'a hold is one undo gesture');
+
+    fire(down, 'pointerdown');
+    tick(350);
+    fire(window, 'blur');
+    assert.equal(value, 50.01, 'holding decrease repeats in the other direction');
+    assert.equal(timers.size, 0, 'window blur cancels repeat');
+    assert.equal(ends, 2);
+
+    fire(up, 'pointerdown');
+    p.disabled = true;
+    ctl.show(value);
+    assert.equal(timers.size, 0, 'disabling a controller cancels repeat');
+    assert.equal(ends, 3);
+    p.disabled = false;
+    ctl.show(value);
+    fire(up, 'click', { detail: 0 });
+    assert.equal(value, 50.03, 'non-pointer button activation still steps once');
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+    globalThis.clearTimeout = originalClearTimeout;
+  }
 }
 {
   let locked = true;
@@ -132,7 +203,8 @@ for (const type of ['LFO', 'VIBRATO']) {
   ctl.show(1);
   assert.equal(ctl.el.attributes['aria-disabled'], false);
   assert.equal(ctl.el.attributes['aria-valuemax'], 16);
-  fire(ctl.el, 'wheel', { deltaY: -100, timeStamp: 2000 });
+  const buttons = ctl.el.children.find((el) => el.className === 'ctl-buttons').children;
+  fire(buttons[1], 'click');
   assert.deepEqual(got, [2], 'unlocked slider accepts input again');
 }
 console.log('controller tests passed');

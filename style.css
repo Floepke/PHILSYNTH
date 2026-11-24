@@ -452,6 +452,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 
 .ctl {
   --ctl-color: #8a8a92;
+  --ctl-button-width: 27px;
   --pos: 0;
   --origin: 0;
   position: relative;
@@ -477,7 +478,13 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
 .ctl[hidden] { display: none; }
 .ctl[aria-disabled='true'] { opacity: 0.6; cursor: not-allowed; }
 .ctl:hover { border-color: var(--border-strong); background: var(--surface-3); }
-.ctl.active, .ctl.wheel { border-color: color-mix(in srgb, var(--ctl-color) 70%, var(--border-strong)); }
+.ctl.active { border-color: color-mix(in srgb, var(--ctl-color) 70%, var(--border-strong)); }
+.ctl-track {
+  position: absolute;
+  inset: 0 calc(2 * var(--ctl-button-width)) 0 0;
+  overflow: hidden;
+  pointer-events: none;
+}
 /* value fill: from the origin (0 or the zero point of a bipolar range) to the value */
 .ctl-fill {
   position: absolute;
@@ -490,7 +497,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   pointer-events: none;
 }
 /* bright edge at the value position */
-.ctl::after {
+.ctl-track::after {
   content: '';
   position: absolute;
   top: 0;
@@ -502,7 +509,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   pointer-events: none;
 }
 /* tick per entry on option lists / small integer ranges */
-.ctl.stepped::before {
+.ctl.stepped .ctl-track::before {
   content: '';
   position: absolute;
   left: 0;
@@ -514,7 +521,7 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   pointer-events: none;
 }
 /* ticks at uneven fixed values (controller.js snapValues, e.g. a synced LFO Frequency) */
-.ctl.ticked::before {
+.ctl.ticked .ctl-track::before {
   content: '';
   position: absolute;
   left: 0;
@@ -549,6 +556,33 @@ body.panel-collapsed #panel-shell { visibility: hidden; }
   white-space: nowrap;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
+.ctl-buttons {
+  display: flex;
+  flex: none;
+  align-self: stretch;
+  margin: -1px -12px -1px 0;
+  position: relative;
+  z-index: 2;
+}
+.ctl-buttons button {
+  width: var(--ctl-button-width);
+  height: auto;
+  padding: 0;
+  border-width: 0 0 0 1px;
+  border-radius: 0;
+  background: rgba(20, 20, 24, 0.16);
+  color: var(--text-dim);
+  font: var(--font-weight) 15px var(--mono);
+  transform: none;
+}
+.ctl-buttons button:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.ctl-buttons button:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+.ctl-buttons button:active:not(:disabled) { background: rgba(255, 255, 255, 0.14); transform: none; }
+.ctl[aria-disabled='true'] .ctl-buttons { pointer-events: none; }
 .ctl-num {
   display: inline-block;
   min-width: 20px;
@@ -1568,6 +1602,7 @@ dialog .danger { order: -1; margin-right: auto; color: #ff8a7a; }
 .mc-route { display: grid; grid-template-columns: 120px minmax(0, 1fr) minmax(0, 1fr); gap: 4px; align-items: center; }
 .mc-target .mc-select { height: 33px; }
 .ctl.mc-mini { margin: 0; padding: 0 8px; gap: 5px; }
+.ctl.mc-mini .ctl-buttons { margin-right: -8px; }
 .ctl.mc-mini .ctl-label { flex: none; }
 .ctl.mc-mini .ctl-value { margin-left: auto; }
 .map-view { margin-top: 8px; }

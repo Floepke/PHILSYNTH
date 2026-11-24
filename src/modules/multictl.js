@@ -225,7 +225,7 @@ function routesView(entry, api) {
             onInput: (v) => api.setParam(id, v),
           });
           ctl.el.classList.add('mc-mini');
-          ctl.el.title = `${p.label} (controller ${index}) — this route's part of its controller's range; drag sideways or scroll (Shift: fine, Alt/Option: extra fine), double-click: reset`;
+          ctl.el.title = `${p.label} (controller ${index}) — this route's part of its controller's range; drag sideways or use ◀ / ▶ (Shift/Alt: fine drag), double-click: reset`;
           if (colorOf(t)) ctl.el.style.setProperty('--mod-color', colorOf(t));
           minis.push({ id, show: ctl.show });
           row.append(ctl.el);

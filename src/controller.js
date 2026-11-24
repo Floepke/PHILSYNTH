@@ -1,18 +1,19 @@
 // Panel controller: a tall rectangle whose fill shows the value.
 //   drag sideways     move the value (relative, a click does not jump; Shift while dragging = fine,
 //                     Alt/Option = extra fine)
-//   mouse wheel       ±1 % per notch, Shift + wheel ±0.1 %, Alt/Option + wheel ±0.01 %; stepped
-//                     controllers move one step
+//   ◀ / ▶ buttons     move one fine step (0.01 % for a 0..100 range); hold to repeat
 // Controllers with p.snapValues(values) (fixed values depending on the other controllers, e.g. a
-// synced LFO Frequency) snap drags to them, move one per wheel click and show a tick at each.
+// synced LFO Frequency) snap drags and button clicks to them and show a tick at each.
 //   double-click      reset to the default
 // Bipolar ranges (min < 0 < max) fill from the zero point. Option lists show a tick per entry.
 // The element never takes keyboard focus, so keyboard shortcuts keep working.
-import { toNorm, fromNorm, nudge, snapNearest, snapStep, wheelAccumulator, wheelDelta } from './params.js';
+import { toNorm, fromNorm, nudge, snapNearest, snapStep } from './params.js';
 
 const FINE_DRAG = 0.1; // Shift-drag speed relative to normal
 const EXTRA_FINE_DRAG = 0.01; // Alt/Option-drag
-export const ctlTitle = (p) => `${p.label} — drag sideways or scroll (Shift: fine, Alt/Option: extra fine), double-click: reset`;
+const REPEAT_DELAY = 350;
+const REPEAT_INTERVAL = 50;
+export const ctlTitle = (p) => `${p.label} — drag sideways (Shift: fine, Alt/Option: extra fine), use or hold ◀ / ▶ to step, double-click: reset`;
 
 export function createController(p, { index, value, onInput, format, onBegin, onEnd, values }) {
   const el = document.createElement('div');
@@ -23,8 +24,11 @@ export function createController(p, { index, value, onInput, format, onBegin, on
   el.setAttribute('aria-valuemax', p.max);
   el.title = ctlTitle(p);
 
+  const track = document.createElement('div');
+  track.className = 'ctl-track';
   const fill = document.createElement('span');
   fill.className = 'ctl-fill';
+  track.append(fill);
   const num = document.createElement('span');
   num.className = 'ctl-num';
   num.textContent = index;
@@ -43,7 +47,75 @@ export function createController(p, { index, value, onInput, format, onBegin, on
   }
   const out = document.createElement('output');
   out.className = 'ctl-value';
-  el.append(fill, num, name, out);
+  const buttons = document.createElement('div');
+  buttons.className = 'ctl-buttons';
+  const stepButtons = [];
+  let press = null;
+  const stopPress = (event) => {
+    if (!press || (event?.pointerId !== undefined && event.pointerId !== press.id)) return;
+    const { button, id, timer, began } = press;
+    press = null;
+    clearTimeout(timer);
+    window.removeEventListener('pointerup', stopPress, true);
+    window.removeEventListener('pointercancel', stopPress, true);
+    window.removeEventListener('blur', stopPress);
+    if (button.hasPointerCapture?.(id)) button.releasePointerCapture(id);
+    if (began) onEnd?.();
+  };
+  for (const [direction, glyph, label] of [[-1, '◀', 'Decrease'], [1, '▶', 'Increase']]) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.tabIndex = -1;
+    button.textContent = glyph;
+    button.className = direction < 0 ? 'ctl-decrease' : 'ctl-increase';
+    button.setAttribute('aria-label', `${label} ${p.label}`);
+    button.title = label;
+    const step = () => {
+      if (p.disabled) return;
+      updateSnaps();
+      const next = snaps ? snapStep(snaps, v, direction) : nudge(p, v, direction, 'extra');
+      if (next === v || !Number.isFinite(next)) return;
+      if (press) {
+        if (!press.began) { press.began = true; onBegin?.(); }
+        set(next);
+      } else {
+        onBegin?.();
+        set(next);
+        onEnd?.();
+      }
+    };
+    button.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || p.disabled || press) return;
+      e.preventDefault();
+      e.stopPropagation();
+      press = { button, id: e.pointerId, timer: null, began: false };
+      button.setPointerCapture(e.pointerId);
+      window.addEventListener('pointerup', stopPress, true);
+      window.addEventListener('pointercancel', stopPress, true);
+      window.addEventListener('blur', stopPress);
+      step();
+      const repeat = () => {
+        if (!press) return;
+        if (!button.isConnected || p.disabled) { stopPress(); return; }
+        step();
+        if (press) press.timer = setTimeout(repeat, REPEAT_INTERVAL);
+      };
+      if (press) press.timer = setTimeout(repeat, REPEAT_DELAY);
+    });
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) button.addEventListener(type, stopPress);
+    button.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    button.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (e.detail) return; // the pointer press already stepped
+      step();
+    });
+    buttons.append(button);
+    stepButtons.push(button);
+  }
+  el.append(track, num, name, out, buttons);
 
   const origin = p.min < 0 && p.max > 0 && p.scale !== 'log' ? toNorm(p, 0) : 0;
   el.style.setProperty('--origin', origin);
@@ -68,9 +140,11 @@ export function createController(p, { index, value, onInput, format, onBegin, on
 
   let v = value;
   const show = (nv) => {
+    if (p.disabled) stopPress();
     el.setAttribute('aria-disabled', !!p.disabled);
     el.setAttribute('aria-valuemax', p.max);
     el.title = p.disabled ? p.disabledReason : ctlTitle(p);
+    for (const button of stepButtons) button.disabled = !!p.disabled;
     updateSnaps();
     v = nv;
     const x = Math.min(1, Math.max(0, toNorm(p, v)));
@@ -125,25 +199,6 @@ export function createController(p, { index, value, onInput, format, onBegin, on
   el.addEventListener('pointercancel', end);
   el.addEventListener('lostpointercapture', end);
   el.addEventListener('dblclick', () => set(p.default ?? p.min));
-
-  // ---- wheel ----
-  const takeAny = wheelAccumulator({ whole: !!p.step }); // stepped controllers wait for a whole notch
-  const takeWhole = wheelAccumulator({ whole: true });
-  el.addEventListener('wheel', (e) => {
-    if (e.ctrlKey) return; // keep Ctrl + wheel for zoom
-    e.preventDefault();
-    if (p.disabled) return;
-    // Shift + wheel is horizontal scrolling on some systems: use whichever axis moved
-    const { dx, dy } = wheelDelta(e);
-    const delta = Math.abs(dy) >= Math.abs(dx) ? dy : dx;
-    updateSnaps();
-    const n = (snaps ? takeWhole : takeAny)(e, delta);
-    if (!n) return;
-    set(snaps ? snapStep(snaps, v, n) : nudge(p, v, n, e.altKey ? 'extra' : e.shiftKey));
-    el.classList.add('wheel');
-    clearTimeout(el._wheelTimer);
-    el._wheelTimer = setTimeout(() => el.classList.remove('wheel'), 400);
-  }, { passive: false });
 
   return { el, show }; // show(v): a driven value (LFO, automation, …) moved the controller
 }
