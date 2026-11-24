@@ -1188,11 +1188,11 @@ for (const reverse of [false, true]) {
   const vx = (v) => 7 + v * 70;
   clip.notes.push(note(60, 1, 1, 0.5), note(64, 3, 1, 0.5));
   const [from, to] = reverse ? [[0.8, 4], [0.2, 0]] : [[0.2, 0], [0.8, 4]];
-  drag(cv, vx(from[0]), ny(from[1]), vx(to[0]), ny(to[1]), { ctrlKey: true }, 'pointercancel');
+  drag(cv, vx(from[0]), ny(from[1]), vx(to[0]), ny(to[1]), { shiftKey: true }, 'pointercancel');
   click(cv, nx(72), ny(6));
   assert.equal(clip.notes.pop().vel, 0.8, 'cancelled line does not update memory');
   key(cv, 'Escape');
-  drag(cv, vx(from[0]), ny(from[1]), vx(to[0]), ny(to[1]), { ctrlKey: true });
+  drag(cv, vx(from[0]), ny(from[1]), vx(to[0]), ny(to[1]), { shiftKey: true });
   const expected = clip.notes[reverse ? 0 : 1].vel;
   click(cv, nx(72), ny(6));
   assert.equal(clip.notes.at(-1).vel, expected);
@@ -3332,7 +3332,7 @@ for (const cancelled of [false, true]) {
   other.vels = [{ t: 1, v: 0.8, r: 0.1 }];
   clip.notes.push(a, b, other);
   click(cv, vx(a.vel), ny(a.start));
-  click(cv, vx(b.vel), ny(b.start), { shiftKey: true });
+  click(cv, vx(b.vel), ny(b.start), { ctrlKey: true });
   const original = structuredClone(clip.notes);
   const count = changes();
   point(cv, 'pointerdown', vx(0.6), ny(2), { buttons: 1 });
@@ -3432,7 +3432,7 @@ for (const cancelled of [false, true]) {
   assert.deepEqual([a.vel, b.vel], [0.4, 0.3]);
 }
 
-// Velocity strip: Ctrl+drag draws a dashed line; on release the velocities under it snap onto it
+// Velocity strip: Shift+drag draws a dashed line; on release the velocities under it snap onto it
 {
   const { clip, roll, changes } = setup();
   const cv = roll.surface.cv;
@@ -3444,14 +3444,14 @@ for (const cancelled of [false, true]) {
   clip.notes.push(a, b, c);
   flush();
   const c0 = changes();
-  point(cv, 'pointerdown', vx(0), ny(0), { buttons: 1, ctrlKey: true });
-  point(cv, 'pointermove', vx(1), ny(4), { buttons: 1, ctrlKey: true });
+  point(cv, 'pointerdown', vx(0), ny(0), { buttons: 1, shiftKey: true });
+  point(cv, 'pointermove', vx(1), ny(4), { buttons: 1, shiftKey: true });
   cv.drawing.length = 0;
   roll.redraw?.();
   flush();
   assert.equal(a.vel, 0.5, 'nothing changes while drawing');
   assert.ok(cv.drawing.some(([op, dash]) => op === 'setLineDash' && dash?.join() === '5,4'), 'the line is dashed');
-  point(cv, 'pointerup', vx(1), ny(4), { ctrlKey: true });
+  point(cv, 'pointerup', vx(1), ny(4), { shiftKey: true });
   assert.ok(Math.abs(a.vel) < 1e-6, `start of the line: ${a.vel}`);
   assert.ok(Math.abs(b.vel - 0.5) < 1e-6, `half way: ${b.vel}`);
   assert.ok(Math.abs(b.vels[0].v - 0.75) < 1e-6, `curve point at t=3: ${b.vels[0].v}`);
@@ -3462,9 +3462,47 @@ for (const cancelled of [false, true]) {
   key(cv, 'Escape');
   click(cv, vx(c.vel), ny(6));
   const before = a.vel;
-  drag(cv, vx(1), ny(0), vx(1), ny(7), { ctrlKey: true });
+  drag(cv, vx(1), ny(0), vx(1), ny(7), { shiftKey: true });
   assert.equal(a.vel, before, 'unselected note untouched');
   assert.ok(Math.abs(c.vel - 1) < 1e-6, `selected note snapped: ${c.vel}`);
+}
+
+// Shift starts a line even on a selected handle, rather than a fine/group adjustment.
+for (const multiple of [false, true]) {
+  const { clip, roll, changes } = setup();
+  const cv = roll.surface.cv;
+  const vx = (v) => 7 + v * 70;
+  const a = note(60, 1, 1, 0.3);
+  const b = note(64, 3, 1, 0.5);
+  clip.notes.push(a, b);
+  if (multiple) key(cv, 'a', { ctrlKey: true });
+  else click(cv, vx(a.vel), ny(a.start));
+  const before = structuredClone(clip.notes);
+  point(cv, 'pointerdown', vx(a.vel), ny(a.start), { buttons: 1, shiftKey: true });
+  point(cv, 'pointermove', vx(0.9), ny(b.start), { buttons: 1, shiftKey: true });
+  assert.deepEqual(clip.notes, before, 'line preview does not edit selected handles');
+  point(cv, 'pointerup', vx(0.9), ny(b.start), { shiftKey: true });
+  assert.equal(a.vel, 0.3);
+  assert.ok(Math.abs(b.vel - (multiple ? 0.9 : 0.5)) < 1e-9, 'only selected notes receive the line');
+  assert.equal(changes(), multiple ? 1 : 0);
+}
+
+// Ctrl and Cmd retain fine adjustments for a single selected note and its curve points.
+for (const modifier of ['ctrlKey', 'metaKey']) {
+  const { clip, roll } = setup();
+  const cv = roll.surface.cv;
+  const vx = (v) => 7 + v * 70;
+  const n = note(60, 1, 3, 0.5);
+  n.vels = [{ t: 1, v: 0.7, r: 0.2 }];
+  clip.notes.push(n);
+  click(cv, vx(n.vel), ny(n.start));
+  drag(cv, vx(0.5), ny(1), vx(0.7), ny(1), { [modifier]: true });
+  assert.ok(Math.abs(n.vel - 0.52) < 1e-9);
+  assert.ok(Math.abs(n.vels[0].v - 0.72) < 1e-9);
+  drag(cv, vx(0.72), ny(2), vx(0.92), ny(2.5), { [modifier]: true });
+  assert.ok(Math.abs(n.vels[0].v - 0.74) < 1e-9);
+  assert.equal(n.vels[0].t, 1.5);
+  assert.ok(Math.abs(n.vel - 0.52) < 1e-9, 'fine point editing leaves the start unchanged');
 }
 
 // Dense bend paths submit only visible geometry, with exact curve values at the clipped edges.
@@ -3686,8 +3724,8 @@ for (const free of [false, true]) {
   clip.notes.push(a, b, c, other);
   flush();
   click(cv, vx(0.5), ny(0));
-  click(cv, vx(0.3), ny(2), { shiftKey: true });
-  click(cv, vx(0.9), ny(4), { shiftKey: true });
+  click(cv, vx(0.3), ny(2), { ctrlKey: true });
+  click(cv, vx(0.9), ny(4), { ctrlKey: true });
   const c0 = changes();
   drag(cv, vx(0.3), ny(2), vx(0.5), ny(2.4)); // grab the middle note: +0.2, vertical motion ignored
   assert.deepEqual([a, b, c].map((n) => Math.round(n.vel * 1e9) / 1e9), [0.5, 0.5, 0.5], 'different start times and velocities converge to one baseline');
@@ -3701,8 +3739,8 @@ for (const free of [false, true]) {
   assert.deepEqual(clip.notes, [other], 'the selection was kept');
 }
 
-// Shift-drag translates complete selected velocity curves without flattening their differences.
-for (const fromPoint of [false, true]) {
+// Ctrl/Cmd-drag translates complete selected velocity curves without flattening their differences.
+for (const [fromPoint, modifier] of [[false, 'ctrlKey'], [true, 'ctrlKey'], [false, 'metaKey'], [true, 'metaKey']]) {
   const { clip, roll, changes } = setup();
   const cv = roll.surface.cv;
   const vx = (v) => 7 + v * 70;
@@ -3727,19 +3765,19 @@ for (const fromPoint of [false, true]) {
     }
     assert.deepEqual(clip.notes, expected);
   };
-  point(cv, 'pointerdown', vx(v), ny(t), { buttons: 1, shiftKey: true });
-  point(cv, 'pointermove', vx(v + 0.1), ny(t + 0.5), { buttons: 1, shiftKey: true });
+  point(cv, 'pointerdown', vx(v), ny(t), { buttons: 1, [modifier]: true });
+  point(cv, 'pointermove', vx(v + 0.1), ny(t + 0.5), { buttons: 1, [modifier]: true });
   expectOffset(0.1);
-  point(cv, 'pointermove', vx(2), ny(t), { buttons: 1, shiftKey: true });
+  point(cv, 'pointermove', vx(2), ny(t), { buttons: 1, [modifier]: true });
   expectOffset(0.2);
-  point(cv, 'pointermove', vx(-1), ny(t), { buttons: 1, shiftKey: true });
+  point(cv, 'pointermove', vx(-1), ny(t), { buttons: 1, [modifier]: true });
   expectOffset(-0.1);
-  point(cv, 'pointermove', vx(v), ny(t), { buttons: 1, shiftKey: true });
+  point(cv, 'pointermove', vx(v), ny(t), { buttons: 1, [modifier]: true });
   expectOffset(0);
-  point(cv, 'pointercancel', vx(v), ny(t), { shiftKey: true });
+  point(cv, 'pointercancel', vx(v), ny(t), { [modifier]: true });
   assert.deepEqual(clip.notes, before, 'cancel restores every start and curve');
   assert.equal(changes(), count, 'cancel creates no undo step');
-  drag(cv, vx(v), ny(t), vx(v + 0.1), ny(t + 0.5), { shiftKey: true });
+  drag(cv, vx(v), ny(t), vx(v + 0.1), ny(t + 0.5), { [modifier]: true });
   expectOffset(0.1);
   assert.equal(changes(), count + 1, 'one undoable edit for the whole group');
   key(cv, 'Delete');
@@ -3756,7 +3794,7 @@ for (const fromPoint of [false, true]) {
   a.vels = [{ t: 1, v: 0.6, r: 0.2 }];
   clip.notes.push(a, b);
   key(cv, 'a', { ctrlKey: true });
-  drag(cv, vx(0.3), ny(0), vx(0.43), ny(0), { shiftKey: true });
+  drag(cv, vx(0.3), ny(0), vx(0.43), ny(0), { ctrlKey: true });
   assert.deepEqual([a.vel, b.vel, a.vels[0].v], [0.4375, 0.5875, 0.7375]);
 }
 
@@ -3839,7 +3877,7 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   drag(cv, vx(0.9), ny(1), vx(0.6), ny(1), {}, 'pointercancel');
   assert.ok(Math.abs(clip.notes[0].vel - 0.9) < 1e-9, 'cancellation restores the original unsnapped value');
   // Fine movement is still snapped.
-  drag(cv, vx(0.9), ny(1), vx(0.6), ny(1), { shiftKey: true });
+  drag(cv, vx(0.9), ny(1), vx(0.6), ny(1), { ctrlKey: true });
   assert.equal(clip.notes[0].vel, 0.875);
   drag(cv, vx(0.875), ny(1), vx(0.6), ny(1), {}, 'pointercancel');
   assert.equal(clip.notes[0].vel, 0.875);

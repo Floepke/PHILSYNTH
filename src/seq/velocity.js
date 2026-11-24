@@ -3,16 +3,16 @@
 // Every note shows a stick from the left edge to its start velocity, plus its velocity curve while
 // it sounds (velocity can change over time, see note.vels in song.js).
 // Editing works on selected notes, keeping each note's start velocity and curve independent.
-//   drag a note's handle (start dot)   select that note and set its velocity (Shift: add to selection)
+//   drag a note's handle (start dot)   select that note and set its velocity (Ctrl/Cmd: add to selection)
 //   drag a selected note's handle      sets every selected start to the dragged velocity;
 //                                       each note's curve shifts by its own start-velocity change
 //   drag a curve point                 edit points at the same timeline time in selected notes,
 //                                       creating missing points in notes sounding at that time
-//   Shift + drag (multiple notes)      shift all selected starts and curves together, preserving differences
-//   Shift + drag (single note)         fine velocity
+//   Ctrl/Cmd + drag (multiple notes)   shift all selected starts and curves together, preserving differences
+//   Ctrl/Cmd + drag (single note)      fine velocity
 //   double-click inside a selected note insert a point for all selected notes (hold to drag it)
 //   mouse wheel on a point             round the corner
-//   Ctrl/Cmd + drag                    draw a straight dashed line; on release every note start and
+//   Shift + drag                       draw a straight dashed line; on release every note start and
 //                                       curve point it spans snaps onto it (the selected notes, or
 //                                       every note of the clip when nothing is selected)
 //   right-drag                         rectangle-select note starts and individual curve points
@@ -40,7 +40,7 @@ export function createVelocityStrip(o) {
   let group = null; // selected notes and their actual point handles at absolute clip times
   let hover = null; // { kind: 'point', i } | { kind: 'note', note }
   let drag = null;
-  let line = null; // Ctrl+drag: { a: {t, v}, b: {t, v} } (absolute clip times)
+  let line = null; // Shift+drag: { a: {t, v}, b: {t, v} } (absolute clip times)
   let selectedPoints = new Set();
   let selectionClip = null;
   const presses = doublePress(); // double-click = down-up-DOWN: the new point drags at once
@@ -253,7 +253,7 @@ export function createVelocityStrip(o) {
         }
       }
     }
-    // Ctrl+drag: the straight line the velocities snap onto on release
+    // Shift+drag: the straight line the velocities snap onto on release
     if (line) {
       g.strokeStyle = '#fff';
       g.lineWidth = 1.5;
@@ -325,12 +325,12 @@ export function createVelocityStrip(o) {
     const st = step();
     const tStart = o.timeAt(y);
     let q = null;
-    let shift = e.shiftKey;
+    let fine = e.ctrlKey || e.metaKey;
     drag = { point: p.point, moved: false };
     const state = drag;
     const update = () => {
       if (drag !== state || !q) return;
-      const target = snapVelocity(v0 + ((q.x - x) * (shift ? 0.1 : 1)) / (W() - 2 * PAD));
+      const target = snapVelocity(v0 + ((q.x - x) * (fine ? 0.1 : 1)) / (W() - 2 * PAD));
       const delta = target - v0;
       const dt = clamp(snapRound(t0 + o.timeAt(clamp(q.y, o.top(), o.bottom())) - tStart, st) - t0, minTime, maxTime);
       targets.forEach(({ point }, index) => {
@@ -344,7 +344,7 @@ export function createVelocityStrip(o) {
     o.redraw();
     capture(o.cv, e, (ev) => {
       q = o.local(ev);
-      shift = ev.shiftKey;
+      fine = ev.ctrlKey || ev.metaKey;
       if (!drag.moved && Math.hypot(q.x - x, q.y - y) < 2) return;
       drag.moved = true;
       presses.reset();
@@ -365,7 +365,7 @@ export function createVelocityStrip(o) {
     });
   }
 
-  // Ordinary drags share a baseline; Shift group drags share a bounded offset for complete curves.
+  // Ordinary drags share a baseline; Ctrl/Cmd group drags share a bounded offset for complete curves.
   function dragNotes(e, note, x, y, relative = false, grabbed = note.vel) {
     const notes = group.notes.filter((n) => o.selected().has(n));
     const originals = notes.map((n) => ({ vel: n.vel, vels: n.vels }));
@@ -378,7 +378,7 @@ export function createVelocityStrip(o) {
       if (!drag.moved && Math.hypot(q.x - x, q.y - y) < 2) return;
       drag.moved = true;
       presses.reset();
-      const target = snapVelocity(clamp(grabbed + ((q.x - x) * (!relative && ev.shiftKey ? 0.1 : 1)) / (W() - 2 * PAD), 0, 1));
+      const target = snapVelocity(clamp(grabbed + ((q.x - x) * (!relative && (ev.ctrlKey || ev.metaKey) ? 0.1 : 1)) / (W() - 2 * PAD), 0, 1));
       const delta = relative ? clamp(target - grabbed, minDelta, maxDelta) : 0;
       notes.forEach((n, i) => {
         const d = relative ? delta : target - originals[i].vel;
@@ -405,7 +405,7 @@ export function createVelocityStrip(o) {
     return n && o.selected().has(n) ? n : null;
   };
 
-  // Ctrl+drag: draw a straight line; on release the velocities under it snap onto it
+  // Shift+drag: draw a straight line; on release the velocities under it snap onto it
   function dragLine(e, x, y) {
     const clip = o.clip();
     const sel = o.selected();
@@ -500,9 +500,9 @@ export function createVelocityStrip(o) {
         return true;
       }
       if (e.button !== 0) return true;
-      if ((e.ctrlKey || e.metaKey) && o.clip()) { presses.reset(); dragLine(e, x, y); return true; }
+      if (e.shiftKey && o.clip()) { presses.reset(); dragLine(e, x, y); return true; }
       const second = presses.press(e);
-      if (e.shiftKey && group?.notes.filter((n) => o.selected().has(n)).length > 1) {
+      if ((e.ctrlKey || e.metaKey) && group?.notes.filter((n) => o.selected().has(n)).length > 1) {
         const i = pointAt(x, y);
         const p = group.points[i];
         if (p && o.selected().has(p.note)) {
@@ -524,7 +524,7 @@ export function createVelocityStrip(o) {
       const n = noteAt(x, y);
       if (!n) return true;
       const sel = o.selected();
-      if (e.shiftKey) {
+      if (e.ctrlKey || e.metaKey) {
         const next = new Set(sel);
         if (next.has(n)) next.delete(n); else next.add(n);
         o.setSelected(next);
@@ -563,7 +563,7 @@ export function createVelocityStrip(o) {
       if (many) {
         hover = { kind: 'note', note: many };
         o.redraw();
-        return { cursor: 'ew-resize', title: `Velocity ${Math.round(many.vel * 127)} — drag to set all ${group.notes.length} selected starts to one velocity; Shift+drag moves selected starts and curves together` };
+        return { cursor: 'ew-resize', title: `Velocity ${Math.round(many.vel * 127)} — drag to set all ${group.notes.length} selected starts to one velocity; Ctrl/Cmd+drag: ${group.notes.length > 1 ? 'move selected starts and curves together' : 'fine adjustment'}; Shift+drag draws a velocity line` };
       }
       const i = pointAt(x, y);
       const n = i < 0 ? noteAt(x, y) : null;
@@ -571,10 +571,10 @@ export function createVelocityStrip(o) {
       o.redraw();
       if (i >= 0) {
         const p = group.points[i];
-        return { cursor: p.start ? 'ew-resize' : 'move', title: `Velocity ${Math.round(p.v * 127)} (${Math.round(p.v * 100)} %)${p.r ? `  rounding ${Math.round(p.r * 100)} %` : ''} — drag to edit ${selectedPoints.has(p.point) ? 'selected points' : 'corresponding points of selected notes'}; Shift+drag moves selected starts and curves together` };
+        return { cursor: p.start ? 'ew-resize' : 'move', title: `Velocity ${Math.round(p.v * 127)} (${Math.round(p.v * 100)} %)${p.r ? `  rounding ${Math.round(p.r * 100)} %` : ''} — drag to edit ${selectedPoints.has(p.point) ? 'selected points' : 'corresponding points of selected notes'}; Ctrl/Cmd+drag: fine adjustment, or move selected notes' starts and curves together; Shift+drag draws a velocity line` };
       }
       if (n) return { cursor: 'pointer', title: `Velocity ${Math.round(n.vel * 127)} — drag to change` };
-      return { cursor: 'crosshair', title: `${group ? 'Double-click to add a velocity point' : 'Select notes to edit their velocity'} · Right-drag: select starts / points · Ctrl+drag: draw a velocity line` };
+      return { cursor: 'crosshair', title: `${group ? 'Double-click to add a velocity point' : 'Select notes to edit their velocity'} · Right-drag: select starts / points · Shift+drag: draw a velocity line` };
     },
     leave() { if (hover) { hover = null; o.redraw(); } },
   };

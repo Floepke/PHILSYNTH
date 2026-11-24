@@ -466,7 +466,7 @@ t.stop();
   assert.deepEqual([a.vel, a.vels[0].v, b.vel, b.vels[0].v], [0, 0.5, 0.5, 1]);
 }
 
-// Ctrl+drag line in the velocity strip: note starts and curve points it spans snap onto it
+// Shift+drag line in the velocity strip: note starts and curve points it spans snap onto it
 {
   const a = { pitch: 60, start: 0, length: 1, vel: 0.8 };
   const b = { pitch: 62, start: 2, length: 2, vel: 0.8, vels: [{ t: 1, v: 0.2, r: 0.5 }, { t: 3, v: 0.4, r: 0 }] };
