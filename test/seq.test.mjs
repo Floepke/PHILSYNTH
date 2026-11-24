@@ -3857,13 +3857,15 @@ for (const value of [-0.1, ...Array.from({ length: 17 }, (_, i) => (i + 0.2) / 1
   for (const x of [7.5, 42.5, 77.5]) {
     assert.equal(cv.drawing.some(([op, px, py]) => op === 'lineTo' && px === x && py === 376), false, 'no velocity grid lines');
   }
-  // snap levels are shown as alternating light/dark bands only while snapping is on
+  // The velocity guide stays visible independently of snapping.
   const bands = () => cv.drawing.filter(([op, x, y, w, , fill]) => op === 'fillRect' && fill === 'rgba(0, 0, 0, 0.10)' && y === 0 && x < 84 && w < 10);
-  assert.equal(bands().length, 0, 'snapping off: no velocity bands');
+  const off = bands();
+  assert.equal(off.length, 8, 'snapping off: every other 1/16 step is darkened');
   ctx.pianorollPreferences.snapVelocity = true;
   cv.drawing.length = 0;
   roll.redraw(); flush();
   const on = bands();
+  assert.deepEqual(on, off, 'velocity guide is unchanged when snapping is enabled');
   assert.equal(on.length, 8, 'snapping on: every other 1/16 step is darkened');
   assert.deepEqual(on.map(([, x]) => x), [1, 3, 5, 7, 9, 11, 13, 15].map((k) => Math.round(7 + (k / 16) * 70)));
 }

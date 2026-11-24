@@ -1670,7 +1670,7 @@ function mainMenuItems() {
       { label: 'Export MIDI…', disabled: exportingMidi, action: exportMidiFile },
     ] },
     '-',
-    { label: 'Preferences…', action: openPreferences },
+    { label: 'Preferences…', shortcut: /Mac|iPhone|iPad/.test(navigator.platform) ? shortcut(',') : shortcut('P'), action: openPreferences },
     { label: 'Version…', action: openVersionDialog },
     '-',
     { label: 'Exit', shortcut: 'Esc', action: () => exitToOS(persist, (message) => { $('status').textContent = message; }) },

@@ -175,13 +175,10 @@ export function createVelocityStrip(o) {
     const bottom = o.bottom();
     g.fillStyle = '#34353c';
     g.fillRect(0, 0, W(), bottom);
-    if (o.snapVelocity()) {
-      // alternating light/dark bands between the snap levels (like the roll's snap-step bands)
-      g.fillStyle = 'rgba(0, 0, 0, 0.10)';
-      for (let k = 1; k < VEL_SNAP; k += 2) {
-        const a = Math.round(xv(k / VEL_SNAP));
-        g.fillRect(a, 0, Math.round(xv((k + 1) / VEL_SNAP)) - a, bottom);
-      }
+    g.fillStyle = 'rgba(0, 0, 0, 0.10)';
+    for (let k = 1; k < VEL_SNAP; k += 2) {
+      const a = Math.round(xv(k / VEL_SNAP));
+      g.fillRect(a, 0, Math.round(xv((k + 1) / VEL_SNAP)) - a, bottom);
     }
     g.save();
     g.beginPath();

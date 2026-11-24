@@ -21,6 +21,7 @@ app.whenReady().then(async () => {
           this.root = await PatchRuntime.create(this, this.dsp.destination);
         };
         Object.defineProperty(navigator, 'requestMIDIAccess', { value: async () => Object.assign(new EventTarget(), { inputs: new Map() }) });
+        ${process.env.TEST_PLATFORM ? `Object.defineProperty(navigator, 'platform', { value: ${JSON.stringify(process.env.TEST_PLATFORM)} });` : ''}
         await import('/src/main.js');
       </script>`);
     server = http.createServer(async (req, res) => {
@@ -64,6 +65,26 @@ app.whenReady().then(async () => {
     };
     await win.loadURL(`http://127.0.0.1:${server.address().port}/`);
     await setup();
+    const mac = await run("/Mac|iPhone|iPad/.test(navigator.platform)");
+    await run(mac ? "window.press(',', { metaKey: true })" : "window.press('p', { ctrlKey: true })");
+    assert.equal(await run("document.getElementById('preferences-dialog').open"), true,
+      'platform default opens Preferences');
+    await run("document.getElementById('preferences-dialog').close('cancel'); document.activeElement.blur()");
+    if (process.argv.includes('--preferences-only')) {
+      await run(`document.getElementById('brand').click();
+        const item = [...document.querySelectorAll('.ctx-item')].find(b => b.textContent.includes('Preferences'));
+        window.learnButton(item);
+        window.press('K', { ctrlKey: true, shiftKey: true });`);
+      await wait("!document.getElementById('shortcut-dialog').open");
+      await run(mac ? "window.press(',', { metaKey: true })" : "window.press('p', { ctrlKey: true })");
+      assert.equal(await run("document.getElementById('preferences-dialog').open"), false,
+        'custom binding suppresses the Preferences default');
+      await run("window.press('K', { ctrlKey: true, shiftKey: true })");
+      assert.equal(await run("document.getElementById('preferences-dialog').open"), true,
+        'custom binding opens Preferences');
+      console.log('Preferences shortcut UI tests passed');
+      return;
+    }
     const appVersion = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8')).version;
     await run(`document.getElementById('brand').click();
       [...document.querySelectorAll('.ctx-item')].find(b => b.textContent.trim() === 'Version…').click();`);
@@ -215,11 +236,13 @@ app.whenReady().then(async () => {
     `);
     assert.equal(await run("document.getElementById('shortcut-dialog').open"), true);
     assert.match(await run("document.getElementById('shortcut-description').textContent"), /Preferences/);
-    assert.equal(await run("document.getElementById('shortcut-current').hidden"), true, 'unassigned actions do not show a stale shortcut');
+    assert.equal(await run("document.getElementById('shortcut-current').hidden"), false, 'Preferences shows its default shortcut');
     assert.equal(await run("!!document.querySelector('.ctx-menu')"), false, 'learning closes the menu');
     await run("window.press('K', { ctrlKey: true, shiftKey: true })");
     await wait("!document.getElementById('shortcut-dialog').open");
     assert.equal(await run("document.getElementById('preferences-dialog').open"), false, 'learning does not execute the action');
+    await run(mac ? "window.press(',', { metaKey: true })" : "window.press('p', { ctrlKey: true })");
+    assert.equal(await run("document.getElementById('preferences-dialog').open"), false, 'custom Preferences shortcut replaces the default');
     await run("window.press('K', { ctrlKey: true, shiftKey: true })");
     assert.equal(await run("document.getElementById('preferences-dialog').open"), true, 'learned menu action works after menu removal');
     await run("document.getElementById('preferences-dialog').close('cancel')");
