@@ -257,14 +257,46 @@ export function registerProjectFiles(isLocal) {
     try {
       await stream.resource.finish();
       written(stream.path);
-      await allow(stream.path);
-      await dirs.remember('project-save', stream.path);
+      if (stream.module) await dirs.remember('module', stream.path);
+      else {
+        await allow(stream.path);
+        await dirs.remember('project-save', stream.path);
+      }
       return { name: basename(stream.path), ref: stream.path };
     } finally { releaseStream(stream); }
   }));
   ipcMain.handle('project:streamAbort', (e, id) => withStream(e, id, 'write', async (stream) => {
     try { await stream.resource.abort(); } finally { releaseStream(stream); }
   }));
+  ipcMain.handle('module:streamOpen', async (e, path) => {
+    check(e);
+    const p = fileOf(path, cleanExts(MODULE_OPEN_EXTS));
+    const resource = await openProjectStreamReader(p);
+    let stream = null;
+    try {
+      const header = resource.size ? await resource.read(0, Math.min(6, resource.size)) : new Uint8Array();
+      stream = trackStream(e, 'read', resource, p);
+      await dirs.remember('module', p);
+      return { id: stream.id, name: basename(p), size: resource.size, header };
+    } catch (error) {
+      if (stream) await cleanupStream(stream);
+      else await resource.close();
+      throw error;
+    }
+  });
+  ipcMain.handle('module:streamStart', async (e, path) => {
+    check(e);
+    const p = fileOf(withExtension(checkPath(path), bare(MODULE_EXT)), [MODULE_EXT]);
+    const resource = await createProjectStreamWriter(p);
+    try {
+      const stream = trackStream(e, 'write', resource, p);
+      stream.module = true;
+      return { id: stream.id };
+    } catch (error) {
+      await resource.abort();
+      throw error;
+    }
+  });
   ipcMain.handle('audio-clip:streamOpen', async (e, path) => {
     check(e);
     const p = fileOf(path, cleanExts(AUDIO_CLIP_OPEN_EXTS));
@@ -324,6 +356,7 @@ export function registerProjectFiles(isLocal) {
   ipcMain.handle('file:save', async (e, kind, path, text) => {
     check(e);
     const k = kindOf(kind);
+    if (kind === 'module') throw new Error('Module files must be saved as archives');
     if (k.openOnly) throw new Error(`${k.name} files cannot be saved`);
     if (typeof text !== 'string' || text.length > k.max) throw new Error('Invalid file data');
     const p = fileOf(withExtension(checkPath(path), k.ext), [`.${k.ext}`]);

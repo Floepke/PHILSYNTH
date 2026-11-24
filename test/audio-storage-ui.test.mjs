@@ -16,7 +16,7 @@ const worker = `
   import { createRecordingBuffer, RecordingBuffer } from '/src/audioeditor/recordingbuffer.js';
   import { copyZipEntry, readZipStream, writeZipStream } from '/src/projectzipstream.js';
   import { crc32 } from '/src/projectzip.js';
-  import { prepareStreamedProjectArchive, readStreamedProjectArchive } from '/src/projectarchive.js';
+  import { prepareStreamedProjectArchive, readStreamedProjectArchive, prepareModuleArchive, readModuleArchive } from '/src/projectarchive.js';
   import { emptySong, addAudioClip, cloneClip } from '/src/song.js';
   import { createProjectFile, fsaBackend } from '/src/projectfile.js';
   import { stageProjectStream } from '/src/audioeditor/projectstage.js';
@@ -124,6 +124,27 @@ const worker = `
       const projectRoundTrip = { version: opened.version, count: opened.imported.length,
         ids: loadedClips.map(c => c.audio.id), bytes: Array.from(new Uint8Array(await restored.arrayBuffer())) };
       for (const importedId of opened.imported) await store.discard(importedId);
+      const module = { modules: [{ id: 1, type: 'PATCH', patch: { modules: [], cables: [], song } }], cables: [] };
+      const moduleChunks = [];
+      const moduleEncoder = prepareModuleArchive(module, store);
+      await moduleEncoder.writeTo(part => moduleChunks.push(part.slice()));
+      const moduleFile = new Blob(moduleChunks);
+      const moduleEntries = await readZipStream(moduleFile);
+      const moduleOpened = await readModuleArchive(moduleFile, store);
+      const moduleClips = moduleOpened.data.modules[0].patch.song.clips;
+      const moduleRoundTrip = { paths: Array.from(moduleEntries.keys()), count: moduleOpened.imported.length,
+        ids: moduleClips.map(c => c.audio.id),
+        bytes: Array.from(new Uint8Array(await (await store.file(moduleClips[0].audio.id)).arrayBuffer())) };
+      for (const importedId of moduleOpened.imported) await store.discard(importedId);
+      const beforeBrokenModule = await store.list();
+      let moduleError = '';
+      try {
+        await readModuleArchive(moduleFile, { ...store, importEntry: async entry => {
+          const result = await store.importEntry(entry);
+          return { ...result, frames: result.frames + 1 };
+        } });
+      } catch (error) { moduleError = error.message; }
+      const afterBrokenModule = await store.list();
       const beforeBrokenProject = await store.list();
       let mismatchError = '';
       try {
@@ -209,7 +230,7 @@ const worker = `
         writer.postMessage({ buffer: overrunBuffer, sampleRate: 48000 });
       });
       const partial = await store.file(overrun.id);
-      self.postMessage({ id, recovered, imported, wavImportBytes, pcm16Peaks, truncatedError, aiffImport, aiffPeaks, aiffBytes: Array.from(aiffBytes), aiffEdited, aiffRecovered, cached, missingPageError, compressed, compressedPeaks, importedBytes: Array.from(importedBytes), originalBytes: Array.from(bytes), importError, formatError, beforeImport, afterImport, projectRoundTrip, mismatchError, beforeBrokenProject, afterBrokenProject, nativeClosed, archiveManifest, stagedPaths: Array.from(stagedEntries.keys()), fsaResult, size: bytes.length, wav: Array.from(bytes.slice(0, 12)), listed: (await store.list()).includes(id), peaks, edited, editedPeaks, originalPeaks, result, recorded, overrun, partialSize: partial.size });
+      self.postMessage({ id, recovered, imported, wavImportBytes, pcm16Peaks, truncatedError, aiffImport, aiffPeaks, aiffBytes: Array.from(aiffBytes), aiffEdited, aiffRecovered, cached, missingPageError, compressed, compressedPeaks, importedBytes: Array.from(importedBytes), originalBytes: Array.from(bytes), importError, formatError, beforeImport, afterImport, projectRoundTrip, moduleRoundTrip, moduleError, beforeBrokenModule, afterBrokenModule, mismatchError, beforeBrokenProject, afterBrokenProject, nativeClosed, archiveManifest, stagedPaths: Array.from(stagedEntries.keys()), fsaResult, size: bytes.length, wav: Array.from(bytes.slice(0, 12)), listed: (await store.list()).includes(id), peaks, edited, editedPeaks, originalPeaks, result, recorded, overrun, partialSize: partial.size });
     } catch (error) {
       self.postMessage({ error: error.stack || String(error) });
     }
@@ -284,6 +305,12 @@ app.whenReady().then(async () => {
     assert.equal(result.projectRoundTrip.count, 1, 'linked clips save one recording');
     assert.equal(result.projectRoundTrip.ids[0], result.projectRoundTrip.ids[1]);
     assert.deepEqual(result.projectRoundTrip.bytes, result.originalBytes);
+    assert.deepEqual(result.moduleRoundTrip.paths, ['module.json', 'media/audioFiles/1.wav']);
+    assert.equal(result.moduleRoundTrip.count, 1);
+    assert.equal(result.moduleRoundTrip.ids[0], result.moduleRoundTrip.ids[1]);
+    assert.deepEqual(result.moduleRoundTrip.bytes, result.originalBytes);
+    assert.match(result.moduleError, /does not match/);
+    assert.deepEqual(result.afterBrokenModule, result.beforeBrokenModule, 'failed module loads discard imported recordings');
     assert.match(result.mismatchError, /does not match/);
     assert.deepEqual(result.afterBrokenProject, result.beforeBrokenProject, 'failed project loads discard imported recordings');
     assert.equal(result.nativeClosed, true);

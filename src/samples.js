@@ -2,7 +2,7 @@
 // Module state only names a sample ({ sampleId, name, ... }), so undo snapshots, copies and Patch
 // instances stay small; the audio itself lives here, keyed by a hash of its content (the same file
 // loaded twice is stored once). Audio is kept as 16-bit (what is saved is what plays).
-// JSON files (autosaves, legacy projects, .phmod modules) carry the samples they use under
+// JSON files (autosaves, legacy projects and legacy .phmod modules) carry the samples they use under
 // `samples: { id: { rate, channels, length, data } }` (data = base64 of the planar Int16 audio);
 // withSamples() adds them, importSamples() puts them back into the pool before the modules load.
 // Images of IMAGE SAMPLER modules (state { imageId }) share the pool and the `samples` entry:

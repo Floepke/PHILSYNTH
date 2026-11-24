@@ -43,6 +43,8 @@ contextBridge.exposeInMainWorld('modsynthFiles', {
   // clips / modules / Scala tunings (see src/filedialog.js); kind: 'clip' | 'module' | 'scala'
   saveFile: (kind, path, text) => ipcRenderer.invoke('file:save', kind, path, text),
   openFile: (kind, path) => ipcRenderer.invoke('file:open', kind, path),
+  openModuleStream: (path) => ipcRenderer.invoke('module:streamOpen', path),
+  startModuleStream: (path) => ipcRenderer.invoke('module:streamStart', path),
   // audio / pictures modules load; kind: 'sample' | 'wavetable' | 'image' -> { name, data }
   openBinary: (kind, path) => ipcRenderer.invoke('file:openBinary', kind, path),
   openAudioClipStream: (path) => ipcRenderer.invoke('audio-clip:streamOpen', path),

@@ -1,8 +1,30 @@
 import assert from 'node:assert/strict';
-import { saveTextFile, openTextFile, openMediaFile, openMidiFile, openAudioClipFile, hasMediaDialog } from '../src/filedialog.js';
+import { saveTextFile, openTextFile, openModuleFile, saveModuleFile, openMediaFile, openMidiFile, openAudioClipFile, hasMediaDialog } from '../src/filedialog.js';
+import { prepareModuleArchive, readModuleArchive } from '../src/projectarchive.js';
 import { fsaBackend } from '../src/projectfile.js';
 
 const abort = () => Object.assign(new Error('cancelled'), { name: 'AbortError' });
+
+{
+  let saved = new File([], 'test.phmod'), aborted = false;
+  const handle = {
+    name: 'test.phmod',
+    getFile: async () => saved,
+    createWritable: async () => {
+      const chunks = [];
+      return { write: async bytes => chunks.push(bytes.slice()), close: async () => { saved = new File(chunks, 'test.phmod'); }, abort: async () => { aborted = true; } };
+    },
+  };
+  const win = { showSaveFilePicker: async () => handle, showOpenFilePicker: async () => [handle] };
+  const data = { modules: [{ id: 1, type: 'OSC', x: 0, y: 0 }], cables: [] };
+  assert.deepEqual(await saveModuleFile('test.phmod', prepareModuleArchive(data), win), { name: 'test.phmod' });
+  const file = await openModuleFile(win);
+  assert.deepEqual((await readModuleArchive(file.blob)).data.modules, data.modules);
+  await assert.rejects(saveModuleFile('test.phmod', { writeTo: async () => { throw new Error('disk full'); } }, win), /disk full/);
+  assert.equal(aborted, true);
+  win.showOpenFilePicker = async () => { throw abort(); };
+  assert.equal(await openModuleFile(win), null);
+}
 
 {
   const file = new File(['audio'], 'voice.mp4');
@@ -68,11 +90,11 @@ const abort = () => Object.assign(new Error('cancelled'), { name: 'AbortError' }
   };
   assert.deepEqual(await saveTextFile('clip', 'Riff.clip', 'clip data', win), { name: 'Riff.clip' });
   assert.equal(written, 'clip data');
-  assert.deepEqual(await openTextFile('module', win), { name: 'Lead.phmod', text: '{"x":1}' });
-  await saveTextFile('module', 'Lead.phmod', '', win);
+  await assert.rejects(openTextFile('module', win), /module picker/);
+  await assert.rejects(saveTextFile('module', 'Lead.phmod', '', win), /archives/);
   await openTextFile('clip', win);
   assert.deepEqual(calls.map(([k, o]) => [k, o.id, ...Object.values(o.types[0].accept)[0]]), [
-    ['save', 'clip', '.clip'], ['open', 'module', '.phmod', '.synth'], ['save', 'module', '.phmod'], ['open', 'clip', '.clip'],
+    ['save', 'clip', '.clip'], ['open', 'clip', '.clip'],
   ]);
   assert.equal(calls[0][1].suggestedName, 'Riff.clip');
 
@@ -91,7 +113,7 @@ const abort = () => Object.assign(new Error('cancelled'), { name: 'AbortError' }
   const win = {
     modsynthFiles: {
       saveFile: async (...args) => { calls.push(['save', ...args]); return { name: 'x.clip' }; },
-      openFile: async (...args) => { calls.push(['open', ...args]); return { name: 'y.phmod', text: 't' }; },
+      openFile: async (...args) => { calls.push(['open', ...args]); return { name: args[1].split('/').pop(), text: 't' }; },
     },
     showSaveFilePicker() { throw new Error('not used'); },
   };
@@ -102,17 +124,17 @@ const abort = () => Object.assign(new Error('cancelled'), { name: 'AbortError' }
     return chosen;
   };
   assert.deepEqual(await saveTextFile('clip', 'x.clip', 'data', win, pick), { name: 'x.clip' });
-  chosen = { path: '/music/y.phmod', name: 'y.phmod' };
-  assert.deepEqual(await openTextFile('module', win, pick), { name: 'y.phmod', text: 't' });
-  assert.deepEqual(calls, [['save', 'clip', '/music/x.clip', 'data'], ['open', 'module', '/music/y.phmod']]);
+  chosen = { path: '/music/y.clip', name: 'y.clip' };
+  assert.deepEqual(await openTextFile('clip', win, pick), { name: 'y.clip', text: 't' });
+  assert.deepEqual(calls, [['save', 'clip', '/music/x.clip', 'data'], ['open', 'clip', '/music/y.clip']]);
   assert.deepEqual(picks.map((o) => [o.mode, o.dialog, o.exts, o.saveExt]), [
-    ['save', 'clip', ['.clip'], '.clip'], ['open', 'module', ['.phmod', '.synth'], undefined],
+    ['save', 'clip', ['.clip'], '.clip'], ['open', 'clip', ['.clip'], undefined],
   ]);
   assert.equal(picks[0].suggestedName, 'x.clip');
   // cancelled in the dialog: nothing is read or written
   chosen = null;
   assert.equal(await saveTextFile('clip', 'x.clip', 'data', win, pick), null);
-  assert.equal(await openTextFile('module', win, pick), null);
+  assert.equal(await openTextFile('clip', win, pick), null);
   assert.equal(calls.length, 2);
   // TUNING's Load Tuning: Scala files through the same dialog
   chosen = { path: '/scales/a.scl', name: 'a.scl' };

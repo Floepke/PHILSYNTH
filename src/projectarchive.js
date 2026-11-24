@@ -1,4 +1,4 @@
-import { PROJECT_FORMAT, isProject, jsonFileText } from './fileformat.js';
+import { PROJECT_FORMAT, MODULE_FORMAT, isProject, jsonFileText } from './fileformat.js';
 import { getSample, sampleIds } from './samples.js';
 import { encodeProjectAudio, decodeProjectAudio, encodeProjectImage, decodeProjectImage } from './projectmedia.js';
 import { MAX_PROJECT_BYTES, isProjectZip, readZip, writeZip } from './projectzip.js';
@@ -51,9 +51,9 @@ const MAX_MANIFEST_BYTES = 16 * 1024 * 1024;
 const sameRecording = (a, b) => a.sampleRate === b.sampleRate && a.channels === b.channels && a.frames === b.frames;
 
 // Capture the model and pool references before opening a destination; WAV files remain on disk.
-export function prepareStreamedProjectArchive(project, audioAssets, lookupSample = getSample) {
+function prepareStreamedArchive(project, audioAssets, lookupSample, moduleFile = false) {
   const { samples: _samples, ...model } = project;
-  const audioRefs = recordingReferences(model);
+  const audioRefs = recordingReferences(moduleFile ? { patch: model } : model);
   if (audioRefs.size && (!audioAssets || typeof audioAssets.file !== 'function')) throw new Error('Audio storage is unavailable');
   const assets = Object.create(null), audioFiles = Object.create(null), media = [];
   let mediaBytes = 0;
@@ -69,10 +69,10 @@ export function prepareStreamedProjectArchive(project, audioAssets, lookupSample
   }
   let audioIndex = 0;
   for (const [id] of audioRefs) audioFiles[id] = { path: `media/audioFiles/${++audioIndex}.wav` };
-  const manifest = encoder.encode(jsonFileText({ ...model, format: PROJECT_FORMAT, version: 3, assets, audioFiles }));
+  const manifest = encoder.encode(jsonFileText({ ...model, format: moduleFile ? MODULE_FORMAT : PROJECT_FORMAT, version: 3, assets, audioFiles }));
   if (manifest.length > MAX_MANIFEST_BYTES) throw new Error('Project manifest is too large');
   return async (write, options) => {
-    const entries = [{ path: 'project.json', blob: new Blob([manifest]) }];
+    const entries = [{ path: moduleFile ? 'module.json' : 'project.json', blob: new Blob([manifest]) }];
     for (const { path, sample, image } of media) {
       entries.push({ path, blob: new Blob([image ? await encodeProjectImage(sample) : encodeProjectAudio(sample)]) });
     }
@@ -85,22 +85,34 @@ export function prepareStreamedProjectArchive(project, audioAssets, lookupSample
   };
 }
 
-// Audio-free projects can still be downloaded by browsers without a streaming file picker.
-export function prepareCurrentProjectArchive(project, audioAssets = null, lookupSample = getSample) {
-  const hasRecordings = recordingReferences(project).size > 0;
-  const writeTo = prepareStreamedProjectArchive(project, audioAssets, lookupSample);
+export function prepareStreamedProjectArchive(project, audioAssets, lookupSample = getSample) {
+  return prepareStreamedArchive(project, audioAssets, lookupSample);
+}
+
+function bufferedArchive(writeTo, hasRecordings, kind) {
   const encode = async () => {
     if (hasRecordings) throw new Error('Saving audio clips requires a browser with file system access or the desktop app');
     const chunks = [];
     let size = 0;
     await writeTo((bytes) => {
       size += bytes.length;
-      if (size > MAX_PROJECT_BYTES) throw new Error('Project file is too large for a browser download');
+      if (size > MAX_PROJECT_BYTES) throw new Error(`${kind} file is too large for a browser download`);
       chunks.push(bytes.slice());
     });
     return new Blob(chunks, { type: 'application/octet-stream' });
   };
-  return Object.assign(encode, { writeTo, diskVersion: 3, downloadable: !hasRecordings });
+  return Object.assign(encode, { writeTo, downloadable: !hasRecordings });
+}
+
+export function prepareModuleArchive(module, audioAssets = null, lookupSample = getSample) {
+  const hasRecordings = recordingReferences({ patch: module }).size > 0;
+  return bufferedArchive(prepareStreamedArchive(module, audioAssets, lookupSample, true), hasRecordings, 'Module');
+}
+
+// Audio-free projects can still be downloaded by browsers without a streaming file picker.
+export function prepareCurrentProjectArchive(project, audioAssets = null, lookupSample = getSample) {
+  const hasRecordings = recordingReferences(project).size > 0;
+  return Object.assign(bufferedArchive(prepareStreamedProjectArchive(project, audioAssets, lookupSample), hasRecordings, 'Project'), { diskVersion: 3 });
 }
 
 async function entryBytes(entry, limit) {
@@ -112,17 +124,20 @@ async function entryBytes(entry, limit) {
 }
 
 // Imported IDs belong to the caller on success; failed imports are removed here.
-export async function readStreamedProjectArchive(file, audioAssets) {
+async function readStreamedArchive(file, audioAssets, moduleFile = false) {
   const entries = await readZipStream(file);
-  const manifest = await entryBytes(entries.get('project.json'), MAX_MANIFEST_BYTES);
-  entries.delete('project.json');
+  const manifestName = moduleFile ? 'module.json' : 'project.json';
+  const manifest = await entryBytes(entries.get(manifestName), MAX_MANIFEST_BYTES);
+  entries.delete(manifestName);
   const { assets, audioFiles, ...data } = JSON.parse(decoder.decode(manifest)) ?? {};
-  checkProject(data, 3);
-  if (data.format !== PROJECT_FORMAT || Object.hasOwn(data, 'samples') ||
+  if (moduleFile) {
+    if (data.format !== MODULE_FORMAT || data.version !== 3 || !Array.isArray(data.modules)) throw new Error('Invalid PHILSYNTH module manifest');
+  } else checkProject(data, 3);
+  if ((!moduleFile && data.format !== PROJECT_FORMAT) || Object.hasOwn(data, 'samples') ||
       !assets || typeof assets !== 'object' || Array.isArray(assets) ||
       Object.hasOwn(data, 'recordings') ||
       !audioFiles || typeof audioFiles !== 'object' || Array.isArray(audioFiles)) throw new Error('Invalid PHILSYNTH ZIP manifest');
-  const ids = sampleIds(data), refs = recordingReferences(data);
+  const ids = sampleIds(data), refs = recordingReferences(moduleFile ? { patch: data } : data);
   if (refs.size && typeof audioAssets === 'function') audioAssets = audioAssets();
   if (refs.size && (!audioAssets || typeof audioAssets.importEntry !== 'function' || typeof audioAssets.discard !== 'function')) {
     throw new Error('Audio storage is unavailable');
@@ -178,6 +193,10 @@ export async function readStreamedProjectArchive(file, audioAssets) {
     throw error;
   }
 }
+
+export const readStreamedProjectArchive = (file, audioAssets) => readStreamedArchive(file, audioAssets);
+export const readModuleArchive = (file, audioAssets) => readStreamedArchive(file, audioAssets, true);
+
 export async function readProjectArchive(bytes) {
   if (bytes.length > MAX_PROJECT_BYTES) throw new Error('Project file is too large');
   if (!isProjectZip(bytes)) {

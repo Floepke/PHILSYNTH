@@ -10,7 +10,7 @@ import { Engine } from '../src/engine.js';
 import { PatchRuntime } from '../src/patch.js';
 import { addAudioClip, addAutoClip, addClip, cloneClip, emptySong, setSig } from '../src/song.js';
 import { addImage, addSample, getSample, importSamples, withSamples } from '../src/samples.js';
-import { prepareCurrentProjectArchive, prepareProjectArchive, readProjectArchive, readStreamedProjectArchive } from '../src/projectarchive.js';
+import { prepareCurrentProjectArchive, prepareModuleArchive, prepareProjectArchive, readModuleArchive, readProjectArchive, readStreamedProjectArchive } from '../src/projectarchive.js';
 import { crc32, readZip, writeZip, zipTimestamp } from '../src/projectzip.js';
 import { copyZipEntry, readZipStream, writeZipStream } from '../src/projectzipstream.js';
 import { createHistory } from '../src/history.js';
@@ -21,6 +21,36 @@ import { createProjectStreamWriter, openProjectStreamReader } from '../electron/
 // a fake project and storage backend
 const encode = (text) => new TextEncoder().encode(text);
 const makeProject = (marker) => ({ format: 'philsynth', version: 1, patch: { modules: [], marker } });
+
+{
+  const imageId = addImage({ width: 1, height: 1, rgb: Uint8Array.of(10, 20, 30) });
+  const sampleId = addSample({ rate: 48000, channels: [Float32Array.of(.25, -.25)] });
+  const module = { modules: [{ id: 1, type: 'PATCH', patch: { modules: [
+    { id: 1, type: 'IMAGE SAMPLER', state: { imageId } },
+    { id: 2, type: 'SAMPLER', state: { sampleId } },
+    { id: 3, type: 'SAMPLER', state: { sampleId } },
+  ] } }], cables: [] };
+  const saved = await prepareModuleArchive(module)();
+  const entries = await readZipStream(saved);
+  assert.equal(entries.size, 3);
+  assert.ok(entries.has('module.json'));
+  assert.equal([...entries.keys()].filter(path => /^media\/audio\/\d+\.wav$/.test(path)).length, 1);
+  assert.equal([...entries.keys()].filter(path => /^media\/images\/\d+\.png$/.test(path)).length, 1);
+  const manifestParts = [];
+  await copyZipEntry(entries.get('module.json'), part => manifestParts.push(part));
+  const manifest = JSON.parse(await new Blob(manifestParts).text());
+  assert.equal(manifest.format, 'philsynth-module');
+  assert.equal(manifest.version, 3);
+  assert.equal(Object.keys(manifest.assets).length, 2);
+  assert.ok(!('samples' in manifest));
+  const opened = await readModuleArchive(saved);
+  assert.deepEqual(opened.data.modules, module.modules);
+  assert.deepEqual([...opened.data.samples.get(imageId).rgb], [10, 20, 30]);
+  assert.deepEqual([...opened.data.samples.get(sampleId).pcm], [...getSample(sampleId).pcm]);
+  await assert.rejects(readStreamedProjectArchive(saved), /entry is missing/);
+  await assert.rejects(readModuleArchive(await prepareCurrentProjectArchive(makeProject(1))()), /entry is missing/);
+  assert.throws(() => prepareModuleArchive({ modules: [{ state: { imageId: 'missing' } }] }), /media is missing/);
+}
 
 // ZIP headers use local save time, rounded down to the format's two-second precision.
 const timestampMillis = (date, time) => new Date(

@@ -9,7 +9,7 @@ import http from 'node:http';
 import { registerProjectFiles } from '../electron/projectfiles.mjs';
 import { exportMidi } from '../src/midiexport.js';
 import { emptySong } from '../src/song.js';
-import { readProjectArchive } from '../src/projectarchive.js';
+import { prepareModuleArchive, readProjectArchive } from '../src/projectarchive.js';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 app.on('window-all-closed', () => {});
@@ -31,7 +31,7 @@ const instrument = (wave) => JSON.stringify({
   modules: [{ id: 1, type: 'OSC', x: 0, y: 0, values: { wave } }], cables: [],
 });
 await writeFile(join(files, 'lead.phmod'), instrument(0));
-await writeFile(join(files, 'bass.phmod'), instrument(1));
+await writeFile(join(files, 'bass.phmod'), new Uint8Array(await (await prepareModuleArchive(JSON.parse(instrument(1)))()).arrayBuffer()));
 await writeFile(join(files, 'broken.phmod'), '{');
 app.setPath('userData', data);
 app.setPath('documents', files);
@@ -44,12 +44,12 @@ try {
     .replace('<script type="module" src="src/main.js"></script>', `<script type="module">
       import { pickFile } from '/src/filepicker.js';
       import { openMidiFile } from '/src/filedialog.js';
-      import { openTextFile } from '/src/filedialog.js';
-      import { createModulePreview } from '/src/modulepreview.js';
+      import { openModuleFile, readDesktopModule, saveModuleFile } from '/src/filedialog.js';
+      import { createModulePreview, loadSynthFile } from '/src/modulepreview.js';
       import { dspTestHost } from '/test/dsphost.mjs';
       import { initMidi } from '/src/midi.js';
       import { AUDIO_FORMATS, encodeAudio } from '/src/audioformat.js';
-      import { prepareProjectArchive, readProjectArchive } from '/src/projectarchive.js';
+      import { prepareModuleArchive, prepareProjectArchive, readProjectArchive } from '/src/projectarchive.js';
       window.projectBytes = (marker) => prepareProjectArchive({ patch: { modules: [], marker } })();
       window.openTestProject = async (path) => (await readProjectArchive((await window.modsynthFiles.open(path)).bytes)).data.patch.marker;
       window.encodeAudio = encodeAudio;
@@ -70,7 +70,7 @@ try {
         { mode: 'save', dialog: 'midi', exts: ['.mid'], saveExt: '.mid', suggestedName: 'export.mid' }); };
       const audio = dspTestHost();
       const preview = createModulePreview({ ctx: { currentTime: 0 }, dsp: audio.dsp, resume() {} },
-        path => window.modsynthFiles.openFile('module', path));
+        path => readDesktopModule(window.modsynthFiles, path));
       const input = Object.assign(new EventTarget(), { id: 'preview-keys', name: 'Preview keys', state: 'connected' });
       Object.defineProperty(navigator, 'requestMIDIAccess', { value: async () => Object.assign(new EventTarget(), { inputs: new Map([[input.id, input]]) }) });
       const midi = initMidi({ getTarget: () => preview.target, onStatus() {} });
@@ -81,8 +81,14 @@ try {
         event.data = [on ? 0x90 : 0x80, 60, on ? 100 : 0];
         input.dispatchEvent(event);
       };
-      window.openModulePicker = () => { window.moduleResult = openTextFile('module', window,
+      window.openModulePicker = () => { window.moduleResult = openModuleFile(window,
         (files, opts) => pickFile(files, { ...opts, preview: preview.select })); };
+      window.saveModuleTest = path => saveModuleFile('saved.phmod',
+        prepareModuleArchive({ modules: [{ id: 1, type: 'OSC', x: 0, y: 0 }], cables: [] }), window, async () => ({ path }));
+      window.readModuleTest = async path => {
+        const file = await readDesktopModule(window.modsynthFiles, path);
+        return (await loadSynthFile(file)).data.modules[0].type;
+      };
     </script>`);
   server = http.createServer(async (req, res) => {
     try {
@@ -150,6 +156,9 @@ try {
     new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 200 }))`);
 
   await wait(() => run("typeof window.openPicker === 'function' && typeof window.openModulePicker === 'function'"));
+  const moduleSavePath = join(files, 'saved.phmod');
+  await run(`window.saveModuleTest(${JSON.stringify(moduleSavePath)})`);
+  assert.equal(await run(`window.readModuleTest(${JSON.stringify(moduleSavePath)})`), 'OSC');
   await run('window.openLegacyPicker(); true');
   await wait(async () => await run("document.querySelector('#file-dialog').open") && await visible('one.phproject'));
   assert.match(await run("document.querySelector('.fd-bookmark-hint').textContent"), /Restart PHILSYNTH/);

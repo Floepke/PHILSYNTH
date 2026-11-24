@@ -46,8 +46,8 @@ Open detects the container by its bytes, not its extension. Version 2 stored ZIP
 archives remain readable. Standalone JSON
 is v1 (including older files with no version and the `modsynth` format name).
 Its first save uses **Save As** to preserve the original. Older app versions
-cannot open v2. Undo keeps model snapshots in memory; autosave and `.phmod`
-remain JSON with inline Base64 media when needed (`samples`). Autosave also
+cannot open v2. Undo keeps model snapshots in memory; autosave remains JSON
+with inline Base64 media when needed (`samples`). Autosave also
 stores document metadata (`doc`), which is not part of a manual save.
 Preferences are stored separately.
 
@@ -63,6 +63,18 @@ and `pCloud Drive/PHILSYNTH2` inside your home directory; you can also pass a
 source and destination folder as two arguments. Both must exist. It preserves
 subfolders and filenames, skips v2/v3 files and existing output files, writes v3, and
 reports failed conversions without stopping the rest of the batch.
+
+## Module files
+
+New `.phmod` saves use the same stored-entry ZIP64 profile as v3 projects,
+with `module.json` containing `format: "philsynth-module"`, `version: 3`,
+`modules`, `cables`, `assets`, and `audioFiles`. Referenced sampler audio and
+images use the same WAV and PNG entries as projects; nested PATCH timelines'
+audio uses `media/audioFiles/` and is stored once per referenced ID. Desktop
+and File System Access saves stream, while browsers without File System Access
+can download audio-free archives only. Module previews and insertion support
+the new archives and older JSON `.phmod` / `.synth` files. Older app versions
+cannot open the new archives.
 
 ## Patch and modules
 

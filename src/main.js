@@ -44,13 +44,13 @@ import { AUDIO_FORMATS, audioFormat } from './audioformat.js';
 import { exportMidi } from './midiexport.js';
 import { withSamples, importSamples } from './samples.js';
 import { createProjectFile, pickBackend } from './projectfile.js';
-import { prepareCurrentProjectArchive } from './projectarchive.js';
+import { prepareCurrentProjectArchive, prepareModuleArchive } from './projectarchive.js';
 import { initStatusTips } from './statustips.js';
 import { registerShortcutPreferences, initShortcuts, registerShortcutMenu, registerShortcutAction, parseShortcut } from './shortcuts.js';
-import { saveTextFile, openTextFile } from './filedialog.js';
+import { saveModuleFile, openModuleFile, readDesktopModule } from './filedialog.js';
 import { pickFile } from './filepicker.js';
-import { createModulePreview, parseSynthFile } from './modulepreview.js';
-import { PROJECT_FORMAT, MODULE_FORMAT, MODULE_EXT, jsonFileText } from './fileformat.js';
+import { createModulePreview, loadSynthFile } from './modulepreview.js';
+import { PROJECT_FORMAT, MODULE_EXT } from './fileformat.js';
 import { moduleDocs } from './moduledocs.js';
 import { createPatchMonitor } from './patchmonitor.js';
 import { songFacts } from './songfacts.js';
@@ -1106,18 +1106,17 @@ async function paste(at) {
 }
 
 // ---- .phmod files: modules saved to disk, inserted again from the insert dialog ----
-// JSON text: { format: 'philsynth-module', version, modules, cables } (PatchRuntime.copyMany data:
-// settings, name, nested patches and the cables between the saved modules).
+// Module archives contain copyMany data, including nested patches and their media.
 const fileSafe = (s) => s.replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'module';
 async function saveModules() {
   const mods = selectedEntries().filter((m) => !m.def.isOutput);
   const data = current().copyMany(mods.map((m) => m.id));
   if (!data) { $('status').textContent = 'Select a module to save (the Output module cannot be saved).'; return; }
   const suggestedName = `${fileSafe(mods.length === 1 ? mods[0].name || mods[0].def.type : 'modules')}${MODULE_EXT}`;
-  const text = jsonFileText(withSamples({ format: MODULE_FORMAT, version: 1, ...data }));
   let saved;
   try {
-    saved = await saveTextFile('module', suggestedName, text); // starts in the last module folder
+    const encode = prepareModuleArchive(data, recordingReferences({ patch: data }).size ? getAudioAssets() : null);
+    saved = await saveModuleFile(suggestedName, encode);
   } catch (err) {
     $('status').textContent = `Save failed: ${err.message}`;
     return;
@@ -1131,8 +1130,8 @@ async function loadModuleFile(pos) {
   let file;
   let preview = null;
   try {
-    file = await openTextFile('module', window, (files, opts) => {
-      preview = createModulePreview(engine, (path) => files.openFile('module', path));
+    file = await openModuleFile(window, (files, opts) => {
+      preview = createModulePreview(engine, (path) => readDesktopModule(files, path), getAudioAssets);
       modulePreview = preview;
       return pickFile(files, { ...opts, preview: preview.select });
     });
@@ -1144,12 +1143,12 @@ async function loadModuleFile(pos) {
     await preview?.stop();
     if (modulePreview === preview) modulePreview = null;
   }
-  if (file) insertSynthFile(file, pos);
+  if (file) await insertSynthFile(file, pos);
 }
 async function insertSynthFile(file, pos) {
   const patch = current();
   try {
-    const data = parseSynthFile(file.text);
+    const { data } = await loadSynthFile(file, getAudioAssets);
     importSamples(data.samples);
     const options = { x: pos.x, y: pos.y };
     const added = undoHistory

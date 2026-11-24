@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { dspTestHost } from './dsphost.mjs';
 import { PatchRuntime } from '../src/patch.js';
 import { createModulePreview, parseSynthFile } from '../src/modulepreview.js';
+import { prepareModuleArchive } from '../src/projectarchive.js';
 
 const mod = (id, type, extra = {}) => ({ id, type, x: id * 100, y: 0, ...extra });
 const file = (modules, cables = [], extra = {}) => ({
@@ -33,6 +34,18 @@ async function setup(readFile = async () => oscFile()) {
   return { ...host, engine, preview, unchanged, cleaned, resumes: () => resumes };
 }
 const audible = ({ L }) => L.some((v) => Math.abs(v) > 0.00001);
+
+{
+  const blob = await prepareModuleArchive({ modules: [mod(1, 'OSC')], cables: [] })();
+  let cleaned = 0;
+  const h = await setup(async () => ({ blob, cleanup: async () => { cleaned++; } }));
+  await h.preview.select({ path: '/archive.phmod' });
+  h.preview.target.inst.noteOn(1, 60, .8, 0);
+  assert.ok(audible(h.render(10)), 'ZIP module previews remain playable');
+  await h.preview.stop();
+  assert.equal(cleaned, 1);
+  h.cleaned();
+}
 
 {
   assert.throws(() => parseSynthFile('{}'), /not a PHILSYNTH module/);
@@ -110,6 +123,13 @@ const audible = ({ L }) => L.some((v) => Math.abs(v) > 0.00001);
   await h.preview.stop();
   h.cleaned();
   h.unchanged();
+  const blob = await prepareModuleArchive(parseSynthFile(data.text))();
+  const zipped = await setup(async () => ({ blob }));
+  await zipped.preview.select({ path: '/sampled-v3.phmod' });
+  zipped.preview.target.inst.noteOn(1, 60, 1, 0);
+  assert.ok(audible(zipped.render(10)), 'ZIP sample media is restored before preview creation');
+  await zipped.preview.stop();
+  zipped.cleaned();
 }
 
 {

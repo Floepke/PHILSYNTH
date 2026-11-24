@@ -1,4 +1,4 @@
-// Save / open dialogs for small text files (.clip, .phmod, .scl) that start in the folder last used
+// Save / open dialogs for clips, modules and tunings that start in the folder last used
 // for that kind of file, and (desktop app only) the open dialog for the audio / pictures modules load. `kind` names the remembered location:
 //   Electron              the app's own file dialog (src/filepicker.js); the main process
 //                         (electron/projectfiles.mjs) stores the folders per kind in the app's user data
@@ -20,6 +20,7 @@ const cancelled = (err) => err?.name === 'AbortError';
 
 // -> { name } when saved, null when cancelled. pick: the desktop app's dialog (replaceable for tests)
 export async function saveTextFile(kind, suggestedName, text, win = window, pick = pickFile) {
+  if (kind === 'module') throw new Error('Module files must be saved as archives');
   const { description, ext } = KINDS[kind];
   const files = win.modsynthFiles;
   if (files?.saveFile) {
@@ -47,6 +48,7 @@ export async function saveTextFile(kind, suggestedName, text, win = window, pick
 
 // -> { name, text } when a file was picked, null when cancelled
 export async function openTextFile(kind, win = window, pick = pickFile) {
+  if (kind === 'module') throw new Error('Module files must be opened through the module picker');
   const { description, open } = KINDS[kind];
   const files = win.modsynthFiles;
   if (files?.openFile) {
@@ -74,6 +76,85 @@ export async function openTextFile(kind, win = window, pick = pickFile) {
     input.addEventListener('cancel', () => resolve(null));
     input.click();
   });
+}
+
+export async function readDesktopModule(files, path, win = window) {
+  if (!files.openModuleStream) throw new Error('Module archive loading requires restarting the desktop app');
+  const { isProjectZip } = await import('./projectzip.js');
+  const info = await files.openModuleStream(path);
+  if (isProjectZip(info.header)) {
+    return { name: info.name, ...await stageProjectStream(files, info, win.navigator?.storage, 'module') };
+  }
+  await files.closeProjectStream(info.id);
+  return files.openFile('module', path);
+}
+
+export async function openModuleFile(win = window, pick = pickFile) {
+  const { description, open } = KINDS.module;
+  const files = win.modsynthFiles;
+  if (files) {
+    const f = await pick(files, { mode: 'open', dialog: 'module', title: `Open ${description}`, types: `${description}s (${open.join(', ')})`, exts: open });
+    return f ? readDesktopModule(files, f.path, win) : null;
+  }
+  if (typeof win.showOpenFilePicker === 'function') {
+    try {
+      const [handle] = await win.showOpenFilePicker({ id: 'module', multiple: false, types: [{ description, accept: { 'application/octet-stream': open } }] });
+      const file = await handle.getFile();
+      return { name: file.name, blob: file };
+    } catch (error) {
+      if (cancelled(error)) return null;
+      throw error;
+    }
+  }
+  return new Promise((resolve) => {
+    const input = Object.assign(win.document.createElement('input'), { type: 'file', accept: fileAccept(open, win.navigator) });
+    input.addEventListener('change', () => resolve(input.files[0] ? { name: input.files[0].name, blob: input.files[0] } : null));
+    input.addEventListener('cancel', () => resolve(null));
+    input.click();
+  });
+}
+
+export async function saveModuleFile(suggestedName, encode, win = window, pick = pickFile) {
+  const { description, ext } = KINDS.module;
+  const files = win.modsynthFiles;
+  if (files) {
+    if (!files.startModuleStream) throw new Error('Module archive saving requires restarting the desktop app');
+    const f = await pick(files, { mode: 'save', dialog: 'module', title: `Save ${description}`, types: `${description}s (${ext})`, exts: [ext], saveExt: ext, suggestedName });
+    if (!f) return null;
+    const stream = await files.startModuleStream(f.path);
+    try { await encode.writeTo((bytes) => files.writeProjectStream(stream.id, bytes)); }
+    catch (error) {
+      try { await files.abortProjectStream(stream.id); }
+      catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Module save and cleanup failed'); }
+      throw error;
+    }
+    return files.finishProjectStream(stream.id);
+  }
+  if (typeof win.showSaveFilePicker === 'function') {
+    let handle;
+    try {
+      handle = await win.showSaveFilePicker({ id: 'module', suggestedName, types: [{ description, accept: { 'application/octet-stream': [ext] } }] });
+    } catch (error) {
+      if (cancelled(error)) return null;
+      throw error;
+    }
+    const writable = await handle.createWritable();
+    try {
+      await encode.writeTo((bytes) => writable.write(bytes));
+      await writable.close();
+    } catch (error) {
+      try { await writable.abort(); }
+      catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Module save and cleanup failed'); }
+      throw error;
+    }
+    return { name: handle.name };
+  }
+  if (!encode.downloadable) throw new Error('Saving audio clips requires a browser with file system access or the desktop app');
+  const blob = await encode();
+  const a = Object.assign(win.document.createElement('a'), { href: URL.createObjectURL(blob), download: suggestedName });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  return { name: suggestedName };
 }
 
 // Audio / pictures for SAMPLER, WAVETABLE and IMAGE SAMPLER: in the desktop app through its own
