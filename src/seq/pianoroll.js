@@ -163,8 +163,8 @@ export function createPianoRoll(host, ctx) {
       layers.set(id, layer);
     }
     if (layer.key !== key) {
-      layer.canvas.width = Math.max(1, Math.round(s.w * s.dpr));
-      layer.canvas.height = Math.max(1, Math.round(s.h * s.dpr));
+      layer.canvas.width = cv.width;
+      layer.canvas.height = cv.height;
       layer.g.setTransform(s.dpr, 0, 0, s.dpr, 0, 0);
       layer.g.save();
       layer.g.beginPath(); layer.g.rect(...bounds); layer.g.clip();
@@ -172,7 +172,10 @@ export function createPianoRoll(host, ctx) {
       layer.g.restore();
       layer.key = key;
     }
-    g.drawImage(layer.canvas, 0, 0, s.w, s.h);
+    g.save();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.drawImage(layer.canvas, 0, 0);
+    g.restore();
   }
   const velW = () => clamp(view.velW, VEL_MIN, Math.max(VEL_MIN, s.w * VEL_MAX_SHARE));
   const gridX = () => velW() + GUTTER; // left edge of the note grid

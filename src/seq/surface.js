@@ -19,12 +19,13 @@ export function createSurface(host, paint, { onResize } = {}) {
         s.w = w;
         s.h = h;
         onResize?.(w, h);
-        const width = Math.max(1, Math.round(w * dpr));
-        const height = Math.max(1, Math.round(h * dpr));
+        const width = Math.max(1, Math.ceil(w * dpr));
+        const height = Math.max(1, Math.ceil(h * dpr));
         if (cv.width !== width) cv.width = width;
         if (cv.height !== height) cv.height = height;
-        cv.style.width = `${w}px`;
-        cv.style.height = `${h}px`;
+        // Keep bitmap pixels at the device scale; the host clips any fractional excess.
+        cv.style.width = `${width / dpr}px`;
+        cv.style.height = `${height / dpr}px`;
       }
       if (!w || !h) return;
       g.setTransform(dpr, 0, 0, dpr, 0, 0);

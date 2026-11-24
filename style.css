@@ -51,7 +51,7 @@
   --wood-panel: linear-gradient(to bottom, rgba(224, 224, 224, 0.1), rgba(7, 7, 7, 0.45)), var(--wood-h);
   --wood-shadow: inset 1px 1px 0 rgba(224, 224, 224, 0.3), inset -1px -1px 0 rgba(7, 7, 7, 0.8), 0 24px 64px rgba(0, 0, 0, 0.7);
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.55), 0 1px 0 rgba(255, 255, 255, 0.04) inset;
-  --font-weight: 600; /* one weight for all text, canvas included (WEIGHT in src/font.js) */
+  --font-weight: 900; /* one weight for all text, canvas included (WEIGHT in src/font.js) */
   --font: 'Fira Code', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --mono: var(--font);
   color-scheme: dark;
@@ -212,7 +212,8 @@ kbd {
 #panel.jump-scroll { scrollbar-width: none; }
 #panel.jump-scroll::-webkit-scrollbar { display: none; }
 #panel-scroll { flex: 0 0 32px; position: relative; background: var(--surface-2); touch-action: none; user-select: none; }
-#panel-scroll[hidden] { display: none; }
+/* Keep the gutter stable: width-dependent editors can shrink enough to remove overflow. */
+#panel-scroll[hidden] { display: block; visibility: all; }
 #panel-scroll:focus-visible { outline: 2px solid var(--text-dim); outline-offset: -2px; }
 #panel-scroll-thumb {
   position: absolute;

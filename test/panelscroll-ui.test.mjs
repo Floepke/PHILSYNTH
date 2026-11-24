@@ -101,6 +101,28 @@ app.whenReady().then(async () => {
     await run("document.querySelector('#panel-content > div').style.height = '3000px'");
     await wait();
     assert.equal((await metrics()).hidden, false, 'new module content restores the scrollbar');
+    await run(`(() => {
+      document.getElementById('panel-shell').style.height = '285px';
+      document.getElementById('panel-content').innerHTML = '<div style="width:100%;aspect-ratio:1"></div>';
+      window.visibilityChanges = 0;
+      window.visibilityObserver = new MutationObserver(records => {
+        window.visibilityChanges += records.filter(record => record.attributeName === 'hidden').length;
+      });
+      window.visibilityObserver.observe(document.getElementById('panel-scroll'), { attributes: true });
+    })()`);
+    await wait();
+    const stableWidth = await run("document.getElementById('panel').clientWidth");
+    await run('window.visibilityChanges = 0');
+    await wait();
+    await wait();
+    assert.equal(await run('window.visibilityChanges'), 0, 'width-dependent content must not oscillate scrollbar visibility');
+    assert.equal((await metrics()).hidden, true, 'aspect-ratio content fits with the reserved gutter');
+    await run("document.querySelector('#panel-content > div').style.height = '1000px'");
+    await wait();
+    assert.equal((await metrics()).hidden, false);
+    assert.equal(await run("document.getElementById('panel').clientWidth"), stableWidth,
+      'showing the scrollbar must not change controller or editor widths');
+    await run('window.visibilityObserver.disconnect()');
     assert.deepEqual(errors, []);
     console.log('Controller-panel jump scrollbar UI tests passed');
   } finally {

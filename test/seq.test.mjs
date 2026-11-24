@@ -215,15 +215,38 @@ const ay = (y) => 2 * CLIP_H + y + CLIP_H / 2;
   assert.equal(surface.cv.width, 1200, 'device scale changes still resize the bitmap');
   assert.equal(surface.cv.height, 600);
   assert.deepEqual(paints, [[600, 300]]);
+  window.devicePixelRatio = 1.5;
+  container.clientHeight = 301;
+  container.resize();
+  flush();
+  assert.equal(surface.cv.height, 452, 'fractional device pixels cover the viewport');
+  assert.equal(surface.cv.style.height, `${452 / 1.5}px`, 'bitmap is not stretched to the rounded viewport height');
+  container.clientHeight = 300;
   window.devicePixelRatio = 1;
   container.clientHeight = 0;
   container.resize();
   flush();
-  assert.equal(paints.length, 1, 'collapsed views do not paint');
+  assert.equal(paints.length, 2, 'collapsed views do not paint');
   container.clientHeight = 300;
   container.resize();
   flush();
-  assert.equal(paints.length, 2, 'restoring the view paints it again');
+  assert.equal(paints.length, 3, 'restoring the view paints it again');
+}
+
+// Cached piano-roll layers must be copied at bitmap resolution, not rescaled on each resize.
+{
+  const { roll } = setup();
+  const cv = roll.surface.cv;
+  cv.context.drawImage = (...args) => cv.drawing.push(['drawImage', ...args]);
+  cv.drawing.length = 0;
+  roll.redraw();
+  flush();
+  const copies = cv.drawing.flatMap((entry, i) => entry[0] === 'drawImage' ? [i] : []);
+  assert.ok(copies.length >= 2, 'piano roll copies its cached layers');
+  for (const i of copies) {
+    assert.equal(cv.drawing[i].length, 4, 'layer is copied without scaling');
+    assert.deepEqual(cv.drawing[i - 1], ['setTransform', 1, 0, 0, 1, 0, 0]);
+  }
 }
 
 {
