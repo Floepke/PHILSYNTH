@@ -103,6 +103,7 @@ export function initWidgets(root, { numberStep = () => 1 } = {}) {
       queueFit(select);
     }
     let mouse = false;
+    const releaseSelectFocus = () => { if (mouse) select.blur(); };
     // A click on the select while its list is open closes it. Chromium keeps the list open until
     // the click arrives (then it is closed here); a browser that closes it first is covered by
     // `shown`, which remembers it was open (checked every frame; Escape, a pick or a click
@@ -110,12 +111,15 @@ export function initWidgets(root, { numberStep = () => 1 } = {}) {
     let shown = false;
     const watch = () => {
       if (!shown) return;
-      if (isOpen(select) === false) shown = false;
+      if (isOpen(select) === false) {
+        shown = false;
+        releaseSelectFocus();
+      }
       else requestAnimationFrame(watch);
     };
     select.addEventListener('mousedown', (e) => {
       if (e.button !== 0 || select.disabled) return;
-      if (e.target.closest?.('option, optgroup')) return;
+      if (e.target.closest?.('option, optgroup')) { mouse = true; return; }
       releaseWidgetFocus();
       mouse = true;
       const open = isOpen(select);
@@ -136,8 +140,15 @@ export function initWidgets(root, { numberStep = () => 1 } = {}) {
         }
       }
     });
-    select.addEventListener('keydown', () => { mouse = false; setPickerRoom(select); });
-    select.addEventListener('change', () => { if (mouse) select.blur(); });
+    select.addEventListener('keydown', () => {
+      if (!shown && !isOpen(select)) mouse = false;
+      setPickerRoom(select);
+    });
+    select.addEventListener('change', () => {
+      releaseSelectFocus();
+      // The customizable picker restores select focus after dispatching change.
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(releaseSelectFocus);
+    });
     if (scroll) wheel(select, (steps) => {
       const options = [...select.options].filter((o) => !o.disabled && !o.hidden && !o.parentElement?.disabled);
       if (!options.length) return;
@@ -150,6 +161,15 @@ export function initWidgets(root, { numberStep = () => 1 } = {}) {
     });
   };
   for (const select of root.querySelectorAll('select')) enhanceSelect(select);
+  const checkboxes = new WeakSet();
+  const enhanceCheckbox = (input) => {
+    if (checkboxes.has(input)) return;
+    checkboxes.add(input);
+    input.addEventListener('click', (e) => {
+      if (e.detail > 0 && !input.closest('dialog')) queueMicrotask(() => input.blur());
+    });
+  };
+  for (const input of root.querySelectorAll('input[type="checkbox"]')) enhanceCheckbox(input);
   // dropdowns built later (module panels, Preferences, the file dialog) behave the same
   if (observers && root.nodeType === 9) {
     new MutationObserver((records) => {
@@ -158,6 +178,8 @@ export function initWidgets(root, { numberStep = () => 1 } = {}) {
           if (node.nodeType !== 1) continue;
           if (node.tagName === 'SELECT') enhanceSelect(node, { scroll: false });
           else for (const select of node.querySelectorAll('select')) enhanceSelect(select, { scroll: false });
+          if (node.matches('input[type="checkbox"]')) enhanceCheckbox(node);
+          else for (const input of node.querySelectorAll('input[type="checkbox"]')) enhanceCheckbox(input);
         }
       }
     }).observe(root.documentElement, { childList: true, subtree: true });

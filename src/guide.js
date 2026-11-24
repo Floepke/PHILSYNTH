@@ -149,7 +149,7 @@ export const GUIDE = [
         title: 'Play live',
         items: [
           'Notes from your MIDI controller, the pianoroll keyboard and the computer keyboard play the module with the <b>MIDI</b> badge: the last selected MIDI module. Click the badge to lock MIDI to it (red), again to unlock. Every patch level has its own MIDI module and lock.',
-          `Computer keyboard: ${k('Q')} … ${k('P')} are the white keys C4–E5, the number row above them (${k('2')} ${k('3')} ${k('5')} ${k('6')} ${k('7')} ${k('9')} ${k('0')}) the black keys. In a focused pianoroll ${k('Shift', 'Q')} quantizes; plain ${k('Q')} still plays C4.`,
+          `Computer keyboard: ${k('Q')} … ${k('P')} are the white keys (initially C4–E5), the number row above them (${k('2')} ${k('3')} ${k('5')} ${k('6')} ${k('7')} ${k('9')} ${k('0')}) the black keys. ${k('-')} shifts the computer keyboard down one octave; ${k('=')} shifts it up. The status bar shows the new range. This covers all MIDI pitches (0–127); keys beyond the top pitch are silent. Held notes keep their pitch until released. This does not transpose your MIDI device or clips. In a focused pianoroll ${k('Shift', 'Q')} quantizes; plain ${k('Q')} plays the current computer-keyboard C.`,
           '<b>Preferences… > MIDI > MIDI Input</b> picks the MIDI controller; <i>Auto</i> uses every input except Linux\'s <i>Midi Through</i>. <b>Re-scan MIDI Inputs</b> finds newly plugged-in devices and retries access. Changes preview immediately; OK saves the input on this device, Cancel restores it. Disconnected saved controllers remain listed.',
         ],
       },
@@ -438,6 +438,7 @@ export const GUIDE = [
       [`${k(CMD)} + ${k('X')} / ${k('C')} / ${k('V')}`, 'Pianoroll: cut / copy / paste notes at the pointer'],
       [k(CMD, 'D'), 'Pianoroll: duplicate the selection'],
       [k('Shift', 'Q'), 'Pianoroll: quantize note starts and ends'],
+      [`${k('-')} / ${k('=')}`, 'Computer keyboard: octave down / up'],
       [`${k(CMD, 'A')} / ${k('Esc')}`, 'Pianoroll: select all / clear the selection'],
       [`${k('Backspace')} ${k('Delete')}`, 'Pianoroll: delete the selected notes'],
       [`${k(CMD)} + wheel`, 'Pianoroll: zoom time'],

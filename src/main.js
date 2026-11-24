@@ -28,7 +28,7 @@ import { createSequencer } from './seq/index.js';
 import { defaultCam, validCam, toWorld, toScreen, wheelCam, fitBox, clampCam, resizeCam } from './camera.js';
 import { edgeScroll } from './seq/surface.js';
 import { initWidgets } from './widgets.js';
-import { emptySong, getClip, newSong, snapStep } from './song.js';
+import { emptySong, getClip, newSong, snapStep, noteName } from './song.js';
 import { CableScope } from './cablescope.js';
 import { MidiCableAnimation } from './midicable.js';
 import { openMapDialog, patchControllersView } from './mapdialog.js';
@@ -2107,6 +2107,7 @@ initKeyboard({
   getTarget: liveMidiEntry,
   pitchOffset,
   onActivity: () => engine.resume(),
+  onOctaveChange: (low, high) => { $('status').textContent = `Computer keyboard: ${noteName(low)}–${noteName(high)} (− / =: octave down / up)`; },
   onNoTarget: () => ($('status').textContent = 'No module to play: add a module that takes MIDI (e.g. OSC) to hear the Q..P keys.'),
 });
 

@@ -3,6 +3,7 @@
 // id, sent to the current target. The note-off goes to the module that got the note-on, even
 // when another module was selected in between.
 import { newNoteId } from './modmidi.js';
+import { PITCH_MAX } from './song.js';
 
 let access = null; // keep a strong reference, otherwise the browser may GC it and stop delivering messages
 
@@ -60,6 +61,7 @@ function notePlayer(getTarget, pitchOffset = () => 0) {
 // Q W E R T Y U I O P are the white keys C4..E5, the number row above them the black keys
 // (2 3 . 5 6 7 . 9 0). Ignored while typing in a field, with Ctrl / Cmd / Alt held, or when
 // an earlier handler already used the key (e.g. Shift + Q = quantize in the focused piano roll).
+// Minus / Equal shift subsequent notes down / up an octave; held notes keep their original pitch.
 export const KEYBOARD_BASE = 60;
 export const KEYBOARD_KEYS = {
   KeyQ: 0, Digit2: 1, KeyW: 2, Digit3: 3, KeyE: 4, KeyR: 5, Digit5: 6, KeyT: 7, Digit6: 8, KeyY: 9,
@@ -68,16 +70,24 @@ export const KEYBOARD_KEYS = {
 const KEYBOARD_VEL = 0.8;
 const TYPING = 'input, select, textarea, dialog, [contenteditable]:not([contenteditable="false"])';
 
-export function initKeyboard({ getTarget, onActivity, onNoTarget, pitchOffset }) {
+export function initKeyboard({ getTarget, onActivity, onNoTarget, pitchOffset, onOctaveChange }) {
   const player = notePlayer(getTarget, pitchOffset);
+  let base = KEYBOARD_BASE;
   window.addEventListener('keydown', (e) => {
     const semi = KEYBOARD_KEYS[e.code];
-    if (semi === undefined || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented) return;
+    const octave = e.code === 'Minus' ? -1 : e.code === 'Equal' ? 1 : 0;
+    if ((semi === undefined && !octave) || e.ctrlKey || e.metaKey || e.altKey || e.defaultPrevented || e.isComposing) return;
     if (e.target?.closest?.(TYPING)) return;
     e.preventDefault();
     if (e.repeat) return; // held key: one note, no retrigger
+    if (octave) {
+      base = Math.max(0, Math.min(Math.floor(PITCH_MAX / 12) * 12, base + octave * 12));
+      onOctaveChange?.(base, Math.min(PITCH_MAX, base + KEYBOARD_KEYS.KeyP));
+      return;
+    }
+    if (base + semi > PITCH_MAX) return; // the top octave has fewer playable keys
     onActivity?.();
-    if (!player.noteOn(e.code, KEYBOARD_VEL, KEYBOARD_BASE + semi, e.timeStamp / 1000)) onNoTarget?.();
+    if (!player.noteOn(e.code, KEYBOARD_VEL, base + semi, e.timeStamp / 1000)) onNoTarget?.();
   });
   window.addEventListener('keyup', (e) => player.noteOff(e.code));
   // a key released while the window is not focused never sends keyup

@@ -174,7 +174,9 @@ assert.equal(vel2ctl.liveMidi, false);
   let kbTarget = target;
   let resumed = 0;
   let missing = 0;
-  initKeyboard({ getTarget: () => kbTarget, onActivity: () => resumed++, onNoTarget: () => missing++ });
+  let range;
+  initKeyboard({ getTarget: () => kbTarget, onActivity: () => resumed++, onNoTarget: () => missing++,
+    onOctaveChange: (low, high) => { range = [low, high]; } });
   const fire = (type, code, o = {}) => {
     const e = { type, code, repeat: false, ctrlKey: false, metaKey: false, altKey: false, defaultPrevented: false,
       target: { closest: () => null }, prevented: false, ...o };
@@ -241,6 +243,36 @@ assert.equal(vel2ctl.liveMidi, false);
   shift = 0;
   kbTarget = target;
   calls.splice(0);
+
+  // Octave changes affect new computer-keyboard notes only; held keys still release correctly.
+  fire('keydown', 'KeyQ');
+  fire('keydown', 'Minus');
+  assert.deepEqual(range, [48, 64]);
+  fire('keydown', 'KeyE');
+  fire('keyup', 'KeyQ');
+  fire('keyup', 'KeyE');
+  assert.deepEqual(calls.splice(0), [['on', 60, 0.8], ['on', 52, 0.8], ['off', 60], ['off', 52]]);
+  fire('keydown', 'Equal');
+  fire('keydown', 'Equal', { repeat: true });
+  fire('keydown', 'KeyQ'); fire('keyup', 'KeyQ');
+  assert.deepEqual(range, [60, 76], 'auto-repeat does not scroll through octaves');
+  assert.deepEqual(calls.splice(0), [['on', 60, 0.8], ['off', 60]]);
+  for (const code of ['Minus', 'Equal']) for (const props of [
+    { ctrlKey: true }, { metaKey: true }, { altKey: true }, { defaultPrevented: true }, { isComposing: true },
+    { target: { closest: () => ({}) } },
+  ]) assert.equal(fire('keydown', code, props).prevented, false, 'octave shortcuts respect editing and modifiers');
+  assert.deepEqual(range, [60, 76]);
+  for (let i = 0; i < 15; i++) fire('keydown', 'Minus');
+  assert.deepEqual(range, [0, 16], 'lowest keyboard octave starts at MIDI 0');
+  fire('keydown', 'KeyQ'); fire('keyup', 'KeyQ');
+  assert.deepEqual(calls.splice(0), [['on', 0, 0.8], ['off', 0]]);
+  for (let i = 0; i < 25; i++) fire('keydown', 'Equal');
+  assert.deepEqual(range, [120, 127], 'highest octave reaches MIDI 127');
+  fire('keydown', 'KeyT'); fire('keyup', 'KeyT');
+  fire('keydown', 'KeyP'); fire('keyup', 'KeyP');
+  assert.deepEqual(calls.splice(0), [['on', 127, 0.8], ['off', 127]], 'out-of-range keys do not emit invalid MIDI pitches');
+  for (let i = 0; i < 5; i++) fire('keydown', 'Minus');
+  assert.deepEqual(range, [60, 76], 'can return to the original range');
 }
 // Recording observes raw device pitches, original event times and independent port/channel keys.
 {

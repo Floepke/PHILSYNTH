@@ -1,0 +1,21 @@
+Opening PHILSYNTH on macOS
+=========================
+
+PHILSYNTH is not notarized by Apple, so macOS may block it the first time.
+Only proceed if you trust the source and know the app has not been altered.
+
+1. Double-click PHILSYNTH.app. If macOS blocks it, dismiss the warning.
+2. Open the Apple menu and choose System Settings.
+3. Select Privacy & Security, then scroll down to the Security section.
+4. Next to the message about PHILSYNTH, click Open Anyway.
+5. If asked, authenticate with your Mac administrator password or Touch ID.
+6. When the warning appears again, click Open.
+
+You can normally open PHILSYNTH by double-clicking it after this. If Open
+Anyway is not shown, try opening PHILSYNTH again, then return to Privacy &
+Security. On a managed Mac, your administrator may restrict this option.
+
+If macOS says the app is damaged or contains malware, do not bypass the
+warning. Obtain a fresh copy from a trusted source instead.
+
+Apple's guidance: https://support.apple.com/en-us/102445

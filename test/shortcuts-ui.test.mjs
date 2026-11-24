@@ -94,6 +94,16 @@ app.whenReady().then(async () => {
     assert.equal(await run('window.shortcutTest.seq.recordArmed()'), true, 'N arms MIDI recording');
     await run("window.press('n')");
     assert.equal(await run('window.shortcutTest.seq.recordArmed()'), false, 'N disarms MIDI recording');
+    await run("window.press('-', { code: 'Minus' })");
+    assert.match(await run("document.getElementById('status').textContent"), /Computer keyboard: C3–E4/,
+      'octave down reports the new keyboard range');
+    await run(`document.getElementById('seq-name').focus();
+      window.press('=', { code: 'Equal' });`);
+    assert.match(await run("document.getElementById('status').textContent"), /Computer keyboard: C3–E4/,
+      'typing in a field does not change the keyboard octave');
+    await run("document.activeElement.blur(); window.press('=', { code: 'Equal' })");
+    assert.match(await run("document.getElementById('status').textContent"), /Computer keyboard: C4–E5/,
+      'octave up restores the original range');
     await run(`
       const input = document.getElementById('seq-name');
       input.focus();
@@ -126,6 +136,66 @@ app.whenReady().then(async () => {
       assert.equal(await run('window.shortcutTest.seq.recordArmed()'), true, `N works from ${selector}`);
       await run(`window.press('m'); window.press('n')`);
     }
+    await run(`(async () => {
+      const { engine, seq } = window.shortcutTest;
+      const target = await engine.root.addModule('OSC');
+      window.dropdownTarget = target.id;
+      seq.reload();
+      window.transportCalls.length = 0;
+    })()`);
+    const clickAt = async (point) => {
+      for (const type of ['mouseDown', 'mouseUp']) win.webContents.sendInputEvent({
+        type, x: Math.round(point.x), y: Math.round(point.y), button: 'left', clickCount: 1,
+      });
+      await new Promise(resolve => setTimeout(resolve, 100));
+    };
+    for (const selector of ['#seq-free-time', '#seq-free-time + span']) {
+      const before = await run("document.getElementById('seq-free-time').checked");
+      const point = await run(`(() => {
+        const b = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+        return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+      })()`);
+      await clickAt(point);
+      assert.equal(await run("document.getElementById('seq-free-time').checked"), !before, 'mouse click toggles Free Timing');
+      assert.equal(await run("document.activeElement.id === 'seq-free-time'"), false, 'Free Timing does not retain mouse focus');
+      await run(`window.transportCalls.length = 0;
+        for (const key of [',', '.', '/', "'", ' ']) window.press(key);
+        window.press('f');`);
+      assert.deepEqual(await run('window.transportCalls'), ['restart', 'play', 'loop', 'stop', 'play'],
+        'transport shortcuts work after clicking Free Timing');
+      assert.equal(await run("document.getElementById('seq-free-time').checked"), before,
+        'Free Timing shortcut still works after clicking its checkbox or label');
+    }
+    const dropdownPoint = await run(`(() => {
+      const b = document.getElementById('seq-target').getBoundingClientRect();
+      return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+    })()`);
+    await clickAt(dropdownPoint);
+    await wait("document.getElementById('seq-target').matches(':open')");
+    const optionPoint = await run(`(() => {
+      const b = [...document.getElementById('seq-target').options].find(o => +o.value === window.dropdownTarget).getBoundingClientRect();
+      return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+    })()`);
+    await clickAt(optionPoint);
+    await wait("!document.getElementById('seq-target').matches(':open')");
+    assert.equal(await run("document.getElementById('seq-target').value"), String(await run('window.dropdownTarget')));
+    assert.equal(await run("document.activeElement.id === 'seq-target'"), false, 'picking a destination releases dropdown focus');
+    await run(`window.transportCalls.length = 0;
+      for (const key of [',', '.', '/', "'", ' ']) window.press(key);`);
+    assert.deepEqual(await run('window.transportCalls'), ['restart', 'play', 'loop', 'stop', 'play'],
+      'transport shortcuts work immediately after picking a destination');
+    await clickAt(dropdownPoint);
+    await wait("document.getElementById('seq-target').matches(':open')");
+    await clickAt(optionPoint);
+    assert.equal(await run("document.activeElement.id === 'seq-target'"), false,
+      'choosing the same destination also releases focus without a change event');
+    await clickAt(dropdownPoint);
+    await wait("document.getElementById('seq-target').matches(':open')");
+    for (const type of ['keyDown', 'keyUp']) win.webContents.sendInputEvent({ type, keyCode: 'Escape' });
+    await wait("!document.getElementById('seq-target').matches(':open')");
+    await new Promise(resolve => setTimeout(resolve, 50));
+    assert.equal(await run("document.activeElement.id === 'seq-target'"), false,
+      'cancelling the mouse-opened dropdown releases focus');
     await run(`(() => {
       const dialog = document.getElementById('preferences-dialog');
       dialog.showModal();

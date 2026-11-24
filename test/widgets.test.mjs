@@ -50,9 +50,11 @@ const body = new Element('body');
 const canvas = new Element('canvas');
 globalThis.document = { activeElement: canvas, createElement: (tag) => new Element(tag) };
 const select = new Select();
+const checkbox = new Element('input');
 const integer = new NumberInput();
 const time = new NumberInput({ step: 'any', max: '', value: '1.5' });
-const root = { querySelectorAll: (selector) => selector === 'select' ? [select] : [integer, time] };
+const root = { querySelectorAll: (selector) => selector === 'select' ? [select]
+  : selector === 'input[type="checkbox"]' ? [checkbox] : [integer, time] };
 initWidgets(root, { numberStep: () => 0.25 });
 let clock = 0;
 const fire = (el, type, { gap = 200, ...props } = {}) => { // gap: ms since the previous event (wheel clicks)
@@ -64,6 +66,21 @@ const fire = (el, type, { gap = 200, ...props } = {}) => { // gap: ms since the 
 };
 const up = (input) => input.wrapper.children[1].children[0];
 const down = (input) => input.wrapper.children[1].children[1];
+
+checkbox.focus();
+fire(checkbox, 'click', { detail: 1 });
+await Promise.resolve();
+assert.equal(document.activeElement, body, 'mouse-operated checkboxes release focus');
+checkbox.focus();
+fire(checkbox, 'click', { detail: 0 });
+await Promise.resolve();
+assert.equal(document.activeElement, checkbox, 'keyboard-operated checkboxes retain focus');
+checkbox.dialog = {};
+fire(checkbox, 'click', { detail: 1 });
+await Promise.resolve();
+assert.equal(document.activeElement, checkbox, 'dialog checkboxes retain focus');
+checkbox.dialog = null;
+canvas.focus();
 
 // Native picker opens without the closed select taking focus, even if no value is changed.
 assert.ok(fire(select, 'mousedown').defaultPrevented);
