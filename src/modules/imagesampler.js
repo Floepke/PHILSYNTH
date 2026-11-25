@@ -7,7 +7,7 @@
 // X1 / Y1 … X3 / Y3) follow them and show for that type (fixed numbers, hidden when another type
 // is chosen). Resolution: how many points along the scanner make the waveform (2..1024, the
 // straight lines between them; few = coarse and jumpy). Then the colour amounts per speaker (Left, then Right), the envelope with its curves, and Gain last.
-// Load Image (or drop a picture on the photo): it is scaled to 256 px at most and saved with the
+// Load Image (or drop a picture on the photo): original pixels (up to 8192 px per side) saved with the
 // project (sample pool, src/samples.js). Without a picture of its own (imageId null) the module
 // plays the stock wavetable picture (imagestock.js; built in, not saved). ADSR with stage curves and the ADSR editor as OSC.
 import { pctNum } from '../params.js';

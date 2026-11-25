@@ -229,7 +229,7 @@ export function wasmKernels(x, sr = globalThis.sampleRate) {
     try {
       new Uint8Array(heap.memory.buffer, bytes, rgb.length).set(rgb);
       const ptr = x.ms_image_create(width, height, bytes);
-      if (!ptr) throw new Error('DSP: cannot prepare image (maximum size 256 x 256, or memory exhausted)');
+      if (!ptr) throw new Error('DSP: cannot prepare image (invalid dimensions or memory exhausted)');
       return ptr;
     } finally {
       heap.free(bytes);

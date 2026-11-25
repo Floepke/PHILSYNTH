@@ -32,9 +32,8 @@ const POINT_DOTS = 128;
 
 const HIT = 10; // px
 const KNOB = 18; // px from the Width handle to the oval's rotation knob
-const MAX_H = 260; // px of the photo box
 
-// A picture file -> { width, height, rgb } scaled to MAX_IMAGE px on its longest side
+// A picture file -> { width, height, rgb } at its original dimensions.
 export async function imageFromFile(file) {
   let src;
   try {
@@ -42,25 +41,29 @@ export async function imageFromFile(file) {
   } catch {
     throw new Error('not a picture this browser can read');
   }
-  const s = Math.min(1, MAX_IMAGE / Math.max(src.width, src.height));
-  const width = Math.max(1, Math.round(src.width * s));
-  const height = Math.max(1, Math.round(src.height * s));
-  const cv = document.createElement('canvas');
-  cv.width = width;
-  cv.height = height;
-  const g = cv.getContext('2d', { willReadFrequently: true });
-  g.imageSmoothingQuality = 'high';
-  g.drawImage(src, 0, 0, width, height);
-  src.close?.();
-  const px = g.getImageData(0, 0, width, height).data;
-  const rgb = new Uint8Array(width * height * 3);
-  for (let i = 0, j = 0; i < px.length; i += 4, j += 3) {
-    const a = px[i + 3] / 255; // transparent = black
-    rgb[j] = px[i] * a;
-    rgb[j + 1] = px[i + 1] * a;
-    rgb[j + 2] = px[i + 2] * a;
+  try {
+    const { width, height } = src;
+    if (width > MAX_IMAGE || height > MAX_IMAGE) {
+      throw new Error(`picture is too large (${width} × ${height} px); maximum ${MAX_IMAGE} px per side`);
+    }
+    const cv = document.createElement('canvas');
+    cv.width = width;
+    cv.height = height;
+    const g = cv.getContext('2d', { willReadFrequently: true });
+    if (!g) throw new Error('not enough canvas memory to read this picture');
+    g.drawImage(src, 0, 0);
+    const px = g.getImageData(0, 0, width, height).data;
+    const rgb = new Uint8Array(width * height * 3);
+    for (let i = 0, j = 0; i < px.length; i += 4, j += 3) {
+      const a = px[i + 3] / 255; // transparent = black
+      rgb[j] = px[i] * a;
+      rgb[j + 1] = px[i + 1] * a;
+      rgb[j + 2] = px[i + 2] * a;
+    }
+    return { width, height, rgb };
+  } finally {
+    src.close?.();
   }
-  return { width, height, rgb };
 }
 
 // Canvas of an image from the pool (cached per id)
@@ -192,11 +195,11 @@ export function createImageView(entry, api) {
     else info.textContent = `${entry.state.name}: image data missing, load it again`;
   };
 
-  // the box takes the image's aspect ratio (up to MAX_H px high)
+  // Keep the image's aspect ratio as the panel width changes.
   const size = () => {
     const img = image();
     const w = box.clientWidth || 260;
-    const h = img ? Math.min(MAX_H, Math.max(60, Math.round((w * img.height) / img.width))) : 96;
+    const h = img ? Math.max(60, Math.round((w * img.height) / img.width)) : 96;
     if (box.style.height !== `${h}px`) box.style.height = `${h}px`;
   };
 

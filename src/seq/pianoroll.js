@@ -646,6 +646,7 @@ export function createPianoRoll(host, ctx) {
       };
       const bars = [...barLines(null, off + t0, off + t1, m)].map((b) => b.t - off);
       if (beatsShown(m)) {
+        g.lineCap = 'round';
         g.setLineDash(TIME_GRID.beatDash);
         g.lineDashOffset = 0;
         for (const t of beatLines(null, off + t0, off + t1, m)) {
@@ -657,6 +658,7 @@ export function createPianoRoll(host, ctx) {
         }
         g.setLineDash([]);
         g.lineDashOffset = 0;
+        g.lineCap = 'butt';
       }
       g.font = `${WEIGHT} ${MEASURE_SIZE}px ${FONT}`;
       g.textAlign = 'center';

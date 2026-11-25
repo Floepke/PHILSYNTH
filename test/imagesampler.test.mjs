@@ -4,7 +4,7 @@ import { loadKernel } from './kernelproc.mjs';
 import def from '../src/modules/imagesampler.js';
 import { pyramid, tableLevels } from '../src/modules/imagesampler.dsp.js';
 import { SCAN, SCAN_TYPES, TRI, scanCenter, lineSpan, scanEnds, unit, colorWeights, ovalAxes, ovalPoint, ovalPerimeter, rectCorners, triCorners, polyPath, resPoints } from '../src/modules/imagescan.js';
-import { fitImage, dragEnd, dragCenter, dragOval, dragCorner, moveTriangle } from '../src/modules/imageview.js';
+import { imageFromFile, fitImage, dragEnd, dragCenter, dragOval, dragCorner, moveTriangle } from '../src/modules/imageview.js';
 import { curveEnv, curveStart, curveTick, curveRelease } from '../src/modules/poly.dsp.js';
 import { attackLevel, decayLevel, releaseLevel } from '../src/modules/adsrcurve.js';
 import { addImage, getImage, getSample, exportSamples, importSamples, withSamples, MAX_IMAGE } from '../src/samples.js';
@@ -12,6 +12,7 @@ import { imageCache } from '../src/dsp/imagecache.js';
 import { PatchRuntime } from '../src/patch.js';
 import { dspTestHost } from './dsphost.mjs';
 import { stockImage, stockImageId, stockWave, STOCK_SHAPES, STOCK_SIZE } from '../src/modules/imagestock.js';
+import { encodeProjectImage, decodeProjectImage } from '../src/projectmedia.js';
 
 const SR = 48000;
 const close = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`);
@@ -484,7 +485,51 @@ const pitch = (hz) => 69 + 12 * Math.log2(hz / 440);
   assert.equal(rt.toJSON().modules.find((m) => m.id === 1).values.resolution, 1024);
   rt.setParam(1, 'resolution', 63.8);
   assert.equal(entry.values.resolution, 64, 'model holds integer point count');
+  rt.drive(entry, 'resolution', 294.06677887924104);
+  assert.equal(entry.values.resolution, 294, 'direct modulation uses the same normalization as edits');
+  rt.drive(entry, 'resolution', 63.8, true);
+  assert.equal(entry.values.resolution, 64, 'DSP reports normalize before being stored');
+  rt.automate('resolution', 1, def.params.findIndex((p) => p.id === 'resolution'), 0.8);
+  assert.equal(entry.values.resolution, 294, 'logarithmic automation stores whole points');
   rt.destroy();
+}
+
+// A held note drives fractional Resolution; the next colour edit must settle across PATCH copies.
+{
+  const { dsp, render } = dspTestHost();
+  const engine = { ctx: { currentTime: 0 }, dsp, createPatch(sink) { return PatchRuntime.create(this, sink); } };
+  const root = await PatchRuntime.create(engine, dsp.destination);
+  const folder = await root.addModule('PATCH');
+  const inner = folder.inst.patch;
+  const midi = await inner.addModule('MULTIMIDI');
+  const sampler = await inner.addModule('IMAGESAMPLER', { values: { polyphony: 1, scanType: SCAN.PROPELLOR } });
+  const velocity = await inner.addModule('VELOCITY2CTL', {
+    values: { outController: def.params.findIndex((p) => p.id === 'resolution') },
+  });
+  inner.connect(midi.id, sampler.id);
+  inner.connect(midi.id, velocity.id);
+  inner.connect(velocity.id, sampler.id);
+  inner.connect(sampler.id, 0);
+  root.connect(folder.id, 0);
+  root.setParam(folder.id, 'instances', 16);
+  await folder.inst.sync();
+  folder.inst.noteOn(90001, 60, 0.8, 0.3);
+  render(8);
+  assert.equal(sampler.values.resolution, 294, 'live velocity modulation normalizes the edited instance');
+  let mirroredChanges = 0;
+  for (const clone of folder.inst.clones) clone.watchers.add(() => {
+    assert.ok(++mirroredChanges <= 60, 'instance synchronization must settle');
+  });
+  inner.setParam(sampler.id, 'redLeft', -35);
+  await folder.inst.sync();
+  for (const clone of folder.inst.clones) {
+    assert.equal(clone.modules.get(sampler.id).values.resolution, 294);
+    assert.equal(clone.modules.get(sampler.id).values.redLeft, -35);
+  }
+  const settled = mirroredChanges;
+  await folder.inst.sync();
+  assert.equal(mirroredChanges, settled, 'unchanged normalized values do not schedule more edits');
+  root.destroy();
 }
 
 // ---- stock image: played without a picture of its own, never saved ----
@@ -531,6 +576,56 @@ const pitch = (hz) => 69 + 12 * Math.log2(hz / 440);
   assert.equal(sent.at(-1).width, STOCK_SIZE, 'back to the stock image');
   inst.destroy();
   assert.deepEqual(exportSamples({ modules: [{ type: 'IMAGESAMPLER', state: def.defaultState() }] }), {}, 'the stock image is not saved');
+}
+
+// ---- import: original pixels, no silent resizing ----
+{
+  const originalDocument = globalThis.document;
+  const originalBitmap = globalThis.createImageBitmap;
+  let closed = 0;
+  const bitmap = { width: 513, height: 257, close() { closed++; } };
+  const rgba = Uint8ClampedArray.from({ length: bitmap.width * bitmap.height * 4 }, (_, i) => i % 4 === 3 ? 255 : i % 256);
+  const canvas = {
+    getContext() {
+      return {
+        drawImage(...args) { assert.deepEqual(args, [bitmap, 0, 0], 'draw at original size'); },
+        getImageData(x, y, w, h) {
+          assert.deepEqual([x, y, w, h], [0, 0, bitmap.width, bitmap.height]);
+          return { data: rgba };
+        },
+      };
+    },
+  };
+  globalThis.createImageBitmap = async () => bitmap;
+  globalThis.document = { createElement: () => canvas };
+  try {
+    const img = await imageFromFile({});
+    assert.deepEqual([img.width, img.height, canvas.width, canvas.height], [513, 257, 513, 257]);
+    assert.deepEqual(img.rgb, Uint8Array.from(rgba.filter((_, i) => i % 4 !== 3)), 'all original RGB bytes survive');
+    assert.equal(closed, 1);
+    for (const [width, height] of [[MAX_IMAGE + 1, 1], [1, MAX_IMAGE + 1]]) {
+      Object.assign(bitmap, { width, height });
+      await assert.rejects(imageFromFile({}), /picture is too large.*maximum 8192 px per side/);
+    }
+    assert.equal(closed, 3, 'oversize bitmaps are closed too');
+  } finally {
+    if (originalDocument === undefined) delete globalThis.document;
+    else globalThis.document = originalDocument;
+    if (originalBitmap === undefined) delete globalThis.createImageBitmap;
+    else globalThis.createImageBitmap = originalBitmap;
+  }
+}
+
+// ---- larger images survive the pool, JSON and project PNG round trips ----
+for (const [width, height] of [[513, 257], [MAX_IMAGE, 1], [1, MAX_IMAGE]]) {
+  const rgb = Uint8Array.from({ length: width * height * 3 }, (_, i) => (i * 13 + (i >> 8)) % 256);
+  const id = addImage({ width, height, rgb });
+  assert.deepEqual(getImage(id), { kind: 'image', width, height, rgb });
+  const saved = exportSamples({ imageId: id });
+  const alias = `large-${width}x${height}`;
+  importSamples({ [alias]: saved[id] });
+  assert.deepEqual(getImage(alias).rgb, rgb, 'legacy JSON keeps every pixel');
+  assert.deepEqual(await decodeProjectImage(await encodeProjectImage(getImage(id))), { kind: 'image', width, height, rgb });
 }
 
 // ---- image pool: saved with the project ----

@@ -529,7 +529,10 @@ export class PatchRuntime {
   // A modulation source sets controller `pid` of module `t` to `v` for real (see above).
   // `applied`: the DSP already has the value (reported by the graph).
   drive(t, pid, v, applied = false) {
-    if (t.dead || this.dead || t.values[pid] === v) return;
+    if (t.dead || this.dead) return;
+    const normalize = t.def.params.find((p) => p.id === pid)?.normalize;
+    if (normalize) v = normalize(v);
+    if (t.values[pid] === v) return;
     t.inst.validateParam?.(pid, v);
     t.values[pid] = v;
     if (applied) t.inst.onModulated?.(pid, v);

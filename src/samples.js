@@ -81,7 +81,7 @@ export function addSample({ rate, channels }) {
 }
 
 // Puts an image into the pool; returns its id. rgb: Uint8Array of width * height * 3 bytes.
-export const MAX_IMAGE = 256; // longest side in pixels (keeps project files small)
+export const MAX_IMAGE = 8192; // pixels per side; keep in sync with ms_image_create in cpp/engine.cpp
 export function addImage({ width, height, rgb }) {
   width |= 0;
   height |= 0;

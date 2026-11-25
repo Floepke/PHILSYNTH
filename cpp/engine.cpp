@@ -110,7 +110,8 @@ EXPORT(ms_table_create) SampleTable* ms_table_create(SampleBank* bank, int frame
 EXPORT(ms_table_free) void ms_table_free(SampleTable* table) { delete table; }
 EXPORT(ms_table_set) void ms_table_set(Wavetable* k, SampleTable* table) { k->table = table; }
 EXPORT(ms_image_create) ImagePyramid* ms_image_create(int w, int h, const uint8_t* rgb) {
-  if (w < 1 || h < 1 || w > 256 || h > 256 || !rgb) return nullptr;
+  // Keep the dimension limit in sync with MAX_IMAGE in src/samples.js.
+  if (w < 1 || h < 1 || w > 8192 || h > 8192 || !rgb) return nullptr;
   auto* image = new ImagePyramid(w, h, rgb);
   if (!image->pixels) { delete image; return nullptr; }
   return image;

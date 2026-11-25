@@ -4562,6 +4562,12 @@ for (const free of [false, true]) {
   const cv = roll.surface.cv;
   const render = (v) => { roll.setView({ ...roll.getView(), ...v }); cv.drawing.length = 0; roll.redraw(); flush(); };
   const dashed = () => cv.drawing.some(([op, dash]) => op === 'setLineDash' && JSON.stringify(dash) === '[12,12]');
+  const strokes = [];
+  const stroke = cv.context.stroke;
+  cv.context.stroke = () => {
+    strokes.push({ color: cv.context.strokeStyle, width: cv.context.lineWidth, cap: cv.context.lineCap });
+    stroke();
+  };
   // grid lines: full-width horizontal strokes inside the grid (bar lines are 4 px wide)
   const barYs = () => {
     const ys = [];
@@ -4575,6 +4581,9 @@ for (const free of [false, true]) {
   };
   render({ ppq: 48, sy: 0 });
   assert.ok(dashed(), 'beat lines at 48 px per beat');
+  const beatStrokes = strokes.filter(({ color, width }) => color === '#111216' && width === 4);
+  assert.ok(beatStrokes.some(({ cap }) => cap === 'round'), 'dashed beat lines have round caps');
+  assert.ok(beatStrokes.some(({ cap }) => cap === 'butt'), 'solid barlines keep their existing caps');
   render({ ppq: GRID_MIN_PX - 1 });
   assert.ok(!dashed(), 'beat lines closer than GRID_MIN_PX disappear');
   // 1/8: a bar is half a quarter, 3 px at the widest zoom out

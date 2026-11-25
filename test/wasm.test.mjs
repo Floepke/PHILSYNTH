@@ -738,6 +738,17 @@ for (const [width, height] of [[1, 1], [3, 5], [256, 256]]) {
   }
 }
 
+// Full-size wallpaper and the dimension boundary reach both DSP implementations unchanged.
+for (const [width, height] of [[1920, 1080], [8192, 1], [1, 8192]]) {
+  compare('imagesampler', {
+    blocks: 12, tol: 2e-6, inHeap: true,
+    script: [
+      [0, imageMessage(width, height)], [0, param('resolution', 1024)], [0, noteOn(1, 60)],
+      [3, param('x', 30)], [4, param('rotation', 90)], [6, param('scanType', 2)],
+    ],
+  });
+}
+
 // IMAGESAMPLER Propellor: every voice turned by its note's phase (own tables), voice reuse, phase 0
 // sharing the table, switching scanner types mid-note.
 for (const speed of [0, 2.7]) {
