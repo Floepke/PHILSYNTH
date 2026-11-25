@@ -15,12 +15,39 @@ import { crc32, readZip, writeZip, zipTimestamp } from '../src/projectzip.js';
 import { copyZipEntry, readZipStream, writeZipStream } from '../src/projectzipstream.js';
 import { createHistory } from '../src/history.js';
 import { jsonFileText } from '../src/fileformat.js';
+import { createProjectSnapshot, createProjectManifest, readProjectManifest, createModuleManifest, readModuleManifest } from '../src/projectdata.js';
 import { dspTestHost } from './dsphost.mjs';
 import { createProjectStreamWriter, openProjectStreamReader } from '../electron/projectstream.mjs';
 
 // a fake project and storage backend
 const encode = (text) => new TextEncoder().encode(text);
 const makeProject = (marker) => ({ format: 'philsynth', version: 1, patch: { modules: [], marker } });
+
+// Runtime snapshots and disk manifests have separate envelopes; legacy metadata must not leak
+// into the current asset index, and unknown project fields remain available for round trips.
+{
+  const patch = { modules: [], cables: [] }, song = { clips: [] };
+  const snapshot = createProjectSnapshot(patch, song);
+  assert.deepEqual(snapshot, { format: 'philsynth', version: 1, patch, song });
+  const input = { ...snapshot, view: { path: [2] }, custom: { future: true }, samples: { old: 'inline' } };
+  const assets = { image: { kind: 'image', path: 'media/images/1.png' } };
+  const audioFiles = { audio: { path: 'media/audioFiles/1.wav' } };
+  const manifest = createProjectManifest(input, 3, assets, audioFiles);
+  assert.equal(manifest.version, 3);
+  assert.equal(Object.hasOwn(manifest, 'samples'), false);
+  assert.deepEqual(readProjectManifest(manifest, 3), { data: { ...snapshot, version: 3, view: input.view, custom: input.custom }, assets, audioFiles });
+  assert.deepEqual(input.samples, { old: 'inline' }, 'conversion does not mutate its input');
+  const old = createProjectManifest(input, 2, assets);
+  assert.equal(old.version, 2);
+  assert.equal(Object.hasOwn(old, 'audioFiles'), false);
+  assert.deepEqual(readProjectManifest(old, 2).data, { ...snapshot, version: 2, view: input.view, custom: input.custom });
+  const module = { modules: [{ id: 1, type: 'OSC' }], cables: [] };
+  const moduleManifest = createModuleManifest(module, assets, audioFiles);
+  assert.deepEqual(readModuleManifest(moduleManifest).data, { ...module, format: 'philsynth-module', version: 3 });
+  assert.throws(() => createProjectManifest(input, 4, assets), /Unsupported PHILSYNTH project version/);
+  assert.throws(() => readProjectManifest({ ...manifest, version: 4 }, 3), /Unsupported PHILSYNTH project version/);
+  assert.throws(() => readModuleManifest({ ...moduleManifest, samples: {} }), /Invalid PHILSYNTH ZIP manifest/);
+}
 
 {
   const imageId = addImage({ width: 1, height: 1, rgb: Uint8Array.of(10, 20, 30) });
@@ -416,6 +443,14 @@ async function projectEngine() {
     assert.deepEqual(getSample('archive-test-image').rgb, getSample(imageId).rgb);
     await target.loadProject(reopened);
     assert.deepEqual(withSamples(target.saveProject()), saved);
+    const currentBlob = await prepareCurrentProjectArchive({ ...source.saveProject(), view: { path: [patch.id] } })();
+    const current = await readStreamedProjectArchive(currentBlob);
+    assert.equal(current.version, 3);
+    assert.deepEqual(current.data.view, { path: [patch.id] });
+    assert.deepEqual(current.data.samples.get(sampleId).pcm, getSample(sampleId).pcm);
+    assert.deepEqual(current.data.samples.get(imageId).rgb, getSample(imageId).rgb);
+    await target.loadProject(current.data);
+    assert.deepEqual(withSamples(target.saveProject()), saved, 'v3 restores nested patches, linked clips, automation and media');
     const history = createHistory({ capture: () => target.saveProject(), restore: (state) => target.loadProject(state) });
     history.reset();
     target.root.setState(sampler.id, { sampleId: null, name: '' });

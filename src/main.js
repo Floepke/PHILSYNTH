@@ -45,12 +45,13 @@ import { exportMidi } from './midiexport.js';
 import { withSamples, importSamples } from './samples.js';
 import { createProjectFile, pickBackend } from './projectfile.js';
 import { prepareCurrentProjectArchive, prepareModuleArchive } from './projectarchive.js';
+import { createProjectSnapshot } from './projectdata.js';
 import { initStatusTips } from './statustips.js';
 import { registerShortcutPreferences, initShortcuts, registerShortcutMenu, registerShortcutAction, parseShortcut } from './shortcuts.js';
 import { saveModuleFile, openModuleFile, readDesktopModule } from './filedialog.js';
 import { pickFile } from './filepicker.js';
 import { createModulePreview, loadSynthFile } from './modulepreview.js';
-import { PROJECT_FORMAT, MODULE_EXT } from './fileformat.js';
+import { MODULE_EXT } from './fileformat.js';
 import { moduleDocs } from './moduledocs.js';
 import { createPatchMonitor } from './patchmonitor.js';
 import { songFacts } from './songfacts.js';
@@ -1888,7 +1889,7 @@ async function exportAudio() {
 }
 function emptyProject() {
   const values = Object.fromEntries(getModule('OUT').params.map((p) => [p.id, p.default]));
-  return { format: PROJECT_FORMAT, version: 1, patch: { tempoStep: 0.01, modules: [{ id: 0, type: 'OUT', x: 560, y: 180, values }], cables: [] }, song: newSong() };
+  return createProjectSnapshot({ tempoStep: 0.01, modules: [{ id: 0, type: 'OUT', x: 560, y: 180, values }], cables: [] }, newSong());
 }
 
 // ---- boot ----

@@ -4,6 +4,27 @@ This is a map for developers changing saved project data. The implementation is
 the source of truth; this document is not a separate schema or a validator.
 Keep it and the persistence tests up to date when adding or changing fields.
 
+## Runtime snapshot and disk manifests
+
+[`Engine.saveProject()`](src/engine.js) calls
+[`createProjectSnapshot()`](src/projectdata.js), returning
+`{ format: "philsynth", version: 1, patch, song }`. This is a runtime snapshot,
+not the ZIP manifest. The v1 envelope remains for compatibility with JSON
+autosaves and existing snapshot consumers; it does not describe the version of
+a manual save. `patch` comes from `PatchRuntime.toJSON()`; `song` is the live
+root song, so callers must serialize or copy it when they need a frozen state.
+The UI adds `view` for saves and also `doc` for autosaves.
+
+[`projectdata.js`](src/projectdata.js) owns the envelope conversion and
+validation entry points for project and module manifests. A v3 project
+manifest preserves model fields, replaces inline `samples` with media indexes,
+and sets the disk `format` and `version`. The reader validates the envelope
+and returns the model and indexes separately; archive loading then resolves the
+media before passing the model to the engine. Module-specific state remains
+owned by its module, patch serialization by `PatchRuntime`, and song
+normalization by `normalizeSong()`. ZIP I/O, checksums and streaming remain in
+the archive and media layers.
+
 ## Project envelope
 
 New `.phproject` saves are ZIP archives with a `project.json` manifest:
@@ -20,10 +41,9 @@ New `.phproject` saves are ZIP archives with a `project.json` manifest:
 ```
 
 The diagram omits many fields and uses JavaScript notation, not valid JSON.
-[`Engine.saveProject()`](src/engine.js) constructs `format`, `version`,
-`patch`, and `song` for the runtime model; the manual save path in
-[`projectarchive.js`](src/projectarchive.js) adds the disk version and asset
-index. PNG stores the prepared RGB8 pixels without color conversion; WAV
+The manual save path in [`projectarchive.js`](src/projectarchive.js) collects
+the media, converts the snapshot to a manifest, and writes the archive. PNG
+stores the prepared RGB8 pixels without color conversion; WAV
 stores interleaved little-endian Int16 PCM. Audio index entries also carry
 `rate`, so the pool rate is preserved even if the WAV header rounds it.
 Each referenced ID is written once. All new saves use **version 3**, a

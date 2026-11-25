@@ -1,4 +1,5 @@
-import { PROJECT_FORMAT, MODULE_FORMAT, isProject, jsonFileText } from './fileformat.js';
+import { jsonFileText } from './fileformat.js';
+import { CURRENT_ARCHIVE_VERSION, checkProjectData, createProjectManifest, readProjectManifest, createModuleManifest, readModuleManifest } from './projectdata.js';
 import { getSample, sampleIds } from './samples.js';
 import { encodeProjectAudio, decodeProjectAudio, encodeProjectImage, decodeProjectImage } from './projectmedia.js';
 import { MAX_PROJECT_BYTES, isProjectZip, readZip, writeZip } from './projectzip.js';
@@ -12,13 +13,6 @@ const decoder = new TextDecoder('utf-8', { fatal: true });
 export async function readProjectBytes(file) {
   if (file.size > MAX_PROJECT_BYTES) throw new Error('Project file is too large');
   return new Uint8Array(await file.arrayBuffer());
-}
-
-function checkProject(data, version) {
-  if (!isProject(data) || !Array.isArray(data.patch?.modules)) throw new Error('Not a PHILSYNTH project file');
-  if (version === 1 ? data.version != null && data.version !== 1 : data.version !== version) {
-    throw new Error(`Unsupported PHILSYNTH project version: ${data.version ?? 'missing'}`);
-  }
 }
 
 // Capture the model now; encode only after the save destination is chosen. Pool bytes are immutable.
@@ -37,7 +31,7 @@ export function prepareProjectArchive(project, lookupSample = getSample) {
     mediaBytes += image ? sample.rgb.length : sample.pcm.byteLength;
     if (mediaBytes > MAX_PROJECT_BYTES) throw new Error('Project media is too large');
   }
-  const manifest = jsonFileText({ ...model, format: PROJECT_FORMAT, version: 2, assets });
+  const manifest = jsonFileText(createProjectManifest(model, 2, assets));
   return async () => {
     const entries = new Map([['project.json', encoder.encode(manifest)]]);
     for (const { path, sample, image } of media) {
@@ -69,7 +63,10 @@ function prepareStreamedArchive(project, audioAssets, lookupSample, moduleFile =
   }
   let audioIndex = 0;
   for (const [id] of audioRefs) audioFiles[id] = { path: `media/audioFiles/${++audioIndex}.wav` };
-  const manifest = encoder.encode(jsonFileText({ ...model, format: moduleFile ? MODULE_FORMAT : PROJECT_FORMAT, version: 3, assets, audioFiles }));
+  const manifestData = moduleFile
+    ? createModuleManifest(model, assets, audioFiles)
+    : createProjectManifest(model, CURRENT_ARCHIVE_VERSION, assets, audioFiles);
+  const manifest = encoder.encode(jsonFileText(manifestData));
   if (manifest.length > MAX_MANIFEST_BYTES) throw new Error('Project manifest is too large');
   return async (write, options) => {
     const entries = [{ path: moduleFile ? 'module.json' : 'project.json', blob: new Blob([manifest]) }];
@@ -112,7 +109,7 @@ export function prepareModuleArchive(module, audioAssets = null, lookupSample = 
 // Audio-free projects can still be downloaded by browsers without a streaming file picker.
 export function prepareCurrentProjectArchive(project, audioAssets = null, lookupSample = getSample) {
   const hasRecordings = recordingReferences(project).size > 0;
-  return Object.assign(bufferedArchive(prepareStreamedProjectArchive(project, audioAssets, lookupSample), hasRecordings, 'Project'), { diskVersion: 3 });
+  return Object.assign(bufferedArchive(prepareStreamedProjectArchive(project, audioAssets, lookupSample), hasRecordings, 'Project'), { diskVersion: CURRENT_ARCHIVE_VERSION });
 }
 
 async function entryBytes(entry, limit) {
@@ -129,14 +126,10 @@ async function readStreamedArchive(file, audioAssets, moduleFile = false) {
   const manifestName = moduleFile ? 'module.json' : 'project.json';
   const manifest = await entryBytes(entries.get(manifestName), MAX_MANIFEST_BYTES);
   entries.delete(manifestName);
-  const { assets, audioFiles, ...data } = JSON.parse(decoder.decode(manifest)) ?? {};
-  if (moduleFile) {
-    if (data.format !== MODULE_FORMAT || data.version !== 3 || !Array.isArray(data.modules)) throw new Error('Invalid PHILSYNTH module manifest');
-  } else checkProject(data, 3);
-  if ((!moduleFile && data.format !== PROJECT_FORMAT) || Object.hasOwn(data, 'samples') ||
-      !assets || typeof assets !== 'object' || Array.isArray(assets) ||
-      Object.hasOwn(data, 'recordings') ||
-      !audioFiles || typeof audioFiles !== 'object' || Array.isArray(audioFiles)) throw new Error('Invalid PHILSYNTH ZIP manifest');
+  const manifestData = JSON.parse(decoder.decode(manifest));
+  const { data, assets, audioFiles } = moduleFile
+    ? readModuleManifest(manifestData)
+    : readProjectManifest(manifestData, CURRENT_ARCHIVE_VERSION);
   const ids = sampleIds(data), refs = recordingReferences(moduleFile ? { patch: data } : data);
   if (refs.size && typeof audioAssets === 'function') audioAssets = audioAssets();
   if (refs.size && (!audioAssets || typeof audioAssets.importEntry !== 'function' || typeof audioAssets.discard !== 'function')) {
@@ -183,7 +176,7 @@ async function readStreamedArchive(file, audioAssets, moduleFile = false) {
       entries.delete(path);
     }
     if (entries.size) throw new Error('PHILSYNTH ZIP contains unlisted files');
-    return { data: { ...data, samples }, version: 3, imported };
+    return { data: { ...data, samples }, version: CURRENT_ARCHIVE_VERSION, imported };
   } catch (error) {
     const failures = [error];
     for (const id of imported) {
@@ -201,18 +194,15 @@ export async function readProjectArchive(bytes) {
   if (bytes.length > MAX_PROJECT_BYTES) throw new Error('Project file is too large');
   if (!isProjectZip(bytes)) {
     const data = JSON.parse(decoder.decode(bytes));
-    checkProject(data, 1);
+    checkProjectData(data, 1);
     if (recordingReferences(data).size) throw new Error('Audio clips require a version 3 project');
     return { data, version: 1 };
   }
   const entries = readZip(bytes);
   const manifest = entries.get('project.json');
   if (!manifest) throw new Error('PHILSYNTH ZIP has no project.json');
-  const { assets, ...data } = JSON.parse(decoder.decode(manifest)) ?? {};
-  checkProject(data, 2);
+  const { data, assets } = readProjectManifest(JSON.parse(decoder.decode(manifest)), 2);
   if (recordingReferences(data).size) throw new Error('Audio clips require a version 3 project');
-  if (data.format !== PROJECT_FORMAT || Object.hasOwn(data, 'samples') ||
-      !assets || typeof assets !== 'object' || Array.isArray(assets)) throw new Error('Invalid PHILSYNTH ZIP manifest');
   entries.delete('project.json');
   const ids = sampleIds(data);
   if (ids.size !== Object.keys(assets).length) throw new Error('Project media index does not match the project');

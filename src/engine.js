@@ -3,7 +3,7 @@ import { DspHost } from './dsp/host.js';
 import { emptySong, normalizeSong } from './song.js';
 import { importSamples } from './samples.js';
 import { MicHub, MIC_SLOTS } from './mics.js';
-import { PROJECT_FORMAT, isProject } from './fileformat.js';
+import { checkProjectShape, createProjectSnapshot } from './projectdata.js';
 import { playbackModel, playbackSong, preparePlayback } from './playbackmodel.js';
 import { POOL_BYTES, POOL_MAX, poolSize } from './dsp/instancepool.js';
 import { createRenderQueue } from './dsp/renderqueue.js';
@@ -277,11 +277,11 @@ export class Engine {
   createPatch(sink) { return PatchRuntime.create(this, sink); }
 
   saveProject() {
-    return { format: PROJECT_FORMAT, version: 1, patch: this.root.toJSON(), song: this.song };
+    return createProjectSnapshot(this.root.toJSON(), this.song);
   }
 
   async loadProject(data) {
-    if (!isProject(data) || !Array.isArray(data.patch?.modules)) throw new Error('Not a PHILSYNTH project file');
+    checkProjectShape(data);
     this.root.validateInstanceTree(data.patch);
     this.loadingProject = true;
     try {
