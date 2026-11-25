@@ -17,7 +17,7 @@ app.whenReady().then(async () => {
   try {
     const css = readFileSync(new URL('../style.css', import.meta.url), 'utf8');
     await win.loadURL(`data:text/html,${encodeURIComponent(`<style>${css}</style>
-      <div class="splitter"><span id="clock">12:00</span></div>
+      <div class="splitter"><span id="clock">12:00:00</span></div>
       <div class="splitter horizontal"></div>
       <div id="seq-bar"><select><option>A</option></select><input value="1"></div>
       <div id="seq-transport"><button class="seq-play playing">Play</button></div>
@@ -205,7 +205,7 @@ app.whenReady().then(async () => {
       const positions = await run(`(() => {
         const clock = document.getElementById('clock');
         const time = document.getElementById('seq-time');
-        clock.textContent = '23:59';
+        clock.textContent = '23:59:59';
         time.textContent = '100:00';
         const rect = element => { const r = element.getBoundingClientRect(); return { left: r.left, right: r.right }; };
         return { clockParent: clock.parentElement.id, timeParent: time.parentElement.id,

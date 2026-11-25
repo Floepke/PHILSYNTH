@@ -65,6 +65,20 @@ app.whenReady().then(async () => {
     };
     await win.loadURL(`http://127.0.0.1:${server.address().port}/`);
     await setup();
+    const clock = await run(`(() => {
+      const el = document.getElementById('clock');
+      return { text: el.textContent, dateTime: el.dateTime };
+    })()`);
+    assert.match(clock.text, /^\d{2}:\d{2}:\d{2}$/);
+    assert.equal(clock.dateTime, clock.text);
+    await wait(`document.getElementById('clock').textContent !== ${JSON.stringify(clock.text)}`);
+    const updatedClock = await run(`(() => {
+      const format = date => [date.getHours(), date.getMinutes(), date.getSeconds()].map(n => String(n).padStart(2, '0')).join(':');
+      const now = Date.now();
+      return { actual: document.getElementById('clock').textContent,
+        expected: [format(new Date(now)), format(new Date(now - 1000))] };
+    })()`);
+    assert.ok(updatedClock.expected.includes(updatedClock.actual), 'wall clock updates with the current local time');
     const mac = await run("/Mac|iPhone|iPad/.test(navigator.platform)");
     await run(mac ? "window.press(',', { metaKey: true })" : "window.press('p', { ctrlKey: true })");
     assert.equal(await run("document.getElementById('preferences-dialog').open"), true,

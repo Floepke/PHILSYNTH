@@ -2111,16 +2111,16 @@ initKeyboard({
   onNoTarget: () => ($('status').textContent = 'No module to play: add a module that takes MIDI (e.g. OSC) to hear the Q..P keys.'),
 });
 
-// wall clock (HH:MM, 24 h) on the upper divider; re-aligned to every minute boundary
+// Wall clock on the upper divider, aligned to second boundaries.
 (function startClock() {
   const el = $('clock');
   if (!el) return;
   const tick = () => {
     const now = new Date();
-    const hm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    el.textContent = hm;
-    el.dateTime = hm;
-    setTimeout(tick, 60000 - (now.getSeconds() * 1000 + now.getMilliseconds()) + 50);
+    const time = [now.getHours(), now.getMinutes(), now.getSeconds()].map((n) => String(n).padStart(2, '0')).join(':');
+    el.textContent = time;
+    el.dateTime = time;
+    setTimeout(tick, 1000 - now.getMilliseconds() + 50);
   };
   tick();
 })();
