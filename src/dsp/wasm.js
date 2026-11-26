@@ -253,35 +253,40 @@ export function wasmKernels(x, sr = globalThis.sampleRate) {
   return { heap, kernels };
 }
 
-// Messages clone PCM arrays between Patch instances. Share equal uploads by content, with
-// the native allocation as the comparison source (no additional retained JS copy).
+// Share immutable SPECTRA renders by ID; other cloned PCM uploads use content comparison
+// against the native allocation (no additional retained JS copy).
 function sampleKernels(kernels, x, heap) {
   const banks = new Map();
   const tables = new Map();
-  const acquire = (channels) => {
+  const acquire = (channels, sampleId = null) => {
     const size = channels[0].length;
     if (!channels.every(c => c instanceof Float32Array && c.length === size)) throw new Error('DSP: invalid sample channels');
+    if (sampleId !== null && (!Number.isSafeInteger(sampleId) || sampleId <= 0)) throw new TypeError('SPECTRA received an invalid sample ID');
     let hash = 2166136261;
-    for (const c of channels) {
-      const bits = new Uint32Array(c.buffer, c.byteOffset, c.length);
-      for (let i = 0; i < bits.length; i++) hash = Math.imul(hash ^ bits[i], 16777619);
+    // SPECTRA assigns a unique ID to each immutable render, shared by every PATCH copy.
+    if (sampleId === null) {
+      for (const c of channels) {
+        const bits = new Uint32Array(c.buffer, c.byteOffset, c.length);
+        for (let i = 0; i < bits.length; i++) hash = Math.imul(hash ^ bits[i], 16777619);
+      }
     }
-    const key = `${size}:${channels.length}:${hash}`;
+    const key = sampleId === null ? `${size}:${channels.length}:${hash}` : `spectra:${sampleId}`;
     const bucket = banks.get(key) ?? [];
-    let entry = bucket.find(e => {
+    let entry = sampleId === null ? bucket.find(e => {
       const bits = new Uint32Array(heap.memory.buffer, x.ms_sample_data(e.ptr), size * channels.length);
       return channels.every((c, ch) => {
         const src = new Uint32Array(c.buffer, c.byteOffset, c.length);
         for (let i = 0; i < size; i++) if (src[i] !== bits[ch * size + i]) return false;
         return true;
       });
-    });
+    }) : bucket[0];
+    if (entry && (entry.size !== size || entry.channels !== channels.length)) throw new Error('DSP: sample ID metadata mismatch');
     if (!entry) {
       const ptr = x.ms_sample_create(size, channels.length > 1 ? 1 : 0);
       if (!ptr) throw new Error('DSP: cannot allocate sample');
       const data = x.ms_sample_data(ptr);
       channels.forEach((c, i) => heap.f32(data + i * size * 4, size).set(c));
-      entry = { ptr, size, key, refs: 0 };
+      entry = { ptr, size, channels: channels.length, key, refs: 0 };
       bucket.push(entry);
       banks.set(key, bucket);
     }
@@ -354,7 +359,7 @@ function sampleKernels(kernels, x, heap) {
       if (m.type === 'nextSample' && (!Number.isInteger(frame) || frame <= 0 || frame > 0x7fffffff)) {
         throw new TypeError('SPECTRA received an invalid phase frame');
       }
-      const next = acquire([m.data]);
+      const next = acquire([m.data], m.sampleId ?? null);
       if (m.type === 'nextSample') {
         x.ms_spectra_next(this.ptr, next.ptr, m.rate, frame);
         release(this.nextEntry);

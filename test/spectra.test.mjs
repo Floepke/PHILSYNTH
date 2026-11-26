@@ -343,6 +343,9 @@ try {
   assert.equal(sharedWorker.requests.length, 1, 'copies do not request independent phase frames');
   const currents = copies.map((copy) => copy.messages.filter((m) => m.type === 'sample').at(-1).data);
   assert.equal(new Set(currents).size, 1, 'all copies reuse the exact same current PCM');
+  const currentIds = copies.map((copy) => copy.messages.filter((m) => m.type === 'sample').at(-1).sampleId);
+  assert.ok(Number.isSafeInteger(currentIds[0]) && currentIds[0] > 0);
+  assert.equal(new Set(currentIds).size, 1, 'all copies identify the same immutable PCM');
   const reply = (data) => {
     const request = sharedWorker.requests.at(-1);
     sharedWorker.onmessage({ data: { revision: request.revision, mode: request.mode, sample: data } });
@@ -350,11 +353,16 @@ try {
   const firstFrame = new Float32Array(SPECTRA_RENDER_RATE * 15).fill(0.1);
   reply(firstFrame);
   assert.ok(copies.every((copy) => copy.messages.at(-1).data === firstFrame && copy.messages.at(-1).frame === 1));
+  const firstFrameId = copies[0].messages.at(-1).sampleId;
+  assert.notEqual(firstFrameId, currentIds[0], 'new phases get a new PCM identity');
+  assert.ok(copies.every(copy => copy.messages.at(-1).sampleId === firstFrameId));
   copies[5].node.onMeter(1);
   assert.equal(sharedWorker.requests.length, 2, 'one copy starts one shared phase refresh');
   assert.ok(copies.every((copy, i) => i === 5 || copy.messages.at(-1).type === 'phaseSample' && copy.messages.at(-1).data === firstFrame));
+  assert.ok(copies.every(copy => copy.messages.at(-1).sampleId === firstFrameId), 'phase adoption keeps the staged PCM identity');
   const secondFrame = new Float32Array(SPECTRA_RENDER_RATE * 15).fill(0.2);
   reply(secondFrame);
+  assert.notEqual(copies[0].messages.at(-1).sampleId, firstFrameId);
   copies[7].node.onMeter(1);
   assert.equal(sharedWorker.requests.length, 2, 'late reports cannot consume the newly staged frame');
   copies[11].node.onMeter(2);
@@ -379,6 +387,8 @@ try {
   });
   joining.setState(changed);
   assert.equal(joiningMessages[0].data, latestFrame, 'a newly added copy reuses the latest shared phase');
+  assert.equal(joiningMessages[0].sampleId, copies.at(-1).messages.findLast(m => m.type === 'phaseSample').sampleId,
+    'a newly added copy reuses the latest shared sample identity');
   assert.equal(workers.length, 2);
   copies.at(-1).inst.destroy();
   assert.equal(sharedWorker.terminated, false);

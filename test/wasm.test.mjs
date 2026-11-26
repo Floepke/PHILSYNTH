@@ -469,11 +469,12 @@ for (const type of ['SAMPLER', 'WAVETABLE', 'SPECTRA']) {
     postMessage(message) { this.requests.push(message); }
     terminate() { this.terminated = true; }
   };
-  const counts = { banks: 0, releases: 0 };
+  const counts = { banks: 0, releases: 0, reads: 0 };
   const native = wasmKernels({
     ...x,
     ms_sample_create(...args) { counts.banks++; return x.ms_sample_create(...args); },
     ms_sample_free(ptr) { counts.releases++; x.ms_sample_free(ptr); },
+    ms_sample_data(ptr) { counts.reads++; return x.ms_sample_data(ptr); },
   }, 48000);
   const h = dspTestHost(native);
   let root;
@@ -500,17 +501,30 @@ for (const type of ['SAMPLER', 'WAVETABLE', 'SPECTRA']) {
     assert.equal(new Set(copies().map(e => h.kernel(e.inst.node).sampleEntry)).size, 1);
     const request = workers[0].requests[0];
     const data = new Float32Array(96000 * 15).fill(0.1);
-    workers[0].onmessage({ data: { revision: request.revision, mode: request.mode, sample: data } });
+    const readsBeforeStage = counts.reads;
+    const originalImul = Math.imul;
+    let hashes = 0;
+    Math.imul = (...args) => { hashes++; return originalImul(...args); };
+    try {
+      workers[0].onmessage({ data: { revision: request.revision, mode: request.mode, sample: data } });
+    } finally { Math.imul = originalImul; }
+    assert.equal(hashes, 0, 'immutable frames do not hash 1.44M samples per PATCH copy');
+    assert.equal(counts.reads - readsBeforeStage, 1, 'one PCM upload, no per-copy content comparisons');
     assert.equal(counts.banks, 2, 'all copies share one upcoming PCM bank');
     assert.equal(new Set(copies().map(e => h.kernel(e.inst.node).nextEntry)).size, 1);
     const voices = copies();
     voices[5].inst.node.send(noteOn(1, 60, 1, 0.9999));
     voices[7].inst.node.send(noteOn(2, 72, 0.5, 0.3));
+    voices[0].inst.node.send(noteOn(3, 48, 0.5, 0.2));
+    voices[3].inst.node.send(noteOn(4, 55, 0.5, 0.4));
+    voices[11].inst.node.send(noteOn(5, 64, 0.5, 0.6));
+    const readsBeforeFade = counts.reads;
     h.render(2);
     assert.ok(h.graph.prog, 'shared phase refresh uses the native graph');
     assert.equal(workers[0].requests.length, 2, 'one loop boundary requests one shared successor');
     assert.equal(new Set(copies().map(e => h.kernel(e.inst.node).sampleEntry)).size, 1, 'all copies adopt the same phase frame');
     assert.equal(counts.banks, 2, 'phase refresh does not allocate per-instance PCM');
+    assert.equal(counts.reads, readsBeforeFade, 'five held notes adopt prepared phases without rescanning PCM');
     const separate = await nested.inst.patch.addModule('SPECTRA');
     await folder.inst.sync();
     assert.equal(workers.length, 2, 'different logical SPECTRA modules retain independent generators');

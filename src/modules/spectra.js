@@ -5,6 +5,8 @@ import { linkDecayRelease } from './envlink.js';
 import { createSpectraEditor } from './spectraview.js';
 import { defaultSpectraState, normalizeSpectraState, generateSpectraSample, randomSpectraPhases, validateSpectraLength, SPECTRA_SAMPLE_SECONDS, SPECTRA_RENDER_RATE } from './spectra.sample.js';
 
+let sampleSequence = 0;
+
 function createSamples(ctx, host) {
   const rate = Math.max(SPECTRA_RENDER_RATE, Number.isFinite(ctx?.sampleRate) && ctx.sampleRate > 0 ? ctx.sampleRate : 48000);
   const nodes = new Set();
@@ -12,6 +14,8 @@ function createSamples(ctx, host) {
   let seconds = SPECTRA_SAMPLE_SECONDS;
   let current = null;
   let next = null;
+  let currentId = 0;
+  let nextId = 0;
   let frame = 0;
   let sequence = 0;
   let nextFrame = 0;
@@ -29,10 +33,12 @@ function createSamples(ctx, host) {
       shared.set(data);
       data = shared;
     }
-    if (mode === 'next') { next = data; nextFrame = ++sequence; }
-    else { current = data; next = null; }
+    // Generated PCM is immutable; its ID survives cloning between DSP threads.
+    const sampleId = ++sampleSequence;
+    if (mode === 'next') { next = data; nextId = sampleId; nextFrame = ++sequence; }
+    else { current = data; currentId = sampleId; next = null; }
     for (const node of nodes) {
-      node.send({ type: mode === 'next' ? 'nextSample' : 'sample', rate, data, ...(mode === 'next' ? { frame: nextFrame } : {}) });
+      node.send({ type: mode === 'next' ? 'nextSample' : 'sample', rate, data, sampleId, ...(mode === 'next' ? { frame: nextFrame } : {}) });
     }
   };
   const render = (mode) => {
@@ -86,16 +92,17 @@ function createSamples(ctx, host) {
   return {
     subscribe(node) {
       nodes.add(node);
-      node.send({ type: 'sample', rate, data: current });
-      if (next) node.send({ type: 'nextSample', rate, data: next, frame: nextFrame });
+      node.send({ type: 'sample', rate, data: current, sampleId: currentId });
+      if (next) node.send({ type: 'nextSample', rate, data: next, sampleId: nextId, frame: nextFrame });
       // A frame ID rejects late reports from other copies of the same phase refresh.
       node.onMeter = (value) => {
         if (dead || value <= frame || !next || value !== nextFrame) return;
         frame = value;
         current = next;
+        currentId = nextId;
         next = null;
         for (const other of nodes) {
-          if (other !== node) other.send({ type: 'phaseSample', rate, data: current, frame });
+          if (other !== node) other.send({ type: 'phaseSample', rate, data: current, sampleId: currentId, frame });
         }
         if (timer === null && pending !== 'current') prepareNext();
       };
